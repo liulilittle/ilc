@@ -387,6 +387,10 @@ public static class CodeGenerator
         // nb15 B5 FIX: the List<T> receiver surface (a list object must never
         // be cast to Il2CppArray*).
         generatedHeader.Line("#include \"linq_list.h\"");
+        // D-LINQZ-2: the family-generic LINQ kernels (Union/Concat/Distinct/
+        // Except/Intersect/Take/Skip/Reverse/DefaultIfEmpty/LongCount/
+        // SequenceEqual over the unified cell ABI) live in linq_family.h.
+        generatedHeader.Line("#include \"linq_family.h\"");
         // M6 wiring: the remaining wired-domain runtime headers -- every
         // il2cpp::runtime::* symbol the MethodMap domains can emit must be
         // declared in generated.h or the generated C++ fails to compile
@@ -1172,13 +1176,6 @@ public static class CodeGenerator
             }
             generatedHeader.Line($"struct {fwdSan}; // r78: forward-declared BCL type");
         }
-        // tuple1 (ValueTuple): the C# tuple structs and their member helpers
-        // must be DEFINED before the method declarations below (which pass
-        // them by value). The instantiation set is only known after every body
-        // is emitted, so a sentinel line is written here and replaced with the
-        // final definitions when the header is serialized.
-        generatedHeader.Line(ValueTupleDefsSentinel);
-
         // M2 type emission: struct layout definitions all live in generated.h (cross-type visible);
         // Il2CppClass descriptor definitions go in each type's own .cpp (single definition, ODR safe);
         // generated.h emits extern declarations only, for entry.cpp registration. Interfaces have no
@@ -1226,6 +1223,16 @@ public static class CodeGenerator
             generatedHeader.Line(TypeEmitter.EmitClassStruct(t, types));
             generatedHeader.Line($"extern Il2CppClass {TypeEmitter.TypeCppName(t)}_class;");
         }
+        // tuple1 (ValueTuple): the C# tuple structs and their member helpers
+        // must be DEFINED before the method declarations below (which pass
+        // them by value). The instantiation set is only known after every body
+        // is emitted, so a sentinel line is written here and replaced with the
+        // final definitions when the header is serialized.
+        // vtaudit1: a tuple may hold a translated USER struct BY VALUE, so the
+        // tuple definitions must follow the user-struct definitions (a member
+        // of an incomplete type is ill-formed) -- the sentinel sits AFTER the
+        // M2 type loop, not before it.
+        generatedHeader.Line(ValueTupleDefsSentinel);
 
         // B0 (audit A-2/A-7): one report line per METHOD IDENTITY, deduped by
         // the metadata token (not by "Type::Method" text -- overloads share
@@ -5615,6 +5622,10 @@ public static class CodeGenerator
         // "vt:<closedName>" -- the result temp is the generated struct.
         CallExpr c when c.ResultKind?.StartsWith("vt:", StringComparison.Ordinal) == true
             => ValueTupleSupport.StructName(c.ResultKind["vt:".Length..]),
+        // tuple1 (Tuple): the arity-8 get_Rest callvirt result is a nested tuple
+        // struct -- the result temp declares as that struct.
+        VirtualCallExpr v when v.ResultKind?.StartsWith("vt:", StringComparison.Ordinal) == true
+            => ValueTupleSupport.StructName(v.ResultKind["vt:".Length..]),
         CallExpr c when c.ReturnsRef => "ref",
         VirtualCallExpr v when v.ReturnsRef => "ref",
         // P2-HARDEN #3: a delegate Invoke returning long/double/float carries
@@ -7250,7 +7261,9 @@ default: return false;                           // primitives/VAR(handled by ca
                 case VirtualCallExpr v:
                 {
                     var changed = false;
-                    var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName };
+                    // tuple1 (Tuple/ValueTuple): preserve the ResultKind ("vt:<name>")
+                    // across the arg rewrite.
+                    var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName, ResultKind = v.ResultKind };
                     for (var i = 0; i < v.Args.Count; i++)
                     {
                         var na = Rewrite(v.Args[i]);
@@ -9397,8 +9410,15 @@ default: return false;                           // primitives/VAR(handled by ca
         var code = EmitExpr(recv, md, types);
         // D/E (Nullable element address): an ldelema of a Nullable`1<T> array
         // element is already a typed Il2CppObject** (ResultKind "naddr") --
-        // deref it to the nullable object.
+        // deref it to the nullable object. The ldelema may have been folded
+        // into a temp whose recorded loc-kind is "naddr" (the ExprKind seed),
+        // so the LocExpr arm is required too -- without it the temp's
+        // Il2CppObject** reached the unbox/HasValue checks directly and the
+        // generated C++ was ill-typed ("cannot convert Il2CppObject** to
+        // Il2CppObject*").
         if (recv is CallExpr ce && ce.ResultKind == "naddr")
+            return $"(*reinterpret_cast<Il2CppObject**>({code}))";
+        if (recv is LocExpr leN && _curLocKinds.TryGetValue(leN.Name, out var lkN) && lkN == "naddr")
             return $"(*reinterpret_cast<Il2CppObject**>({code}))";
         return recv is LocAddrExpr or StaticFieldAddrExpr or FieldAddrExpr
             ? $"(*reinterpret_cast<Il2CppObject**>({code}))"
@@ -11082,10 +11102,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     => $"il2cpp::runtime::Il2CppTimeSpan(*reinterpret_cast<int64_t*>({code}))",
                 "deref:dt" => $"(*reinterpret_cast<il2cpp::runtime::Il2CppDateTime*>({code}))",
                 // tuple1 (ValueTuple): the generated member helpers take the
-                // struct by const reference. An ADDRESS receiver (ldloca)
-                // dereferences; a VALUE receiver (a plain struct local or a
-                // call result) binds directly.
-                "tupref" => args[srcIdx] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                // struct by const reference. An ADDRESS receiver (ldloca /
+                // ldflda on a tuple-typed field) dereferences; a VALUE receiver
+                // (a plain struct local or a call result) binds directly.
+                // FieldAddrExpr is required for `t8.Rest.ToString()` -- the
+                // Rest field of an arity-8 tuple is a nested ValueTuple value,
+                // and csc emits ldflda (the address) for the constrained call.
+                "tupref" => args[srcIdx] is LocAddrExpr or FieldExpr or FieldAddrExpr or StaticFieldAddrExpr
                     ? $"(*({code}))"
                     : $"({code})",
                 // tuple1 (ValueTuple): the generated ctor helper takes the

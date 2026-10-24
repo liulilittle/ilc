@@ -774,6 +774,20 @@ int32_t icall_double_get_hash_code(double value)
 }
 
 //------------------------------------------------------------------------------
+// icall_single_get_hash_code -- Single.GetHashCode: the 32-bit float pattern
+// (0 for +-0; probe: 1.5f -> 1069547520). The value arrives widened to double
+// (the IL F-stack carrier); narrowing back to float is exact.
+//------------------------------------------------------------------------------
+int32_t icall_single_get_hash_code(double value)
+{
+    const float f = static_cast<float>(value);
+    if (f == 0.0f) return 0;
+    int32_t bits = 0;
+    std::memcpy(&bits, &f, sizeof(bits));
+    return bits;
+}
+
+//------------------------------------------------------------------------------
 // icall_string_get_hash_code -- string.GetHashCode: ordinal content hash.
 //------------------------------------------------------------------------------
 int32_t icall_string_get_hash_code(Il2CppObject* str)
@@ -788,6 +802,43 @@ int32_t icall_string_get_hash_code(Il2CppObject* str)
 int32_t icall_bool_get_hash_code(bool value)
 {
     return value ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
+// icall_narrow_get_hash_code -- the narrow integral/char GetHashCode family
+// (see il2cpp_value_semantics.h for the net48-exact per-kind rules).
+//------------------------------------------------------------------------------
+int32_t icall_narrow_get_hash_code(int32_t value, int32_t kind)
+{
+    switch (kind)
+    {
+    case 0:
+    {
+        // SByte.GetHashCode: v ^ (v << 8) with v = the signed 8-bit value.
+        const int32_t v = static_cast<int8_t>(value);
+        return v ^ (v << 8);
+    }
+    case 1:
+        // Byte.GetHashCode: the unsigned 8-bit value.
+        return value & 0xFF;
+    case 2:
+    {
+        // Int16.GetHashCode: (ushort)v | (v << 16) with v = the signed 16-bit.
+        const int32_t v = static_cast<int16_t>(value);
+        return static_cast<uint16_t>(v) | (v << 16);
+    }
+    case 3:
+        // UInt16.GetHashCode: the unsigned 16-bit value.
+        return value & 0xFFFF;
+    case 4:
+        // Char.GetHashCode: c | (c << 16).
+        return value | (value << 16);
+    case 5:
+        // UInt32.GetHashCode: the full 32-bit pattern.
+        return value;
+    default:
+        return value;
+    }
 }
 
 //------------------------------------------------------------------------------

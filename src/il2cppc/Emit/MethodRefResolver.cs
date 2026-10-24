@@ -521,7 +521,10 @@ public static partial class MethodRefResolver
             // System.ValueTuple.Create<T1..TN>(...) -- the elements are the
             // METHOD's generic arguments, so the closed instance name comes
             // from the MethodSpec blob (the same table the local decode uses).
-            // It is the same field-initialization shape as the instance ctor.
+            // It returns the tuple BY VALUE through the generated _New helper
+            // (the _ctor helper takes the receiver ADDRESS -- binding the first
+            // element to `self` was the old, broken route; see
+            // ValueTupleSupport.EmitNew).
             if (name == "Create" && genArgs.Length > 0
                 && (ValueTupleSupport.IsValueTupleName(owner)
                     || owner == "System.ValueTuple"))
@@ -530,9 +533,26 @@ public static partial class MethodRefResolver
                 if (created != null)
                 {
                     ValueTupleSupport.Require(created);
-                    return new ResolvedMethod(ValueTupleSupport.StructName(created) + "_ctor", genArgs.Length,
-                        false, true, false, Enumerable.Repeat(true, genArgs.Length).ToArray(), false,
-                        ParamTypeNames: Enumerable.Repeat("tupctor", genArgs.Length).ToArray(),
+                    return new ResolvedMethod(ValueTupleSupport.StructName(created) + "_New", genArgs.Length,
+                        false, true, false, Enumerable.Repeat(false, genArgs.Length).ToArray(), false,
+                        ResultKind: "vt:" + created);
+                }
+            }
+            // tuple1 (Tuple): the STATIC factory System.Tuple.Create<T1..TN>(...)
+            // -- the elements are the METHOD's generic arguments; the closed
+            // Tuple`N instance name comes from the MethodSpec blob with the
+            // System.Tuple` prefix. The generated Tuple`N struct has the SAME
+            // layout/semantics as ValueTuple`N (the C# tuple syntax), so the
+            // _New helper serves both.
+            if (name == "Create" && genArgs.Length > 0 && owner == "System.Tuple")
+            {
+                var created = ValueTupleSupport.ClosedNameFromArgBytes(md, ms.Signature, genArgs.Length,
+                    ValueTupleSupport.TupleDefPrefix);
+                if (created != null)
+                {
+                    ValueTupleSupport.Require(created);
+                    return new ResolvedMethod(ValueTupleSupport.StructName(created) + "_New", genArgs.Length,
+                        false, true, false, Enumerable.Repeat(false, genArgs.Length).ToArray(), false,
                         ResultKind: "vt:" + created);
                 }
             }
@@ -854,14 +874,32 @@ public static partial class MethodRefResolver
             (mrName == "get_Rest" || mrName.StartsWith("get_Item", StringComparison.Ordinal)))
         {
             var isRef = true;
+            string? resultKind = null;
             if (mrName.StartsWith("get_Item", StringComparison.Ordinal) &&
                 mr2.Parent.Kind == HandleKind.TypeSpecification &&
                 int.TryParse(mrName["get_Item".Length..], out var itemK) && itemK >= 1)
             {
                 isRef = TupleItemIsReference(md, (TypeSpecificationHandle)mr2.Parent, itemK);
             }
+            else if (mrName == "get_Rest" && mr2.Parent.Kind == HandleKind.TypeSpecification)
+            {
+                // The arity-8 Rest is a nested Tuple`1<...> VALUE (the C# tuple
+                // syntax nests the 8th+ elements through TRest) -- return it by
+                // value with the nested struct as the result kind so the
+                // get_Item1/tostring chain on the result resolves.
+                var restName = ValueTupleSupport.RestElementName(md, (TypeSpecificationHandle)mr2.Parent);
+                // Only a nested TUPLE Rest (the C# 8th-slot nesting) is a value
+                // struct; a primitive TRest (Tuple`8<int x8>) keeps the legacy
+                // reference-slot answer (TupleRestChainTests).
+                if (restName != null && ValueTupleSupport.IsValueTupleName(restName))
+                {
+                    ValueTupleSupport.Require(restName);
+                    isRef = false;
+                    resultKind = "vt:" + restName;
+                }
+            }
             return new ResolvedMethod($"{Sanitize(cppPrefixForTuple(md, mr2.Parent, owner2))}_{Sanitize(mrName)}",
-                0, false, true, isRef, Array.Empty<bool>(), true);
+                0, false, true, isRef, Array.Empty<bool>(), true, ResultKind: resultKind);
         }
 
         // D-ICMP-1 (icomparedeep): a callvirt whose declaring owner is the
@@ -928,13 +966,12 @@ public static partial class MethodRefResolver
         // shape as the instance ctor, so it maps to the same helper.
         if (ValueTupleSupport.IsValueTupleName(owner2) && mrName == "Create" && pc == 0)
         {
-            // RF-REFL: ValueTuple.Create() -- the 0-tuple factory (net48
-            // h.zero: GetHashCode() == 0). The struct is emitted by
-            // ValueTupleSupport; the result is the struct BY VALUE, so the
-            // call-site temp carries the "vt:" result kind.
-            ValueTupleSupport.Require(owner2);
-            return new ResolvedMethod(ValueTupleSupport.NewFn(owner2), 0, false, true, false,
-                Array.Empty<bool>(), false, ResultKind: "vt:" + owner2);
+            // ValueTuple.Create() -- the arity-0 factory returns the
+            // System.ValueTuple 0-tuple by value (net48 h.zero:
+            // GetHashCode() == 0). pc == 0 implies the non-generic 0-tuple.
+            ValueTupleSupport.Require(ValueTupleSupport.ZeroName);
+            return new ResolvedMethod(ValueTupleSupport.NewFn(ValueTupleSupport.ZeroName), 0, false, true, false,
+                Array.Empty<bool>(), false, ResultKind: "vt:" + ValueTupleSupport.ZeroName);
         }
         if (ValueTupleSupport.IsValueTupleName(owner2) && mrName == "Create" && pc > 0)
         {
@@ -958,7 +995,10 @@ public static partial class MethodRefResolver
                     return new ResolvedMethod(ValueTupleSupport.ToStringFn(cppPrefix), 0, false, true, true,
                         new[] { true }, isTupleInstance, ParamTypeNames: new[] { "tupref" });
                 case "GetHashCode" when pc == 0:
-                    return new ResolvedMethod(ValueTupleSupport.GetHashCodeFn(cppPrefix), 0, false, false, true,
+                    // GetHashCode returns int32 (a VALUE, not a managed
+                    // reference) -- ReturnsRef must be false or the result slot
+                    // is declared Il2CppObject* and every int32 store fails.
+                    return new ResolvedMethod(ValueTupleSupport.GetHashCodeFn(cppPrefix), 0, false, true, false,
                         new[] { true }, isTupleInstance, ParamTypeNames: new[] { "tupref" });
                 case "Equals" when pc == 1:
                     // The strongly-typed overload (the argument is the same
@@ -1376,9 +1416,21 @@ public static partial class MethodRefResolver
             // primitive is the composite formatter (MethodMap.Object.cs
             // TryMapObject).
             case "System.IFormattable":
-            case "System.Reflection.MemberInfo": return name == "get_Module"
-                ? TryMapModule(md, owner, name, count)
-                : TryMapObject(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Reflection.MemberInfo":
+                // tuple1 (ValueTuple/Tuple): the net48 reference assemblies
+                // declare the Tuple/ValueTuple ToString/GetHashCode overrides,
+                // but csc still routes `tuple.ToString()` / `.GetHashCode()`
+                // through Object::ToString / Object::GetHashCode (the callvirt
+                // token's declaring type is System.Object). The receiver's
+                // tracked type names the generated tuple struct, so dispatch to
+                // its member helper instead of the object icall (which would
+                // cast the struct value to Il2CppObject* -- uncompilable).
+                if (receiverType != null && ValueTupleSupport.IsValueTupleName(receiverType)
+                    && TryMapTupleObjectMember(receiverType, name, count) is { } tupleObj)
+                    return tupleObj;
+                return name == "get_Module"
+                    ? TryMapModule(md, owner, name, count)
+                    : TryMapObject(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // raudit3 (2026-09-13): the MemberInfo-derived reflection objects
             // emit the BASE ==/!= operator (csc never calls the derived
             // overload); the runtime models a member value as its name string
@@ -3131,6 +3183,31 @@ var userRecvLike = receiverType ?? arg0Type;
         }
         catch { }
         return false;
+    }
+
+    // Object::ToString / Object::GetHashCode on a Tuple/ValueTuple receiver:
+    // the receiver's tracked type is the generated tuple struct, so the call
+    // lowers to the struct's member helper (the object icall would cast the
+    // struct value to Il2CppObject* -- uncompilable). Equals stays on the
+    // Object path (the boxed-equality icall).
+    private static ResolvedMethod? TryMapTupleObjectMember(string receiverType, string name, int count)
+    {
+        if (!ValueTupleSupport.IsValueTupleName(receiverType)) return null;
+        ValueTupleSupport.Require(receiverType);
+        switch (name)
+        {
+            case "ToString" when count == 0:
+                return new ResolvedMethod(ValueTupleSupport.ToStringFn(receiverType), 0, false, true, true,
+                    new[] { true }, true, ParamTypeNames: new[] { "tupref" });
+            case "GetHashCode" when count == 0:
+                // GetHashCode returns int32 (a VALUE, not a managed reference) --
+                // ReturnsRef must be false or the result slot is declared
+                // Il2CppObject* and every int32 store fails.
+                return new ResolvedMethod(ValueTupleSupport.GetHashCodeFn(receiverType), 0, false, true, false,
+                    new[] { true }, true, ParamTypeNames: new[] { "tupref" });
+            default:
+                return null;
+        }
     }
 
     // TypeSpec -> generic INSTANTIATION name (same encoding as StackFold:

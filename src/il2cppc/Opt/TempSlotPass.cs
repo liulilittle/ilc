@@ -402,7 +402,12 @@ public static class TempSlotPass
                 foreach (var a in c.Args) nc.Args.Add(RewriteExpr(a, rename));
                 return nc;
             case VirtualCallExpr v:
-                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName };
+                // tuple1 (Tuple/ValueTuple): the arity-8 get_Rest callvirt
+                // carries ResultKind "vt:<closedName>" -- the slot-merge rename
+                // rebuilds the node, so it MUST copy the kind or the emitter's
+                // ExprKind falls back to "val" and declares the tuple result
+                // int32_t (vtcreate1 line 23/24 build errors).
+                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName, ResultKind = v.ResultKind };
                 foreach (var a in v.Args) nv.Args.Add(RewriteExpr(a, rename));
                 return nv;
             case DelegateInvokeExpr d:

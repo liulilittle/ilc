@@ -494,6 +494,10 @@ Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySe
 int32_t il2cpp_linq_sum_sel_i4(Il2CppArray* src, Il2CppObject* sel);
 int32_t il2cpp_linq_min_sel_i4(Il2CppArray* src, Il2CppObject* sel);
 int32_t il2cpp_linq_max_sel_i4(Il2CppArray* src, Il2CppObject* sel);
+// loud-p0-probe: reference-source, int32-result selector aggregates
+// (Func<string,char/int32>).
+int32_t il2cpp_linq_min_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_max_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel);
 double  il2cpp_linq_average_sel_i4(Il2CppArray* src, Il2CppObject* sel);
 
 // The same selector forms for the int64 / double projection families

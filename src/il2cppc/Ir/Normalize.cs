@@ -255,7 +255,9 @@ public static class Normalize
             }
             case VirtualCallExpr v:
             {
-                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName };
+                // tuple1 (Tuple/ValueTuple): preserve the ResultKind ("vt:<name>")
+                // across the strength-reduce rewrite.
+                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName, ResultKind = v.ResultKind };
                 foreach (var a in v.Args) nv.Args.Add(StrengthReduce(a));
                 return nv;
             }
@@ -409,7 +411,9 @@ public static class Normalize
             }
             case VirtualCallExpr v:
             {
-                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName };
+                // tuple1 (Tuple/ValueTuple): preserve the ResultKind ("vt:<name>")
+                // across the known-nonnull rewrite.
+                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName, ResultKind = v.ResultKind };
                 foreach (var a in v.Args) nv.Args.Add(Rewrite(a, knownNonNull));
                 return nv;
             }

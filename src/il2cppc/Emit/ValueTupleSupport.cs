@@ -83,19 +83,27 @@ internal readonly struct TupleElem
 internal static class ValueTupleSupport
 {
     internal const string DefPrefix = "System.ValueTuple`";
+    internal const string TupleDefPrefix = "System.Tuple`";
     internal const string ZeroName = "System.ValueTuple";
 
     internal static bool IsValueTupleName(string? fullName)
         => fullName != null
-           && (fullName == ZeroName || fullName.StartsWith(DefPrefix, StringComparison.Ordinal));
+           && (fullName == ZeroName || fullName.StartsWith(DefPrefix, StringComparison.Ordinal)
+               || fullName.StartsWith(TupleDefPrefix, StringComparison.Ordinal));
 
-    // The arity encoded in "System.ValueTuple`N[...]"; 0 for the non-generic
-    // System.ValueTuple; -1 when not a tuple.
+    // The DEFINITION prefix of a closed tuple instance name (ValueTuple`N or
+    // Tuple`N) -- the prefix the name itself carries.
+    private static string DefPrefixOf(string fullName)
+        => fullName.StartsWith(DefPrefix, StringComparison.Ordinal) ? DefPrefix : TupleDefPrefix;
+
+    // The arity encoded in "System.ValueTuple`N[...]" / "System.Tuple`N[...]";
+    // 0 for the non-generic System.ValueTuple; -1 when not a tuple.
     internal static int Arity(string fullName)
     {
         if (fullName == ZeroName) return 0;
         if (!IsValueTupleName(fullName)) return -1;
-        var i = DefPrefix.Length;
+        var prefix = DefPrefixOf(fullName);
+        var i = prefix.Length;
         var digits = 0;
         while (i + digits < fullName.Length && char.IsAsciiDigit(fullName[i + digits])) digits++;
         return digits == 0 || !int.TryParse(fullName.AsSpan(i, digits), out var n) ? -1 : n;
@@ -130,7 +138,8 @@ internal static class ValueTupleSupport
         if (_elements.TryGetValue(fullName, out var known)) return known;
         var arity = Arity(fullName);
         if (arity <= 0) return Array.Empty<string>();
-        var rest = fullName[(DefPrefix.Length + arity.ToString(System.Globalization.CultureInfo.InvariantCulture).Length)..];
+        var prefixLen = DefPrefixOf(fullName).Length;
+        var rest = fullName[(prefixLen + arity.ToString(System.Globalization.CultureInfo.InvariantCulture).Length)..];
         if (rest.StartsWith("_", StringComparison.Ordinal)) rest = rest[1..];
         if (rest.Length == 0) return Array.Empty<string>();
         var parts = rest.Split('_');
@@ -243,7 +252,7 @@ internal static class ValueTupleSupport
     private static string ArityPrefix(string fullName)
     {
         var arity = Arity(fullName);
-        return DefPrefix + arity.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return DefPrefixOf(fullName) + arity.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     // The instantiation TypeDef's InstantiationSuffix is the '_' JOIN of the
@@ -410,6 +419,85 @@ internal static class ValueTupleSupport
     }
 
     //--------------------------------------------------------------------------
+    // The closed instance name of an arity-8 tuple's TRest element (the 8th
+    // generic argument). The C# tuple syntax nests the 8th+ elements through
+    // TRest, so get_Rest yields a nested tuple VALUE -- the call site needs the
+    // nested closed name to declare the result temp with the right struct.
+    //--------------------------------------------------------------------------
+    internal static string? RestElementName(MetadataReader md, TypeSpecificationHandle parent)
+    {
+        try
+        {
+            var sig = md.GetBlobReader(md.GetTypeSpecification(parent).Signature);
+            if (sig.ReadByte() != 0x15) return null;
+            sig.ReadByte();
+            var def = sig.ReadTypeHandle();
+            var defName = def.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)def),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)def),
+                _ => null,
+            };
+            if (!IsValueTupleName(defName)) return null;
+            if (sig.ReadCompressedInteger() != 8) return null;
+            for (var i = 1; i <= 8; i++)
+            {
+                var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+                if (b == 0x15)
+                {
+                    sig.ReadByte();
+                    var d2 = sig.ReadTypeHandle();
+                    var dn2 = d2.Kind switch
+                    {
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)d2),
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)d2),
+                        _ => null,
+                    };
+                    var n2 = sig.ReadCompressedInteger();
+                    var inner = new string[n2];
+                    for (var j = 0; j < n2; j++) inner[j] = ReadM3ArgName(md, ref sig);
+                    if (i == 8) return dn2 + "_" + string.Join("_", inner);
+                }
+                else if (b is 0x11 or 0x12)
+                {
+                    var h = sig.ReadTypeHandle();
+                    var n = h.Kind switch
+                    {
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)h),
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)h),
+                        _ => null,
+                    };
+                    if (i == 8) return n;
+                }
+                else if (b == 0x1D)
+                {
+                    var elem = ReadM3ArgName(md, ref sig);
+                    if (i == 8) return "[" + elem + "]";
+                }
+                else if (b is 0x13 or 0x1E)
+                {
+                    sig.ReadCompressedInteger();
+                    if (i == 8) return MethodRefResolver.InstantiationSuffixHint ?? "int";
+                }
+                else if (i == 8)
+                {
+                    return M3PrimitiveName(b);
+                }
+            }
+            return null;
+        }
+        catch { return null; }
+    }
+
+    private static string M3PrimitiveName(byte b) => b switch
+    {
+        0x02 => "bool", 0x03 => "char", 0x04 => "sbyte", 0x05 => "byte",
+        0x06 => "short", 0x07 => "ushort", 0x08 => "int", 0x09 => "uint",
+        0x0A => "long", 0x0B => "ulong", 0x0C => "float", 0x0D => "double",
+        0x0E => "string", 0x1C => "object", _ => "object",
+    };
+
+    //--------------------------------------------------------------------------
     // Decode a System.ValueTuple`N TypeSpec into its canonical closed instance
     // name ("System.ValueTuple`2_int_string"), or null when the TypeSpec is
     // not a ValueTuple instantiation.
@@ -475,6 +563,11 @@ internal static class ValueTupleSupport
     // MethodSpec's generic-argument blob.
     //--------------------------------------------------------------------------
     internal static string? ClosedNameFromArgBytes(MetadataReader md, BlobHandle specSig, int arity)
+        => ClosedNameFromArgBytes(md, specSig, arity, DefPrefix);
+
+    // The DEFINITION prefix selects the tuple family: System.ValueTuple.Create
+    // (ValueTuple`N) vs System.Tuple.Create (Tuple`N).
+    internal static string? ClosedNameFromArgBytes(MetadataReader md, BlobHandle specSig, int arity, string defPrefix)
     {
         try
         {
@@ -483,9 +576,22 @@ internal static class ValueTupleSupport
             if (sig.ReadCompressedInteger() != arity) return null;
             var args = new string[arity];
             for (var i = 0; i < arity; i++) args[i] = ReadM3ArgName(md, ref sig);
-            var defName = DefPrefix + arity.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            RecordElements(defName, args);
-            return defName + "_" + string.Join("_", args);
+            // net48 ValueTuple.Create/Tuple.Create arity 8: the factory returns
+            // ValueTuple<T1..T7, ValueTuple<T8>> / Tuple<T1..T7, Tuple<T8>> -- the
+            // LAST element is WRAPPED in the SAME family (the C# tuple syntax
+            // nests the 8th+ elements through TRest). Without the wrap the closed
+            // name is the flat 8-element shape and the call-site temp / the
+            // assignment to the IL-declared local (which carries the nested TRest)
+            // disagree -> "'X' was not declared" / no match for operator=.
+            if (arity == 8)
+            {
+                var wrapped = defPrefix + "1_" + args[7];
+                RecordElements(defPrefix + "8", new[] { args[0], args[1], args[2], args[3], args[4], args[5], args[6], wrapped });
+                return defPrefix + "8_" + args[0] + "_" + args[1] + "_" + args[2] + "_" + args[3]
+                    + "_" + args[4] + "_" + args[5] + "_" + args[6] + "_" + wrapped;
+            }
+            RecordElements(defPrefix + arity.ToString(System.Globalization.CultureInfo.InvariantCulture), args);
+            return defPrefix + arity.ToString(System.Globalization.CultureInfo.InvariantCulture) + "_" + string.Join("_", args);
         }
         catch { return null; }
     }
@@ -603,14 +709,37 @@ internal static class ValueTupleSupport
         w.Line("};");
         w.Line();
         EmitCtor(w, name, elems, arity);
-        EmitNew(w, name, elems, arity);
+        EmitNew(w, name, elems, arity, types);
         EmitToString(w, name, elems, arity);
         EmitToStringInner(w, name, elems, arity);
-        EmitGetHashCode(w, name, elems, arity);
+        EmitGetHashCode(w, name, elems, arity, fullName);
         EmitEquals(w, name, elems, arity);
         EmitCompareTo(w, name, elems, arity);
         EmitCompareToComparer(w, name, elems, arity);
+        EmitAccessors(w, name, elems, arity);
         return w.ToString();
+    }
+
+    //--------------------------------------------------------------------------
+    // The Tuple`N property accessors: System.Tuple`N exposes Item1..Item7 /
+    // Rest as PROPERTY getters (callvirt get_ItemK / get_Rest), so the resolver
+    // maps them to these helpers. ValueTuple`N uses plain ldfld field access and
+    // never calls them, but emitting them for both families keeps one source of
+    // truth (the helper is harmless/unused for ValueTuple).
+    //--------------------------------------------------------------------------
+    private static void EmitAccessors(CppWriter w, string name, TupleElem[] elems, int arity)
+    {
+        for (var i = 0; i < arity; i++)
+        {
+            var field = FieldName(arity, i + 1);
+            w.Line($"inline {elems[i].Cpp} {name}_get_{field}(const {name}& self)");
+            w.Line("{");
+            w.Open();
+            w.Line($"return self.{field};");
+            w.Close();
+            w.Line("}");
+            w.Line();
+        }
     }
 
     private static void EmitCtor(CppWriter w, string name, TupleElem[] elems, int arity)
@@ -629,18 +758,43 @@ internal static class ValueTupleSupport
         w.Line();
     }
 
-    private static void EmitNew(CppWriter w, string name, TupleElem[] elems, int arity)
+    private static void EmitNew(CppWriter w, string name, TupleElem[] elems, int arity, IReadOnlyList<TypeDef>? types)
     {
         // ValueTuple.Create<T..>(...) returns the tuple BY VALUE. (The old
         // route reused the ctor helper, which takes the receiver address --
         // the first ELEMENT was then bound to `self` and addressed.)
-        var args = string.Join(", ", elems.Select((e, i) => $"{e.Cpp} arg{i}"));
+        // Arity 8 nests the 8th element through TRest: the factory's LAST
+        // argument is the TRest ELEMENT (an int), not the nested tuple struct,
+        // so the helper takes the element type and builds the nested tuple.
+        var argTypes = elems.Select(e => e.Cpp).ToArray();
+        // Arity 8 nests the 8th element through TRest. The Create<T1..T8>
+        // overload's LAST argument is the TRest ELEMENT (a single value), so
+        // for an arity-1 Rest the factory takes that element and builds the
+        // nested tuple. A nested Rest of arity >= 2 has NO Create overload
+        // (Create caps at 8 type params -> ValueTuple<T1..T7, ValueTuple<T8>>);
+        // such structs are only built by the .ctor, whose last argument is the
+        // Rest VALUE -- keep the Rest type and copy it directly (emitting
+        // Rest_New(arg7) there would need more than one argument and fail to
+        // compile).
+        var restArity = 0;
+        if (arity == 8 && IsValueTupleName(elems[7].Token))
+        {
+            var restElems = ResolveElems(elems[7].Token, types);
+            restArity = restElems.Length;
+            if (restArity == 1) argTypes[7] = restElems[0].Cpp;
+        }
+        var args = string.Join(", ", argTypes.Select((t, i) => $"{t} arg{i}"));
         w.Line($"inline {name} {name}_New({args})");
         w.Line("{");
         w.Open();
         w.Line($"{name} r {{ }};");
         for (var i = 0; i < arity; i++)
-            w.Line($"r.{FieldName(arity, i + 1)} = arg{i};");
+        {
+            if (i == 7 && arity == 8 && restArity == 1)
+                w.Line($"r.Rest = {StructName(elems[7].Token)}_New(arg7);");
+            else
+                w.Line($"r.{FieldName(arity, i + 1)} = arg{i};");
+        }
         w.Line("return r;");
         w.Close();
         w.Line("}");
@@ -763,12 +917,24 @@ internal static class ValueTupleSupport
         w.Line();
     }
 
-    private static void EmitGetHashCode(CppWriter w, string name, TupleElem[] elems, int arity)
+    private static void EmitGetHashCode(CppWriter w, string name, TupleElem[] elems, int arity, string fullName)
     {
         w.Line($"inline int32_t {name}_GetHashCode(const {name}& self)");
         w.Line("{");
         w.Open();
-        if (arity == 8)
+        // System.Tuple`N (REFERENCE): Tuple.CombineHashCodes -- a TREE combine
+        // (CombineHashCodes(h1..h4) paired with CombineHashCodes(h5..h8)) with
+        // the plain-shift step. The value-type ValueTuple below uses the left
+        // fold with the rotate-left-5 step; the two families are NOT the same
+        // algorithm (vtcreate1 tuple8.hash: 46216 vs the fold's 2138941954).
+        if (fullName.StartsWith(TupleDefPrefix, StringComparison.Ordinal))
+        {
+            var hs = new string[arity];
+            for (var i = 0; i < arity; i++)
+                hs[i] = ElementHash(elems[i], Field(arity, i));
+            w.Line($"return {RefCombineHash(hs, 0, arity)};");
+        }
+        else if (arity == 8)
         {
             // net48 ValueTuple`8.GetHashCode: with L = TRest's flattened
             // length, only the LAST 8 slots take part --
@@ -800,6 +966,35 @@ internal static class ValueTupleSupport
         w.Line("}");
         w.Line();
     }
+
+    // System.Tuple`N (reference) CombineHashCodes expression over h[start..end).
+    // The .NET tree shape (referencesource mscorlib/system/Tuple.cs):
+    //   n=1 -> h1
+    //   n=2 -> Combine(h1, h2)
+    //   n=3 -> Combine(Combine(h1, h2), h3)
+    //   n=4 -> Combine(Combine(h1, h2), Combine(h3, h4))
+    //   n=5 -> Combine(CH4(h1..h4), h5)
+    //   n=6 -> Combine(CH4(h1..h4), Combine(h5, h6))
+    //   n=7 -> Combine(CH4(h1..h4), CH3(h5..h7))
+    //   n=8 -> Combine(CH4(h1..h4), CH4(h5..h8))
+    private static string RefCombineHash(string[] h, int start, int end)
+    {
+        switch (end - start)
+        {
+            case 1: return h[start];
+            case 2: return RefCombine2(h[start], h[start + 1]);
+            case 3: return RefCombine2(RefCombine2(h[start], h[start + 1]), h[start + 2]);
+            case 4: return RefCombine2(RefCombine2(h[start], h[start + 1]), RefCombine2(h[start + 2], h[start + 3]));
+            case 5: return RefCombine2(RefCombineHash(h, start, start + 4), h[start + 4]);
+            case 6: return RefCombine2(RefCombineHash(h, start, start + 4), RefCombine2(h[start + 4], h[start + 5]));
+            case 7: return RefCombine2(RefCombineHash(h, start, start + 4), RefCombineHash(h, start + 4, start + 7));
+            case 8: return RefCombine2(RefCombineHash(h, start, start + 4), RefCombineHash(h, start + 4, start + 8));
+            default: return h[start];
+        }
+    }
+
+    private static string RefCombine2(string a, string b)
+        => $"il2cpp::runtime::il2cpp_tuple_ref_combine_hash({a}, {b})";
 
     private static void EmitEquals(CppWriter w, string name, TupleElem[] elems, int arity)
     {

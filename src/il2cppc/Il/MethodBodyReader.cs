@@ -326,7 +326,7 @@ public static class MethodBodyReader
             // matching System_ValueTuple_N_<types> struct (instead of the old
             // int32_t truncation that broke Math.SinCos locals). Non-primitive
             // or non-ValueTuple instantiations keep consuming + "v".
-            if (defName != null && defName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
+            if (defName != null && ValueTupleSupport.IsValueTupleName(defName))
             {
                 // tuple1 (ValueTuple): EVERY ValueTuple local -- flat primitive
                 // or not -- declares as the canonical tuple struct. The closed

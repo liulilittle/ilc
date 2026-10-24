@@ -431,6 +431,15 @@ public static class StackFold
                     else if (stValue is LocExpr stSrc && objTypes.TryGetValue(stSrc.Name, out var stSrcType)
                         && ValueTupleSupport.IsValueTupleName(stSrcType))
                         objTypes[stName] = stSrcType;
+                    // tuple1 (Tuple): a Tuple.Create result is a "vt:"-kind call
+                    // (the generated Tuple`N struct). A Tuple local is a managed
+                    // REFERENCE in the IL, so csc emits a plain callvirt (no
+                    // constrained. marker) -- the receiver hint must come from the
+                    // store, or GetHashCode/Equals fall through to Object.
+                    else if (stValue is CallExpr stCall
+                        && stCall.ResultKind is { } stVk && stVk.StartsWith("vt:", StringComparison.Ordinal)
+                        && ValueTupleSupport.IsValueTupleName(stVk["vt:".Length..]))
+                        objTypes[stName] = stVk["vt:".Length..];
                     EmitStore(stName, ins);
                     if (stValue is IntConstExpr sc
                         && stlocCount.TryGetValue(stName, out var scnt) && scnt == 1
@@ -2320,7 +2329,7 @@ public static class StackFold
                 tempWidths[name] = e switch
                 {
                     CallExpr ce2 => ce2.ResultKind ?? "i",
-                    VirtualCallExpr ve2 => ve2.ReturnsRef ? "r" : "i",
+                    VirtualCallExpr ve2 => ve2.ResultKind ?? (ve2.ReturnsRef ? "r" : "i"),
                     _ => "r",
                 };
                 stmts.Add(new AssignStmt
@@ -2330,6 +2339,15 @@ public static class StackFold
                     SourceOffset = ins.Offset,
                     SourceOpName = OpName(ins.OpCode)
                 });
+                // tuple1 (Tuple/ValueTuple): a "vt:"-kind call result (the
+                // generated tuple struct) materializes into this temp -- record
+                // the tuple type so a later callvirt on the temp (Object::
+                // ToString / GetHashCode, routed through System.Object by the
+                // net48 reference assemblies) re-resolves with the receiver hint.
+                var rkTuple = (e as CallExpr)?.ResultKind ?? (e as VirtualCallExpr)?.ResultKind;
+                if (rkTuple is { } rk3 && rk3.StartsWith("vt:", StringComparison.Ordinal)
+                    && ValueTupleSupport.IsValueTupleName(rk3["vt:".Length..]))
+                    objTypes[name] = rk3["vt:".Length..];
                 // M4 Task 4: capture the OS error code right after a
                 // SetLastError=true P/Invoke call.
                 if (e is CallExpr ce && ce.SetLastError)
@@ -3995,6 +4013,10 @@ public static class StackFold
                         // result assigned to the same slot failed to compile
                         // (vtmeta1).
                         "GetHashCode" when args.Count == 1 =>
+                            // GetHashCode returns int32 (a VALUE, not a managed
+                            // reference) -- ReturnsRef must be false or the
+                            // result slot is declared Il2CppObject* and every
+                            // int32 store into it fails (vtcreate1 loc4).
                             new ResolvedMethod(ValueTupleSupport.GetHashCodeFn(recvType), 0, false, true, false,
                                 new[] { true }, true, ParamTypeNames: new[] { "tupref" }),
                         "Equals" when args.Count == 2 =>
@@ -4107,10 +4129,10 @@ public static class StackFold
                     }
                     return;
                 }
-
                 var vcall = new VirtualCallExpr
                 {
                     MethodToken = (int)ins.Operand,
+                    ResultKind = resolved?.ResultKind,
                     // R2b P2 (ilistException): a VAR RETURN on a closed
                     // reference instantiation (IMyList`1<class System.Exception>
                     // -> System.Exception) IS a managed reference even when a
@@ -5148,6 +5170,11 @@ public static class StackFold
             // `(&loc)->ItemK` / `.ItemK`, NOT the null-check + object-cast
             // roundtrip (a struct does not convert to Il2CppObject*).
             if (ownerFullName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
+                return true;
+            // tuple1 (Tuple): System.Tuple`N (the reference Tuple class) is
+            // modelled with the SAME generated struct layout as ValueTuple`N
+            // (the C# tuple syntax) -- field reads use the struct path too.
+            if (ownerFullName.StartsWith("System.Tuple`", StringComparison.Ordinal))
                 return true;
             // Nested value types (async state machines): the field owner
             // resolves via metadata GetFullName ('+' form) while expanded
@@ -7197,6 +7224,16 @@ public static class StackFold
                     }
                     return "System.Int32"; // M3 single-instantiation default
                 }
+                // tuple1 (ValueTuple): a constrained receiver on a C# tuple
+                // field (`t8.Rest.ToString()` -- the Rest field is a nested
+                // ValueTuple value type) arrives as a TypeSpec of
+                // System.ValueTuple`N. The legacy TypeFullNameFromToken
+                // fallback names it "TaskAwaiter`1", so the tuple member
+                // routing never fired and the call fell through to
+                // Object::ToString (a wrong icall on a struct address). Resolve
+                // the CLOSED instance name so the tuple helpers bind.
+                var vtClosed = ValueTupleSupport.ClosedNameFromSpec(md, (TypeSpecificationHandle)h);
+                if (vtClosed != null) return vtClosed;
             }
             return TypeFullNameFromToken(md, token);
         }

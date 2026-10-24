@@ -1,4 +1,4 @@
-using System.Reflection.Metadata;
+﻿using System.Reflection.Metadata;
 
 namespace Il2Cpp.Transpiler.Emit;
 
@@ -169,7 +169,32 @@ public static partial class MethodRefResolver
                 // agnostic (Sum()/Min()/Max()/Average() over int64[]/double[]
                 // /float-as-double[]). A reference source still falls through
                 // to the generated-name path.
-                return LinqFamilyAggregate(name, genArgs, receiverType, arg0Type);
+                return LinqFamilyAggregate(name, genArgs, receiverType, arg0Type, genArgNames);
+            }
+            // loud-p0-probe: a REFERENCE-element source with a selector. The
+            // selector-aggregate surface is int32 (0x08) element-family only for
+            // the source, but a string/object source CAN carry an int32-slot
+            // projection (Func<string,char/int32>): the kernel projects inline
+            // and takes the ordinal max/min (Comparer<char/int32>.Default).
+            if (genArgs is { Length: >= 1 } && IsRefFamilyByte(genArgs[0]))
+            {
+                var refProj = LinqSelectorProjectionType(md, sigHandle);
+                if (refProj is "i" or "c")
+                {
+                    return name switch
+                    {
+                        "Min" => I("il2cpp::il2cpp_linq_min_sel_ref_i4", 2, true, false, false, TwoArg),
+                        "Max" => I("il2cpp::il2cpp_linq_max_sel_ref_i4", 2, true, false, false, TwoArg),
+                        _ => throw new NotSupportedException(
+                            $"Enumerable.{name} over a reference-element source with a selector is not wired: " +
+                            "the reference selector-aggregate surface covers Min/Max with an int32-slot " +
+                            "projection (char/int32) only"),
+                    };
+                }
+                throw new NotSupportedException(
+                    $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},...> with a selector is not wired: " +
+                    "the reference selector-aggregate surface covers Min/Max with an int32-slot projection " +
+                    "(char/int32) only");
             }
             if (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08)
             {
@@ -488,7 +513,17 @@ public static partial class MethodRefResolver
         }
 
         // Reference-element ARRAY source: the ref-family entries that exist.
-        if (linqSrcFam == "ref" && listKind == null)
+        // A 0x11 VALUETYPE source (decimal/DateTime/TimeSpan/Guid/user struct)
+        // is folded into "ref" by LinqSourceFamily but is NOT a managed
+        // reference family: routing its operators through the ref kernels
+        // (il2cpp_linq_first_or_default_ref etc.) emitted an Il2CppObject*
+        // result into a value-typed temp -- the zmatrix decimal/DateTime/Guid
+        // "cannot convert Il2CppObject*/nullptr to Il2CppDecimal/Il2CppGuid"
+        // compile failures. Those operators have no value-family kernel, so
+        // they must stay LOUD (the familyAgnostic gate below rejects them)
+        // instead of silently binding the ref ABI.
+        if (linqSrcFam == "ref" && listKind == null
+            && !IsLinqValueTypeSource(genArgs, receiverType, arg0Type))
         {
             switch (name)
             {
@@ -833,15 +868,15 @@ public static partial class MethodRefResolver
             case "All":
                 return I("il2cpp::il2cpp_linq_all_i4", 2, true, false, false, TwoArg);
             case "Sum":
-                return LinqFamilyAggregate("Sum", genArgs, receiverType, arg0Type);
+                return LinqFamilyAggregate("Sum", genArgs, receiverType, arg0Type, genArgNames);
             case "Min":
-                return LinqFamilyAggregate("Min", genArgs, receiverType, arg0Type);
+                return LinqFamilyAggregate("Min", genArgs, receiverType, arg0Type, genArgNames);
             case "Max":
-                return LinqFamilyAggregate("Max", genArgs, receiverType, arg0Type);
+                return LinqFamilyAggregate("Max", genArgs, receiverType, arg0Type, genArgNames);
             case "Average":
                 // Average(int32[]) -> double (resultKind "d", linq.h). net48
                 // Enumerable.Average(this IEnumerable<int>) returns double.
-                return LinqFamilyAggregate("Average", genArgs, receiverType, arg0Type);
+                return LinqFamilyAggregate("Average", genArgs, receiverType, arg0Type, genArgNames);
             case "Where":
                 // Returns a fresh int32[] -- tracked as "System.Int32[]" so a
                 // downstream .ToArray()/.Count()/indexer resolves on the array.
@@ -1183,7 +1218,7 @@ public static partial class MethodRefResolver
                         // family -- net48 boxes them as int32-width values and
                         // the enumerator's i4 carrier unboxes them.
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
-                        0x0A => "2",                                   // int64 (boxed)
+                        0x0A or 0x0B => "2",                        // int64 / uint64 (boxed; bit-identical)
                         0x0D => "3",                                   // double (boxed)
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1", // reference
                         _ => "",
@@ -1195,7 +1230,7 @@ public static partial class MethodRefResolver
                     string ResultFamily(byte b) => b switch
                     {
                         0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
-                        0x0A => "3",
+                        0x0A or 0x0B => "3",
                         0x0D => "4",
                         0x0C => "5",
                         _ => "2",
@@ -1277,6 +1312,15 @@ public static partial class MethodRefResolver
                 // first-appearance order, DEDUPLICATED output (net48).
                 return I("il2cpp::il2cpp_linq_except_i4", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: "System.Int32[]");
+            case "Union":
+                // Union(source, second) -> il2cpp_linq_union_family (D-LINQZ-2):
+                // first's elements then second's, deduplicated by
+                // first-appearance (net48 Union = distinct concat). The int32
+                // cell code (IL2CPP_LINQ_CELL_I4 = 7) is an APPENDED literal;
+                // both array slots ride the "a" cast.
+                return I("il2cpp::il2cpp_linq_union_family", 2, true, true, false,
+                    new[] { "a", "a" }, returnTypeName: "System.Int32[]",
+                    appendLiterals: new[] { "7" });
             case "Zip":
             {
                 // Zip over an int32 ARRAY source (the common case). The unified
@@ -1584,6 +1628,20 @@ public static partial class MethodRefResolver
         return name != null && name.EndsWith("System.Decimal[]", StringComparison.Ordinal);
     }
 
+    // IsLinqValueTypeSource -- the source element is a 0x11 VALUETYPE (decimal /
+    // DateTime / TimeSpan / Guid / user struct). LinqSourceFamily folds 0x11 into
+    // "ref", but the reference-source kernels must NOT serve a value-typed
+    // element (see the ref-block guard above).
+    private static bool IsLinqValueTypeSource(byte[]? genArgs, string? receiverType, string? arg0Type)
+    {
+        if (genArgs is { Length: >= 1 }) return genArgs[0] == 0x11;
+        var name = receiverType ?? arg0Type;
+        return name != null && (name.EndsWith("System.Decimal[]", StringComparison.Ordinal)
+            || name.EndsWith("System.DateTime[]", StringComparison.Ordinal)
+            || name.EndsWith("System.TimeSpan[]", StringComparison.Ordinal)
+            || name.EndsWith("System.Guid[]", StringComparison.Ordinal));
+    }
+
     private static bool IsLinqStringSource(byte[]? genArgs, string? receiverType, string? arg0Type)
     {
         if (genArgs is { Length: >= 1 }) return genArgs[0] == 0x0E;
@@ -1644,7 +1702,7 @@ public static partial class MethodRefResolver
     // loud-p0-14-strkey-loud precedent).
     //--------------------------------------------------------------------------
     private static ResolvedMethod? LinqFamilyAggregate(string name, byte[]? genArgs,
-        string? receiverType, string? arg0Type)
+        string? receiverType, string? arg0Type, string[]? genArgNames = null)
     {
         // decimal and string are BOTH "ref" in LinqElementFamily (0x11 / 0x0E
         // fall into the default arm). The aggregate surface must tell them
@@ -1662,6 +1720,28 @@ public static partial class MethodRefResolver
         }
         if (IsLinqDecimalSource(genArgs, receiverType, arg0Type))
         {
+            // The 0x11 byte covers EVERY value type (decimal, DateTime,
+            // TimeSpan, Guid, user structs). Only a REAL System.Decimal source
+            // has the 16-byte aggregate kernel; routing DateTime/TimeSpan/Guid
+            // through il2cpp_linq_*_dec emitted an Il2CppDateTime*/Il2CppGuid*
+            // result slot into an Il2CppDecimal* parameter -- the zmatrix
+            // dt/ts/gd Min/Max compile failures. Keep those LOUD.
+            // An UNKNOWN name (the synthetic "?" the name table emits for a
+            // VALUETYPE arg with no resolvable TypeRef) keeps the historical
+            // decimal-kernel answer (MethodMapTests.Linq decimal-aggregate
+            // guard); a real assembly always resolves the name.
+            bool isDecimal = genArgs is { Length: >= 1 }
+                ? IsDecimalGenArg(genArgNames, 0)
+                    || (genArgNames is { Length: >= 1 } && genArgNames[0] == "?")
+                : (receiverType ?? arg0Type) is { } n
+                    && n.EndsWith("System.Decimal[]", StringComparison.Ordinal);
+            if (!isDecimal)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.{name} over a value-type source is not wired: the source-only " +
+                    "aggregate surface covers int32/int64/float/double/decimal only " +
+                    "(see docs/audit/b4-gaps.md)");
+            }
             // decimal: the 16-byte result slot (decimal T3 contract). The
             // kernel returns decimal for Average too (net48's overload).
             return I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_dec", 1, true, false, false,

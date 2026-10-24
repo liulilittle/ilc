@@ -1025,7 +1025,10 @@ public static class InlinePass
         Dictionary<string, string> argMap, Dictionary<string, string> locMap,
         HashSet<string> usedNames, ref int freshId)
     {
-        var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName };
+        // tuple1 (Tuple/ValueTuple): preserve the ResultKind ("vt:<name>") across
+        // the inline arg rewrite -- the emitter's ExprKind needs it to type the
+        // tuple result temp.
+        var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName, ResultKind = v.ResultKind };
         foreach (var a in v.Args) nv.Args.Add(RewriteExpr(a, argMap, locMap, usedNames, ref freshId));
         return nv;
     }

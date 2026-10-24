@@ -81,8 +81,20 @@ bool icall_object_equals(Il2CppObject* a, Il2CppObject* b);
 int32_t icall_int32_get_hash_code(int32_t value);
 int32_t icall_int64_get_hash_code(int64_t value);
 int32_t icall_double_get_hash_code(double value);
+int32_t icall_single_get_hash_code(double value);
 int32_t icall_string_get_hash_code(Il2CppObject* str);
 int32_t icall_bool_get_hash_code(bool value);
+
+// The narrow integral/char GetHashCode family (net48-exact). The value rides the
+// int32 slot (the CLR widens every narrow cell to the int32 parameter); 'kind'
+// selects the rule:
+//   0 sbyte   -> v ^ (v << 8)              (v = signed 8-bit)
+//   1 byte    -> value & 0xFF
+//   2 short   -> (ushort)v | (v << 16)     (v = signed 16-bit)
+//   3 ushort  -> value & 0xFFFF
+//   4 char    -> value | (value << 16)
+//   5 uint    -> value (the full 32-bit pattern)
+int32_t icall_narrow_get_hash_code(int32_t value, int32_t kind);
 
 //------------------------------------------------------------------------------
 // icall_value_type_get_hash_code -- the System.ValueType.GetHashCode default

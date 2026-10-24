@@ -136,6 +136,10 @@ public sealed class VirtualCallExpr : Expr
 {
     public required int MethodToken { get; init; }
     public required bool ReturnsRef { get; init; }
+    // tuple1 (Tuple): a callvirt whose resolved C++ result is a generated tuple
+    // struct ("vt:<closedName>") -- the result temp must declare as that struct,
+    // not int32_t (the arity-8 get_Rest chain). Optional.
+    public string? ResultKind { get; init; }
     // Devirt S1 (G2): the receiver's STATIC type as tracked by StackFold's
     // objTypes (newobj/box/GetType/delegate results propagated through stores).
     // Carried to the emitter so EmitVirtualCall can devirtualize a call on an
@@ -453,7 +457,7 @@ public static partial class IrNode
 
     private static VirtualCallExpr CloneVirtual(VirtualCallExpr v)
     {
-        var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName };
+        var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ResultKind = v.ResultKind, ReceiverTypeName = v.ReceiverTypeName };
         foreach (var a in v.Args) nv.Args.Add(CloneExpr(a));
         return nv;
     }

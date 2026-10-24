@@ -411,7 +411,9 @@ public static class AllocPromoPass
                 foreach (var i in c.StringArgIndices) nc.StringArgIndices.Add(i);
                 return nc;
             case VirtualCallExpr v:
-                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName };
+                // tuple1 (Tuple/ValueTuple): preserve the ResultKind ("vt:<name>")
+                // across the alias rewrite -- the emitter's ExprKind needs it.
+                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName, ResultKind = v.ResultKind };
                 foreach (var a in v.Args) nv.Args.Add(RewriteExpr(a, alias, root));
                 return nv;
             case DelegateInvokeExpr d:

@@ -13,6 +13,7 @@
 #include "arraysort.h"                // il2cpp_icomparable_compare_to (user-struct element order)
 
 #include <cstring>
+#include <unordered_map>
 
 namespace il2cpp {
 namespace runtime {
@@ -53,25 +54,65 @@ int32_t ReflectedSlot(const Il2CppClass* klass, const char* name)
     return -1;
 }
 
-// The reflected Equals(object) slot (one parameter).
-int32_t ReflectedEqualsSlot(const Il2CppClass* klass)
-{
-    if (klass == nullptr || klass->name == nullptr) return -1;
-    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(klass->name);
-    if (info == nullptr) return -1;
-    for (int32_t i = 0; i < info->methodCount; ++i)
+    // The reflected Equals(object) slot (one parameter).
+    int32_t ReflectedEqualsSlot(const Il2CppClass* klass)
     {
-        const Il2CppMethodInfo& m = info->methods[i];
-        if (m.name == nullptr || std::strcmp(m.name, "Equals") != 0) continue;
-        if (m.paramCount != 1 || m.virtualSlot < 0) continue;
-        if (klass->vtable == nullptr || m.virtualSlot >= klass->vtableSize) continue;
-        if (klass->vtable[m.virtualSlot] == nullptr) continue;
-        return m.virtualSlot;
+        if (klass == nullptr || klass->name == nullptr) return -1;
+        const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(klass->name);
+        if (info == nullptr) return -1;
+        for (int32_t i = 0; i < info->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = info->methods[i];
+            if (m.name == nullptr || std::strcmp(m.name, "Equals") != 0) continue;
+            if (m.paramCount != 1 || m.virtualSlot < 0) continue;
+            if (klass->vtable == nullptr || m.virtualSlot >= klass->vtableSize) continue;
+            if (klass->vtable[m.virtualSlot] == nullptr) continue;
+            return m.virtualSlot;
+        }
+        return -1;
     }
-    return -1;
-}
+
+    //--------------------------------------------------------------------------
+    // The CLR ValueType type ID (net48 ValueTypeHelper::GetHashCode):
+    //   hashCode = typeID * 711650207 + 2506965631U;
+    // The CLR assigns each MethodTable its typeID LAZILY, on the first
+    // ValueType.GetHashCode call for that type, from a per-AppDomain counter
+    // that starts at 3 and advances by 2 (observed: the first hashed user
+    // struct gets 3, the second 5, the third 7 -- IL-verified against net48
+    // with single-int-field structs). The runtime reproduces that exact order
+    // (the transpiled program hashes its user structs in the same order the
+    // oracle does), so the munged hash matches byte-for-byte.
+    //--------------------------------------------------------------------------
+    uint32_t UserStructTypeId(const Il2CppClass* klass)
+    {
+        static std::unordered_map<const Il2CppClass*, uint32_t> typeIds;
+        static uint32_t nextId = 3;
+        if (klass == nullptr) return 0;
+        auto it = typeIds.find(klass);
+        if (it != typeIds.end()) return it->second;
+        const uint32_t id = nextId;
+        nextId += 2;
+        typeIds.emplace(klass, id);
+        return id;
+    }
+
+    // The net48 fast path: XOR the instance bytes 32 bits at a time
+    // (FastGetValueTypeHashCodeHelper -- GetNumInstanceFieldBytes() is the
+    // struct's C++ size for a translated user value type).
+    int32_t FastUserStructHash(const Il2CppClass* klass, const void* valueAddr)
+    {
+        if (klass == nullptr || valueAddr == nullptr) return 0;
+        const int32_t size = klass->instanceSize;
+        if (size <= 0) return 0;
+        const int32_t* words = reinterpret_cast<const int32_t*>(valueAddr);
+        int32_t acc = 0;
+        for (int32_t i = 0; i < size / static_cast<int32_t>(sizeof(int32_t)); ++i)
+            acc ^= words[i];
+        return acc;
+    }
 
 } // namespace
+
 
 //------------------------------------------------------------------------------
 // il2cpp_tuple_double_bits -- the 64-bit pattern of a double.
@@ -149,6 +190,18 @@ int32_t il2cpp_tuple_combine_hash(int32_t h, int32_t elementHash)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_tuple_ref_combine_hash -- System.Tuple`N (REFERENCE) hash step:
+//   h = unchecked(((h << 5) + h) ^ elementHash)
+// (System.Tuple.CombineHashCodes -- a plain shift, not the rotate-left-5 the
+// ValueTuple uses). The uint32 arithmetic keeps the overflow defined.
+//------------------------------------------------------------------------------
+int32_t il2cpp_tuple_ref_combine_hash(int32_t h, int32_t elementHash)
+{
+    const uint32_t uh = static_cast<uint32_t>(h);
+    return static_cast<int32_t>((uh << 5) + uh) ^ elementHash;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_tuple_element_hash -- one element's net48 hash.
 //------------------------------------------------------------------------------
 int32_t il2cpp_tuple_element_hash(char kind, int64_t bits, Il2CppObject* obj)
@@ -218,10 +271,12 @@ Il2CppObject* il2cpp_tuple_user_struct_to_string(Il2CppClass* klass, const void*
 
 //------------------------------------------------------------------------------
 // il2cpp_tuple_user_struct_hash -- a translated USER struct element's hash.
-// The type's own reflected GetHashCode override when it has one; otherwise a
-// deterministic field-image hash (net48's ValueType.GetHashCode is a
-// CLR-internal MethodTable function that no AOT runtime can reproduce -- see
-// the header note).
+// The type's own reflected GetHashCode override when it has one; otherwise the
+// net48 CLR ValueType.GetHashCode default:
+//   hashCode = typeID * 711650207 + 2506965631U;
+//   hashCode ^= FastGetValueTypeHashCodeHelper(...);   // XOR of int32 words
+// (see UserStructTypeId / FastUserStructHash above; IL-verified against net48
+// -- the struct's own C++ instance size is GetNumInstanceFieldBytes).
 //------------------------------------------------------------------------------
 int32_t il2cpp_tuple_user_struct_hash(Il2CppClass* klass, const void* valueAddr)
 {
@@ -234,16 +289,13 @@ int32_t il2cpp_tuple_user_struct_hash(Il2CppClass* klass, const void* valueAddr)
             return reinterpret_cast<GetHashCodeFn>(klass->vtable[slot])(valueAddr);
         }
     }
-    // No override: hash the raw value image (a stable, deterministic fallback).
-    const int32_t size = klass != nullptr ? klass->instanceSize - kTupleBoxPayloadOffset : 0;
-    if (valueAddr == nullptr || size <= 0) return 0;
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(valueAddr);
-    uint32_t acc = 0;
-    for (int32_t i = 0; i < size; ++i)
-    {
-        acc = (acc << 5) + acc + bytes[i];
-    }
-    return static_cast<int32_t>(acc);
+    // No override: the net48 ValueType.GetHashCode default. A null klass (an
+    // untracked element) yields 0, matching the historical fallback.
+    if (klass == nullptr) return 0;
+    const uint32_t typeID = UserStructTypeId(klass);
+    int32_t h = static_cast<int32_t>(typeID * 711650207u + 2506965631u);
+    h ^= FastUserStructHash(klass, valueAddr);
+    return h;
 }
 
 //------------------------------------------------------------------------------

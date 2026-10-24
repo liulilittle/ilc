@@ -71,6 +71,16 @@ Il2CppString* il2cpp_tuple_ref_to_string(Il2CppObject* obj);
 int32_t il2cpp_tuple_combine_hash(int32_t h, int32_t elementHash);
 
 //------------------------------------------------------------------------------
+// il2cpp_tuple_ref_combine_hash -- System.Tuple`N (REFERENCE) hash step:
+//   h = unchecked(((h << 5) + h) ^ elementHash)
+// (System.Tuple.CombineHashCodes). The value-type ValueTuple above uses a
+// rotate-left-5 (HashHelpers.Combine); the reference Tuple uses a plain shift
+// and combines its elements as a TREE (CombineHashCodes(h1..h4) paired with
+// CombineHashCodes(h5..h8)), not the left fold the ValueTuple uses.
+//------------------------------------------------------------------------------
+int32_t il2cpp_tuple_ref_combine_hash(int32_t h, int32_t elementHash);
+
+//------------------------------------------------------------------------------
 // il2cpp_tuple_element_hash -- the net48 hash of ONE tuple element.
 //
 //   Same (kind, bits, obj) contract as il2cpp_tuple_element_to_string; a null

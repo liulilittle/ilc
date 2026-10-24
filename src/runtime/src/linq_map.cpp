@@ -269,6 +269,10 @@ typedef Il2CppObject* (*SelI4RefFn)(int32_t);
 typedef Il2CppObject* (*SelI4RefThisFn)(Il2CppObject*, int32_t);
 typedef Il2CppObject* (*SelRefRefFn)(Il2CppObject*);
 typedef Il2CppObject* (*SelRefRefThisFn)(Il2CppObject*, Il2CppObject*);
+// The reference-source, int32-RESULT selector ABI (Func<string,char> /
+// Func<string,int32> -- the selector returns a char/int32 in the int32 slot).
+typedef int32_t       (*SelRefI4Fn)(Il2CppObject*);
+typedef int32_t       (*SelRefI4ThisFn)(Il2CppObject*, Il2CppObject*);
 
 // Per-binding dispatch: an instance-bound leaf (target != null) receives its
 // target in the `this` slot, a static leaf the plain family signature. The
@@ -308,6 +312,13 @@ Il2CppObject* InvokeSelRefRef(Il2CppDelegate* d, Il2CppObject* o)
     return d->target != nullptr
         ? reinterpret_cast<SelRefRefThisFn>(d->methodPtr)(d->target, o)
         : reinterpret_cast<SelRefRefFn>(d->methodPtr)(o);
+}
+
+int32_t InvokeSelRefI4(Il2CppDelegate* d, Il2CppObject* o)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefI4ThisFn>(d->methodPtr)(d->target, o)
+        : reinterpret_cast<SelRefI4Fn>(d->methodPtr)(o);
 }
 
 // p0grp: the DECIMAL-source KEY-SELECTOR ABI (Func<System.Decimal,int32>).
@@ -3179,6 +3190,56 @@ int32_t il2cpp_linq_max_sel_i4(Il2CppArray* src, Il2CppObject* sel)
 {
     RequireArray(src);
     return il2cpp_linq_max_i4(il2cpp_linq_select_i4_i4(src, sel));
+}
+
+//------------------------------------------------------------------------------
+// loud-p0-probe: the reference-source, int32-RESULT selector aggregates
+// (Enumerable.Max/Min<TSource,TResult> over string[]/object[] with a
+// Func<TSource,char/int32> selector). The selector result rides the int32
+// slot, so the kernel projects inline and takes the max/min with
+// Comparer<int32>.Default (ordinal) -- net48's Max<TSource,TResult> uses
+// Comparer<TResult>.Default, which for char/int32 is ordinal.
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_max_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int32_t best = InvokeSelRefI4(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int32_t v = InvokeSelRefI4(d, RefAt(src, i));
+        if (v > best) best = v;
+    }
+    return best;
+}
+
+int32_t il2cpp_linq_min_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int32_t best = InvokeSelRefI4(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int32_t v = InvokeSelRefI4(d, RefAt(src, i));
+        if (v < best) best = v;
+    }
+    return best;
 }
 
 double il2cpp_linq_average_sel_i4(Il2CppArray* src, Il2CppObject* sel)

@@ -585,7 +585,11 @@ public static class DcePass
                 foreach (var i in c.StringArgIndices) nc.StringArgIndices.Add(i);
                 return nc;
             case VirtualCallExpr v:
-                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName };
+                // tuple1 (Tuple/ValueTuple): carry the ResultKind ("vt:<name>"
+                // for the arity-8 get_Rest callvirt) across the temp-rewrite --
+                // dropping it here made the emitter declare the tuple result
+                // int32_t (vtcreate1 build errors).
+                var nv = new VirtualCallExpr { MethodToken = v.MethodToken, ReturnsRef = v.ReturnsRef, ReceiverTypeName = v.ReceiverTypeName, ResultKind = v.ResultKind };
                 foreach (var a in v.Args) nv.Args.Add(ReplaceLoc(a, name, value));
                 return nv;
             case DelegateInvokeExpr d:

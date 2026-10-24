@@ -140,6 +140,11 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_char_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:u2" : "unbox:c" });
+                // zmatrix: Char.GetHashCode had no arm (the narrow hash family is
+                // icall_narrow_get_hash_code kind 4).
+                if (name == "GetHashCode" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_narrow_get_hash_code", 1, true, false, true,
+                        new[] { receiverIsAddress ? "deref:u2" : "unbox:c" }, appendLiterals: new[] { "4" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -191,6 +196,15 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_single_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:sf" : "unbox:d" });
+                // zmatrix: Single.GetHashCode had NO arm here (Int32/Int64/Double
+                // have one), so `a.First().GetHashCode()` on a float[] fell to the
+                // generated-name path and emitted a call to a nonexistent
+                // System_Single_GetHashCode_<hash> symbol -- a C++ compile failure.
+                // net48 Single.GetHashCode is the 32-bit float pattern (0 for +-0);
+                // the value rides the double carrier.
+                if (name == "GetHashCode" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_single_get_hash_code", 0, true, false, true,
+                        new[] { receiverIsAddress ? "deref:sf" : "unbox:d" });
                 // float.Parse(string): the value rides a double slot and the
                 // float domain is a subset of double -- the double parser is
                 // exact for every float-representable text.
@@ -232,6 +246,11 @@ public static partial class MethodRefResolver
                 // sig=[0 2 2 14 16 5]); 0x01 is VOID, never the element.
                 if (name == "TryParse" && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x05)
                     return I("il2cpp::runtime::icall_try_parse_byte", 2, true, false, false, new[] { "", "addr:i" });
+                // zmatrix: Byte.GetHashCode had no arm (the narrow hash family is
+                // icall_narrow_get_hash_code kind 1).
+                if (name == "GetHashCode" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_narrow_get_hash_code", 1, true, false, true,
+                        new[] { receiverIsAddress ? "deref:u1" : "unbox:i" }, appendLiterals: new[] { "1" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -262,6 +281,9 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_int32_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:i1" : "unbox:i" });
+                if (name == "GetHashCode" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_narrow_get_hash_code", 1, true, false, true,
+                        new[] { receiverIsAddress ? "deref:i1" : "unbox:i" }, appendLiterals: new[] { "0" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -286,6 +308,9 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_int32_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:i2" : "unbox:i" });
+                if (name == "GetHashCode" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_narrow_get_hash_code", 1, true, false, true,
+                        new[] { receiverIsAddress ? "deref:i2" : "unbox:i" }, appendLiterals: new[] { "2" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -310,6 +335,9 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_int32_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:u2" : "unbox:i" });
+                if (name == "GetHashCode" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_narrow_get_hash_code", 1, true, false, true,
+                        new[] { receiverIsAddress ? "deref:u2" : "unbox:i" }, appendLiterals: new[] { "3" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -335,6 +363,9 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_uint32_to_string", 0, true, true, true,
                         new[] { receiverIsAddress ? "deref:ui" : "unbox:ui" });
+                if (name == "GetHashCode" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_narrow_get_hash_code", 1, true, false, true,
+                        new[] { receiverIsAddress ? "deref:ui" : "unbox:ui" }, appendLiterals: new[] { "5" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {
@@ -356,6 +387,12 @@ public static partial class MethodRefResolver
                 // range (>= INT64_MAX) needs the unsigned icall's digit loop.
                 if (name == "ToString" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_uint64_to_string", 0, true, true, true,
+                        new[] { receiverIsAddress ? "deref:ul" : "unbox:ul" });
+                // UInt64.GetHashCode == low32 ^ high32, the SAME rule as
+                // Int64.GetHashCode (the bit pattern is width-identical), so the
+                // int64 hash icall serves it (zmatrix ul family).
+                if (name == "GetHashCode" && ps.Length == 0)
+                    return I("il2cpp::runtime::icall_int64_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:ul" : "unbox:ul" });
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
