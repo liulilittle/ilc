@@ -22,7 +22,14 @@ public static partial class MethodRefResolver
                 // double fallback cast the decimal slot to double (C2664).
                 if (ps.Length == 1 && IsMathDecimalParam(ps, 0, arg0Type))
                     return I("il2cpp::runtime::icall_decimal_abs", 1, true, false, false, new[] { "dec" }, "dec");
-                return ps.Length == 1 && ps[0] == 0x08 ? I("il2cpp::runtime::icall_math_abs_i", 1, true, false, false)
+                // mathabs1: the sbyte/short overloads sign-extend to int32 and
+                // return the int32 magnitude (the call-site consumer narrows);
+                // their minimum values throw OverflowException. The old
+                // default routed them to the double icall, which reinterpreted
+                // the int32 slot as a double (Abs((sbyte)-127) == 0).
+                return ps.Length == 1 && ps[0] == 0x04 ? I("il2cpp::runtime::icall_math_abs_sb", 1, true, false, false)
+                    : ps[0] == 0x06 ? I("il2cpp::runtime::icall_math_abs_sh", 1, true, false, false)
+                    : ps[0] == 0x08 ? I("il2cpp::runtime::icall_math_abs_i", 1, true, false, false)
                     : ps[0] == 0x0A ? I("il2cpp::runtime::icall_math_abs_l", 1, true, false, false, null, "l")
                     : I("il2cpp::runtime::icall_math_abs_d", 1, true, false, false, null, "d");
             case "Max":
@@ -32,10 +39,19 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && IsMathDecimalParam(ps, 0, arg0Type) && IsMathDecimalParam(ps, 1, arg1Type))
                     return I($"il2cpp::runtime::icall_decimal_{stem}", 2, true, false, false,
                         new[] { "dec", "dec" }, "dec");
+                // mathminmax1: every integer overload (sbyte/byte/short/
+                // ushort/int/long/uint/ulong) used to fall to the double icall,
+                // which reinterpreted the int32/int64 slot (Max(byte) == 0).
+                // Signed and small unsigned types compare in the int32/int64
+                // carriers; uint/ulong need the UNSIGNED compare icalls.
+                // Float/double keep the double icall (float-in-double model).
                 return ps[0] switch
                 {
-                    0x08 => I($"il2cpp::runtime::icall_math_{stem}_i", 2, true, false, false),
+                    0x04 or 0x05 or 0x06 or 0x07 or 0x08
+                        => I($"il2cpp::runtime::icall_math_{stem}_i", 2, true, false, false),
+                    0x09 => I($"il2cpp::runtime::icall_math_{stem}_u", 2, true, false, false),
                     0x0A => I($"il2cpp::runtime::icall_math_{stem}_l", 2, true, false, false, null, "l"),
+                    0x0B => I($"il2cpp::runtime::icall_math_{stem}_ul", 2, true, false, false, null, "l"),
                     _ => I($"il2cpp::runtime::icall_math_{stem}_d", 2, true, false, false, null, "d"),
                 };
             }
@@ -44,12 +60,16 @@ public static partial class MethodRefResolver
                 // address arg; the result rides the plain int32 slot).
                 if (ps.Length == 1 && IsMathDecimalParam(ps, 0, arg0Type))
                     return I("il2cpp::runtime::icall_decimal_sign", 1, true, false, false, new[] { "dec" });
-                return ps[0] == 0x08
+                // sbyte/short sign-extend into the int32 slot; int32 is the
+                // native form. (The old route sent the small types through
+                // sign_l, which happened to work but widened the carrier.)
+                return (ps[0] == 0x04 || ps[0] == 0x05 || ps[0] == 0x06 || ps[0] == 0x07 || ps[0] == 0x08)
                     ? I("il2cpp::runtime::icall_math_sign_i", 1, true, false, false)
                     // net9/10 E2E campaign (math sweep): R4/R8 must test the
                     // FRACTION's sign -- sign_l truncated first (Sign(-0.5)
                     // wrongly 0). icall_math_sign_d takes the double slot
-                    // (float-in-double model) and returns int32.
+                    // (float-in-double model) and returns int32; net48 throws
+                    // ArithmeticException for NaN (mathminmax1).
                     : (ps[0] == 0x0D || ps[0] == 0x0C)
                     ? I("il2cpp::runtime::icall_math_sign_d", 1, true, false, false, new[] { "d" })
                     : I("il2cpp::runtime::icall_math_sign_l", 1, true, false, false, null, "l");

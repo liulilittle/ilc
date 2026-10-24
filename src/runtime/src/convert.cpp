@@ -489,6 +489,15 @@ int32_t icall_convert_to_int32_bool(int32_t value)
     return value != 0 ? 1 : 0;
 }
 
+int32_t icall_iconvertible_to_int32(int32_t value)
+{
+    // System.IConvertible::ToInt32 on a boxed Int32 receiver: net48's
+    // Int32.ToInt32(IFormatProvider) returns this value unchanged (the
+    // provider is ignored). The transpiler unboxes the receiver before this
+    // call (convic1).
+    return value;
+}
+
 //------------------------------------------------------------------------------
 // ToString family: delegate to the format.cpp formatting icalls.
 //------------------------------------------------------------------------------

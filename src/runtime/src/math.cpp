@@ -4,6 +4,11 @@
 #include "il2cpp_math_c99.h" // GCC 8.1 libstdc++ C99-math <cmath> shim
 
 #include <cmath>
+#include <cstring>
+
+#if defined(_WIN32)
+#include <windows.h> // GetProcAddress / LoadLibraryA (the real CRT pow)
+#endif
 
 namespace il2cpp { namespace runtime {
 
@@ -103,6 +108,36 @@ int64_t icall_math_min_l(int64_t a, int64_t b)
 }
 
 //------------------------------------------------------------------------------
+// Math.Max / Math.Min (uint / ulong).
+//
+// The transpiler carries uint32 in an int32 slot and uint64 in an int64 slot
+// (the M4 ABI), so the icalls take the SIGNED carrier and compare the
+// UNSIGNED reinterpretation. The result is returned in the same carrier; the
+// call-site consumer applies the unsigned interpretation (the same pattern as
+// icall_unbox_uint / icall_unbox_ulong). net48: Max(0u, uint.MaxValue) ==
+// uint.MaxValue (a signed compare would return 0).
+//------------------------------------------------------------------------------
+int32_t icall_math_max_u(int32_t a, int32_t b)
+{
+    return (static_cast<uint32_t>(a) >= static_cast<uint32_t>(b)) ? a : b;
+}
+
+int32_t icall_math_min_u(int32_t a, int32_t b)
+{
+    return (static_cast<uint32_t>(a) <= static_cast<uint32_t>(b)) ? a : b;
+}
+
+int64_t icall_math_max_ul(int64_t a, int64_t b)
+{
+    return (static_cast<uint64_t>(a) >= static_cast<uint64_t>(b)) ? a : b;
+}
+
+int64_t icall_math_min_ul(int64_t a, int64_t b)
+{
+    return (static_cast<uint64_t>(a) <= static_cast<uint64_t>(b)) ? a : b;
+}
+
+//------------------------------------------------------------------------------
 // Math.Sign(int32) / Math.Sign(int64).
 //
 // .NET contract: -1 for negatives, 1 for positives, 0 for zero. NEVER throws
@@ -119,13 +154,32 @@ int32_t icall_math_sign_l(int64_t value)
     return (value < 0) ? -1 : (value > 0) ? 1 : 0;
 }
 
-// net9/10 E2E campaign (math sweep): Math.Sign(double/float) -- the old
-// mapping routed R4/R8 to sign_l, TRUNCATING the fraction before the sign
-// test (Sign(-0.5) wrongly returned 0). IEEE NaN -> 0 is unreachable here
-// (NaN comparisons are false both ways -> 0), matching .NET's Sign(NaN)==0.
+// Math.Sign(double/float): the old mapping routed R4/R8 to sign_l,
+// TRUNCATING the fraction before the sign test (Sign(-0.5) wrongly 0). The
+// net48 Reference Source is:
+//   if (value < 0) return -1;
+//   if (value > 0) return 1;
+//   if (value == 0) return 0;      // signed zeros both compare equal
+//   throw new ArithmeticException("Function does not accept floating point
+//                                 Not-a-Number values.");
+// (mathminmax1 oracle: Sign(double.NaN)/Sign(float.NaN) throw
+// ArithmeticException; the message matches the MathF.Sign icall.)
 int32_t icall_math_sign_d(double value)
 {
-    return (value < 0.0) ? -1 : (value > 0.0) ? 1 : 0;
+    if (value < 0.0)
+    {
+        return -1;
+    }
+    if (value > 0.0)
+    {
+        return 1;
+    }
+    if (value == 0.0)
+    {
+        return 0;
+    }
+    il2cpp_throw_new("System.ArithmeticException,System.ArithmeticException,System.SystemException,System.Exception",
+                     "Function does not accept floating point Not-a-Number values.");
 }
 
 //------------------------------------------------------------------------------
@@ -188,22 +242,122 @@ double icall_math_sqrt_d(double value)
     return std::sqrt(value);
 }
 
-double icall_math_pow_d(double x, double y)
+//------------------------------------------------------------------------------
+// Math.Pow -- the net48 Reference Source contract on top of the Windows CRT
+// pow.
+//
+// The net48 check order (mathfunc1 oracle):
+//   if (IsNaN(x) || IsNaN(y)) return NaN;   // BEFORE the y==0 / x==1 exits:
+//                                           // Pow(NaN,0) and Pow(1,NaN) are
+//                                           // NaN, unlike IEEE pow
+//   if (y == 0) return 1;
+//   if (x == 1) return 1;
+//   if (x == -1 && IsInfinity(y)) return NaN;
+//   return CRT pow(x, y);
+//
+// The CRT pow is NOT std::pow on MinGW: libmsvcrt.a ships an exp/log
+// emulation that differs by 1 ulp from the real msvcrt.dll pow on oracle
+// probes (pow(10,23) ...671 vs ...670; pow(1.5,1000) ...457 vs ...456).
+// Resolve the exported msvcrt.dll pow at first use on MinGW. MSVC's
+// std::pow already IS the UCRT pow; non-Windows builds keep std::pow.
+//------------------------------------------------------------------------------
+#if defined(_WIN32) && defined(__GNUC__)
+typedef double (*MsvcrtPowFn)(double, double);
+
+static MsvcrtPowFn ResolveMsvcrtPow()
 {
+    static MsvcrtPowFn fn = nullptr;
+    static bool resolved = false;
+    if (!resolved)
+    {
+        HMODULE module = ::LoadLibraryA("msvcrt.dll");
+        if (module != nullptr)
+        {
+            FARPROC proc = ::GetProcAddress(module, "pow");
+            // FARPROC -> typed function pointer: a direct cast trips
+            // -Wcast-function-type on GCC, so copy the representation
+            // (both are function pointers of identical size on Win32/x64).
+            static_assert(sizeof(fn) == sizeof(proc), "function pointer size mismatch");
+            std::memcpy(&fn, &proc, sizeof(fn));
+        }
+        resolved = true;
+    }
+    return fn;
+}
+#endif
+
+static double PlatformPow(double x, double y)
+{
+#if defined(_WIN32) && defined(__GNUC__)
+    MsvcrtPowFn fn = ResolveMsvcrtPow();
+    if (fn != nullptr)
+    {
+        return fn(x, y);
+    }
+#endif
     return std::pow(x, y);
 }
 
+// The net48 negative quiet NaN (the same bit pattern NormalizeNaN in
+// mathext.cpp produces; math.cpp does not include that TU's helper).
+static double MathNegativeNaN()
+{
+    const uint64_t kNetNaN = 0xFFF8000000000000ULL;
+    double result;
+    std::memcpy(&result, &kNetNaN, sizeof(result));
+    return result;
+}
+
+double icall_math_pow_d(double x, double y)
+{
+    if (std::isnan(x) || std::isnan(y))
+    {
+        return MathNegativeNaN();
+    }
+    if (y == 0.0)
+    {
+        return 1.0;
+    }
+    if (x == 1.0)
+    {
+        return 1.0;
+    }
+    if (x == -1.0 && std::isinf(y))
+    {
+        return MathNegativeNaN();
+    }
+    return PlatformPow(x, y);
+}
+
 //------------------------------------------------------------------------------
-// Math.Floor / Math.Ceiling: direct libm delegation (std::floor / std::ceil).
+// Math.Floor: direct libm delegation (std::floor).
 //------------------------------------------------------------------------------
 double icall_math_floor_d(double value)
 {
     return std::floor(value);
 }
 
+//------------------------------------------------------------------------------
+// Math.Ceiling: the net48 Reference Source form
+//
+//   double temp = Math.Floor(value);
+//   if (temp != value) temp += 1.0;
+//   return temp;
+//
+// NOT std::ceil: for a negative input that rounds up to zero std::ceil returns
+// -0.0, while net48's floor+increment produces +0.0 (mathfunc1 ceil_3:
+// Ceiling(-0.5) is +0.0). An INTEGRAL input (including -0.0) passes through
+// unchanged, so Ceiling(-0.0) stays -0.0. NaN: floor(NaN)=NaN, NaN != NaN ->
+// NaN+1 = NaN. Infinities: floor(inf)==inf -> passthrough.
+//------------------------------------------------------------------------------
 double icall_math_ceiling_d(double value)
 {
-    return std::ceil(value);
+    const double floored = std::floor(value);
+    if (floored != value)
+    {
+        return floored + 1.0;
+    }
+    return floored;
 }
 
 //------------------------------------------------------------------------------
@@ -260,27 +414,44 @@ double icall_math_abs_d(double value)
 }
 
 //------------------------------------------------------------------------------
-// Math.Max / Math.Min (double) -- net48 comparison contract:
+// Math.Max / Math.Min (double) -- the net48 Reference Source contract:
 //
-//   Max(a,b) = (a >= b) ? a : b      Min(a,b) = (a <= b) ? a : b
+//   Max(a,b) { if (a > b) return a; if (IsNaN(a)) return a; return b; }
+//   Min(a,b) { if (a < b) return a; if (IsNaN(a)) return a; return b; }
 //
-// A NaN operand makes the comparison false, so NaN LOSES to any comparable
-// operand: Max(NaN, 5) = 5 and Max(5, NaN) = NaN (the NaN loses when it is
-// the first operand, wins when it is the second -- same for Min). This is
-// .NET Framework 4.8 behaviour; .NET Core 3+ changed to IEEE-754-2019
-// NaN-propagation (Max(NaN, x) = NaN), which we deliberately do NOT follow
-// because the project's reference baseline is net48. Note -0.0 == +0.0, so
-// ties involving signed zeros follow the first-operand rule (Max(-0.0, 0.0)
-// = -0.0, Min(-0.0, 0.0) = -0.0, Min(0.0, -0.0) = 0.0).
+// The old (a >= b) ? a : b form returned the FIRST operand on a tie, so
+// Max(-0.0,+0.0) was -0.0 and Min(+0.0,-0.0) was +0.0 -- the mathminmax1
+// oracle shows net48 returns the SECOND operand on ties (+0.0 / -0.0
+// respectively). A NaN FIRST operand is returned explicitly (Max(NaN,5) ==
+// NaN); a NaN second operand still wins through the fallthrough (Max(5,NaN)
+// == NaN). This is .NET Framework 4.8 behaviour; .NET Core 3+ changed to
+// IEEE-754-2019 NaN-propagation, which we deliberately do NOT follow because
+// the project's reference baseline is net48.
 //------------------------------------------------------------------------------
 double icall_math_max_d(double a, double b)
 {
-    return (a >= b) ? a : b;
+    if (a > b)
+    {
+        return a;
+    }
+    if (a != a) // NaN first operand: net48 returns it
+    {
+        return a;
+    }
+    return b;
 }
 
 double icall_math_min_d(double a, double b)
 {
-    return (a <= b) ? a : b;
+    if (a < b)
+    {
+        return a;
+    }
+    if (a != a) // NaN first operand: net48 returns it
+    {
+        return a;
+    }
+    return b;
 }
 
 //------------------------------------------------------------------------------

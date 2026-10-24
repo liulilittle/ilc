@@ -169,6 +169,14 @@ void ExpectNear(double actual, double expected, const char* what)
     }
 }
 
+// Exact IEEE-754 bit pattern of a double (bit-level oracle assertions).
+uint64_t DoubleBits(double v)
+{
+    uint64_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(bits));
+    return bits;
+}
+
 } // namespace
 
 int main()
@@ -215,6 +223,29 @@ int main()
     Expect(cosInf != cosInf, "cos(+inf) is NaN");
     const double tanInf = icall_math_tan_d(INFINITY);
     Expect(tanInf != tanInf, "tan(+inf) is NaN");
+    // net48 delegates Sin/Cos/Tan to the x87 fsin/fcos/fptan instructions
+    // (verified: the mathfunc1 oracle matches the instruction results bit for
+    // bit, NOT the UCRT/glibc libm). The x87 reduction returns its input
+    // unchanged for |x| >= 2^63 and fptan returns NaN there. Assert the
+    // oracle-pinned patterns on the x86 GCC builds that carry the asm path.
+#if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+    Expect(DoubleBits(icall_math_sin_d(1e300)) == 0x7E37E43C8800759CULL,
+           "sin(1e300) matches net48 x87 fsin");
+    Expect(DoubleBits(icall_math_cos_d(1e300)) == 0x7E37E43C8800759CULL,
+           "cos(1e300) matches net48 x87 fcos");
+    Expect(DoubleBits(icall_math_sin_d(1.7976931348623157e308)) == 0x7FEFFFFFFFFFFFFFULL,
+           "sin(double.MaxValue) matches net48 x87 fsin (returns the input)");
+    Expect(DoubleBits(icall_math_sin_d(-1.7976931348623157e308)) == 0xFFEFFFFFFFFFFFFFULL,
+           "sin(double.MinValue) matches net48 x87 fsin (returns the input)");
+    Expect(DoubleBits(icall_math_tan_d(1e10)) == 0xBFE1DE000F41ED21ULL,
+           "tan(1e10) matches net48 x87 fptan");
+    Expect(DoubleBits(icall_math_tan_d(100.0)) == 0xBFE2CA74D62B5D38ULL,
+           "tan(100) matches net48 x87 fptan");
+    Expect(DoubleBits(icall_math_tan_d(kPi)) == 0xBCA1A60000000000ULL,
+           "tan(pi) matches net48 x87 fptan");
+    Expect(DoubleBits(icall_math_tan_d(1.7976931348623157e308)) == 0xFFF8000000000000ULL,
+           "tan(double.MaxValue) is the net48 x87 NaN");
+#endif
 
     // --- 2. Asin / Acos / Atan: lattice values + domain errors -> NaN. ---
     Expect(icall_math_asin_d(1.0) == kPiHalf, "asin(1) == pi/2");
@@ -242,6 +273,22 @@ int main()
            "atan2(-0,1) == -0.0 (sign bit set)");
     Expect(std::signbit(icall_math_atan2_d(-0.0, -1.0)),
            "atan2(-0,-1) == -pi (sign bit set)");
+    // net48 returns NaN when BOTH operands are infinite (mathfunc1 oracle:
+    // atan2(+inf,+inf), atan2(+inf,-inf), atan2(-inf,+inf) and
+    // atan2(-inf,-inf) are all the negative quiet NaN). One infinite operand
+    // with a finite other still follows the IEEE quadrants (verified above).
+    const double atan2InfInf = icall_math_atan2_d(INFINITY, INFINITY);
+    Expect(atan2InfInf != atan2InfInf, "atan2(+inf,+inf) is NaN (net48)");
+    Expect(DoubleBits(atan2InfInf) == 0xFFF8000000000000ULL,
+           "atan2(+inf,+inf) is the net48 negative NaN");
+    const double atan2InfNegInf = icall_math_atan2_d(INFINITY, -INFINITY);
+    Expect(atan2InfNegInf != atan2InfNegInf, "atan2(+inf,-inf) is NaN (net48)");
+    const double atan2NegInfInf = icall_math_atan2_d(-INFINITY, INFINITY);
+    Expect(atan2NegInfInf != atan2NegInfInf, "atan2(-inf,+inf) is NaN (net48)");
+    const double atan2NegInfNegInf = icall_math_atan2_d(-INFINITY, -INFINITY);
+    Expect(atan2NegInfNegInf != atan2NegInfNegInf, "atan2(-inf,-inf) is NaN (net48)");
+    Expect(icall_math_atan2_d(INFINITY, 7.0) == kPiHalf,
+           "atan2(+inf,7) == pi/2 (finite other operand keeps the quadrant)");
 
     // --- 4. Exp: exact values, overflow -> +inf, underflow -> 0. ---
     Expect(icall_math_exp_d(0.0) == 1.0, "exp(0) == 1");
@@ -263,6 +310,15 @@ int main()
     Expect(logNeg != logNeg, "log(-1) is NaN (net48: no exception)");
     const double logNaN = icall_math_log_d(std::nan(""));
     Expect(logNaN != logNaN, "log(NaN) is NaN");
+    // net48's log domain errors carry the NEGATIVE quiet NaN bit pattern
+    // (0xFFF8000000000000); glibc's std::log(-x) produces the positive one,
+    // so the icall normalizes it (mathfunc1 log_3/log_5/log_12/log_23/log_25).
+    Expect(DoubleBits(logNeg) == 0xFFF8000000000000ULL,
+           "log(-1) is the net48 negative NaN");
+    Expect(DoubleBits(icall_math_log_d(-0.5)) == 0xFFF8000000000000ULL,
+           "log(-0.5) is the net48 negative NaN");
+    Expect(DoubleBits(icall_math_log_d(-INFINITY)) == 0xFFF8000000000000ULL,
+           "log(-inf) is the net48 negative NaN");
 
     // --- 6. Log10: exact values, Log10(0) == -inf, Log10(-1) == NaN. ---
     Expect(icall_math_log10_d(100.0) == 2.0, "log10(100) == 2");

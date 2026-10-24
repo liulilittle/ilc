@@ -37,15 +37,20 @@
 
 namespace il2cpp { namespace runtime {
 
-// Math.Sin(double): std::sin. Sin(0) == 0, Sin(pi/2) == 1;
-// Sin(+-inf) -> NaN (net48: no exception).
+// Math.Sin(double): the net48 x87 fsin instruction on x86 GCC builds (the
+// mathfunc1 oracle matches fsin bit for bit; libm does not). Sin(0) == 0,
+// Sin(pi/2) == 1; Sin(+-inf) -> NaN. For |x| >= 2^63 fsin returns the INPUT
+// unchanged (net48: Sin(double.MaxValue) == double.MaxValue). Non-x86
+// compilers fall back to std::sin (documented platform divergence).
 double icall_math_sin_d(double value);
 
-// Math.Cos(double): std::cos. Cos(0) == 1, Cos(pi) == -1;
+// Math.Cos(double): the net48 x87 fcos instruction (same out-of-range
+// input-passthrough rule as Sin). Cos(0) == 1, Cos(pi) == -1;
 // Cos(+-inf) -> NaN.
 double icall_math_cos_d(double value);
 
-// Math.Tan(double): std::tan. Tan(0) == 0; Tan(+-inf) -> NaN.
+// Math.Tan(double): the net48 x87 fptan instruction (out-of-range inputs ->
+// NaN, unlike Sin/Cos). Tan(0) == 0; Tan(+-inf) -> NaN.
 double icall_math_tan_d(double value);
 
 // Math.Asin(double): std::asin. Asin(1) == pi/2; |value| > 1 -> NaN
@@ -60,7 +65,9 @@ double icall_math_atan_d(double value);
 
 // Math.Atan2(double y, double x): std::atan2(y, x) -- argument order y first,
 // matching the .NET signature. IEEE-754 signed-zero handling
-// (Atan2(-0.0, -1) == -pi, Atan2(-0.0, 1) == -0.0).
+// (Atan2(-0.0, -1) == -pi, Atan2(-0.0, 1) == -0.0). net48 returns NaN when
+// BOTH operands are infinite (Atan2(+inf,+inf) etc.); one infinite operand
+// with a finite other keeps the normal quadrant result.
 double icall_math_atan2_d(double y, double x);
 
 // Math.Exp(double): std::exp. Exp(0) == 1, Exp(1) == e; overflow -> +inf,
@@ -68,7 +75,9 @@ double icall_math_atan2_d(double y, double x);
 double icall_math_exp_d(double value);
 
 // Math.Log(double) natural logarithm: std::log. Log(1) == 0, Log(e) == 1;
-// Log(0) == -inf, Log(<0) -> NaN (net48: no exception).
+// Log(0) == -inf, Log(<0) -> NaN (net48: no exception). Every NaN result is
+// normalized to the net48 negative quiet NaN (glibc's domain-error NaN is
+// positive).
 double icall_math_log_d(double value);
 
 // Math.Log10(double): std::log10. Log10(100) == 2; Log10(0) == -inf,

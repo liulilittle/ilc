@@ -239,6 +239,15 @@ public static partial class MethodRefResolver
                 if (name == "ToString" && count == 1 && IsPrimitiveToStringReceiver(receiverType))
                     return I("il2cpp::runtime::icall_object_to_string", 1, true, true, true,
                         new[] { "", "drop" });
+                // convic1: ((IConvertible)boxedInt32).ToInt32(provider). The
+                // receiver is the boxed Int32 (receiverType tracks the box
+                // source); unbox it at the call site and apply the net48
+                // identity. The IFormatProvider argument is ignored ("drop").
+                // Other receivers are NOT wired here: their net48 conversions
+                // are checked/rounded and would need dedicated icalls.
+                if (name == "ToInt32" && count == 1 && receiverType == "System.Int32")
+                    return I("il2cpp::runtime::icall_iconvertible_to_int32", 1, true, false, true,
+                        new[] { receiverIsAddress ? "deref:i" : "unbox:i", "drop" });
                 return null;
             case "System.IFormattable":
                 // P0-narrow (2026-10-22): IFormattable.ToString(string,

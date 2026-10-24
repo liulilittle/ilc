@@ -2,13 +2,26 @@
 // mathext.cpp -- System.Math trigonometric / exponential / logarithmic icall
 // implementation (declarations in il2cpp_math_ext.h).
 //
-// Every function delegates to the platform C math library (<cmath>). The
+// Most functions delegate to the platform C math library (<cmath>). The
 // .NET Framework 4.8 reference baseline is reproduced with NO exception
 // path: all domain errors (asin(2), log(-1), IEEERemainder(x, 0), ...)
 // yield NaN -- verified empirically against a real net48 process
 // (tests/cases/mathext oracle, incl. BitConverter bit probes).
 //
-// The only non-trivial logic is icall_math_log_base_d: net48's check order
+// net48 does NOT use the CRT for every transcendental function:
+//   * Sin/Cos/Tan are the x87 fsin/fcos/fptan instructions (mathfunc1 oracle
+//     matches the instruction bit patterns, not UCRT/glibc libm -- e.g.
+//     sin(1e300) returns the input unchanged and tan(1e10) differs from
+//     libm by 13 ulps). The GCC x86/x86_64 builds use inline asm; other
+//     compilers fall back to libm (documented divergence).
+//   * Pow is the Windows CRT pow (MinGW's libmsvcrt pow is an exp/log
+//     emulation that differs by 1 ulp on pow(10,23) / pow(1.5,1000)); the
+//     MinGW build resolves the real msvcrt.dll pow dynamically.
+//   * Log/Log(a,base) normalize every NaN result to the net48 NEGATIVE quiet
+//     NaN pattern (glibc returns the positive pattern for domain errors).
+//   * Atan2 returns NaN when BOTH operands are infinite (net48 quirk).
+//
+// The only non-trivial check order is icall_math_log_base_d: net48's order
 // was reverse-engineered from 25 empirical probes and deviates from both
 // the .NET Core source and common expectation (Log(1,1) == NaN, Log(1,0)
 // == -0.0, Log(2,inf) == NaN) -- see the function comment.
@@ -51,24 +64,68 @@ double NormalizeNaN(double v)
 }
 
 //------------------------------------------------------------------------------
-// Math.Sin / Math.Cos / Math.Tan: direct libm delegation. IEEE-754
-// conformant: NaN inputs -> NaN, infinities -> NaN (net48 never throws for
-// these inputs). Lattice values are exact for correctly-rounded libm
-// (Sin(pi/2) == 1.0, Cos(pi) == -1.0).
+// Math.Sin / Math.Cos / Math.Tan -- the net48 x87 instruction contract.
+//
+// net48's Math.Sin/Cos/Tan are internal calls that execute the x87
+// fsin/fcos/fptan instructions. The mathfunc1 oracle matches those
+// instruction results bit for bit and does NOT match any modern libm:
+//   * fsin/fcos return the INPUT unchanged for |x| >= 2^63 (the x87 range
+//     reduction sets C2 and leaves ST(0) untouched) -- sin(1e300) == 1e300,
+//     sin(double.MaxValue) == double.MaxValue.
+//   * fptan returns NaN for the same out-of-range inputs.
+//   * even in-range values differ from glibc: tan(1e10) is
+//     -0.55834963779435409 (x87) vs -0.55834963781124181 (libm).
+//
+// GCC on x86/x86_64 supports the instructions through inline asm. MSVC x64
+// has no inline asm; those builds keep the libm fallback (a documented
+// platform deviation -- the project's differential baseline runs the MinGW
+// channel).
 //------------------------------------------------------------------------------
+#if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+static double X87Sin(double value)
+{
+    double result;
+    __asm__ __volatile__("fldl %1\n\tfsin\n\tfstpl %0"
+                         : "=m"(result) : "m"(value) : "st");
+    return result;
+}
+
+static double X87Cos(double value)
+{
+    double result;
+    __asm__ __volatile__("fldl %1\n\tfcos\n\tfstpl %0"
+                         : "=m"(result) : "m"(value) : "st");
+    return result;
+}
+
+static double X87Tan(double value)
+{
+    double result;
+    // fptan pushes 1.0 and leaves tan(value) in ST(1): pop the 1.0 first,
+    // then store the tangent.
+    __asm__ __volatile__("fldl %1\n\tfptan\n\tfstp %%st(0)\n\tfstpl %0"
+                         : "=m"(result) : "m"(value) : "st");
+    return result;
+}
+#else
+static double X87Sin(double value) { return std::sin(value); }
+static double X87Cos(double value) { return std::cos(value); }
+static double X87Tan(double value) { return std::tan(value); }
+#endif
+
 double icall_math_sin_d(double value)
 {
-    return std::sin(value);
+    return X87Sin(value);
 }
 
 double icall_math_cos_d(double value)
 {
-    return std::cos(value);
+    return X87Cos(value);
 }
 
 double icall_math_tan_d(double value)
 {
-    return std::tan(value);
+    return X87Tan(value);
 }
 
 //------------------------------------------------------------------------------
@@ -95,10 +152,20 @@ double icall_math_atan_d(double value)
 // Math.Atan2(y, x): std::atan2 with the .NET argument order (y first).
 // IEEE-754 signed-zero handling: Atan2(-0.0, -1) == -pi, Atan2(-0.0, 1) ==
 // -0.0 -- bit-verified against net48.
+//
+// net48 QUIRK (mathfunc1 atan2_13_14/13_15/14_14/14_15): when BOTH operands
+// are infinite the result is NaN, while the IEEE/libm answer is a finite
+// multiple of pi/4 (e.g. atan2(+inf,+inf) == pi/4). One infinite operand with
+// a finite other keeps the normal quadrant result (atan2(+inf,7) == pi/2).
+// The NaN is normalized to the net48 negative quiet pattern.
 //------------------------------------------------------------------------------
 double icall_math_atan2_d(double y, double x)
 {
-    return std::atan2(y, x);
+    if (std::isinf(y) && std::isinf(x))
+    {
+        return NormalizeNaN(std::nan(""));
+    }
+    return NormalizeNaN(std::atan2(y, x));
 }
 
 //------------------------------------------------------------------------------
@@ -116,7 +183,9 @@ double icall_math_exp_d(double value)
 //------------------------------------------------------------------------------
 double icall_math_log_d(double value)
 {
-    return std::log(value);
+    // glibc's log domain-error NaN is POSITIVE (0x7FF8...), while net48's is
+    // the negative quiet NaN (mathfunc1 log_3/log_5/log_12/log_23/log_25).
+    return NormalizeNaN(std::log(value));
 }
 
 double icall_math_log10_d(double value)
@@ -166,21 +235,21 @@ double icall_math_log_base_d(double a, double newBase)
 {
     if (newBase == 1.0)
     {
-        return std::nan("");
+        return NormalizeNaN(std::nan(""));
     }
     if (a == 1.0)
     {
-        return 0.0 / std::log(newBase);
+        return NormalizeNaN(0.0 / std::log(newBase));
     }
     if (newBase == 0.0)
     {
-        return std::nan("");
+        return NormalizeNaN(std::nan(""));
     }
     if (newBase == INFINITY)
     {
-        return std::nan("");
+        return NormalizeNaN(std::nan(""));
     }
-    return std::log(a) / std::log(newBase);
+    return NormalizeNaN(std::log(a) / std::log(newBase));
 }
 
 //------------------------------------------------------------------------------

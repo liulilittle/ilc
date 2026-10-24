@@ -141,6 +141,12 @@ int32_t icall_convert_to_char_i4(int32_t value);
 int32_t icall_convert_to_int32_char(int32_t utf16);
 int32_t icall_convert_to_int32_bool(int32_t value);
 
+// System.IConvertible::ToInt32 on a boxed System.Int32 receiver: net48's
+// Int32.ToInt32(IFormatProvider) is the identity (the provider is ignored).
+// The transpiler unboxes the receiver at the call site, so this icall takes
+// the already-extracted int32 value (convic1).
+int32_t icall_iconvertible_to_int32(int32_t value);
+
 //------------------------------------------------------------------------------
 // p0conv2 (D1): System.Convert -> System.Decimal.
 //

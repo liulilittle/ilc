@@ -3,27 +3,33 @@
 //
 // Coverage (normal + edge + error paths), mirroring the functions declared
 // in il2cpp_math.h:
-//   1. icall_math_abs_i / icall_math_abs_l: magnitudes, zero, int32/int64
-//      extrema; the MINIMUM value throws OverflowException (net48 message).
-//   2. icall_math_max_i / icall_math_min_i (and _l): both orders, negatives,
-//      ties (first operand wins), extrema.
-//   3. icall_math_sign_i / icall_math_sign_l: -1/0/1; the minimum value
-//      yields -1 and never throws (unlike Abs); int64 input still yields
-//      int32.
+//   1. icall_math_abs_i / icall_math_abs_l / icall_math_abs_sb /
+//      icall_math_abs_sh: magnitudes, zero, int32/int64/sbyte/short extrema;
+//      the MINIMUM value throws OverflowException (net48 message).
+//   2. icall_math_max_i / icall_math_min_i (and _l/_u/_ul): both orders,
+//      negatives, ties (second operand wins), signed/unsigned extrema.
+//   3. icall_math_sign_i / icall_math_sign_l / icall_math_sign_d: -1/0/1;
+//      the integer minimum value yields -1 and never throws (unlike Abs);
+//      int64 input still yields int32; Sign(double.NaN) throws
+//      ArithmeticException (net48).
 //   4. icall_math_clamp_i: in-range passthrough, below-min, above-max,
 //      min == value, max == value, min == max; min > max throws
 //      ArgumentException.
 //   5. icall_math_sqrt_d: exact squares, zero, negative -> NaN, NaN -> NaN.
-//   6. icall_math_pow_d: 2^10, 2^-1, 0^0 == 1, 1^x == 1.
+//   6. icall_math_pow_d: 2^10, 2^-1, 0^0 == 1, 1^x == 1; net48 NaN
+//      propagation (Pow(NaN, 0) == NaN, Pow(1, NaN) == NaN,
+//      Pow(-1, +/-inf) == NaN).
 //   7. icall_math_floor_d / icall_math_ceiling_d: positive/negative operands
-//      (floor(-3.7) == -4, ceiling(-3.2) == -3), integral passthrough.
+//      (floor(-3.7) == -4, ceiling(-3.2) == -3), integral passthrough;
+//      Ceiling(-0.5) == +0.0 (net48 floor+increment, signbit cleared).
 //   8. icall_math_round_d: banker's rounding (ToEven) -- 0.5 -> 0,
 //      1.5 -> 2, 2.5 -> 2, 3.5 -> 4, -0.5 -> 0, -1.5 -> -2, -2.5 -> -2;
 //      non-halves round to the nearer integer; NaN/Infinity passthrough.
 //   9. icall_math_abs_d: magnitude, NaN -> NaN, -0.0 -> +0.0 (signbit).
-//  10. icall_math_max_d / icall_math_min_d: net48 comparison contract --
-//      NaN loses to any comparable operand (Max(NaN,5)==5, Max(5,NaN)==NaN),
-//      signed-zero ties follow the first operand.
+//  10. icall_math_max_d / icall_math_min_d: net48 reference-source contract
+//      -- a NaN FIRST operand is returned (Max(NaN,5)==NaN, Max(5,NaN)==NaN),
+//      and signed-zero ties return the SECOND operand
+//      (Max(-0.0,+0.0)==+0.0, Min(+0.0,-0.0)==-0.0).
 //
 // Like the other runtime tests: a plain executable with a minimal assertion
 // harness -- any failed Expect() prints FAIL and bumps the counter; the
@@ -85,7 +91,19 @@ void ExpectDotNetException(const char* what, const char* typeTag,
 // return their result only on the non-throwing path).
 int32_t NoThrowAbsI(int32_t v) { return il2cpp::runtime::icall_math_abs_i(v); }
 int64_t NoThrowAbsL(int64_t v) { return il2cpp::runtime::icall_math_abs_l(v); }
+int32_t NoThrowAbsSb(int32_t v) { return il2cpp::runtime::icall_math_abs_sb(v); }
+int32_t NoThrowAbsSh(int32_t v) { return il2cpp::runtime::icall_math_abs_sh(v); }
 int32_t NoThrowClampI(int32_t v, int32_t lo, int32_t hi) { return il2cpp::runtime::icall_math_clamp_i(v, lo, hi); }
+int32_t NoThrowSignD(double v) { return il2cpp::runtime::icall_math_sign_d(v); }
+
+// Bit-level double probe (signbit-safe; the ternary folds in some compilers
+// would otherwise hide a -0.0 vs +0.0 difference).
+uint64_t DoubleBits(double v)
+{
+    uint64_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(bits));
+    return bits;
+}
 
 } // namespace
 
@@ -99,7 +117,7 @@ int main()
            "abs_i(INT32_MAX) == INT32_MAX");
     ExpectDotNetException("abs_i(INT32_MIN) throws OverflowException",
                           "System.OverflowException,System.OverflowException,System.ArithmeticException,System.SystemException,System.Exception",
-                          "Negating",
+                          "\xE5\xAF\xB9", // net48 zh-CN "Negating the minimum..." message prefix (UTF-8 "对")
                           [] { (void)NoThrowAbsI(INT32_MIN); });
 
     // --- 1b. Abs(int64) ---
@@ -110,8 +128,26 @@ int main()
            "abs_l(INT64_MAX) == INT64_MAX");
     ExpectDotNetException("abs_l(INT64_MIN) throws OverflowException",
                           "System.OverflowException,System.OverflowException,System.ArithmeticException,System.SystemException,System.Exception",
-                          "Negating",
+                          "\xE5\xAF\xB9", // net48 zh-CN "Negating the minimum..." message prefix (UTF-8 "对")
                           [] { (void)NoThrowAbsL(INT64_MIN); });
+
+    // --- 1c. Abs(sbyte) / Abs(short): the net48 narrow overloads sign-extend
+    // to int32, take the magnitude, and throw the SAME OverflowException for
+    // their minimum values (mathabs1 oracle). ---
+    Expect(il2cpp::runtime::icall_math_abs_sb(-127) == 127, "abs_sb(-127) == 127");
+    Expect(il2cpp::runtime::icall_math_abs_sb(127) == 127, "abs_sb(127) == 127");
+    Expect(il2cpp::runtime::icall_math_abs_sb(0) == 0, "abs_sb(0) == 0");
+    ExpectDotNetException("abs_sb(INT8_MIN) throws OverflowException",
+                          "System.OverflowException,System.OverflowException,System.ArithmeticException,System.SystemException,System.Exception",
+                          "\xE5\xAF\xB9", // net48 zh-CN "Negating the minimum..." message prefix (UTF-8 "对")
+                          [] { (void)NoThrowAbsSb(INT8_MIN); });
+    Expect(il2cpp::runtime::icall_math_abs_sh(-32767) == 32767, "abs_sh(-32767) == 32767");
+    Expect(il2cpp::runtime::icall_math_abs_sh(32767) == 32767, "abs_sh(32767) == 32767");
+    Expect(il2cpp::runtime::icall_math_abs_sh(0) == 0, "abs_sh(0) == 0");
+    ExpectDotNetException("abs_sh(INT16_MIN) throws OverflowException",
+                          "System.OverflowException,System.OverflowException,System.ArithmeticException,System.SystemException,System.Exception",
+                          "\xE5\xAF\xB9", // net48 zh-CN "Negating the minimum..." message prefix (UTF-8 "对")
+                          [] { (void)NoThrowAbsSh(INT16_MIN); });
 
     // --- 2a. Max/Min(int32) ---
     Expect(il2cpp::runtime::icall_math_max_i(3, 7) == 7, "max_i(3,7) == 7");
@@ -139,6 +175,17 @@ int main()
     Expect(il2cpp::runtime::icall_math_min_l(INT64_MIN, INT64_MAX) == INT64_MIN,
            "min_l extrema");
 
+    // --- 2c. Max/Min(uint32/uint64): UNSIGNED comparison on the int32/int64
+    // bit-pattern carriers (net48: Max(0u, uint.MaxValue) == uint.MaxValue). ---
+    Expect(il2cpp::runtime::icall_math_max_u(0, -1) == -1,
+           "max_u(0, UINT32_MAX) == UINT32_MAX (unsigned)");
+    Expect(il2cpp::runtime::icall_math_min_u(0, -1) == 0,
+           "min_u(0, UINT32_MAX) == 0 (unsigned)");
+    Expect(il2cpp::runtime::icall_math_max_ul(0LL, -1LL) == -1LL,
+           "max_ul(0, UINT64_MAX) == UINT64_MAX (unsigned)");
+    Expect(il2cpp::runtime::icall_math_min_ul(0LL, -1LL) == 0LL,
+           "min_ul(0, UINT64_MAX) == 0 (unsigned)");
+
     // --- 3a. Sign(int32): -1 / 0 / 1; the minimum value yields -1, NOT an
     // exception (Sign differs from Abs here). ---
     Expect(il2cpp::runtime::icall_math_sign_i(-9) == -1, "sign_i(-9) == -1");
@@ -157,6 +204,18 @@ int main()
            "sign_l(INT64_MIN) == -1 (no overflow)");
     Expect(il2cpp::runtime::icall_math_sign_l(INT64_MAX) == 1,
            "sign_l(INT64_MAX) == 1");
+
+    // --- 3c. Sign(double): fraction sign (not truncated), signed zero -> 0,
+    // NaN -> ArithmeticException (net48 reference source). ---
+    Expect(il2cpp::runtime::icall_math_sign_d(-2.5) == -1, "sign_d(-2.5) == -1");
+    Expect(il2cpp::runtime::icall_math_sign_d(-0.5) == -1, "sign_d(-0.5) == -1");
+    Expect(il2cpp::runtime::icall_math_sign_d(0.0) == 0, "sign_d(+0.0) == 0");
+    Expect(il2cpp::runtime::icall_math_sign_d(-0.0) == 0, "sign_d(-0.0) == 0");
+    Expect(il2cpp::runtime::icall_math_sign_d(2.5) == 1, "sign_d(2.5) == 1");
+    ExpectDotNetException("sign_d(NaN) throws ArithmeticException",
+                          "System.ArithmeticException,System.ArithmeticException,System.SystemException,System.Exception",
+                          "Not-a-Number",
+                          [] { (void)NoThrowSignD(std::nan("")); });
 
     // --- 4. Clamp(int32): in-range, below-min, above-max, boundary ties,
     // min == max, and the min > max error path. ---
@@ -193,6 +252,25 @@ int main()
     Expect(il2cpp::runtime::icall_math_pow_d(0.0, 0.0) == 1.0, "pow(0,0) == 1 (net48)");
     Expect(il2cpp::runtime::icall_math_pow_d(1.0, 12345.0) == 1.0, "pow(1, any) == 1");
     Expect(il2cpp::runtime::icall_math_pow_d(10.0, 0.0) == 1.0, "pow(10,0) == 1");
+    // net48 NaN propagation: the reference source checks NaN BEFORE the
+    // y==0 / x==1 shortcuts, and rejects x==-1 with an infinite exponent.
+    const double powNaN0 = il2cpp::runtime::icall_math_pow_d(std::nan(""), 0.0);
+    Expect(powNaN0 != powNaN0, "pow(NaN,0) is NaN (net48, not IEEE 1)");
+    const double pow1NaN = il2cpp::runtime::icall_math_pow_d(1.0, std::nan(""));
+    Expect(pow1NaN != pow1NaN, "pow(1,NaN) is NaN (net48)");
+    const double powNeg1Inf = il2cpp::runtime::icall_math_pow_d(-1.0, INFINITY);
+    Expect(powNeg1Inf != powNeg1Inf, "pow(-1,+inf) is NaN (net48)");
+    const double powNeg1NegInf = il2cpp::runtime::icall_math_pow_d(-1.0, -INFINITY);
+    Expect(powNeg1NegInf != powNeg1NegInf, "pow(-1,-inf) is NaN (net48)");
+    // net48 delegates Pow to the Windows CRT pow (not MinGW's libmsvcrt
+    // exp/log emulation): these two oracle values differ by 1 ulp from
+    // glibc/std::pow and pin the CRT delegation on Windows builds.
+#if defined(_WIN32)
+    Expect(DoubleBits(il2cpp::runtime::icall_math_pow_d(10.0, 23.0)) == 0x44B52D02C7E14AF7ULL,
+           "pow(10,23) matches the net48 CRT value");
+    Expect(DoubleBits(il2cpp::runtime::icall_math_pow_d(1.5, 1000.0)) == 0x647F2DD011353699ULL,
+           "pow(1.5,1000) matches the net48 CRT value");
+#endif
 
     // --- 7. Floor / Ceiling: positive and negative operands. ---
     Expect(il2cpp::runtime::icall_math_floor_d(3.7) == 3.0, "floor(3.7) == 3");
@@ -201,6 +279,12 @@ int main()
     Expect(il2cpp::runtime::icall_math_ceiling_d(3.2) == 4.0, "ceiling(3.2) == 4");
     Expect(il2cpp::runtime::icall_math_ceiling_d(-3.2) == -3.0, "ceiling(-3.2) == -3");
     Expect(il2cpp::runtime::icall_math_ceiling_d(3.0) == 3.0, "ceiling(3.0) == 3");
+    // net48 Ceiling is floor(x) + (floor(x) != x ? 1 : 0): a negative input
+    // that rounds up to zero yields +0.0, NOT std::ceil's -0.0.
+    Expect(DoubleBits(il2cpp::runtime::icall_math_ceiling_d(-0.5)) == 0,
+           "ceiling(-0.5) == +0.0 (net48 floor+increment)");
+    Expect(DoubleBits(il2cpp::runtime::icall_math_ceiling_d(-0.0)) == 0x8000000000000000ULL,
+           "ceiling(-0.0) == -0.0 (integral passthrough)");
 
     // --- 8. Round(double): banker's rounding (ToEven) -- the .NET default.
     // Halves: 0.5 -> 0, 1.5 -> 2, 2.5 -> 2, 3.5 -> 4 (even neighbour);
@@ -229,33 +313,35 @@ int main()
     Expect(!std::signbit(il2cpp::runtime::icall_math_abs_d(-0.0)),
            "abs_d(-0.0) == +0.0 (signbit cleared)");
 
-    // --- 10. Max/Min(double): net48 comparison contract -- NaN loses to
-    // any comparable operand; signed-zero ties follow the first operand. ---
+    // --- 10. Max/Min(double): the net48 Reference Source contract:
+    //     Max(a,b) { if (a > b) return a; if (IsNaN(a)) return a; return b; }
+    //     Min(a,b) { if (a < b) return a; if (IsNaN(a)) return a; return b; }
+    // A NaN FIRST operand is returned; a NaN second operand is returned by
+    // the fallthrough. Ties (including signed zeros) return the SECOND
+    // operand -- Max(-0.0,+0.0)==+0.0, Min(+0.0,-0.0)==-0.0. ---
     Expect(il2cpp::runtime::icall_math_max_d(1.5, 2.5) == 2.5, "max_d(1.5,2.5) == 2.5");
     Expect(il2cpp::runtime::icall_math_max_d(2.5, 1.5) == 2.5, "max_d(2.5,1.5) == 2.5");
     Expect(il2cpp::runtime::icall_math_min_d(1.5, 2.5) == 1.5, "min_d(1.5,2.5) == 1.5");
     Expect(il2cpp::runtime::icall_math_min_d(2.5, 1.5) == 1.5, "min_d(2.5,1.5) == 1.5");
     const double nanValue = std::nan("");
-    Expect(il2cpp::runtime::icall_math_max_d(nanValue, 5.0) == 5.0,
-           "max_d(NaN,5) == 5 (net48: NaN loses as first operand)");
+    const double maxFirstNaN = il2cpp::runtime::icall_math_max_d(nanValue, 5.0);
+    Expect(maxFirstNaN != maxFirstNaN, "max_d(NaN,5) is NaN (net48 returns a NaN first operand)");
     const double maxSecondNaN = il2cpp::runtime::icall_math_max_d(5.0, nanValue);
-    Expect(maxSecondNaN != maxSecondNaN, "max_d(5,NaN) is NaN (NaN wins as second operand)");
-    Expect(il2cpp::runtime::icall_math_min_d(nanValue, 5.0) == 5.0,
-           "min_d(NaN,5) == 5 (net48: NaN loses as first operand)");
+    Expect(maxSecondNaN != maxSecondNaN, "max_d(5,NaN) is NaN (fallthrough returns b)");
+    const double minFirstNaN = il2cpp::runtime::icall_math_min_d(nanValue, 5.0);
+    Expect(minFirstNaN != minFirstNaN, "min_d(NaN,5) is NaN (net48 returns a NaN first operand)");
     const double minSecondNaN = il2cpp::runtime::icall_math_min_d(5.0, nanValue);
-    Expect(minSecondNaN != minSecondNaN, "min_d(5,NaN) is NaN (NaN wins as second operand)");
-    // net48 signed-zero tie rule: the FIRST operand wins (Max(-0.0, 0.0) =
-    // -0.0, Min(0.0, -0.0) = +0.0; math.cpp documents the contract). The
-    // signbit of the icall result is NOT pinned here: MSVC Release /O2 folds
-    // the implementation's ternary into SSE maxsd/minsd, whose tie rule
-    // returns the SECOND operand (docs/audit/msvc-fullcheck.md §4.3), so the
-    // observable signbit is compiler-dependent. Assert only the
-    // compiler-independent value-level contract: a signed-zero tie yields a
-    // zero (never NaN or a nonzero value).
-    Expect(il2cpp::runtime::icall_math_max_d(-0.0, 0.0) == 0.0,
-           "max_d(-0.0,0.0) is a zero (signed-zero tie)");
-    Expect(il2cpp::runtime::icall_math_min_d(0.0, -0.0) == 0.0,
-           "min_d(0.0,-0.0) is a zero (signed-zero tie)");
+    Expect(minSecondNaN != minSecondNaN, "min_d(5,NaN) is NaN (fallthrough returns b)");
+    // Bit-level signed-zero assertions (value == 0 cannot distinguish the
+    // signs; the icalls are out-of-line so no inlining fold can hide them).
+    Expect(DoubleBits(il2cpp::runtime::icall_math_max_d(-0.0, 0.0)) == 0,
+           "max_d(-0.0,+0.0) == +0.0 (tie returns second operand)");
+    Expect(DoubleBits(il2cpp::runtime::icall_math_max_d(0.0, -0.0)) == 0x8000000000000000ULL,
+           "max_d(+0.0,-0.0) == -0.0 (tie returns second operand)");
+    Expect(DoubleBits(il2cpp::runtime::icall_math_min_d(0.0, -0.0)) == 0x8000000000000000ULL,
+           "min_d(+0.0,-0.0) == -0.0 (tie returns second operand)");
+    Expect(DoubleBits(il2cpp::runtime::icall_math_min_d(-0.0, 0.0)) == 0,
+           "min_d(-0.0,+0.0) == +0.0 (tie returns second operand)");
 
     // --- 11. DivRem / DivModInt: net48 public API + corert internal helpers.
     // C# truncating division: quotient toward zero, remainder takes the

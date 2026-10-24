@@ -39,6 +39,13 @@ int32_t icall_math_abs_i(int32_t value);
 // Math.Abs(int64): |value|; value == int64.MinValue -> OverflowException.
 int64_t icall_math_abs_l(int64_t value);
 
+// Math.Abs(sbyte) / Math.Abs(short): the net48 narrow overloads sign-extend
+// the int32 slot value, take the int32 magnitude, and narrow back at the call
+// site. Their minimum values throw the SAME OverflowException as Abs(int32)
+// (mathabs1 oracle: Abs(sbyte.MinValue) / Abs(short.MinValue) both throw).
+int32_t icall_math_abs_sb(int32_t value);
+int32_t icall_math_abs_sh(int32_t value);
+
 // Math.Max(int32,int32) / Math.Min(int32,int32): net48 comparison contract.
 int32_t icall_math_max_i(int32_t a, int32_t b);
 int32_t icall_math_min_i(int32_t a, int32_t b);
@@ -46,6 +53,15 @@ int32_t icall_math_min_i(int32_t a, int32_t b);
 // Math.Max(int64,int64) / Math.Min(int64,int64).
 int64_t icall_math_max_l(int64_t a, int64_t b);
 int64_t icall_math_min_l(int64_t a, int64_t b);
+
+// Math.Max(uint,uint) / Math.Min(uint,uint) and the ulong pair: UNSIGNED
+// comparison on the int32/int64 bit-pattern carriers (the transpiler's
+// narrow/unsigned overloads; the return value keeps the caller's slot width).
+// net48: Max(0u, uint.MaxValue) == uint.MaxValue, Min(0u, uint.MaxValue) == 0.
+int32_t icall_math_max_u(int32_t a, int32_t b);
+int32_t icall_math_min_u(int32_t a, int32_t b);
+int64_t icall_math_max_ul(int64_t a, int64_t b);
+int64_t icall_math_min_ul(int64_t a, int64_t b);
 
 // Math.Sign(int32)/Math.Sign(int64): -1 / 0 / 1 (never throws, min value
 // included). The .NET return type is int32 for both overloads.
@@ -56,8 +72,9 @@ int32_t icall_math_sign_l(int64_t value);
 int64_t icall_math_clamp_l(int64_t value, int64_t min, int64_t max);
 double icall_math_clamp_d(double value, double min, double max);
 // Math.Sign(double/float): sign of the FRACTIONAL value (the old route via
-// sign_l truncated first -- Sign(-0.5) wrongly 0). NaN -> 0 (comparisons
-// false both ways), matching .NET.
+// sign_l truncated first -- Sign(-0.5) wrongly 0). net48 throws
+// ArithmeticException for NaN (the Reference Source checks value<0, value>0,
+// value==0, then throws); signed zeros return 0.
 int32_t icall_math_sign_d(double value);
 
 // Math.BigMul(int32 a, int32 b): the exact int64 product (int64_t)a * b --
@@ -73,11 +90,18 @@ int32_t icall_math_clamp_i(int32_t value, int32_t min, int32_t max);
 // Math.Sqrt(double): std::sqrt (negative input -> NaN, net48 contract).
 double icall_math_sqrt_d(double value);
 
-// Math.Pow(double,double): std::pow (net48 contract).
+// Math.Pow(double,double): the net48 Reference Source contract (NaN
+// propagation BEFORE the y==0 / x==1 shortcuts; x==-1 with an infinite
+// exponent -> NaN) on top of the Windows CRT pow. MinGW resolves the real
+// msvcrt.dll pow dynamically because its libmsvcrt std::pow emulation
+// differs by 1 ulp on oracle probes.
 double icall_math_pow_d(double x, double y);
 
-// Math.Floor(double)/Math.Ceiling(double): std::floor / std::ceil.
+// Math.Floor(double): std::floor.
 double icall_math_floor_d(double value);
+// Math.Ceiling(double): the net48 floor+increment form, NOT std::ceil --
+// Ceiling(-0.5) == +0.0 (std::ceil returns -0.0) while an integral -0.0
+// passes through unchanged.
 double icall_math_ceiling_d(double value);
 
 // Math.Round(double): MidpointRounding.ToEven (banker's rounding) -- halves
@@ -88,8 +112,11 @@ double icall_math_round_d(double value);
 // Math.Abs(double): std::fabs (NaN -> NaN, -0.0 -> +0.0).
 double icall_math_abs_d(double value);
 
-// Math.Max(double,double)/Math.Min(double,double): net48 comparison contract
-// (see header: NaN loses to a comparable operand).
+// Math.Max(double,double)/Math.Min(double,double): the net48 Reference
+// Source contract -- Max(a,b) = (a > b) ? a : (IsNaN(a) ? a : b) and the
+// Min mirror. A NaN FIRST operand is returned; a NaN second operand is
+// returned by the fallthrough. Ties (including signed zeros) return the
+// SECOND operand: Max(-0.0,+0.0) == +0.0, Min(+0.0,-0.0) == -0.0.
 double icall_math_max_d(double a, double b);
 double icall_math_min_d(double a, double b);
 
