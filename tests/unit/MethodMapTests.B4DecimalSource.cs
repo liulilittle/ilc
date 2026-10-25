@@ -39,27 +39,27 @@ public class MethodMapTestsB4DecimalSource
         Assert.Equal(new[] { "1" }, resolved.AppendLiterals);
     }
 
-    // A 64-bit key still has no carrier: the int32 bucket would truncate it.
-    // The message must name the KEY family (not the source) so the failure is
-    // self-describing.
+    // BATCH4: a 64-bit key rides the int64 carrier (keyKind 7) over the decimal
+    // source; the decimal-source entry computes the key through the decimal-arg
+    // wide-key ABI.
     [Fact]
-    public void GroupBy_DecimalSource_LongKey_StaysLoudWithKeyCarrierMessage()
+    public void GroupBy_DecimalSource_LongKey_MapsWithKeyKind7()
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGroupBy(0x0A)));
+        var resolved = ResolveMethodSpec(SynthesizeGroupBy(0x0A));
 
-        Assert.Contains("no runtime key carrier", ex.Message);
-        Assert.Contains("int64", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_dec_key", resolved.CppName);
+        Assert.Equal(new[] { "7" }, resolved.AppendLiterals);
     }
 
-    // A decimal KEY (0x11 value type) is likewise rejected by name.
+    // BATCH4: a decimal KEY (0x11 value type) rides the 16-byte struct carrier
+    // (keyKind 8) over the decimal source.
     [Fact]
-    public void GroupBy_DecimalSource_DecimalKey_StaysLoud()
+    public void GroupBy_DecimalSource_DecimalKey_MapsWithKeyKind8()
     {
-        var ex = Assert.Throws<NotSupportedException>(
-            () => ResolveMethodSpec(SynthesizeGroupBy(0x11, decimalKey: true)));
+        var resolved = ResolveMethodSpec(SynthesizeGroupBy(0x11, decimalKey: true));
 
-        Assert.Contains("no runtime key carrier", ex.Message);
-        Assert.Contains("System.Decimal", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_dec_key", resolved.CppName);
+        Assert.Equal(new[] { "8" }, resolved.AppendLiterals);
     }
 
     // The GroupBy LOUD list must name the operator: otherwise a shape that is

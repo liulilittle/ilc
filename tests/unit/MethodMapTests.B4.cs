@@ -96,31 +96,31 @@ public class MethodMapTestsB4
         Assert.Equal(new[] { "0", "0", keyKind }, resolved.AppendLiterals);
     }
 
-    // D1: long (0x0A) is a REGISTERED known gap -- the int32 bucket would
-    // truncate 64-bit keys (three distinct net48 keys collapsed to one), so it
-    // must stay LOUD rather than silently mis-bucket. Same for ulong (0x0B).
+    // BATCH4: long (0x0A) / ulong (0x0B) ride the 64-bit key carrier (keyKind 7)
+    // -- an int32 bucket would truncate 64-bit keys, so the wide carrier keeps
+    // the net48 buckets apart.
     [Theory]
     [InlineData(0x0A)] // long
     [InlineData(0x0B)] // ulong
-    public void GroupBy_64BitKeys_StayLoud(byte keyByte)
+    public void GroupBy_64BitKeys_MapWithKeyKind7(byte keyByte)
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeMethod("GroupBy",
+        var resolved = ResolveMethodSpec(SynthesizeMethod("GroupBy",
             GroupByKeyOnlySignature,
-            genericSignature: new byte[] { 0x0A, 0x02, 0x08, keyByte })));
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, keyByte }));
 
-        Assert.Contains("no runtime key carrier", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
+        Assert.Equal(new[] { "0", "0", "7" }, resolved.AppendLiterals);
     }
 
-    // D3: genArgNames is a REAL consumer -- the LOUD message for a 0x11 key
-    // (every struct/enum key byte is 0x11) names the concrete type from the
-    // MethodSpec name table instead of the opaque "value type".
+    // BATCH4: genArgNames names the 0x11 key -- System.Decimal rides the 16-byte
+    // struct key carrier (keyKind 8).
     [Fact]
-    public void GroupBy_DecimalKey_StaysLoud_AndNamesDecimal()
+    public void GroupBy_DecimalKey_MapsWithKeyKind8()
     {
-        var ex = Assert.Throws<NotSupportedException>(
-            () => ResolveMethodSpec(SynthesizeGroupByNamedKey("System", "Decimal")));
+        var resolved = ResolveMethodSpec(SynthesizeGroupByNamedKey("System", "Decimal"));
 
-        Assert.Contains("System.Decimal", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
+        Assert.Equal(new[] { "0", "0", "8" }, resolved.AppendLiterals);
     }
 
     // RED pre-fix: ulong TAccumulate hit the empty "unsupported accumulator

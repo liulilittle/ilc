@@ -339,6 +339,47 @@ int32_t InvokeSelDecI4(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
         : reinterpret_cast<SelDecI4Fn>(d->methodPtr)(v);
 }
 
+// BATCH4: the wide-key selector ABIs over a DECIMAL source element (the
+// Func<System.Decimal,TKey> shape, TKey wider than the int32 slot). The key
+// returns BY VALUE in its own family slot (the same by-value convention as the
+// int32-source wide-key ABIs).
+typedef int64_t (*SelDecI8Fn)(runtime::Il2CppDecimal);
+typedef int64_t (*SelDecI8ThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+typedef runtime::Il2CppDecimal (*SelDecDecKeyFn)(runtime::Il2CppDecimal);
+typedef runtime::Il2CppDecimal (*SelDecDecKeyThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+typedef runtime::Il2CppDateTime (*SelDecDtKeyFn)(runtime::Il2CppDecimal);
+typedef runtime::Il2CppDateTime (*SelDecDtKeyThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+typedef Il2CppGuid (*SelDecGuidKeyFn)(runtime::Il2CppDecimal);
+typedef Il2CppGuid (*SelDecGuidKeyThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+
+int64_t InvokeSelDecI8(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecI8ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecI8Fn>(d->methodPtr)(v);
+}
+
+runtime::Il2CppDecimal InvokeSelDecDecKey(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecDecKeyThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecDecKeyFn>(d->methodPtr)(v);
+}
+
+runtime::Il2CppDateTime InvokeSelDecDtKey(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecDtKeyThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecDtKeyFn>(d->methodPtr)(v);
+}
+
+Il2CppGuid InvokeSelDecGuidKey(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecGuidKeyThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecGuidKeyFn>(d->methodPtr)(v);
+}
+
 // BATCH4: the wide KEY-selector ABIs (the TKey is a 16-byte value type).
 // The generated leaf's ReturnTypeCpp maps the struct to its C++ value type, so
 // the leaf returns the struct BY VALUE (the MS x64 ABI lowers that to sret --
@@ -3232,7 +3273,41 @@ Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySe
     for (int32_t i = 0; i < src->length; ++i)
     {
         const runtime::Il2CppDecimal v = *DecAt(src, i);
-        const int32_t key = NarrowKey(InvokeSelDecI4(kd, v), keyKind); // may allocate -> collect
+        // BATCH4: the key rides its real family carrier (int32 slot, int64, or a
+        // 16-byte struct). The callback may allocate -> collect, so every
+        // consumer re-derives its pointers from the rooted result.
+        int64_t keyLo = 0;
+        int64_t keyHi = 0;
+        switch (keyKind)
+        {
+            case 7:
+                keyLo = InvokeSelDecI8(kd, v); // may allocate -> collect
+                break;
+            case 8:
+            {
+                const runtime::Il2CppDecimal k = InvokeSelDecDecKey(kd, v);
+                std::memcpy(&keyLo, &k, sizeof(keyLo));
+                std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+                break;
+            }
+            case 9:
+            {
+                const runtime::Il2CppDateTime k = InvokeSelDecDtKey(kd, v);
+                keyLo = k.ticks;
+                keyHi = k.kind;
+                break;
+            }
+            case 10:
+            {
+                const Il2CppGuid k = InvokeSelDecGuidKey(kd, v);
+                std::memcpy(&keyLo, &k, sizeof(keyLo));
+                std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+                break;
+            }
+            default:
+                keyLo = NarrowKey(InvokeSelDecI4(kd, v), keyKind); // may allocate -> collect
+                break;
+        }
 
         res = AsGroupingResult(result);
         const int32_t n = res->count;
@@ -3242,7 +3317,7 @@ Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySe
         {
             Il2CppLinqGroupingResult* cur = AsGroupingResult(result);
             Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(cur->groups->data);
-            if (AsGrouping(slots[j])->key == key)
+            if (GroupKeysEqual(nullptr, keyKind, keyLo, keyHi, AsGrouping(slots[j])))
             {
                 found = j;
                 break;
@@ -3269,7 +3344,8 @@ Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySe
         {
             Il2CppObject* ng = il2cpp_object_new(&g_groupingClass);
             Il2CppLinqGrouping* grp = AsGrouping(ng);
-            grp->key = key;
+            grp->key = keyLo;
+            grp->keyHi = keyHi;
             grp->elements = nullptr;
             grp->count = 0;
             res = AsGroupingResult(result);

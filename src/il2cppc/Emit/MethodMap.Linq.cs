@@ -518,7 +518,7 @@ public static partial class MethodRefResolver
                         $"Enumerable.GroupBy<{(genArgNames is { Length: >= 1 } ? genArgNames[0] : "valuetype")},...> " +
                         "over a value-type source is not wired: the decimal-source grouping surface " +
                         "covers System.Decimal[] only (see docs/audit/b4-gaps.md)");
-                int decKeyKind = KeyKindFor(genArgs[1]);
+                int decKeyKind = KeyKindForNamed(genArgs[1], genArgNames, 1);
                 if (decKeyKind < 0)
                 {
                     string decKeyName = genArgNames is { Length: >= 2 } && genArgNames[1] != "?"

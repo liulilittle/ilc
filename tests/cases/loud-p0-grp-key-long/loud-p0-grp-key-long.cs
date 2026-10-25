@@ -62,6 +62,15 @@ namespace Cases
             // element array second; the result is a string (reference family).
             foreach (var r in xs.GroupBy(x => (long)x, (k, e) => k + ":" + e.Count()))
                 Console.WriteLine("[longres] " + r);
+
+            // ===== wide keys over a DECIMAL source =====
+            // The decimal-source entry invokes the key selector with the decimal
+            // element BY VALUE and buckets by the same wide carriers.
+            decimal[] ds = { 3.7m, 1.2m, 3.1m, 1.9m, 1.0m };
+            foreach (var g in ds.GroupBy(x => (long)x))
+                Console.WriteLine("[declong] key=" + g.Key + " n=" + g.Count());
+            foreach (var g in ds.GroupBy(x => x))
+                Console.WriteLine("[deckey] key=" + g.Key + " n=" + g.Count());
         }
     }
 }
