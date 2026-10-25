@@ -394,17 +394,21 @@ public class MethodMapTestsList
     public void Resolve_List_CapacityCtor_MapsToI4CreateWithCapacity()
     {
         // instance void .ctor(int32 capacity): the capacity parameter is
-        // T-free int32 (0x08); the newobj temp is dropped, the capacity is
-        // cast "i", and the runtime icall takes the capacity only.
+        // T-free int32 (0x08). The capacity ctor is SELF-MUTATING (the
+        // il2cpp_sortedlist_create precedent): the transpiler's newobj
+        // allocates the shell and the ctor call fills it, so the receiver is
+        // passed ("") and the return is void. The runtime icall is
+        // il2cpp_list_i4_create_with_capacity(Il2CppObject* self, int32_t).
         var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", ".ctor", Sig(0x20,0x01,0x01,0x08)),
             ".ctor", receiverType: "System.Collections.Generic.List`1_int");
 
         Assert.Equal("il2cpp::il2cpp_list_i4_create_with_capacity", resolved.CppName);
         Assert.True(resolved.IsInstance);
-        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsValue);   // self-mutating ctor -> void
+        Assert.False(resolved.ReturnsRef);
         Assert.Equal(1, resolved.ParamCount);
-        Assert.Equal("drop", resolved.ParamTypeNames![0]); // newobj temp dropped
-        Assert.Equal("i", resolved.ParamTypeNames![1]);
+        Assert.Equal("", resolved.ParamTypeNames![0]); // receiver passed
+        Assert.Equal("i", resolved.ParamTypeNames![1]); // capacity
     }
 
     //--------------------------------------------------------------------------

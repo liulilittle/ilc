@@ -80,12 +80,14 @@ public class MethodMapArrayTests
     [Fact]
     public void Resolve_Array_FindIndexNonInt32_MethodSpec_ThrowsLoud()
     {
-        // FindIndex<string> -- only int32 has the delegate icall; other
-        // generic arguments are LOUD (never silently drop the delegate).
+        // FindIndex<uint64> -- the wired families are int32 (0x08), int64
+        // (0x0A) and string (0x0E), each with its own delegate icall (arrgen1,
+        // il2cpp_array_ext2.h); any other generic argument stays LOUD (never
+        // silently drop the delegate). uint64 (0x0B) has no runtime icall.
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMethodSpec(SynthesizeGeneric("System", "Array", "FindIndex",
                 new byte[] { 0x00, 0x03, 0x08, 0x1D, 0x08, 0x08, 0x08 },
-                new byte[] { 0x0A, 0x01, 0x0E })));
+                new byte[] { 0x0A, 0x01, 0x0B })));
 
         Assert.Contains("System.Array::FindIndex", ex.Message);
     }
@@ -163,12 +165,14 @@ public class MethodMapArrayTests
     [InlineData("Resize")]
     public void Resolve_Array_NonInt32_MethodSpec_ThrowsLoud(string member)
     {
-        // Find<string> etc. -- only int32 (0x08) has the runtime delegate/
-        // resize icall; any other generic argument stays LOUD.
+        // Find<uint64> etc. -- the wired families are int32 (0x08), int64
+        // (0x0A), string (0x0E) and, for Find/Exists/TrueForAll, double (0x0D)
+        // (arrgen1, il2cpp_array_ext2.h); any other generic argument stays
+        // LOUD. uint64 (0x0B) has no runtime delegate/resize icall.
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMethodSpec(SynthesizeGeneric("System", "Array", member,
                 new byte[] { 0x00, 0x02, 0x08, 0x1D, 0x08, 0x08 },
-                new byte[] { 0x0A, 0x01, 0x0E })));
+                new byte[] { 0x0A, 0x01, 0x0B })));
 
         Assert.Contains("System.Array::" + member, ex.Message);
     }

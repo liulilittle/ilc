@@ -111,15 +111,37 @@ public class MethodMapTestsReflect
     }
 
     //--------------------------------------------------------------------------
-    // Type.GetType(string, bool) -- the throwOnError overload has no
-    // runtime support in M5.5 -- must fail LOUD.
+    // Type.GetType(string, bool) -- static: the throwOnError overload maps to
+    // the 3-param runtime wrapper il2cpp_type_get_type_ex (the wrapper appends
+    // ignoreCase = 0; the 2-arg overload has no case-insensitive form). The
+    // bool rides the int32 carrier; the result is tracked as "System.Type"
+    // (the fold linkage). RF-REFL (e26d9b56): aligned with the net48 oracle.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Type_GetTypeTwoParams_ThrowsLoud()
+    public void Resolve_Type_GetTypeTwoParams_MapsToReflectIcallEx()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetType",
+            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x02 }), "GetType"); // (string, bool)
+
+        Assert.Equal("il2cpp::il2cpp_type_get_type_ex", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);   // the name string
+        Assert.Equal("System.Type", resolved.ReturnTypeName); // fold linkage
+        Assert.False(resolved.IsInstance);  // static
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // Type.GetType with an arity the runtime wrapper does not cover -- only
+    // the 1/2/3-param (string[, bool[, bool]]) overloads are wired, so any
+    // other shape stays LOUD.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_GetTypeUnwiredArity_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System", "Type", "GetType",
-                new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x02 }), "GetType")); // (string, bool)
+                new byte[] { 0x00, 0x04, 0x12, 0x05, 0x0E, 0x02, 0x02, 0x02 }), "GetType")); // (string, bool, bool, bool)
 
         Assert.Contains("System.Type::GetType", ex.Message);
     }
