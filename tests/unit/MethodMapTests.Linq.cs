@@ -495,21 +495,25 @@ public class MethodMapTestsLinq
     }
 
     //--------------------------------------------------------------------------
-    // A non-int32 element family is LOUD for Take/Skip too (the i4 slice
-    // icalls are int32-family-only, like every other operator).
+    // D-LINQ-FAM: Take over a REFERENCE source (string) now resolves to the
+    // family kernel with the reference cell (15) -- the runtime ships
+    // il2cpp_linq_take_family, so the old int32-only LOUD is gone.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Take_StringElement_ThrowsLoud()
+    public void Resolve_Take_StringElement_MapsToRefFamilyKernel()
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("Take",
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Take",
             memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x15,
                 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x08 },
-            genericSignature: new byte[] { 0x0A, 0x01, 0x0E })));
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
 
-        Assert.Contains("System.Linq.Enumerable::Take", ex.Message);
-        Assert.Contains("int32 (0x08)", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_take_family", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.Equal(new[] { "15" }, resolved.AppendLiterals);
     }
 
     //--------------------------------------------------------------------------
@@ -1219,6 +1223,217 @@ public class MethodMapTestsLinq
             genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x0A })));
 
         Assert.Contains("then-by surface", ex.Message);
+    }
+
+    //==========================================================================
+    // D-LINQ-FAM (loud-linq-fam): the FAMILY-GENERIC element operators over the
+    // int64/float/double/narrow array families. The runtime ships ONE kernel per
+    // operator (linq_family.h) with the cell code as the trailing literal; the
+    // wide/narrow dispatch (TryMapLinqWide) wires them. Before this change the
+    // operators below LOUD-rejected over every non-int32 array ("the stage-1
+    // runtime LINQ surface is int32 (0x08) element-family").
+    //
+    // Signature shapes (System.Linq.Enumerable):
+    //   Take/Skip/ElementAt(source, int)
+    //   Reverse/Distinct/DefaultIfEmpty/LongCount(source)
+    //   Concat/Except/Union/Intersect/SequenceEqual(source, second)
+    //   Contains(source, value)
+    //==========================================================================
+
+    // The 1-arg IEnumerable<TSource> MemberRef signature.
+    private static byte[] FamI1() =>
+        new byte[] { 0x10, 0x01, 0x01, 0x15,
+            0x12, 0x09, 0x01, 0x13, 0x00,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00 };
+
+    // The 2-arg (IEnumerable<TSource>, IEnumerable<TSource>) MemberRef signature.
+    private static byte[] FamI2() =>
+        new byte[] { 0x10, 0x01, 0x02, 0x15,
+            0x12, 0x09, 0x01, 0x13, 0x00,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00 };
+
+    // The 2-arg (IEnumerable<TSource>, int) MemberRef signature.
+    private static byte[] FamIInt() =>
+        new byte[] { 0x10, 0x01, 0x02, 0x15,
+            0x12, 0x09, 0x01, 0x13, 0x00,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+            0x08 };
+
+    [Theory]
+    // name, elemByte, expected icall, tracked return type, cell literal
+    [InlineData("Reverse", 0x0A, "il2cpp::il2cpp_linq_reverse_family", "System.Int64[]", "8")]
+    [InlineData("Reverse", 0x0D, "il2cpp::il2cpp_linq_reverse_family", "System.Double[]", "10")]
+    [InlineData("Reverse", 0x05, "il2cpp::il2cpp_linq_reverse_family", "System.Byte[]", "1")]
+    [InlineData("Distinct", 0x0A, "il2cpp::il2cpp_linq_distinct_family", "System.Int64[]", "8")]
+    [InlineData("Distinct", 0x0D, "il2cpp::il2cpp_linq_distinct_family", "System.Double[]", "10")]
+    [InlineData("DefaultIfEmpty", 0x0A, "il2cpp::il2cpp_linq_default_if_empty_family", "System.Int64[]", "8")]
+    [InlineData("DefaultIfEmpty", 0x0C, "il2cpp::il2cpp_linq_default_if_empty_family", "System.Single[]", "9")]
+    public void Resolve_WideNarrow_OneArgArrayOperators_MapToFamilyKernels(
+        string name, byte elem, string expected, string retType, string cell)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: FamI1(),
+            genericSignature: new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(retType, resolved.ReturnTypeName);
+        Assert.Equal(new[] { cell }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    // name, elemByte, expected icall, tracked return type (null = scalar), cell
+    [InlineData("Concat", 0x0A, "il2cpp::il2cpp_linq_concat_family", "System.Int64[]", "8")]
+    [InlineData("Concat", 0x0D, "il2cpp::il2cpp_linq_concat_family", "System.Double[]", "10")]
+    [InlineData("Except", 0x0A, "il2cpp::il2cpp_linq_except_family", "System.Int64[]", "8")]
+    [InlineData("Union", 0x0A, "il2cpp::il2cpp_linq_union_family", "System.Int64[]", "8")]
+    [InlineData("Intersect", 0x0A, "il2cpp::il2cpp_linq_intersect_family", "System.Int64[]", "8")]
+    [InlineData("SequenceEqual", 0x0A, "il2cpp::il2cpp_linq_sequence_equal_family", null, "8")]
+    public void Resolve_WideNarrow_TwoSequenceOperators_MapToFamilyKernels(
+        string name, byte elem, string expected, string? retType, string cell)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: FamI2(),
+            genericSignature: new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "a" }, resolved.ParamTypeNames);
+        if (retType != null)
+        {
+            Assert.True(resolved.ReturnsRef);
+            Assert.Equal(retType, resolved.ReturnTypeName);
+        }
+        Assert.Equal(new[] { cell }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData("Take", 0x0A, "il2cpp::il2cpp_linq_take_family", "System.Int64[]", "8")]
+    [InlineData("Take", 0x0D, "il2cpp::il2cpp_linq_take_family", "System.Double[]", "10")]
+    [InlineData("Skip", 0x0A, "il2cpp::il2cpp_linq_skip_family", "System.Int64[]", "8")]
+    [InlineData("Skip", 0x05, "il2cpp::il2cpp_linq_skip_family", "System.Byte[]", "1")]
+    public void Resolve_WideNarrow_TakeSkip_MapToFamilyKernels(
+        string name, byte elem, string expected, string retType, string cell)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: FamIInt(),
+            genericSignature: new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "a", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(retType, resolved.ReturnTypeName);
+        Assert.Equal(new[] { cell }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData(0x0A, "il2cpp::il2cpp_linq_long_count_family", "8")]
+    [InlineData(0x0D, "il2cpp::il2cpp_linq_long_count_family", "10")]
+    public void Resolve_WideNarrow_LongCount_MapToFamilyKernel(byte elem, string expected, string cell)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("LongCount",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal("l", resolved.ResultKind);
+        Assert.Equal(new[] { cell }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData(0x0A, "il2cpp::il2cpp_linq_contains_family_i8", "8")]
+    [InlineData(0x0D, "il2cpp::il2cpp_linq_contains_family_d", "10")]
+    [InlineData(0x05, "il2cpp::il2cpp_linq_contains_family_i4", "1")]
+    public void Resolve_WideNarrow_Contains_MapToFamilyKernel(byte elem, string expected, string cell)
+    {
+        // Contains<TSource>(IEnumerable<TSource> source, TSource value): the
+        // value parameter is the TSource element byte itself.
+        var sig = new System.Collections.Generic.List<byte> { 0x10, 0x01, 0x02, 0x02,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00 };
+        sig.Add(elem);
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Contains",
+            memberRefSignature: sig.ToArray(),
+            genericSignature: new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { cell }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData(0x0A, "il2cpp::il2cpp_linq_element_at_fam_i8", "l", "8")]
+    [InlineData(0x0D, "il2cpp::il2cpp_linq_element_at_fam_d", "d", "10")]
+    [InlineData(0x05, "il2cpp::il2cpp_linq_element_at_fam_i4", null, "1")]
+    public void Resolve_WideNarrow_ElementAt_MapToFamilyKernel(byte elem, string expected, string? resultKind, string cell)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("ElementAt",
+            memberRefSignature: FamIInt(),
+            genericSignature: new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(new[] { cell }, resolved.AppendLiterals);
+    }
+
+    // D-LINQ-FAM: the family-generic element operators over a REFERENCE source
+    // (string) -- the reference cell (15). TryMapLinqWide only runs for the
+    // value families, so the reference source rides the ref block.
+    [Theory]
+    [InlineData("Take", "il2cpp::il2cpp_linq_take_family", 2)]
+    [InlineData("Skip", "il2cpp::il2cpp_linq_skip_family", 2)]
+    [InlineData("Reverse", "il2cpp::il2cpp_linq_reverse_family", 1)]
+    [InlineData("Concat", "il2cpp::il2cpp_linq_concat_family", 2)]
+    [InlineData("Distinct", "il2cpp::il2cpp_linq_distinct_family", 1)]
+    [InlineData("Except", "il2cpp::il2cpp_linq_except_family", 2)]
+    [InlineData("Union", "il2cpp::il2cpp_linq_union_family", 2)]
+    [InlineData("Intersect", "il2cpp::il2cpp_linq_intersect_family", 2)]
+    [InlineData("DefaultIfEmpty", "il2cpp::il2cpp_linq_default_if_empty_family", 1)]
+    [InlineData("SequenceEqual", "il2cpp::il2cpp_linq_sequence_equal_family", 2)]
+    [InlineData("LongCount", "il2cpp::il2cpp_linq_long_count_family", 1)]
+    public void Resolve_RefFamily_ArrayOperators_MapToFamilyKernels(string name, string expected, int pc)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: pc == 2 ? FamI2() : FamI1(),
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(pc, resolved.ParamCount);
+        Assert.Equal(new[] { "15" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_RefFamily_Contains_MapsToRefKernel()
+    {
+        // Contains<string>(IEnumerable<string>, string): the value rides the
+        // reference slot (cast ""), the source the "a" array cast.
+        var sig = new System.Collections.Generic.List<byte> { 0x10, 0x01, 0x02, 0x02,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00 };
+        sig.Add(0x0E);
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Contains",
+            memberRefSignature: sig.ToArray(),
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_contains_family_ref", resolved.CppName);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "15" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_RefFamily_ElementAt_MapsToRefKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("ElementAt",
+            memberRefSignature: FamIInt(),
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_element_at_fam_ref", resolved.CppName);
+        Assert.Equal(new[] { "a", "i" }, resolved.ParamTypeNames);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.Equal(new[] { "15" }, resolved.AppendLiterals);
     }
 
     private static ResolvedMethod ResolveMethodSpec(MemoryStream pe)

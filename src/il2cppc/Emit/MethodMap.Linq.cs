@@ -623,6 +623,64 @@ public static partial class MethodRefResolver
                         returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { name == "OrderBy" ? "0" : "1" });
                 }
+                // D-LINQ-FAM: the family-generic element operators over a
+                // REFERENCE source (string[]/object[]/class[]). The runtime
+                // ships ONE kernel per operator (linq_family.h) with the cell
+                // code as the trailing literal; the reference cell is
+                // IL2CPP_LINQ_CELL_REF (15). The result is a fresh reference
+                // array -- the same null-class ref array the existing ref
+                // kernels allocate (linq.cpp), so downstream ref operators
+                // resolve on it.
+                case "Take":
+                    return I("il2cpp::il2cpp_linq_take_family", 2, true, true, false,
+                        new[] { "a", "i" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Skip":
+                    return I("il2cpp::il2cpp_linq_skip_family", 2, true, true, false,
+                        new[] { "a", "i" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Reverse":
+                    return I("il2cpp::il2cpp_linq_reverse_family", 1, true, true, false,
+                        OneArg, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Concat":
+                    return I("il2cpp::il2cpp_linq_concat_family", 2, true, true, false,
+                        new[] { "a", "a" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Distinct":
+                    return I("il2cpp::il2cpp_linq_distinct_family", 1, true, true, false,
+                        OneArg, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Except":
+                    return I("il2cpp::il2cpp_linq_except_family", 2, true, true, false,
+                        new[] { "a", "a" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Union":
+                    return I("il2cpp::il2cpp_linq_union_family", 2, true, true, false,
+                        new[] { "a", "a" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Intersect":
+                    return I("il2cpp::il2cpp_linq_intersect_family", 2, true, true, false,
+                        new[] { "a", "a" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "DefaultIfEmpty":
+                    return I("il2cpp::il2cpp_linq_default_if_empty_family", 1, true, true, false,
+                        OneArg, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "LongCount" when count < 2:
+                    return I("il2cpp::il2cpp_linq_long_count_family", 1, true, false, false,
+                        OneArg, resultKind: "l", appendLiterals: new[] { "15" });
+                case "SequenceEqual":
+                    return I("il2cpp::il2cpp_linq_sequence_equal_family", 2, true, false, false,
+                        new[] { "a", "a" }, appendLiterals: new[] { "15" });
+                case "Contains":
+                    return I("il2cpp::il2cpp_linq_contains_family_ref", 2, true, false, false,
+                        new[] { "a", "" }, appendLiterals: new[] { "15" });
+                case "ElementAt":
+                    return I("il2cpp::il2cpp_linq_element_at_fam_ref", 2, true, true, false,
+                        new[] { "a", "i" },
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
                 // p0grp: GroupBy over a REFERENCE-element array source. The
                 // grouping kernel reads either int32 cells (BuildGroups /
                 // I4At) or 16-byte System.Decimal cells
@@ -1974,6 +2032,28 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
+    // D-LINQ-FAM: the IL2CPP_LINQ_CELL_* code of an element TYPE byte
+    // (linq_family.h), the FAMILY-GENERIC kernel trailing literal. This is a
+    // DIFFERENT enumeration from LinqListKindOfElemByte (IL2CPP_LIST_KIND_*):
+    // int32 is CELL 7 but LIST_KIND 0, and float is CELL 9 but LIST_KIND 3 --
+    // reusing one for the other would read the wrong cell width (the
+    // LinqRequireCell elemSize guard would throw at runtime).
+    private static string? LinqCellCodeOfElemByte(byte b) => b switch
+    {
+        0x04 => "0",  // sbyte
+        0x05 => "1",  // byte
+        0x02 => "2",  // bool
+        0x06 => "3",  // short
+        0x07 => "4",  // ushort
+        0x03 => "5",  // char
+        0x09 => "6",  // uint
+        0x08 => "7",  // int32
+        0x0A or 0x0B => "8",  // int64 / uint64
+        0x0C => "9",  // float
+        0x0D => "10", // double
+        _ => null,
+    };
+
     // The List<T> element-kind literal (linq_list.h IL2CPP_LIST_KIND_*), or
     // null when the receiver is not a List<T>. The tracked List receiver names
     // come from the newobj AOT expansion (List`1_int / List`1_string / ...) or
@@ -2416,8 +2496,131 @@ public static partial class MethodRefResolver
             };
         var elemScalar = elemTracked.TrimEnd('[', ']');
 
+        // D-LINQ-FAM: the family-generic kernel trailing literal (the CELL
+        // code of the source element). The runtime ships ONE kernel per
+        // operator (linq_family.h) and reads/writes the element at its REAL
+        // width, so the int64/float/double/narrow array families ride the
+        // same entry. Null for an element byte with no cell ABI -- the
+        // operator then falls through to the int32-only gate and keeps its
+        // LOUD message (never a fabricated 4-byte read of an 8-byte cell).
+        string? cellCode = genArgs is { Length: >= 1 } ? LinqCellCodeOfElemByte(genArgs[0]) : null;
+
         switch (name)
         {
+            // D-LINQ-FAM: the family-generic element operators. Each returns
+            // a fresh array of the SAME cell (except the scalar-returning
+            // LongCount/Contains/SequenceEqual/ElementAt) and is tracked as
+            // the source's element type so downstream operators resolve.
+            case "Take":
+                // Take(count) -> the first `count` elements (net48 slice
+                // semantics: count <= 0 -> empty, count >= length -> full
+                // copy). The count rides the "i" cast, the source the "a".
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_take_family", 2, true, true, false,
+                    new[] { "a", "i" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Skip":
+                // Skip(count) -> everything after the first `count` elements
+                // (net48: count <= 0 -> full copy, count >= length -> empty).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_skip_family", 2, true, true, false,
+                    new[] { "a", "i" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Reverse":
+                // Reverse() -> a fresh array with the elements in reverse
+                // order (net48).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_reverse_family", 1, true, true, false,
+                    OneArg, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Concat":
+                // Concat(source, second) -> a fresh array holding ALL of
+                // source then ALL of second, order AND duplicates preserved
+                // (net48; length = sum of the parts).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_concat_family", 2, true, true, false,
+                    new[] { "a", "a" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Distinct":
+                // Distinct() -> duplicates removed keeping FIRST-APPEARANCE
+                // order (net48 default equality).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_distinct_family", 1, true, true, false,
+                    OneArg, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Except":
+                // Except(source, second) -> the elements of source NOT in
+                // second, first-appearance order, DEDUPLICATED output (net48).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_except_family", 2, true, true, false,
+                    new[] { "a", "a" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Union":
+                // Union(source, second) -> first's elements then second's,
+                // deduplicated by first-appearance (net48 Union = distinct
+                // concat).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_union_family", 2, true, true, false,
+                    new[] { "a", "a" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Intersect":
+                // Intersect(source, second) -> the elements of source that
+                // are also in second, first-appearance order, DEDUPLICATED
+                // (net48).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_intersect_family", 2, true, true, false,
+                    new[] { "a", "a" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "DefaultIfEmpty":
+                // DefaultIfEmpty() -> non-empty source as-is; an empty source
+                // yields a single default(T) element (net48).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_default_if_empty_family", 1, true, true, false,
+                    OneArg, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "LongCount" when count < 2:
+                // LongCount() -> the element count as int64 (net48).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_long_count_family", 1, true, false, false,
+                    OneArg, resultKind: "l", appendLiterals: new[] { cellCode });
+            case "SequenceEqual":
+                // SequenceEqual(source, second) -> true iff same length and
+                // every pair equal (net48 default equality).
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_sequence_equal_family", 2, true, false, false,
+                    new[] { "a", "a" }, appendLiterals: new[] { cellCode });
+            case "Contains":
+                // Contains(value) -> ordinal/default equality. The value
+                // rides the family's OWN parameter slot: the int32 slot for
+                // the narrow/int32 cells, the int64 slot for int64, the
+                // double slot for float/double.
+                if (cellCode == null) return null;
+                return srcFam switch
+                {
+                    "i8" => I("il2cpp::il2cpp_linq_contains_family_i8", 2, true, false, false,
+                        new[] { "a", "l" }, appendLiterals: new[] { cellCode }),
+                    "f" or "d" => I("il2cpp::il2cpp_linq_contains_family_d", 2, true, false, false,
+                        new[] { "a", "d" }, appendLiterals: new[] { cellCode }),
+                    _ => I("il2cpp::il2cpp_linq_contains_family_i4", 2, true, false, false,
+                        new[] { "a", "i" }, appendLiterals: new[] { cellCode }),
+                };
+            case "ElementAt":
+                // ElementAt(index) -> the element at `index`; index < 0 or
+                // >= length -> ArgumentOutOfRangeException. The result rides
+                // the family's result ABI (int32 for the narrow/int32 cells,
+                // int64 for int64, double for float/double).
+                if (cellCode == null) return null;
+                return srcFam switch
+                {
+                    "i8" => I("il2cpp::il2cpp_linq_element_at_fam_i8", 2, true, false, false,
+                        new[] { "a", "i" }, resultKind: "l",
+                        appendLiterals: new[] { cellCode }),
+                    "f" or "d" => I("il2cpp::il2cpp_linq_element_at_fam_d", 2, true, false, false,
+                        new[] { "a", "i" }, resultKind: "d",
+                        appendLiterals: new[] { cellCode }),
+                    _ => I("il2cpp::il2cpp_linq_element_at_fam_i4", 2, true, false, false,
+                        new[] { "a", "i" }, appendLiterals: new[] { cellCode }),
+                };
             // p0conv2 (D3): OrderBy / OrderByDescending over an INT64 value
             // SOURCE with a key selector. The int32-source entries
             // (il2cpp_linq_order_by_key_i4) read 4-byte cells and materialize
