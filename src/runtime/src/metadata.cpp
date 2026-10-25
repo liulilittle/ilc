@@ -631,6 +631,24 @@ Il2CppClass* il2cpp_class_by_name(const char* name)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_class_count / il2cpp_class_at -- the registry enumeration behind
+// Assembly.GetTypes() on a BCL assembly (p-refl2-gapmatrix C06). The registry
+// is populated by il2cpp_ensure_builtin_system_classes (the BCL builtins) and
+// by the generated per-type il2cpp_class_register calls (the translated user
+// types). Order is registration order (builtins first).
+//------------------------------------------------------------------------------
+int32_t il2cpp_class_count()
+{
+    return g_registeredClassCount;
+}
+
+const Il2CppClass* il2cpp_class_at(int32_t index)
+{
+    if (index < 0 || index >= g_registeredClassCount) return nullptr;
+    return g_registeredClasses[index];
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_class_by_name_ignore_case -- the ASCII case-insensitive variant of
 // il2cpp_class_by_name (Type.GetType's ignoreCase semantics). The comparison
 // folds ASCII A-Z to a-z only (generated names are pure ASCII); same null /

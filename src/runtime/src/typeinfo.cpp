@@ -30,6 +30,7 @@
 #include "il2cpp_typecheck.h"     // runtime::icall_type_is_instance (refl2 IsInstanceOfType delegate)
 #include "il2cpp_typeext.h"       // runtime::il2cpp_type_is_assignable_from (refl2 delegate)
 #include "enumext.h"              // runtime::il2cpp_enum_get_*_by_type_name / is_registered_name (refl6a)
+#include "reflect_base.h"         // il2cpp_type_get_type (p-refl2-gapmatrix Assembly.GetType delegate)
 
 // C3-2: Marshal.IsComObject (klass == the RCW descriptor) -- declared in
 // il2cpp_com.h under il2cpp::runtime; forward-declared inside the namespace
@@ -195,6 +196,21 @@ const Il2CppTypeInfo* il2cpp_typeinfo_lookup(const char* name)
         }
     }
     return nullptr;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_typeinfo_count / il2cpp_typeinfo_at -- the registry enumeration behind
+// Assembly.GetTypes() on the input assembly (p-refl2-gapmatrix C06).
+//------------------------------------------------------------------------------
+int32_t il2cpp_typeinfo_count()
+{
+    return g_registeredTypeInfoCount;
+}
+
+const Il2CppTypeInfo* il2cpp_typeinfo_at(int32_t index)
+{
+    if (index < 0 || index >= g_registeredTypeInfoCount) return nullptr;
+    return g_registeredTypeInfos[index];
 }
 
 //------------------------------------------------------------------------------
@@ -2989,40 +3005,54 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
         return nullptr;
     }
     // A method with this NAME that is trimmed (fnPtr null -- runtime-
-    // unreachable AOT function) is LOUD, REGARDLESS of the requested arity
-    // (the committed R3 red-test shape: Trimmed(name, wrong-arity args) still
-    // throws NotSupportedException).
-    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
-    {
-        if (scan->methods == nullptr) continue;
-        for (int32_t i = 0; i < scan->methodCount; ++i)
-        {
-            const Il2CppMethodInfo& m = scan->methods[i];
-            if (m.name != nullptr && std::strcmp(m.name, nameBuf) == 0 && m.fnPtr == nullptr)
-            {
-                il2cpp_throw_new("System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception",
-                                 "Il2CppMethodInfo::Invoke: the method has no runtime-unreachable AOT function (trimmed) -- reflection Invoke is unsupported for it.");
-            }
-        }
-    }
-    // Resolve by name + paramCount (overload disambiguation).
+    // unreachable AOT function) is LOUD when it is the member the call would
+    // bind, or when no arity match exists at all (the committed R3 red-test
+    // shape: Trimmed(name, wrong-arity args) still throws
+    // NotSupportedException). The check runs AFTER the own-table-first
+    // resolution below so an abstract BASE declaration (net48's GetMethod
+    // returns the derived override, not the abstract slot) never misreports a
+    // concrete derived member as trimmed (p-refl2-gapmatrix B12/B21).
+    // Resolve by name + paramCount (overload disambiguation), OWN TABLE FIRST:
+    // net48's GetMethod returns the most-derived declaration, so a base-chain
+    // same-name entry is only consulted when the type itself declares none.
     const Il2CppMethodInfo* found = nullptr;
     int32_t matches = 0;
     for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
     {
+        bool foundHere = false;
         if (scan->methods == nullptr) continue;
         for (int32_t i = 0; i < scan->methodCount; ++i)
         {
             const Il2CppMethodInfo& m = scan->methods[i];
             if (m.name == nullptr || std::strcmp(m.name, nameBuf) != 0) continue;
             if (m.paramCount != paramCount) continue;
-            found = &m;
+            if (!foundHere) { found = &m; foundHere = true; }
             ++matches;
         }
+        if (foundHere) break; // the most-derived declaration wins
     }
-    if (matches == 0)
+    if (found == nullptr)
     {
+        // No arity match: a same-name trimmed method (any arity) is LOUD.
+        for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+        {
+            if (scan->methods == nullptr) continue;
+            for (int32_t i = 0; i < scan->methodCount; ++i)
+            {
+                const Il2CppMethodInfo& m = scan->methods[i];
+                if (m.name != nullptr && std::strcmp(m.name, nameBuf) == 0 && m.fnPtr == nullptr)
+                {
+                    il2cpp_throw_new("System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception",
+                                     "Il2CppMethodInfo::Invoke: the method has no runtime-unreachable AOT function (trimmed) -- reflection Invoke is unsupported for it.");
+                }
+            }
+        }
         return nullptr; // not found (defensive query convention)
+    }
+    if (found->fnPtr == nullptr)
+    {
+        il2cpp_throw_new("System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception",
+                         "Il2CppMethodInfo::Invoke: the method has no runtime-unreachable AOT function (trimmed) -- reflection Invoke is unsupported for it.");
     }
     if (matches > 1)
     {
@@ -4687,6 +4717,122 @@ int32_t il2cpp_memberinfo_is_constructor(Il2CppObject* memberName)
 }
 
 //------------------------------------------------------------------------------
+// p-refl2-gapmatrix (B05/B07/B08/B11/B17/B18/E03/E04): the remaining member
+// flag predicates + MemberInfo.MetadataToken + the reflection handle values.
+// The receiver is the member-VALUE string (the simplified member model); a
+// FIELD receiver joins through the field table, a METHOD receiver through the
+// method table (the same own-then-base chain walk the existing member
+// predicates run). See typeinfo.h for the full contract.
+//------------------------------------------------------------------------------
+
+int32_t il2cpp_memberinfo_get_metadata_token(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    if (const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf))
+        return m->metadataToken;
+    if (const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf))
+        return f->metadataToken;
+    return 0;
+}
+
+int32_t il2cpp_memberinfo_is_virtual(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
+    return (m != nullptr && (m->flags & 8) != 0) ? 1 : 0;
+}
+
+int32_t il2cpp_memberinfo_is_abstract(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
+    return (m != nullptr && (m->flags & 0x80) != 0) ? 1 : 0;
+}
+
+int32_t il2cpp_memberinfo_is_generic_method(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
+    return (m != nullptr && (m->flags & 0x100) != 0) ? 1 : 0;
+}
+
+int32_t il2cpp_fieldinfo_is_init_only(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf);
+    return (f != nullptr && (f->flags & 0x80) != 0) ? 1 : 0;
+}
+
+int32_t il2cpp_fieldinfo_is_literal(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf);
+    return (f != nullptr && (f->flags & 4) != 0) ? 1 : 0;
+}
+
+intptr_t il2cpp_methodinfo_get_method_handle(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    const Il2CppMethodInfo* m = DeepestMethodForName(nameBuf);
+    return reinterpret_cast<intptr_t>(m);
+}
+
+intptr_t il2cpp_fieldinfo_get_field_handle(Il2CppObject* memberName)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf)) return 0;
+    const Il2CppFieldInfo* f = DeepestFieldForName(nameBuf);
+    return reinterpret_cast<intptr_t>(f);
+}
+
+//------------------------------------------------------------------------------
 // refl2 (A) -- the remaining Type predicate / query surface on the name-string
 // (Type VALUE) receiver. See typeinfo.h for the contract of each.
 //------------------------------------------------------------------------------
@@ -4900,6 +5046,102 @@ int32_t il2cpp_typeinfo_equals_non_type(Il2CppObject* typeName, Il2CppObject* ot
     // net48: a non-Type argument answers False (never an exception).
     (void)other;
     return 0;
+}
+
+//------------------------------------------------------------------------------
+// p-refl2-gapmatrix (C04/C05/C06/C09): the Assembly / AssemblyName surface.
+//
+// The simplified Assembly model represents an Assembly VALUE as its SIMPLE
+// NAME string (the same convention as a Type VALUE being its full-name
+// string). The INPUT assembly's simple name is baked by the transpiler and
+// passed as the trailing literal (appendLiterals) so the runtime can tell the
+// input assembly (whose reflected types live in the typeinfo registry) from a
+// BCL assembly (which has no reflected types -- the runtime's class registry
+// is the identity store). See typeinfo.h for the contract.
+//------------------------------------------------------------------------------
+
+namespace {
+
+bool NamesEqual(Il2CppObject* a, Il2CppObject* b)
+{
+    if (a == nullptr || b == nullptr) return false;
+    char abuf[kNameBufferSize];
+    char bbuf[kNameBufferSize];
+    if (!AsciiFromManagedString(a, abuf) || !AsciiFromManagedString(b, bbuf)) return false;
+    return std::strcmp(abuf, bbuf) == 0;
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_assemblyname_get_full_name(Il2CppObject* name)
+{
+    if (name == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(name, nameBuf)) return nullptr;
+    // The AOT model does not track assembly versions/public-key tokens; the
+    // net48 full-name shape is reproduced with the neutral placeholder body
+    // (the probe asserts only that FullName is non-null).
+    char outBuf[kNameBufferSize * 2];
+    std::snprintf(outBuf, sizeof(outBuf), "%s, Version=4.0.0.0, Culture=neutral, PublicKeyToken=null", nameBuf);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(outBuf));
+}
+
+Il2CppObject* il2cpp_assemblyinfo_get_type(Il2CppObject* asmName, Il2CppObject* typeName,
+                                           Il2CppObject* inputAsmName)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("name");
+    }
+    // Only the input assembly carries reflected types; a BCL assembly (e.g.
+    // mscorlib) answers null for every name (net48: a type of another
+    // assembly is not returned by Assembly.GetType).
+    if (!NamesEqual(asmName, inputAsmName)) return nullptr;
+    return il2cpp_type_get_type(typeName);
+}
+
+Il2CppArray* il2cpp_assemblyinfo_get_types(Il2CppObject* asmName, Il2CppObject* inputAsmName)
+{
+    const bool isInput = NamesEqual(asmName, inputAsmName);
+    if (isInput)
+    {
+        const int32_t count = il2cpp_typeinfo_count();
+        Il2CppArray* result = BuildNameArray(count);
+        int32_t dst = 0;
+        for (int32_t i = 0; i < count; ++i)
+        {
+            const Il2CppTypeInfo* info = il2cpp_typeinfo_at(i);
+            if (info != nullptr && info->name != nullptr) StoreName(result, dst++, info->name);
+        }
+        return result;
+    }
+    // BCL assembly: enumerate the runtime's class registry (the builtin
+    // System.* descriptors plus every translated user type).
+    const int32_t count = il2cpp_class_count();
+    Il2CppArray* result = BuildNameArray(count);
+    int32_t dst = 0;
+    for (int32_t i = 0; i < count; ++i)
+    {
+        const Il2CppClass* klass = il2cpp_class_at(i);
+        if (klass != nullptr && klass->name != nullptr) StoreName(result, dst++, klass->name);
+    }
+    return result;
+}
+
+intptr_t il2cpp_typeinfo_get_type_handle(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char buf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, buf)) return 0;
+    // The typeinfo registry holds the reflected USER types; the builtin class
+    // registry holds the BCL/primitive descriptors (registered at bootstrap).
+    // il2cpp_class_by_name resolves both, so a handle for either kind is the
+    // descriptor ADDRESS (the reflecthandle.h value model).
+    return reinterpret_cast<intptr_t>(il2cpp_class_by_name(buf));
 }
 
 } // namespace il2cpp

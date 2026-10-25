@@ -60,6 +60,34 @@ public sealed class MethodContext
 
 public static class StackFold
 {
+    // p-refl2-gapmatrix (B08): the member-VALUE provenance for a Type.GetMethod /
+    // Type.GetField call whose receiver is a folded typeof-chain TYPE VALUE (a
+    // StringConstExpr carrying the ldtoken TYPE TOKEN). The simplified member
+    // model represents a member VALUE as its name string, which loses the
+    // declaring type -- net48's GetMethod on a base type returns the BASE
+    // declaration (the abstract slot), not the derived override -- so the fold
+    // records (declaring type token, member name, isField) for a downstream
+    // member flag predicate to resolve the exact declaration. Null when the
+    // call is not a GetMethod/GetField or the receiver carries no type token.
+    private static (int TypeToken, string MemberName, bool IsField)? MemberProvenanceOf(
+        MetadataReader? md, int token, IReadOnlyList<Expr> args)
+    {
+        if (md == null || args.Count < 2) return null;
+        if (args[0] is not StringConstExpr recv || recv.TypeToken is not int typeToken) return null;
+        if (args[1] is not StringConstExpr memberName) return null;
+        var handle = MetadataTokens.Handle(token);
+        if (handle.Kind != HandleKind.MemberReference) return null;
+        var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+        if (mr.Parent.Kind != HandleKind.TypeReference) return null;
+        if (md.GetFullName((TypeReferenceHandle)mr.Parent) != "System.Type") return null;
+        return md.GetString(mr.Name) switch
+        {
+            "GetMethod" => (typeToken, memberName.Value, false),
+            "GetField" => (typeToken, memberName.Value, true),
+            _ => null,
+        };
+    }
+
     public static string[]? _curClosureArgs;
     // md/types optional: null = pure-IR folding (the existing test path);
     // non-null resolves call arg counts / return values + field tokens -> full
@@ -88,6 +116,12 @@ public static class StackFold
         // derived type must match; before the fix every throw was a fixed
         // System.Exception and derived catches never matched).
         var objTypes = new Dictionary<string, string>();
+        // p-refl2-gapmatrix (B08): local name -> the member-VALUE provenance
+        // recorded for a folded typeof-chain GetMethod/GetField call whose
+        // result was stored into the local. Lets a downstream member flag
+        // predicate resolve the exact declaration from the metadata (the
+        // name-string member VALUE alone cannot -- the declaring type is lost).
+        var memberProvenanceByLocal = new Dictionary<string, (int TypeToken, string MemberName, bool IsField)>();
         // D5: temp -> the METADATA TOKEN of the shared-clone concrete VAR/
         // MVAR return (Box<Pt>.Get's result temp -> the Cases.Pt TypeDef
         // token). Recorded alongside objTypes so a later store into a USER
@@ -440,6 +474,14 @@ public static class StackFold
                         && stCall.ResultKind is { } stVk && stVk.StartsWith("vt:", StringComparison.Ordinal)
                         && ValueTupleSupport.IsValueTupleName(stVk["vt:".Length..]))
                         objTypes[stName] = stVk["vt:".Length..];
+                    // p-refl2-gapmatrix (B08): propagate the member-VALUE
+                    // provenance through the store (a folded typeof-chain
+                    // GetMethod/GetField result, possibly via its materialized
+                    // temp).
+                    if (stValue is CallExpr stProvCall && stProvCall.MemberProvenance is { } stProv)
+                        memberProvenanceByLocal[stName] = stProv;
+                    else if (stValue is LocExpr stProvSrc && memberProvenanceByLocal.TryGetValue(stProvSrc.Name, out var stProv2))
+                        memberProvenanceByLocal[stName] = stProv2;
                     EmitStore(stName, ins);
                     if (stValue is IntConstExpr sc
                         && stlocCount.TryGetValue(stName, out var scnt) && scnt == 1
@@ -2348,6 +2390,12 @@ public static class StackFold
                 if (rkTuple is { } rk3 && rk3.StartsWith("vt:", StringComparison.Ordinal)
                     && ValueTupleSupport.IsValueTupleName(rk3["vt:".Length..]))
                     objTypes[name] = rk3["vt:".Length..];
+                // p-refl2-gapmatrix (B08): a folded typeof-chain GetMethod/
+                // GetField result materializes into this temp -- carry its
+                // member provenance so a downstream member flag predicate on
+                // the temp resolves the exact declaration.
+                if (e is CallExpr ceProv && ceProv.MemberProvenance is { } cpProv)
+                    memberProvenanceByLocal[name] = cpProv;
                 // M4 Task 4: capture the OS error code right after a
                 // SetLastError=true P/Invoke call.
                 if (e is CallExpr ce && ce.SetLastError)
@@ -2886,6 +2934,12 @@ public static class StackFold
             string? arg0Type = null;
             bool arg0IsAddr = false;
             string? arg1Type = null;
+            // p-refl2-gapmatrix (B08): the member-VALUE provenance recorded for
+            // a folded typeof-chain GetMethod/GetField call (the declaring type
+            // token + the member name), attached to the emitted CallExpr so a
+            // downstream member flag predicate can resolve the exact
+            // declaration. Null unless the call qualifies.
+            (int TypeToken, string MemberName, bool IsField)? pendingMemberProvenance = null;
             if (md != null && stack.Count > 0)
             {
                 var first = stack.Peek();
@@ -2986,7 +3040,7 @@ public static class StackFold
                     ReflectionDisplayName(md, (int)ldtMarker.Value, true),
                     ReflectionDisplayShortName(md, (int)ldtMarker.Value),
                     AssemblySuffix(md, (int)ldtMarker.Value));
-                Push(new StringConstExpr { Value = TypeNameForReflection(md, (int)ldtMarker.Value) }, ins);
+                Push(new StringConstExpr { Value = TypeNameForReflection(md, (int)ldtMarker.Value), TypeToken = (int)ldtMarker.Value }, ins);
                 return;
             }
             // typeof-chain consumer folds (audit F1 follow-up): the
@@ -3017,6 +3071,24 @@ public static class StackFold
             //   * the A-class predicates / GetArrayRank / Make*Type /
             //     get_MetadataToken / get_BaseType / Equals;
             //   * GetGenericArguments -- the adjacent-consumer element fold.
+            // p-refl2-gapmatrix (B07/B08/B11/B17/B18): a member flag predicate
+            // (IsAbstract / IsVirtual / IsGenericMethod / IsInitOnly / IsLiteral)
+            // on a member VALUE whose declaring type the fold knows (a folded
+            // typeof-chain GetMethod/GetField result, possibly stored in a
+            // local). The simplified member model represents a member VALUE as
+            // its name string, which loses the declaring type -- net48's
+            // GetMethod on a base type returns the BASE declaration (the
+            // abstract slot), not the derived override -- so the fold answers
+            // from the metadata. The runtime fallback (name-only resolution)
+            // stays for a member value without provenance.
+            if (md != null && stack.Count > 0
+                && IsMemberFlagPredicate(md, (int)ins.Operand, out var flagKind)
+                && TryMemberProvenance(stack.Peek(), out var flagProv))
+            {
+                stack.Pop();
+                Push(new IntConstExpr { Value = MemberFlagAnswer(md, flagProv, flagKind) }, ins);
+                return;
+            }
             if (md != null && prevIns is IlInstruction { OpCode: ILOpCode.Call or ILOpCode.Callvirt } prevCall
                 && typeValueDisplay.TryGetValue(prevCall.Offset, out var typeValue)
                 && stack.Count > 0 && stack.Peek() is StringConstExpr foldedType)
@@ -3148,6 +3220,18 @@ public static class StackFold
                         Push(new IntConstExpr { Value = MetadataTokenOfType(md, memberToken) }, ins);
                         return;
                     }
+                    // p-refl2-gapmatrix (C04/C05/C06/C09): Type.Assembly on a
+                    // FOLDED typeof chain. The Assembly VALUE is the DEFINING
+                    // assembly's SIMPLE NAME (net48: typeof(int).Assembly is
+                    // mscorlib, typeof(GapDerived).Assembly is the input
+                    // assembly -- the pre-refl2 REFL4 arm returned the input
+                    // assembly unconditionally, which is wrong for a BCL type).
+                    if (IsTypeGetAssembly(md, (int)ins.Operand))
+                    {
+                        stack.Pop();
+                        Push(new StringConstExpr { Value = AssemblySimpleNameOfToken(md, memberToken) }, ins);
+                        return;
+                    }
                     if (IsTypeGetIsConstructedGenericType(md, (int)ins.Operand))
                     {
                         stack.Pop();
@@ -3238,6 +3322,12 @@ public static class StackFold
                     }, ins);
                     return;
                 }
+                // p-refl2-gapmatrix (E01/E02): Type.TypeHandle is mapped by
+                // the resolver to il2cpp_typeinfo_get_type_handle (the handle
+                // VALUE is the type descriptor's intptr_t address, the
+                // reflecthandle.h value model); the immediate
+                // Type.GetTypeFromHandle consumer maps to
+                // il2cpp_type_get_type_from_handle_value. No fold needed.
             }
             // GN-18 P2/D1 (S3): the GetGenericArguments element fold leaves a
             // TYPE value on the stack -- a StringConstExpr holding the
@@ -3425,6 +3515,16 @@ public static class StackFold
                 if (stack.Count == 0)
                     throw new NotSupportedException($"callvirt at offset 0x{ins.Offset:X4} (token {ins.Operand}): stack empty when popping this -- likely a catch-handler variable binding");
                 args.Insert(0, stack.Pop()); // this is the receiver, slot 0 of the arg list
+                // p-refl2-gapmatrix (B08): a GetMethod/GetField call whose
+                // receiver is a folded typeof-chain TYPE VALUE (a StringConstExpr
+                // carrying the ldtoken TYPE TOKEN) -- record the member
+                // provenance (declaring type + member name). The simplified
+                // member model represents the member VALUE as its name string,
+                // which loses the declaring type; the fold keeps it so a
+                // downstream flag predicate resolves the exact declaration
+                // (net48's GetMethod on a base type returns the BASE
+                // declaration, not the derived override).
+                pendingMemberProvenance = MemberProvenanceOf(md, (int)ins.Operand, args);
                 // M5 wiring: re-resolve with the RECEIVER's tracked type
                 // (args[0] -- the pre-pop stack top was the LAST explicit
                 // argument, not the receiver). Needed when the token's own
@@ -4066,7 +4166,7 @@ public static class StackFold
                 // CppName starts with "il2cpp::").
                 if (resolved is { IsPInvoke: false } && IsRuntimeDirect(resolved))
                 {
-                    var shelp = new CallExpr { Function = $"call_{ins.Operand}", ReturnsRef = resolved.ReturnsRef, ResultKind = resolved.ResultKind, Resolved = resolved };
+                    var shelp = new CallExpr { Function = $"call_{ins.Operand}", ReturnsRef = resolved.ReturnsRef, ResultKind = resolved.ResultKind, Resolved = resolved, MemberProvenance = pendingMemberProvenance };
                     shelp.Args.AddRange(args);
                     if (resolved.ReturnsValue)
                     {
@@ -4258,6 +4358,9 @@ public static class StackFold
                 ReturnsRef = resolved?.ReturnsRef ?? false,
                 ResultKind = resolved?.ResultKind,
                 Resolved = resolved,
+                // p-refl2-gapmatrix (B08): the member-VALUE provenance for a
+                // non-virtual GetMethod/GetField (`call`, not callvirt).
+                MemberProvenance = pendingMemberProvenance,
                 // M4 Task 3: P/Invoke string args are marshalled at the call site.
                 IsPInvoke = resolved?.IsPInvoke ?? false,
                 // M4 Task 4: [DllImport(SetLastError=true)].
@@ -4278,6 +4381,11 @@ public static class StackFold
                 if (stack.Count == 0)
                     throw new NotSupportedException($"call at offset 0x{ins.Offset:X4}: resolved {resolved.CppName} as INSTANCE (pops this) but the stack is empty -- likely a wrong static/instance classification");
                 args.Insert(0, stack.Pop());
+                // p-refl2-gapmatrix (B08): csc emits `call` (not callvirt) for
+                // the non-virtual GetMethod/GetField -- record the member
+                // provenance here too (the callvirt path records it above).
+                pendingMemberProvenance = MemberProvenanceOf(md, (int)ins.Operand, args);
+                call.MemberProvenance = pendingMemberProvenance;
             }
 
             // M5 wiring: for STATIC calls, re-resolve with the FIRST explicit
@@ -6331,17 +6439,260 @@ public static class StackFold
             return null;
         }
 
+        // p-refl2-gapmatrix (B08): the member-VALUE provenance of an expression
+        // -- a local holding a stored member value, or a CallExpr whose
+        // provenance the GetMethod/GetField fold attached. (Captures the
+        // per-Fold provenance table, so it is a non-static local function.)
+        bool TryMemberProvenance(Expr e, out (int TypeToken, string MemberName, bool IsField) prov)
+        {
+            if (e is LocExpr le && memberProvenanceByLocal.TryGetValue(le.Name, out prov)) return true;
+            if (e is CallExpr ce && ce.MemberProvenance is { } cp) { prov = cp; return true; }
+            prov = default;
+            return false;
+        }
+
+        // p-refl2-gapmatrix (B07/B08/B11/B17/B18): whether the call token is a
+        // member flag predicate whose answer the fold can resolve from the
+        // metadata (given the member's declaring type). Returns the predicate
+        // key or null.
+        static bool IsMemberFlagPredicate(MetadataReader md, int token, out string kind)
+        {
+            kind = "";
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            var parent = md.GetFullName((TypeReferenceHandle)mr.Parent);
+            if (parent is not ("System.Reflection.MethodInfo" or "System.Reflection.MethodBase"
+                or "System.Reflection.FieldInfo" or "System.Reflection.PropertyInfo"
+                or "System.Reflection.ConstructorInfo" or "System.Reflection.EventInfo"
+                or "System.Reflection.MemberInfo"))
+                return false;
+            switch (md.GetString(mr.Name))
+            {
+                case "get_IsAbstract": kind = "abstract"; return true;
+                case "get_IsVirtual": kind = "virtual"; return true;
+                case "get_IsGenericMethod": kind = "genericmethod"; return true;
+                case "get_IsInitOnly": kind = "initonly"; return true;
+                case "get_IsLiteral": kind = "literal"; return true;
+                default: return false;
+            }
+        }
+
+        // p-refl2-gapmatrix (B08): the net48 flag answer for a member of the
+        // declaring type the fold recorded. A TypeDef answers from its own
+        // metadata; a TypeSpec resolves to its definition; anything else
+        // (a TypeRef -- a member of another assembly) answers 0 (documented
+        // boundary, the runtime fallback covers it).
+        static int MemberFlagAnswer(MetadataReader md, (int TypeToken, string MemberName, bool IsField) prov, string kind)
+        {
+            var handle = MetadataTokens.Handle(prov.TypeToken);
+            if (handle.Kind == HandleKind.TypeSpecification)
+            {
+                var sig = md.GetBlobReader(
+                    md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+                _ = DecodeDisplayType(md, ref sig, false, out var defTok);
+                handle = defTok;
+            }
+            if (handle.Kind != HandleKind.TypeDefinition) return 0;
+            var td = md.GetTypeDefinition((TypeDefinitionHandle)handle);
+            if (prov.IsField)
+            {
+                foreach (var fh in td.GetFields())
+                {
+                    var fd = md.GetFieldDefinition(fh);
+                    if (md.GetString(fd.Name) != prov.MemberName) continue;
+                    if (kind == "literal") return (fd.Attributes & System.Reflection.FieldAttributes.Literal) != 0 ? 1 : 0;
+                    if (kind == "initonly") return (fd.Attributes & System.Reflection.FieldAttributes.InitOnly) != 0 ? 1 : 0;
+                }
+                return 0;
+            }
+            foreach (var mh in td.GetMethods())
+            {
+                var mdef = md.GetMethodDefinition(mh);
+                if (md.GetString(mdef.Name) != prov.MemberName) continue;
+                switch (kind)
+                {
+                    case "abstract": return (mdef.Attributes & System.Reflection.MethodAttributes.Abstract) != 0 ? 1 : 0;
+                    case "virtual": return (mdef.Attributes & System.Reflection.MethodAttributes.Virtual) != 0 ? 1 : 0;
+                    case "genericmethod": return mdef.GetGenericParameters().Count > 0 ? 1 : 0;
+                }
+            }
+            return 0;
+        }
+
+        // p-refl2-gapmatrix (C04/C05/C06/C09): whether the call token is
+        // Type::get_Assembly (the typeof-chain Assembly VALUE fold).
+        static bool IsTypeGetAssembly(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.MemberReference) return false;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (mr.Parent.Kind != HandleKind.TypeReference) return false;
+            return md.GetFullName((TypeReferenceHandle)mr.Parent) == "System.Type"
+                && md.GetString(mr.Name) == "get_Assembly";
+        }
+
+        // p-refl2-gapmatrix (C04/C05/C06/C09): the DEFINING assembly's SIMPLE
+        // NAME for a typeof token -- the Assembly VALUE the get_Assembly fold
+        // produces. A TypeDef -> this assembly; a TypeRef -> its AssemblyRef
+        // name (mscorlib for the core library's scope); a TypeSpec -> its
+        // element / generic-definition token (net48 arrays and closed generics
+        // carry their element's assembly).
+        static string AssemblySimpleNameOfToken(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind == HandleKind.TypeSpecification)
+            {
+                var sig = md.GetBlobReader(
+                    md.GetTypeSpecification((TypeSpecificationHandle)handle).Signature);
+                _ = DecodeDisplayType(md, ref sig, false, out var defTok);
+                return AssemblySimpleNameOfToken(md, MetadataTokens.GetToken(defTok));
+            }
+            switch (handle.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                    return ThisAssemblyName(md);
+                case HandleKind.TypeReference:
+                {
+                    var tr = md.GetTypeReference((TypeReferenceHandle)handle);
+                    var scope = tr.ResolutionScope;
+                    if (scope.Kind == HandleKind.TypeReference)
+                        return AssemblySimpleNameOfToken(md, MetadataTokens.GetToken(scope));
+                    if (scope.Kind == HandleKind.AssemblyReference)
+                        return md.GetString(md.GetAssemblyReference((AssemblyReferenceHandle)scope).Name);
+                    return "mscorlib";
+                }
+                default:
+                    return "mscorlib";
+            }
+        }
+
+        static string ThisAssemblyName(MetadataReader md)
+        {
+            try { return md.GetString(md.GetAssemblyDefinition().Name); }
+            catch { return ""; }
+        }
+
         // net48 Type.MetadataToken of a typeof token: the ECMA token.
+        //   * a TypeDef -> the definition's own TypeDef token (this assembly);
+        //   * a TypeRef -> the referenced type's DEFINING assembly TypeDef
+        //     token (net48 resolves the type through its AssemblyRef -- e.g.
+        //     typeof(int).MetadataToken is mscorlib's System.Int32 TypeDef
+        //     row 251 = 0x020000FB, NOT the input assembly's TypeRef row).
+        //     This reader has no rows for the referenced assembly, so the
+        //     well-known core-library table answers (the net48 mscorlib token
+        //     set is fixed -- v4.0.30319); any other TypeRef falls back to the
+        //     input-assembly TypeRef token (documented boundary);
+        //   * a TypeSpec -> its row (arrays / constructed generics carry no
+        //     own TypeDef row).
         static int MetadataTokenOfType(MetadataReader md, int token)
         {
             var handle = MetadataTokens.Handle(token);
-            return handle.Kind switch
+            switch (handle.Kind)
             {
-                HandleKind.TypeDefinition => 0x02000000 | MetadataTokens.GetRowNumber((EntityHandle)handle),
-                HandleKind.TypeReference => 0x01000000 | MetadataTokens.GetRowNumber((EntityHandle)handle),
-                HandleKind.TypeSpecification => 0x1B000000 | MetadataTokens.GetRowNumber((EntityHandle)handle),
-                _ => 0,
-            };
+                case HandleKind.TypeDefinition:
+                    return 0x02000000 | MetadataTokens.GetRowNumber((EntityHandle)handle);
+                case HandleKind.TypeReference:
+                {
+                    var fullName = md.GetFullName((TypeReferenceHandle)handle);
+                    if (BclMetadataToken(fullName) is { } bclToken) return bclToken;
+                    return 0x01000000 | MetadataTokens.GetRowNumber((EntityHandle)handle);
+                }
+                case HandleKind.TypeSpecification:
+                    return 0x1B000000 | MetadataTokens.GetRowNumber((EntityHandle)handle);
+                default:
+                    return 0;
+            }
+        }
+
+        // The well-known mscorlib (v4.0.30319) TypeDef tokens for the core
+        // library types the net48 probes reflect. This reader cannot resolve a
+        // TypeRef's defining-assembly TypeDef row (it only holds the input
+        // assembly's metadata), so the fixed mscorlib token set is carried
+        // here -- the same curated-core-table convention as BclTypeAttributeFlag
+        // below. A miss returns null (the caller keeps the TypeRef token).
+        static int? BclMetadataToken(string fullName)
+        {
+            switch (fullName)
+            {
+                case "System.Object": return 0x0200003d;
+                case "System.Action`1": return 0x02000040;
+                case "System.Action": return 0x02000041;
+                case "System.Func`1": return 0x02000045;
+                case "System.Func`2": return 0x02000046;
+                case "System.Array": return 0x02000055;
+                case "System.IComparable": return 0x02000058;
+                case "System.IComparable`1": return 0x02000059;
+                case "System.IEquatable`1": return 0x0200005a;
+                case "System.String": return 0x02000073;
+                case "System.Exception": return 0x0200007c;
+                case "System.DateTime": return 0x0200007d;
+                case "System.SystemException": return 0x02000080;
+                case "System.Delegate": return 0x02000085;
+                case "System.MulticastDelegate": return 0x02000087;
+                case "System.ArgumentException": return 0x020000a6;
+                case "System.ArgumentNullException": return 0x020000a7;
+                case "System.ArgumentOutOfRangeException": return 0x020000a8;
+                case "System.Attribute": return 0x020000ad;
+                case "System.AttributeUsageAttribute": return 0x020000af;
+                case "System.Boolean": return 0x020000b2;
+                case "System.Byte": return 0x020000b4;
+                case "System.Char": return 0x020000b6;
+                case "System.DayOfWeek": return 0x020000d1;
+                case "System.Decimal": return 0x020000d3;
+                case "System.Double": return 0x020000d7;
+                case "System.Enum": return 0x020000da;
+                case "System.EventHandler": return 0x020000e0;
+                case "System.FlagsAttribute": return 0x020000e3;
+                case "System.Guid": return 0x020000eb;
+                case "System.IDisposable": return 0x020000ee;
+                case "System.IFormattable": return 0x020000f0;
+                case "System.Int16": return 0x020000fa;
+                case "System.Int32": return 0x020000fb;
+                case "System.Int64": return 0x020000fc;
+                case "System.IntPtr": return 0x020000fd;
+                case "System.IConvertible": return 0x02000103;
+                case "System.Math": return 0x0200010b;
+                case "System.ObsoleteAttribute": return 0x0200011a;
+                case "System.Random": return 0x02000126;
+                case "System.SByte": return 0x0200013c;
+                case "System.SerializableAttribute": return 0x0200013d;
+                case "System.Single": return 0x0200013f;
+                case "System.TimeSpan": return 0x02000143;
+                case "System.Type": return 0x02000148;
+                case "System.UInt16": return 0x02000150;
+                case "System.UInt32": return 0x02000151;
+                case "System.UInt64": return 0x02000152;
+                case "System.UIntPtr": return 0x02000153;
+                case "System.ValueType": return 0x02000159;
+                case "System.Void": return 0x0200015c;
+                case "System.IO.MemoryStream": return 0x02000199;
+                case "System.IO.Stream": return 0x020001a1;
+                case "System.IO.TextReader": return 0x020001a6;
+                case "System.IO.TextWriter": return 0x020001a7;
+                case "System.Globalization.CultureInfo": return 0x020003a9;
+                case "System.Globalization.NumberFormatInfo": return 0x020003d9;
+                case "System.Collections.IEnumerable": return 0x0200049e;
+                case "System.Collections.Generic.Dictionary`2": return 0x020004bf;
+                case "System.Collections.Generic.ICollection`1": return 0x020004d0;
+                case "System.Collections.Generic.IComparer`1": return 0x020004d1;
+                case "System.Collections.Generic.IEnumerable`1": return 0x020004d3;
+                case "System.Collections.Generic.IEnumerator`1": return 0x020004d4;
+                case "System.Collections.Generic.IEqualityComparer`1": return 0x020004d5;
+                case "System.Collections.Generic.IList`1": return 0x020004d6;
+                case "System.Collections.Generic.List`1": return 0x020004dc;
+                case "System.Threading.Thread": return 0x02000516;
+                case "System.Reflection.Assembly": return 0x020005b1;
+                case "System.Reflection.AssemblyName": return 0x020005c7;
+                case "System.Reflection.ConstructorInfo": return 0x020005d2;
+                case "System.Reflection.FieldInfo": return 0x020005e5;
+                case "System.Reflection.MemberInfo": return 0x02000601;
+                case "System.Reflection.MethodInfo": return 0x02000608;
+                case "System.Reflection.PropertyInfo": return 0x0200061b;
+                case "System.Text.StringBuilder": return 0x02000a58;
+                default: return null;
+            }
         }
 
         // refl2 (A): whether the call token is Type::get_AssemblyQualifiedName.

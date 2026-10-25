@@ -34,7 +34,10 @@ public class MethodMapTestsType
         var resolved = ResolveMember(Synthesize("System", "Type", "GetTypeFromHandle",
             new byte[] { 0x00, 0x01, 0x12, 0x05, 0x11, 0x05 }), "GetTypeFromHandle"); // RuntimeTypeHandle
 
-        Assert.Equal("il2cpp::runtime::il2cpp_type_get_type_from_handle", resolved.CppName);
+        // p-refl2-gapmatrix (E01/E02): the handle VALUE is an intptr_t slot (the
+        // reflecthandle.h value model), so the icall takes the intptr and casts
+        // to the descriptor (the FOLDED typeof chain is handled by StackFold).
+        Assert.Equal("il2cpp::runtime::il2cpp_type_get_type_from_handle_value", resolved.CppName);
         Assert.True(resolved.ReturnsRef);   // the name string
         Assert.Equal("System.Type", resolved.ReturnTypeName); // fold linkage
         Assert.False(resolved.IsInstance);  // static

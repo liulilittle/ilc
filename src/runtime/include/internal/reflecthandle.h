@@ -86,6 +86,11 @@ namespace il2cpp {
 // handle.Value -> the raw handle IntPtr (the descriptor address as an
 // intptr_t). null -> 0 (net48: default(RuntimeTypeHandle).Value == 0).
 intptr_t il2cpp_rthandle_get_value(Il2CppClass* handle);
+// p-refl2-gapmatrix (E01/E03): the intptr_t handle-VALUE overload. The
+// transpiler models a handle VALUE as an intptr_t slot (the same carrier as
+// IntPtr), so the IL passes the handle address/value where the pointer
+// primitive wants Il2CppClass*; this overload casts and delegates.
+intptr_t il2cpp_rthandle_get_value_intptr(intptr_t handle);
 
 // handle.Equals(other) -> 1 when the two handles denote the same TYPE
 // (delegates to icall_type_equals: descriptor identity fast path incl.
@@ -116,6 +121,9 @@ Il2CppObject* il2cpp_rthandle_get_runtime_type(Il2CppClass* handle);
 // handle.Value -> the raw handle IntPtr (the method table entry address as
 // an intptr_t). null -> 0.
 intptr_t il2cpp_rmethodhandle_get_value(const Il2CppMethodInfo* handle);
+// p-refl2-gapmatrix (E03): the intptr_t handle-VALUE overload (see
+// il2cpp_rthandle_get_value_intptr).
+intptr_t il2cpp_rmethodhandle_get_value_intptr(intptr_t handle);
 
 // handle.Equals(other) -> 1 when both handles denote the SAME method
 // (declaringType + name + signature all equal; identity fast path incl.
@@ -136,6 +144,9 @@ int32_t il2cpp_rmethodhandle_get_hash_code(const Il2CppMethodInfo* handle);
 // handle.Value -> the raw handle IntPtr (the field table entry address as an
 // intptr_t). null -> 0.
 intptr_t il2cpp_rfieldhandle_get_value(const Il2CppFieldInfo* handle);
+// p-refl2-gapmatrix (E04): the intptr_t handle-VALUE overload (see
+// il2cpp_rthandle_get_value_intptr).
+intptr_t il2cpp_rfieldhandle_get_value_intptr(intptr_t handle);
 
 // handle.Equals(other) -> 1 when both handles denote the SAME field
 // (name + typeName both equal; identity fast path incl. both-null -> 1).

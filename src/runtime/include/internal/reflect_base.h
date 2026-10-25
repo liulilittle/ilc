@@ -30,6 +30,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h" // Il2CppObject (managed-string ABI)
+#include "il2cpp_array.h"  // Il2CppArray (the object[] args carrier)
 
 namespace il2cpp {
 
@@ -38,6 +39,16 @@ namespace il2cpp {
 // ArgumentNullException; unregistered type (or a malformed name that
 // escapes to "not found") -> MissingMethodException.
 Il2CppObject* il2cpp_activator_create_instance(Il2CppObject* typeName);
+
+// p-refl2-gapmatrix (C02): Activator.CreateInstance(Type, object[] args) --
+// the params-array overload. Same registry resolution as
+// il2cpp_activator_create_instance, but the ctor is selected by the ARG COUNT
+// (the net48 overload runs the matching ctor with the supplied args). The
+// args array is passed to the ctor through il2cpp_methodinfo_invoke (the
+// instance-'this' injection). The nonPublic overload (CreateInstance(Type,
+// bool)) ignores the flag (net48 default = public-only binding) and reuses
+// il2cpp_activator_create_instance. Null typeName -> ArgumentNullException.
+Il2CppObject* il2cpp_activator_create_instance_args(Il2CppObject* typeName, Il2CppArray* args);
 
 // Type.GetType(string typeName) -> the type's full-name string (the INPUT
 // object itself -- simplified Type model identity), or nullptr when the

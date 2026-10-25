@@ -263,6 +263,43 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_memberinfo_is_public", 0, true, false, true, new[] { "" });
                 if (name == "get_IsConstructor" && ps.Length == 0)
                     return I("il2cpp::il2cpp_memberinfo_is_constructor", 0, true, false, true, new[] { "" });
+                // p-refl2-gapmatrix (B05): MemberInfo.get_MetadataToken on a
+                // DERIVED member receiver (MethodInfo/FieldInfo/PropertyInfo/
+                // ConstructorInfo/EventInfo -- the MemberRef parent is usually
+                // the base System.Reflection.MemberInfo, which routes to
+                // TryMapObject; this arm covers the derived-parent form). The
+                // receiver is the member-VALUE string; the runtime resolves
+                // the deepest declarer and answers the transpiler-baked ECMA
+                // MethodDef/FieldDef token (typeinfo.h refl2 metadataToken).
+                if (name == "get_MetadataToken" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_memberinfo_get_metadata_token", 0, true, false, true,
+                        new[] { "" });
+                // p-refl2-gapmatrix (B07/B08/B11): the MethodBase/MethodInfo
+                // flag predicates. The receiver is the member-VALUE string; the
+                // runtime resolves the method (own + base chain) and decodes the
+                // dedicated flag bits (virtual=0x8, abstract=0x80, generic=0x100).
+                if (name == "get_IsVirtual" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_memberinfo_is_virtual", 0, true, false, true, new[] { "" });
+                if (name == "get_IsAbstract" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_memberinfo_is_abstract", 0, true, false, true, new[] { "" });
+                if (name == "get_IsGenericMethod" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_memberinfo_is_generic_method", 0, true, false, true, new[] { "" });
+                // p-refl2-gapmatrix (B17/B18): the FieldInfo flag predicates
+                // (IsInitOnly = dedicated flag bit 0x80, IsLiteral = bit2).
+                if (name == "get_IsInitOnly" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_fieldinfo_is_init_only", 0, true, false, true, new[] { "" });
+                if (name == "get_IsLiteral" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_fieldinfo_is_literal", 0, true, false, true, new[] { "" });
+                // p-refl2-gapmatrix (E03/E04): MethodBase.MethodHandle /
+                // FieldInfo.FieldHandle -- the raw handle IntPtr (the resolved
+                // table entry address, reflecthandle.h's handle-value model).
+                // The result is a VALUE (intptr_t) -- "ptr" carrier, no ref.
+                if (name == "get_MethodHandle" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_methodinfo_get_method_handle", 0, true, false, true,
+                        new[] { "" }, "ptr");
+                if (name == "get_FieldHandle" && ps.Length == 0)
+                    return I("il2cpp::il2cpp_fieldinfo_get_field_handle", 0, true, false, true,
+                        new[] { "" }, "ptr");
                 return null;
         }
     }
@@ -285,6 +322,17 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x12)
                     return I("il2cpp::il2cpp_activator_create_instance", 1, true, true, false,
                         new[] { "" });
+                // p-refl2-gapmatrix (C02/C03): the two remaining reachable
+                // (Type, ...) overloads. (Type, params object[]) resolves the
+                // ctor by the ARG COUNT (the args array rides the "a" ref
+                // slot); (Type, bool nonPublic) ignores the flag (net48
+                // default binding is public-only) and reuses the (Type) icall.
+                if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x1D)
+                    return I("il2cpp::il2cpp_activator_create_instance_args", 2, true, true, false,
+                        new[] { "", "a" });
+                if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x02)
+                    return I("il2cpp::il2cpp_activator_create_instance", 2, true, true, false,
+                        new[] { "", "drop" });
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     throw new NotSupportedException(
                         "CreateInstance(string) does not exist in .NET Framework 4.8 (mscorlib v4.0.30319 reflection dump) -- the net48 string overloads are CreateInstance(string assemblyName, string typeName), CreateInstance(string, string, params object[]) and CreateInstance(string, string, bool, BindingFlags, Binder, object[], CultureInfo, object[]); the single-arg string form is .NET Core-only (removed in Core 2.0) and cannot be expressed by any net48 assembly -- only CreateInstance(Type) maps to il2cpp_activator_create_instance");

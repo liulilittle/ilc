@@ -73,6 +73,17 @@ struct InterfaceMapEntry
 // System type. Definitions live in metadata.cpp.
 void il2cpp_ensure_builtin_system_classes();
 
+// p-refl2-gapmatrix (C06): enumerate the registered class registry. The AOT
+// runtime's class registry is the only type-identity store (Il2CppTypeInfo is
+// a reflection overlay), so Assembly.GetTypes() on a BCL assembly enumerates
+// it -- the builtin System.* descriptors plus every translated user type. The
+// count is 0 when nothing has registered yet (the registry is populated by
+// il2cpp_runtime_bootstrap -> il2cpp_ensure_builtin_system_classes and by the
+// generated per-type il2cpp_class_register calls). il2cpp_class_at returns
+// nullptr for an out-of-range index.
+int32_t il2cpp_class_count();
+const Il2CppClass* il2cpp_class_at(int32_t index);
+
 } // namespace il2cpp
 
 //------------------------------------------------------------------------------

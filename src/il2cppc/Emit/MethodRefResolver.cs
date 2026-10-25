@@ -2278,7 +2278,12 @@ var userRecvLike = receiverType ?? arg0Type;
             // embedded-manifest surface (il2cpp_resources.h).
             case "System.Reflection.Assembly":
             case "System.Resources.ResourceManager": return TryMapResources(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
-                ?? TryMapResourceManager(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                ?? TryMapResourceManager(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                ?? TryMapAssembly(md, owner, name, ps, count);
+            // p-refl2-gapmatrix (C04/C07/C08): the AssemblyName VALUE is the
+            // assembly's simple-name string -- get_Name is identity, get_FullName
+            // answers the non-null net48-shaped display name.
+            case "System.Reflection.AssemblyName": return TryMapAssemblyName(owner, name, ps, count);
             case "System.Reflection.RuntimeAssembly": return TryMapRuntimeAssembly(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // GN-20 legacy AppContext domain (MethodMap.AppContext.cs):
             // System.AppContext's net48 managed surface (managed methods

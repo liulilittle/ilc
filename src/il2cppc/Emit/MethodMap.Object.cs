@@ -376,6 +376,16 @@ public static partial class MethodRefResolver
                 if (name == "get_MemberType" && count == 0)
                     return I("il2cpp::il2cpp_memberinfo_get_member_type", 0, true, false, true,
                         new[] { "" });
+                // p-refl2-gapmatrix (B05): MemberInfo.get_MetadataToken -- the
+                // MemberRef parent is the BASE System.Reflection.MemberInfo
+                // (Roslyn quirk, the same as get_Name), so this owner is the
+                // one a member receiver routes to. The receiver is the
+                // member-VALUE string; the runtime resolves the deepest
+                // declarer and answers the transpiler-baked ECMA token
+                // (typeinfo.h refl2 metadataToken).
+                if (name == "get_MetadataToken" && count == 0)
+                    return I("il2cpp::il2cpp_memberinfo_get_metadata_token", 0, true, false, true,
+                        new[] { "" });
                 // REFL4 (item 1): MemberInfo.get_DeclaringType -- the type
                 // declaring the member (or the original Type receiver).
                 // Same member/Type VALUE string receiver; the runtime returns

@@ -72,6 +72,11 @@ intptr_t il2cpp_rthandle_get_value(Il2CppClass* handle)
     return reinterpret_cast<intptr_t>(handle); // null -> 0
 }
 
+intptr_t il2cpp_rthandle_get_value_intptr(intptr_t handle)
+{
+    return handle; // the handle VALUE is the intptr_t carrier (null -> 0)
+}
+
 int32_t il2cpp_rthandle_equals(Il2CppClass* a, Il2CppClass* b)
 {
     // Delegated: descriptor identity fast path (incl. both-null -> 1) then
@@ -118,6 +123,11 @@ Il2CppObject* il2cpp_rthandle_get_runtime_type(Il2CppClass* handle)
 intptr_t il2cpp_rmethodhandle_get_value(const Il2CppMethodInfo* handle)
 {
     return reinterpret_cast<intptr_t>(handle); // null -> 0
+}
+
+intptr_t il2cpp_rmethodhandle_get_value_intptr(intptr_t handle)
+{
+    return handle; // the handle VALUE is the intptr_t carrier (null -> 0)
 }
 
 int32_t il2cpp_rmethodhandle_equals(const Il2CppMethodInfo* a, const Il2CppMethodInfo* b)
@@ -173,6 +183,11 @@ int32_t il2cpp_rmethodhandle_get_hash_code(const Il2CppMethodInfo* handle)
 intptr_t il2cpp_rfieldhandle_get_value(const Il2CppFieldInfo* handle)
 {
     return reinterpret_cast<intptr_t>(handle); // null -> 0
+}
+
+intptr_t il2cpp_rfieldhandle_get_value_intptr(intptr_t handle)
+{
+    return handle; // the handle VALUE is the intptr_t carrier (null -> 0)
 }
 
 int32_t il2cpp_rfieldhandle_equals(const Il2CppFieldInfo* a, const Il2CppFieldInfo* b)

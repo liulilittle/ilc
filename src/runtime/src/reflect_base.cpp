@@ -295,6 +295,84 @@ Il2CppObject* il2cpp_activator_create_instance(Il2CppObject* typeName)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_activator_create_instance_args -- Activator.CreateInstance(Type,
+// object[] args) (p-refl2-gapmatrix C02).
+//
+//   null typeName  -> ArgumentNullException (.NET: CreateInstance(null)
+//                     throws ArgumentNullException "type").
+//   not registered / klass == nullptr / non-ASCII or over-long name ->
+//                     MissingMethodException (no descriptor for the name in
+//                     this build -- nothing to instantiate).
+//   registered     -> resolve the ctor by the ARGS LENGTH (net48's overload
+//                     runs the matching ctor with the supplied args), allocate
+//                     the instance and dispatch the ctor through
+//                     il2cpp_methodinfo_invoke (the instance-'this' path).
+//                     No ctor of that arity -> MissingMethodException.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_activator_create_instance_args(Il2CppObject* typeName, Il2CppArray* args)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("type");
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, nameBuf))
+    {
+        il2cpp_throw_new(kMissingMethodChain,
+            "Cannot create an instance of the specified type: the type is not "
+            "part of this AOT build (not registered in the typeinfo registry).");
+    }
+    char keyBuf[kNameBufferSize];
+    if (NormalizeTypeName(nameBuf, keyBuf) <= 0)
+    {
+        il2cpp_throw_new(kMissingMethodChain,
+            "Cannot create an instance of the specified type: the type is not "
+            "part of this AOT build (not registered in the typeinfo registry).");
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(keyBuf);
+    if (info == nullptr || info->klass == nullptr)
+    {
+        il2cpp_throw_new(kMissingMethodChain,
+            "Cannot create an instance of the specified type: the type is not "
+            "part of this AOT build (not registered in the typeinfo registry).");
+    }
+    const int32_t wantArity = args != nullptr ? args->length : 0;
+    const Il2CppMethodInfo* ctor = nullptr;
+    // Own table first (the most-derived ctor wins, net48's member lookup).
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        bool foundHere = false;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name != nullptr && std::strcmp(m.name, ".ctor") == 0
+                && (m.flags & 4) != 0 && (m.flags & 1) != 0
+                && m.paramCount == wantArity && m.fnPtr != nullptr)
+            {
+                ctor = &m;
+                foundHere = true;
+                break;
+            }
+        }
+        if (foundHere) break;
+    }
+    if (ctor == nullptr)
+    {
+        il2cpp_throw_new(kMissingMethodChain,
+            "Cannot create an instance of the specified type: no constructor "
+            "matches the argument count (net48 raises MissingMethodException).");
+    }
+    Il2CppObject* instance = il2cpp_object_new(const_cast<Il2CppClass*>(info->klass));
+    // Dispatch through il2cpp_methodinfo_invoke's instance-'this' path: the
+    // ctor entry's fnPtr is the generated void(C* this, args...) ABI, identical
+    // to a void instance method.
+    Il2CppObject* ctorValue = reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(".ctor"));
+    (void)il2cpp_methodinfo_invoke(ctorValue, instance, args);
+    return instance;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_type_get_type -- Type.GetType(string).
 //
 //   null   -> ArgumentNullException (paramName "typeName"; net48

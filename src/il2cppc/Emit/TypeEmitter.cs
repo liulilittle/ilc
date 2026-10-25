@@ -1803,7 +1803,15 @@ public static class TypeEmitter
                     // pre-refl6b tables -- zero-delta bytes); the precise
                     // IsAssembly / IsFamilyOrAssembly predicates decode them.
                     | (m.AccessMask == 0x3 ? 0x20 : 0)
-                    | (m.AccessMask == 0x5 ? 0x40 : 0);
+                    | (m.AccessMask == 0x5 ? 0x40 : 0)
+                    // p-refl2-gapmatrix (B08/B11): the MethodBase.IsAbstract /
+                    // MethodInfo.IsGenericMethod flag predicates as dedicated
+                    // bits (0x80 abstract, 0x100 generic method). The emitter
+                    // reads the real MethodAttributes.Abstract and the decoded
+                    // generic arity (MethodDef.GenericArity) -- zero-delta for
+                    // concrete non-generic methods.
+                    | (m.IsAbstract ? 0x80 : 0)
+                    | (m.GenericArity > 0 ? 0x100 : 0);
                 var slot = m.IsVirtual ? m.VTableSlot : -1;
                 // refl2 S2/G1: folded-accessor methods have NO emitted function
                 // symbol (AccessorAnalyzer rewrote every call site to a field
@@ -1828,7 +1836,7 @@ public static class TypeEmitter
                 // project onto the signature slots); a mismatch (or no names)
                 // emits nullptr -> GetParameters answers an empty array.
                 var paramMetaCpp = ParamMetaCppString(m);
-                w.Line($"{{ \"{m.Name}\", \"{EncodeReturnType(m.ReturnType, m.ReturnTypeName)}({m.ParamTypes})\", {m.ParamCount}, 0x{flags:x}, {slot}, \"{ReflectionFullName(t)}\", {fnPtr}, {paramMetaCpp} }},");
+                w.Line($"{{ \"{m.Name}\", \"{EncodeReturnType(m.ReturnType, m.ReturnTypeName)}({m.ParamTypes})\", {m.ParamCount}, 0x{flags:x}, {slot}, \"{ReflectionFullName(t)}\", {fnPtr}, {paramMetaCpp}, 0x{m.MetadataToken:x8} }},");
             }
             w.Close();
             w.Line("};");
@@ -1847,8 +1855,13 @@ public static class TypeEmitter
         var fieldEntries = t.InstanceFields
             .Select(f => (f.Name, TypeName: f.TypeKind == FieldTypeKind.Reference || !string.IsNullOrEmpty(f.FieldTypeName) ? f.FieldTypeName : "System.Int32",
                 Offset: f.ByteOffset, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
-                Addr: "nullptr", Flags: (f.IsPublic ? 1 : 0) | (f.IsPrivate ? 0x10 : 0)
-                    | (f.AccessMask == 0x3 ? 0x20 : 0) | (f.AccessMask == 0x5 ? 0x40 : 0)))
+                Addr: "nullptr",
+                // p-refl2-gapmatrix (B17): the IsInitOnly predicate is the
+                // dedicated field-flag bit 0x80 (the literal const flag is bit2).
+                Flags: (f.IsPublic ? 1 : 0) | (f.IsPrivate ? 0x10 : 0)
+                    | (f.AccessMask == 0x3 ? 0x20 : 0) | (f.AccessMask == 0x5 ? 0x40 : 0)
+                    | (f.IsInitOnly ? 0x80 : 0),
+                Token: f.MetadataToken))
             .Concat(t.StaticFields.Select(f =>
             {
                 var (semantic, typeName) = StaticFieldSemantics(f, md);
@@ -1856,7 +1869,9 @@ public static class TypeEmitter
                     Offset: -1, IsRef: semantic == StaticFieldSemantic.Reference ? 1 : 0,
                     Addr: f.IsLiteral ? "nullptr" : $"&{FieldCppName(t, f.Name)}",
                     Flags: (f.IsPublic ? 1 : 0) | (f.IsStatic ? 2 : 0) | (f.IsLiteral ? 4 : 0) | (f.IsPrivate ? 0x10 : 0)
-                        | (f.AccessMask == 0x3 ? 0x20 : 0) | (f.AccessMask == 0x5 ? 0x40 : 0));
+                        | (f.AccessMask == 0x3 ? 0x20 : 0) | (f.AccessMask == 0x5 ? 0x40 : 0)
+                        | (f.IsInitOnly ? 0x80 : 0),
+                    Token: f.MetadataToken);
             }))
             .ToList();
         if (fieldEntries.Count > 0)
@@ -1864,7 +1879,7 @@ public static class TypeEmitter
             w.Line($"static const il2cpp::Il2CppFieldInfo {TypeCppName(t)}_typeinfo_fields[] = {{");
             w.Open();
             foreach (var f in fieldEntries)
-                w.Line($"{{ \"{f.Name}\", \"{f.TypeName}\", {f.Offset}, {f.IsRef}, {f.Addr}, {f.Flags} }},");
+                w.Line($"{{ \"{f.Name}\", \"{f.TypeName}\", {f.Offset}, {f.IsRef}, {f.Addr}, {f.Flags}, 0x{f.Token:x8} }},");
             w.Close();
             w.Line("};");
             w.Line();

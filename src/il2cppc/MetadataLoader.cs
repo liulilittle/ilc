@@ -147,6 +147,8 @@ public static class MetadataLoader
                     Owner = typeDef,
                     IsStatic = isStatic,
                     IsLiteral = (fd.Attributes & FieldAttributes.Literal) != 0,
+                    // p-refl2-gapmatrix (B17): FieldAttributes.InitOnly (0x20).
+                    IsInitOnly = (fd.Attributes & FieldAttributes.InitOnly) != 0,
                     // refl5 (item 1): the 3-bit field-visibility mask -- Private
                     // (0x0 PrivateScope / 0x1 Private) is what the flags-aware
                     // enumerators must EXCLUDE from the base-chain walk (net48
@@ -164,6 +166,9 @@ public static class MetadataLoader
                     FieldTypeName = typeName,
                     IsGenericVar = fieldIsVar,
                     GenericVarIndex = fieldVarIndex,
+                    // p-refl2-gapmatrix (B05/E04): the ECMA FieldDef token
+                    // (0x04000000 | FieldDef row) for MemberInfo.MetadataToken.
+                    MetadataToken = 0x04000000 | MetadataTokens.GetRowNumber(fh),
                 };
                 if (isStatic)
                     typeDef.StaticFields.Add(field);
@@ -244,6 +249,9 @@ public static class MetadataLoader
                     PinvokeModule = pinvokeModule,
                     PinvokeEntryName = pinvokeEntry,
                     PinvokeFlags = pinvokeFlags,
+                    // p-refl2-gapmatrix (B05/E03): the ECMA MethodDef token
+                    // (0x06000000 | MethodDef row) for MemberInfo.MetadataToken.
+                    MetadataToken = 0x06000000 | MetadataTokens.GetRowNumber(mh),
                     // SetLastError flag = MethodImportAttributes.SetLastError (0x40)
                     PinvokeSetLastError = (pinvokeFlags & 0x40) != 0,
                     // M7 genlist: the method's OWN generic arity (MVAR count --

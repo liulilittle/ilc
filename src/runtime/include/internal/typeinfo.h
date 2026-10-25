@@ -72,6 +72,10 @@ struct Il2CppMethodInfo
     // parameter TYPE full name is decoded from the signature at runtime
     // (ParamEncodingToTypeValueName), so the meta needs only name + flags.
     const char* paramMeta;     // per-param "name|outFlag" rows, ';'-joined
+    // p-refl2-gapmatrix (B05): the method's ECMA MethodDef token
+    // (0x06000000 | MethodDef row) for MemberInfo.MetadataToken on a
+    // member VALUE. 0 for a synthesized/trimmed entry (documented boundary).
+    int32_t     metadataToken;
 };
 
 // One reflected field. Instance fields: offset + isRef (same convention as
@@ -86,7 +90,12 @@ struct Il2CppFieldInfo
     int32_t     isRef;         // 1 = GC reference field
     void*       staticAddr;    // static: &StaticStorage slot; instance: null
     int32_t     flags;         // bit0 public, bit1 static, bit2 literal, bit4 private,
-                               // bit5 Internal(0x3), bit6 FamORAssem(0x5)
+                               // bit5 Internal(0x3), bit6 FamORAssem(0x5),
+                               // bit7 InitOnly (FieldAttributes.InitOnly 0x20)
+    // p-refl2-gapmatrix (B05): the field's ECMA FieldDef token
+    // (0x04000000 | FieldDef row) for MemberInfo.MetadataToken on a
+    // member VALUE. 0 for a synthesized entry (documented boundary).
+    int32_t     metadataToken;
 };
 
 // One reflected property. Accessors are resolved by name through the SAME
@@ -229,6 +238,10 @@ struct Il2CppTypeInfo
 //------------------------------------------------------------------------------
 void il2cpp_typeinfo_register(const Il2CppTypeInfo* info);
 const Il2CppTypeInfo* il2cpp_typeinfo_lookup(const char* name);
+// p-refl2-gapmatrix (C06): enumerate the typeinfo registry (Assembly.GetTypes
+// on the input assembly). il2cpp_typeinfo_at returns nullptr out of range.
+int32_t il2cpp_typeinfo_count();
+const Il2CppTypeInfo* il2cpp_typeinfo_at(int32_t index);
 // ASCII case-insensitive variant of il2cpp_typeinfo_lookup (Type.GetType's
 // ignoreCase semantics). Same null / miss contract as the ordinal lookup.
 const Il2CppTypeInfo* il2cpp_typeinfo_lookup_ignore_case(const char* name);
@@ -938,6 +951,76 @@ int32_t il2cpp_memberinfo_is_family_or_assembly(Il2CppObject* memberName);
 int32_t il2cpp_memberinfo_is_static(Il2CppObject* memberName);
 int32_t il2cpp_memberinfo_is_public(Il2CppObject* memberName);
 int32_t il2cpp_memberinfo_is_constructor(Il2CppObject* memberName);
+// p-refl2-gapmatrix (B05/B07/B08/B11/B17/B18): the remaining member flag
+// predicates + MemberInfo.MetadataToken. The receiver is the member-VALUE
+// string (the simplified member model); a FIELD receiver joins through the
+// field table, a METHOD receiver through the method table (the same
+// own-then-base chain walk the existing member predicates run). Each returns
+// the net48 bool as an int32 (0/1); a null receiver -> NullReferenceException.
+//   il2cpp_memberinfo_get_metadata_token -- MemberInfo.MetadataToken: the
+//     resolved member's transpiler-baked ECMA token (0x06000000 | MethodDef
+//     row / 0x04000000 | FieldDef row; 0 for a synthesized entry). This is the
+//     value net48 reports for a member of a translated type.
+//   il2cpp_memberinfo_is_virtual   -- MethodBase.IsVirtual (flags bit3)
+//   il2cpp_memberinfo_is_abstract  -- MethodBase.IsAbstract (flags bit7 0x80)
+//   il2cpp_memberinfo_is_generic_method -- MethodInfo.IsGenericMethod (flags bit8 0x100)
+//   il2cpp_fieldinfo_is_init_only  -- FieldInfo.IsInitOnly (flags bit7 0x80)
+//   il2cpp_fieldinfo_is_literal    -- FieldInfo.IsLiteral (flags bit2)
+int32_t il2cpp_memberinfo_get_metadata_token(Il2CppObject* memberName);
+int32_t il2cpp_memberinfo_is_virtual(Il2CppObject* memberName);
+int32_t il2cpp_memberinfo_is_abstract(Il2CppObject* memberName);
+int32_t il2cpp_memberinfo_is_generic_method(Il2CppObject* memberName);
+int32_t il2cpp_fieldinfo_is_init_only(Il2CppObject* memberName);
+int32_t il2cpp_fieldinfo_is_literal(Il2CppObject* memberName);
+// p-refl2-gapmatrix (E03/E04): MethodBase.MethodHandle / FieldInfo.FieldHandle
+// -> the raw handle IntPtr. The receiver is the member-VALUE string; the
+// handle VALUE is the resolved table entry address (const Il2CppMethodInfo* /
+// const Il2CppFieldInfo*), matching reflecthandle.h's handle-value model. A
+// null/unresolved member answers 0 (the default-handle contract). The probes
+// only assert Value != IntPtr.Zero (a real handle is never zero).
+intptr_t il2cpp_methodinfo_get_method_handle(Il2CppObject* memberName);
+intptr_t il2cpp_fieldinfo_get_field_handle(Il2CppObject* memberName);
+
+//------------------------------------------------------------------------------
+// p-refl2-gapmatrix (C04/C05/C06/C09) -- the Assembly / AssemblyName surface.
+//
+// The simplified Assembly model represents an Assembly VALUE as its SIMPLE
+// NAME managed string (the same convention as a Type VALUE being its full-name
+// string); an AssemblyName VALUE is the assembly's simple-name string too.
+// Assembly.GetName() is therefore an identity (the transpiler folds it to the
+// receiver), and AssemblyName.get_Name is likewise identity. The INPUT
+// assembly's simple name is baked by the transpiler and passed as the trailing
+// literal so the runtime can distinguish the input assembly (its reflected
+// types live in the typeinfo registry) from a BCL assembly (mscorlib has no
+// reflected types -- the runtime's class registry is the identity store).
+//   il2cpp_assemblyinfo_get_type(asmName, typeName, inputAsmName) --
+//     Assembly.GetType(string): only the INPUT assembly carries reflected
+//     types; a BCL assembly answers nullptr for every name (net48: a type of
+//     another assembly is not returned). The input assembly delegates to
+//     il2cpp_type_get_type (the registry query).
+//   il2cpp_assemblyinfo_get_types(asmName, inputAsmName) --
+//     Assembly.GetTypes(): the INPUT assembly's typeinfo registry, a BCL
+//     assembly's class registry. Returns a Type[] (name strings).
+//   il2cpp_assemblyname_get_full_name(name) -- AssemblyName.get_FullName /
+//     Assembly.get_FullName: a non-null net48-shaped display name (the AOT
+//     model does not track versions/tokens -- the neutral placeholder body).
+// A null asmName keeps the net48 NullReferenceException on the handle getters.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_assemblyname_get_full_name(Il2CppObject* name);
+Il2CppObject* il2cpp_assemblyinfo_get_type(Il2CppObject* asmName, Il2CppObject* typeName,
+                                           Il2CppObject* inputAsmName);
+Il2CppArray* il2cpp_assemblyinfo_get_types(Il2CppObject* asmName, Il2CppObject* inputAsmName);
+
+//------------------------------------------------------------------------------
+// p-refl2-gapmatrix (E01/E02) -- Type.get_TypeHandle on the name-string (Type
+// VALUE) receiver. The handle VALUE is the type descriptor's ADDRESS as an
+// intptr_t (reflecthandle.h's value model: RuntimeTypeHandle == Il2CppClass*),
+// matching the System.IntPtr slot the transpiler gives the handle type. A null
+// receiver -> NullReferenceException (the net48 null-Type doctrine); a name the
+// runtime cannot resolve answers 0 (the default-handle contract). The consumer
+// Type.GetTypeFromHandle maps to il2cpp_type_get_type_from_handle_value.
+//------------------------------------------------------------------------------
+intptr_t il2cpp_typeinfo_get_type_handle(Il2CppObject* typeName);
 
 //------------------------------------------------------------------------------
 // refl2 (A) -- the remaining System.Type predicate / query surface on the

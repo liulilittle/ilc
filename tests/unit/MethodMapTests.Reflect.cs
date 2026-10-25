@@ -135,7 +135,9 @@ public class MethodMapTestsReflect
         var resolved = ResolveMember(Synthesize("System", "Type", "GetTypeFromHandle",
             new byte[] { 0x00, 0x01, 0x12, 0x05, 0x11, 0x05 }), "GetTypeFromHandle"); // RuntimeTypeHandle
 
-        Assert.Equal("il2cpp::runtime::il2cpp_type_get_type_from_handle", resolved.CppName);
+        // p-refl2-gapmatrix (E01/E02): the handle VALUE rides as an intptr_t
+        // slot, so the Type-domain icall is the intptr-carrying variant.
+        Assert.Equal("il2cpp::runtime::il2cpp_type_get_type_from_handle_value", resolved.CppName);
         Assert.Equal("System.Type", resolved.ReturnTypeName);
     }
 

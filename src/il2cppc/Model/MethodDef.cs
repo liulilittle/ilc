@@ -103,6 +103,13 @@ public sealed class MethodDef
     // ImplMap table ([DllImport] in source). Such methods have NO IL body
     // (RVA == 0); the transpiler emits a native import declaration instead.
     public bool IsPInvoke { get; init; }
+    // p-refl2-gapmatrix (B05/E03): the method's ECMA MethodDef token
+    // (0x06000000 | MethodDef row) for MemberInfo.MetadataToken on a
+    // member VALUE. 0 for a synthesized method (a delegate's Invoke /
+    // BeginInvoke etc. has no emitted MethodDef row -- net48 reports the
+    // definition's token through the folded member chain, the runtime
+    // answers 0 for the synthetic entries, documented boundary).
+    public int MetadataToken { get; init; }
     public string? PinvokeModule { get; init; }   // native library name ("mylib")
     public string? PinvokeEntryName { get; init; } // imported symbol name ("add_ints")
     public int PinvokeFlags { get; init; }          // MethodImportAttributes (CharSet/CallingConvention)

@@ -21,6 +21,11 @@ public sealed class FieldDef
     public required TypeDef Owner { get; init; }
     public bool IsStatic { get; init; }
     public bool IsLiteral { get; init; }   // const field
+    // p-refl2-gapmatrix (B17): FieldAttributes.InitOnly (0x20) -- net48
+    // FieldInfo.IsInitOnly. A readonly instance field answers True; the
+    // runtime typeinfo field flags bake it as the dedicated bit 0x80 (the
+    // literal const flag is the existing bit2).
+    public bool IsInitOnly { get; init; }
     // net48 reflection visibility: GetField/GetFields bind Public by default;
     // the runtime typeinfo table encodes this as il2cpp field flags bit0
     // (raudit3/proprefl).
@@ -41,6 +46,10 @@ public sealed class FieldDef
     // Internal-only, IsFamilyOrAssembly=FamORAssem-only -- net48 oracle6d).
     // Zero-delta for the existing low-bit decoders (public/static/private/literal).
     public int AccessMask { get; init; }
+    // p-refl2-gapmatrix (B05/E04): the field's ECMA FieldDef token
+    // (0x04000000 | FieldDef row) for MemberInfo.MetadataToken on a member
+    // VALUE. 0 for a synthesized field (documented boundary).
+    public int MetadataToken { get; init; }
     public string? ConstantValue { get; init; }
 
     // M2 field type classification (see TypeKind above):

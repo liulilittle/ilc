@@ -134,6 +134,18 @@ Il2CppObject* il2cpp_type_get_type_from_handle(Il2CppClass* klass)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_type_get_type_from_handle_value -- the intptr_t handle-VALUE wrapper
+// (p-refl2-gapmatrix E01/E02). The transpiler models a RuntimeTypeHandle
+// VALUE as an intptr_t slot (reflecthandle.h's value model), so the IL passes
+// the descriptor ADDRESS where the descriptor primitive wants Il2CppClass*.
+// Cast and delegate -- identical null/identity semantics.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_type_get_type_from_handle_value(intptr_t handle)
+{
+    return il2cpp_type_get_type_from_handle(reinterpret_cast<Il2CppClass*>(handle));
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_type_get_element_type -- Type.GetElementType() simplified.
 //
 // net48 null contract (probe-verified against v4.0.30319): a null receiver

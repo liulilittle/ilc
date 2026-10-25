@@ -70,6 +70,17 @@ namespace runtime {
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_type_get_type_from_handle(Il2CppClass* klass);
 
+//------------------------------------------------------------------
+// il2cpp_type_get_type_from_handle_value -- Type.GetTypeFromHandle on a
+// handle VALUE carried as an intptr_t (the reflecthandle.h value model:
+// RuntimeTypeHandle == Il2CppClass* address). The transpiler models a
+// handle VALUE as an intptr_t slot (p-refl2-gapmatrix E01/E02), so the
+// IL passes the intptr where the descriptor primitive wants the
+// Il2CppClass*; this wrapper casts and delegates -- identical semantics
+// (null -> nullptr with no throw).
+//------------------------------------------------------------------
+Il2CppObject* il2cpp_type_get_type_from_handle_value(intptr_t handle);
+
 //------------------------------------------------------------------------------
 // il2cpp_type_get_element_type -- Type.GetElementType() simplified.
 //

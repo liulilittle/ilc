@@ -215,6 +215,11 @@ public static class CodeGenerator
         // named 'il2cpp_type_get_type'/'il2cpp_typeinfo_get_method'").
         generatedHeader.Line("#include \"reflect_base.h\"");
         generatedHeader.Line("#include \"typeinfo.h\"");
+        // p-refl2-gapmatrix (E01-E04): the reflection HANDLE value types
+        // (RuntimeTypeHandle / RuntimeMethodHandle / RuntimeFieldHandle) map
+        // to intptr_t slots and their get_Value icalls live in reflecthandle.h
+        // (the intptr_t handle-VALUE overloads).
+        generatedHeader.Line("#include \"reflecthandle.h\"");
         // M5.5 reflection: the unified-signature invoker -- MethodInfo.Invoke
         // (icall_method_invoke, MethodMap.MethodInfo) dispatches through
         // il2cpp_invoker_invoke(fnPtr, signature, argbuf, argCount, ret);
@@ -9070,6 +9075,15 @@ default: return false;                           // primitives/VAR(handled by ca
         // (intptr_t/uintptr_t slots -- MethodMap.IntPtr, M4.5 "ptr" result kind).
         "System.IntPtr" => "intptr_t",
         "System.UIntPtr" => "uintptr_t",
+        // p-refl2-gapmatrix (E01-E04): the reflection handle VALUE types wrap
+        // a raw pointer (reflecthandle.h: RuntimeTypeHandle = Il2CppClass*,
+        // RuntimeMethodHandle = const Il2CppMethodInfo*, RuntimeFieldHandle =
+        // const Il2CppFieldInfo*). The transpiler models a handle VALUE as an
+        // intptr_t slot (the same carrier as IntPtr), so a handle-typed local
+        // declares intptr_t and get_Value is the identity fold.
+        "System.RuntimeTypeHandle" => "intptr_t",
+        "System.RuntimeMethodHandle" => "intptr_t",
+        "System.RuntimeFieldHandle" => "intptr_t",
         // Struct-marshal wiring: registered structs map to the native
         // value structs (PinvokeStructCppType) so struct-typed locals and
         // slots declare a defined type instead of System_Drawing_Rectangle.

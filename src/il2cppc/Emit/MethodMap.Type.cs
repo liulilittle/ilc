@@ -31,8 +31,23 @@ public static partial class MethodRefResolver
             // .Name/.GetTypeCode/.Equals/.IsAssignableFrom on the result
             // resolve through this domain (the fold records it in objTypes).
             case "GetTypeFromHandle":
-                return I("il2cpp::runtime::il2cpp_type_get_type_from_handle", 1, true, true, false,
+                // p-refl2-gapmatrix (E01/E02): the handle VALUE is an intptr_t
+                // slot (reflecthandle.h's value model), so the icall takes the
+                // intptr and casts to the descriptor. The FOLDED typeof chain
+                // is handled by StackFold (ldtoken + GetTypeFromHandle -> the
+                // full-name string); this mapping serves a handle obtained at
+                // runtime (obj.GetType().TypeHandle / a stored handle).
+                return I("il2cpp::runtime::il2cpp_type_get_type_from_handle_value", 1, true, true, false,
                     new[] { "" }, returnTypeName: "System.Type");
+            // p-refl2-gapmatrix (E01/E02): Type.get_TypeHandle -- the handle
+            // VALUE is the type descriptor's ADDRESS as an intptr_t (the
+            // System.IntPtr slot the transpiler gives the handle type; the
+            // reflecthandle.h value model). The receiver is the Type VALUE
+            // (full-name string); the runtime resolves the descriptor through
+            // il2cpp_class_by_name (user types + BCL builtins).
+            case "get_TypeHandle":
+                return I("il2cpp::il2cpp_typeinfo_get_type_handle", 0, true, false, true,
+                    new[] { "" }, "ptr");
             // Type.Name -- TWO paths (the Type-value model split):
             //   * RUNTIME receivers (a GetType() result -- the FULL-name
             //     string the runtime icall produces from klass->name, e.g.
@@ -700,5 +715,106 @@ public static partial class MethodRefResolver
             }
         }
         return null;
+    }
+
+    //--------------------------------------------------------------------------
+    // p-refl2-gapmatrix (C04/C05/C06/C07/C08/C09): the System.Reflection.
+    // Assembly VALUE surface. The Assembly VALUE is the assembly's SIMPLE-NAME
+    // managed string (the simplified model, like the Type VALUE); an
+    // AssemblyName VALUE is the same simple-name string, so GetName() is
+    // identity and AssemblyName.get_Name is identity downstream. GetType /
+    // GetTypes are scoped to the INPUT assembly -- the runtime compares the
+    // receiver against the baked input-assembly-name literal (a BCL assembly
+    // such as mscorlib has no reflected types: GetType answers null, GetTypes
+    // enumerates the class registry). GetExecutingAssembly / GetEntryAssembly
+    // fold to the input assembly's simple name (the AOT process IS the entry
+    // assembly). get_FullName answers a non-null net48-shaped display name.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapAssembly(MetadataReader md, string owner, string name, byte[] ps, int count)
+    {
+        if (owner != "System.Reflection.Assembly") return null;
+        string asmName;
+        try
+        {
+            asmName = md.GetString(md.GetAssemblyDefinition().Name);
+        }
+        catch
+        {
+            asmName = "";
+        }
+        if (string.IsNullOrEmpty(asmName)) return null;
+        switch (name)
+        {
+            case "GetName":
+                if (count == 0)
+                    return new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true,
+                        Array.Empty<bool>(), true, ReturnTypeName: "System.Reflection.AssemblyName");
+                throw new NotSupportedException(
+                    $"Assembly::GetName with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () overload is identity (the AssemblyName VALUE is the assembly simple-name string)");
+            case "GetType":
+                if (count == 1 && ps[0] == 0x0E)
+                    // pc = the EXPLICIT arg count (the receiver is popped
+                    // separately); the input-assembly-name literal is appended
+                    // by the emitter (the icall's 3rd parameter).
+                    return I("il2cpp::il2cpp_assemblyinfo_get_type", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: "System.Type",
+                        appendLiterals: new[] { $"il2cpp::il2cpp_string_intern_literal(\"{asmName}\")" });
+                throw new NotSupportedException(
+                    $"Assembly::GetType with {count} parameter(s) not wired in p-refl2-gapmatrix -- only the (string) overload maps to il2cpp_assemblyinfo_get_type");
+            case "GetTypes":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_assemblyinfo_get_types", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Type[]",
+                        appendLiterals: new[] { $"il2cpp::il2cpp_string_intern_literal(\"{asmName}\")" });
+                throw new NotSupportedException(
+                    $"Assembly::GetTypes with {count} parameter(s) not wired in p-refl2-gapmatrix -- only the () overload maps to il2cpp_assemblyinfo_get_types");
+            case "get_FullName":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_assemblyname_get_full_name", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.String");
+                throw new NotSupportedException(
+                    $"Assembly::get_FullName with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () property maps to il2cpp_assemblyname_get_full_name");
+            case "GetExecutingAssembly":
+                if (count == 0)
+                    return new ResolvedMethod(ResolvedMethod.LiteralMarker + asmName, 0, false, true, false,
+                        Array.Empty<bool>(), false, ReturnTypeName: "System.Reflection.Assembly");
+                throw new NotSupportedException(
+                    $"Assembly::GetExecutingAssembly with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () overload folds to the input assembly simple-name literal");
+            case "GetEntryAssembly":
+                if (count == 0)
+                    return new ResolvedMethod(ResolvedMethod.LiteralMarker + asmName, 0, false, true, false,
+                        Array.Empty<bool>(), false, ReturnTypeName: "System.Reflection.Assembly");
+                throw new NotSupportedException(
+                    $"Assembly::GetEntryAssembly with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () overload folds to the input assembly simple-name literal");
+            default:
+                return null;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // p-refl2-gapmatrix (C04/C07/C08): the AssemblyName VALUE (the assembly's
+    // simple-name string). get_Name is identity (the VALUE IS the name); the
+    // remaining AssemblyName members that have a runtime primitive map here.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapAssemblyName(string owner, string name, byte[] ps, int count)
+    {
+        if (owner != "System.Reflection.AssemblyName") return null;
+        switch (name)
+        {
+            case "get_Name":
+                if (count == 0)
+                    return new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true,
+                        Array.Empty<bool>(), true, ReturnTypeName: "System.String");
+                throw new NotSupportedException(
+                    $"AssemblyName::get_Name with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () property is identity (the AssemblyName VALUE is the assembly simple-name string)");
+            case "get_FullName":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_assemblyname_get_full_name", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.String");
+                throw new NotSupportedException(
+                    $"AssemblyName::get_FullName with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () property maps to il2cpp_assemblyname_get_full_name");
+            default:
+                return null;
+        }
     }
 }

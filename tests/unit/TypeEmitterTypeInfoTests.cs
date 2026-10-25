@@ -215,9 +215,9 @@ public class TypeEmitterTypeInfoTests
         var t = MakeNode();
         var code = TypeEmitter.EmitTypeInfo(t);
         // X: slot 1 -> offset 8, value field, no static addr
-        Assert.Contains("{ \"X\", \"System.Int32\", 8, 0, nullptr, 0 },", code);
+        Assert.Contains("{ \"X\", \"System.Int32\", 8, 0, nullptr, 0, 0x00000000 },", code);
         // Next: slot 2 -> offset 16, GC reference flag 1
-        Assert.Contains("{ \"Next\", \"Calc.Node\", 16, 1, nullptr, 0 },", code);
+        Assert.Contains("{ \"Next\", \"Calc.Node\", 16, 1, nullptr, 0, 0x00000000 },", code);
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public class TypeEmitterTypeInfoTests
             FieldTypeName = "Cases.Point", // value-type field (M3 VALUETYPE carrier)
         });
         var code = TypeEmitter.EmitTypeInfo(t);
-        Assert.Contains("{ \"Pt\", \"Cases.Point\", 24, 0, nullptr, 0 },", code);
+        Assert.Contains("{ \"Pt\", \"Cases.Point\", 24, 0, nullptr, 0, 0x00000000 },", code);
         Assert.DoesNotContain("{ \"Pt\", \"System.Int32\",", code);
     }
 
@@ -245,7 +245,7 @@ public class TypeEmitterTypeInfoTests
     {
         var t = MakeNode();
         var code = TypeEmitter.EmitTypeInfo(t);
-        Assert.Contains("{ \"Count\", \"System.Int32\", -1, 0, &Calc_Node_sf_Count, 2 },", code);
+        Assert.Contains("{ \"Count\", \"System.Int32\", -1, 0, &Calc_Node_sf_Count, 2, 0x00000000 },", code);
     }
 
     [Fact]
@@ -254,7 +254,7 @@ public class TypeEmitterTypeInfoTests
         var t = MakeNode();
         var code = TypeEmitter.EmitTypeInfo(t);
         var hash = SigHash.Hash("Calc.Node.Add(i,i)");
-        Assert.Contains("{ \"Add\", \"i(i,i)\", 2, 0x3, -1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node_Add_" + hash + "), nullptr },", code);
+        Assert.Contains("{ \"Add\", \"i(i,i)\", 2, 0x3, -1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node_Add_" + hash + "), nullptr, 0x00000000 },", code);
     }
 
     [Fact]
@@ -264,7 +264,7 @@ public class TypeEmitterTypeInfoTests
         var code = TypeEmitter.EmitTypeInfo(t);
         var hash = SigHash.Hash("Calc.Node.VirtualAdd(i)");
         // flags 0x9 = public(1) | virtual(8); virtualSlot 1
-        Assert.Contains("{ \"VirtualAdd\", \"i(i)\", 1, 0x9, 1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node_VirtualAdd_" + hash + "), nullptr },", code);
+        Assert.Contains("{ \"VirtualAdd\", \"i(i)\", 1, 0x9, 1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node_VirtualAdd_" + hash + "), nullptr, 0x00000000 },", code);
     }
 
     [Fact]
@@ -272,7 +272,7 @@ public class TypeEmitterTypeInfoTests
     {
         var t = MakeNode();
         var code = TypeEmitter.EmitTypeInfo(t);
-        Assert.Contains("{ \"AbsAdd\", \"i(i)\", 1, 0x1, -1, \"Calc.Node\", nullptr, nullptr },", code);
+        Assert.Contains("{ \"AbsAdd\", \"i(i)\", 1, 0x81, -1, \"Calc.Node\", nullptr, nullptr, 0x00000000 },", code);
     }
 
     [Fact]
@@ -281,7 +281,7 @@ public class TypeEmitterTypeInfoTests
         var t = MakeNode();
         var code = TypeEmitter.EmitTypeInfo(t);
         var hash = SigHash.Hash("Calc.Node..ctor()");
-        Assert.Contains("{ \".ctor\", \"v()\", 0, 0x5, -1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node__ctor_" + hash + "), nullptr },", code);
+        Assert.Contains("{ \".ctor\", \"v()\", 0, 0x5, -1, \"Calc.Node\", reinterpret_cast<void*>(&Calc_Node__ctor_" + hash + "), nullptr, 0x00000000 },", code);
     }
 
     [Fact]
@@ -365,7 +365,7 @@ public class TypeEmitterTypeInfoTests
             ParamCount = 0, ParamTypes = "", ReturnType = SignatureTypeCode.Int32,
         });
         var code = TypeEmitter.EmitTypeInfo(t, foldedAccessorNames: new HashSet<string> { "get_Value" });
-        Assert.Contains("{ \"get_Value\", \"i()\", 0, 0x1, -1, \"Calc.Node\", nullptr, nullptr },", code);
+        Assert.Contains("{ \"get_Value\", \"i()\", 0, 0x1, -1, \"Calc.Node\", nullptr, nullptr, 0x00000000 },", code);
         Assert.DoesNotContain("Calc_Node_get_Value_", code);
     }
 
@@ -423,10 +423,10 @@ public class TypeEmitterTypeInfoTests
         // typeinfo method entry must carry nullptr (not a dangling &Cb_*_ref).
         var t = MakeDelegate();
         var code = TypeEmitter.EmitTypeInfo(t);
-        Assert.Contains("{ \".ctor\", \"v(r:System.Object,n)\", 2, 0x5, -1, \"Cases.Cb\", nullptr, nullptr },", code);
-        Assert.Contains("{ \"Invoke\", \"i(i)\", 1, 0x9, 2, \"Cases.Cb\", nullptr, nullptr },", code);
-        Assert.Contains("{ \"BeginInvoke\", \"r:System.IAsyncResult(i,r:System.AsyncCallback,r:System.Object)\", 3, 0x9, 0, \"Cases.Cb\", nullptr, nullptr },", code);
-        Assert.Contains("{ \"EndInvoke\", \"i(r:System.IAsyncResult)\", 1, 0x9, 1, \"Cases.Cb\", nullptr, nullptr },", code);
+        Assert.Contains("{ \".ctor\", \"v(r:System.Object,n)\", 2, 0x5, -1, \"Cases.Cb\", nullptr, nullptr, 0x00000000 },", code);
+        Assert.Contains("{ \"Invoke\", \"i(i)\", 1, 0x9, 2, \"Cases.Cb\", nullptr, nullptr, 0x00000000 },", code);
+        Assert.Contains("{ \"BeginInvoke\", \"r:System.IAsyncResult(i,r:System.AsyncCallback,r:System.Object)\", 3, 0x9, 0, \"Cases.Cb\", nullptr, nullptr, 0x00000000 },", code);
+        Assert.Contains("{ \"EndInvoke\", \"i(r:System.IAsyncResult)\", 1, 0x9, 1, \"Cases.Cb\", nullptr, nullptr, 0x00000000 },", code);
         Assert.DoesNotContain("Cases_Cb_Invoke_", code);
         Assert.DoesNotContain("Cases_Cb__ctor_", code);
     }
@@ -557,7 +557,7 @@ public class TypeEmitterTypeInfoTests
         var code = TypeEmitter.EmitTypeInfo(t);
         // typeName = the decoded FieldTypeName (not the "System.Int32"
         // fallback), isRef = 1 (the static slot holds a GC reference).
-        Assert.Contains("{ \"Changed\", \"System.Func`2<int,int>\", -1, 1, &Calc_Node_sf_Changed, 2 },", code);
+        Assert.Contains("{ \"Changed\", \"System.Func`2<int,int>\", -1, 1, &Calc_Node_sf_Changed, 2, 0x00000000 },", code);
     }
 
     [Fact]
@@ -578,7 +578,7 @@ public class TypeEmitterTypeInfoTests
             Name = "Euler", Owner = t, IsStatic = true, FieldTypeName = "System.Decimal",
         });
         var code = TypeEmitter.EmitTypeInfo(t);
-        Assert.Contains("{ \"Euler\", \"System.Decimal\", -1, 0, &Calc_Node_sf_Euler, 2 },", code);
+        Assert.Contains("{ \"Euler\", \"System.Decimal\", -1, 0, &Calc_Node_sf_Euler, 2, 0x00000000 },", code);
     }
 
     [Fact]
@@ -609,7 +609,7 @@ public class TypeEmitterTypeInfoTests
             Assert.Contains("il2cpp::runtime::Il2CppDecimal Acme_Util_sf_Rate = { 0, 0, 0 }; // 16-byte decimal value", code);
             Assert.DoesNotContain("int32_t Acme_Util_sf_Rate", code);
             var tinfo = TypeEmitter.EmitTypeInfo(util, md: md);
-            Assert.Contains("{ \"Rate\", \"System.Decimal\", -1, 0, &Acme_Util_sf_Rate, 3 },", tinfo);
+            Assert.Contains("{ \"Rate\", \"System.Decimal\", -1, 0, &Acme_Util_sf_Rate, 3, 0x04000004 },", tinfo);
         }
         finally
         {
@@ -721,8 +721,8 @@ public class TypeEmitterTypeInfoTests
             // The reflection field table mirrors the classification: the wide
             // statics get their real type name (not the Int32 fallback).
             var tinfo = TypeEmitter.EmitTypeInfo(util, md: md);
-            Assert.Contains("{ \"Handle\", \"System.IntPtr\", -1, 0, &Acme_Util_sf_Handle, 3 },", tinfo);
-            Assert.Contains("{ \"Wide\", \"System.Int64\", -1, 0, &Acme_Util_sf_Wide, 3 },", tinfo);
+            Assert.Contains("{ \"Handle\", \"System.IntPtr\", -1, 0, &Acme_Util_sf_Handle, 3, 0x04000005 },", tinfo);
+            Assert.Contains("{ \"Wide\", \"System.Int64\", -1, 0, &Acme_Util_sf_Wide, 3, 0x04000006 },", tinfo);
         }
         finally
         {
@@ -749,8 +749,8 @@ public class TypeEmitterTypeInfoTests
             Assert.Contains("\"Acme.Util\",", code);
             Assert.Contains("&Acme_Base_typeinfo,", code);        // user base resolved
             Assert.Contains("&Acme_Iface_typeinfo,", code);       // interface wired
-            Assert.Contains("{ \"X\", \"System.Int32\", 8, 0, nullptr, 1 },", code);
-            Assert.Contains("{ \"Y\", \"System.Int32\", -1, 0, &Acme_Util_sf_Y, 3 },", code);
+            Assert.Contains("{ \"X\", \"System.Int32\", 8, 0, nullptr, 1, 0x04000001 },", code);
+            Assert.Contains("{ \"Y\", \"System.Int32\", -1, 0, &Acme_Util_sf_Y, 3, 0x04000002 },", code);
             var hash = SigHash.Hash("Acme.Util.Add(i,i)");
             Assert.Contains("&Acme_Util_Add_" + hash + ")", code);
             Assert.Equal("il2cpp::il2cpp_typeinfo_register(&Acme_Util_typeinfo);", TypeEmitter.EmitTypeInfoRegistration(util));
@@ -889,8 +889,8 @@ public class TypeEmitterTypeInfoTests
             // The reflection field table mirrors the classification: the
             // static reference field gets its type name + the GC-reference flag.
             var tinfo = TypeEmitter.EmitTypeInfo(util, md: md);
-            Assert.Contains("{ \"Label\", \"System.String\", -1, 1, &Acme_Util_sf_Label, 3 },", tinfo);
-            Assert.Contains("{ \"Y\", \"System.Int32\", -1, 0, &Acme_Util_sf_Y, 3 },", tinfo);
+            Assert.Contains("{ \"Label\", \"System.String\", -1, 1, &Acme_Util_sf_Label, 3, 0x04000003 },", tinfo);
+            Assert.Contains("{ \"Y\", \"System.Int32\", -1, 0, &Acme_Util_sf_Y, 3, 0x04000002 },", tinfo);
         }
         finally
         {
@@ -1062,3 +1062,4 @@ public class TypeEmitterTypeInfoTests
         return new MemoryStream(blob.ToArray());
     }
 }
+

@@ -48,9 +48,14 @@ public static partial class MethodRefResolver
         {
             case "get_Value":
                 // instance intptr get_Value(): the raw handle pointer. The
-                // runtime returns intptr_t (the "ptr" carrier).
+                // handle VALUE is modelled as an intptr_t slot (the
+                // reflecthandle.h value model -- the transpiler gives the
+                // handle types an intptr_t TypeCppName), so the _intptr
+                // overload answers the value (the address receiver is
+                // dereferenced by the "deref:l" cast). A null/default handle
+                // answers 0 (net48).
                 if (count != 0) return null;
-                return I($"il2cpp::il2cpp_{prefix}_get_value", 0, true, false, true,
+                return I($"il2cpp::il2cpp_{prefix}_get_value_intptr", 0, true, false, true,
                     new[] { receiverIsAddress ? "deref:l" : "" }, "ptr");
             case "Equals":
                 // instance bool Equals(handle): identity (pointer equality,

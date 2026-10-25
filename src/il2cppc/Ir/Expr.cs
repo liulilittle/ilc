@@ -27,7 +27,17 @@ public sealed class Int64ConstExpr : Expr { public required long Value { get; in
 // canonical NaN) and +/-Infinity emit INFINITY/-INFINITY (the generated header
 // includes <cmath>). TryFoldInt32 does not fold this node.
 public sealed class DoubleConstExpr : Expr { public required double Value { get; init; } }
-public sealed class StringConstExpr : Expr { public required string Value { get; init; } }
+public sealed class StringConstExpr : Expr
+{
+    public required string Value { get; init; }
+    // p-refl2-gapmatrix (B08): for a typeof-chain TYPE VALUE, the metadata
+    // TOKEN the value was folded from (the GetTypeFromHandle fold). Lets a
+    // downstream GetMethod/GetField record the member's declaring type -- the
+    // simplified member model represents a member VALUE as its name string,
+    // which loses the declaring type (net48's GetMethod on a base type returns
+    // the BASE declaration). Null for a plain string constant.
+    public int? TypeToken { get; init; }
+}
 public sealed class NullExpr : Expr
 {
     // ldnull: null managed reference (emitted as nullptr). TypeName records
@@ -99,6 +109,14 @@ public sealed class CallExpr : Expr
     public List<int> StringArgIndices { get; init; } = new();
     // M4 Task 4: [DllImport(SetLastError=true)] -- capture the OS error after.
     public bool SetLastError { get; init; }
+    // p-refl2-gapmatrix (B08): the member-VALUE provenance for a folded
+    // typeof-chain GetMethod/GetField call -- (declaring type token, member
+    // name, isField). The fold attaches it so a downstream member flag
+    // predicate (IsAbstract/IsVirtual/IsGenericMethod/IsInitOnly/IsLiteral)
+    // can resolve the EXACT declaration from the metadata (the name-string
+    // member VALUE alone cannot -- net48's GetMethod on a base type returns
+    // the base declaration, not the derived override). Null otherwise.
+    public (int TypeToken, string MemberName, bool IsField)? MemberProvenance { get; set; }
 }
 
 //------------------------------------------------------------------------------
