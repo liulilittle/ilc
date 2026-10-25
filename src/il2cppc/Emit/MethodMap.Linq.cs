@@ -1730,8 +1730,19 @@ public static partial class MethodRefResolver
             // VALUETYPE arg with no resolvable TypeRef) keeps the historical
             // decimal-kernel answer (MethodMapTests.Linq decimal-aggregate
             // guard); a real assembly always resolves the name.
+            //
+            // A NULL name table means genArgs came from
+            // LinqAggregateElementByte, i.e. a NON-generic (header 0x00)
+            // MemberRef. On this concrete surface the only value-type element
+            // overload is System.Decimal (int/long/float/double have dedicated
+            // non-generic overloads with their own bytes, and Min/Max<object>
+            // is 0x0E reference), so a null table with a 0x11 byte IS decimal.
+            // A MethodSpec always carries a name for a 0x11 arg (at least "?"),
+            // so the null table can never hide a DateTime/TimeSpan/Guid source
+            // and the LOUD guard above stays intact.
             bool isDecimal = genArgs is { Length: >= 1 }
-                ? IsDecimalGenArg(genArgNames, 0)
+                ? genArgNames is null
+                    || IsDecimalGenArg(genArgNames, 0)
                     || (genArgNames is { Length: >= 1 } && genArgNames[0] == "?")
                 : (receiverType ?? arg0Type) is { } n
                     && n.EndsWith("System.Decimal[]", StringComparison.Ordinal);
