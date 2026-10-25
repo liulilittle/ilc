@@ -108,6 +108,23 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     "Incremental streaming hashing (TransformBlock/TransformFinalBlock) is not wired (v2)");
 
+            case "get_HashSize":
+                // HashAlgorithm.HashSize: the digest size in BITS (net48
+                // HashSizeValue). The concrete algorithm comes from the receiver
+                // hint (the parent-owner callvirt shape).
+                if (algo == null) return null;
+                if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
+                    return I($"il2cpp::runtime::icall_{algo}_get_hash_size", 0, true, false, true);
+                return null;
+
+            case "Initialize":
+                // HashAlgorithm.Initialize: a no-op here (ComputeHash is
+                // stateless per call -- no streaming state to reset).
+                if (algo == null) return null;
+                if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
+                    return I($"il2cpp::runtime::icall_{algo}_initialize", 0, false, false, true);
+                return null;
+
             case "Clear":
                 if (algo == null) return null;
                 throw new NotSupportedException(

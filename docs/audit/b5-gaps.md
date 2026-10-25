@@ -277,8 +277,22 @@ beyond Single.MaxValue (not a silent Infinity). e2e: `conv-str-parse`.
 * `TransformBlock` / `TransformFinalBlock` on the hash/HMAC family (v2),
   `ComputeHash(Stream)` (v2), `Aes` parameterless `CreateEncryptor` /
   `CreateDecryptor`, RNG named-CSP ctors, `Aes.TransformBlock` (v2).
+* `HashAlgorithm.Hash` -- net48 caches the last ComputeHash digest and returns
+  a clone (NullReferenceException before the first call, ObjectDisposedException
+  after Clear); this runtime's ComputeHash is stateless per call, so the cached
+  value would need a new per-instance ref field (a class-descriptor change).
+* `HashAlgorithm.Clear()` -- net48 disposes the object (a later `Hash` throws
+  ObjectDisposedException); this runtime's Dispose is a no-op and tracks no
+  disposed state.
 * `Convert.ToByte/.../ToSingle` over a `decimal` source, and the
   `char`-source narrow targets (net48 semantics not pinned).
 * `DefaultInterpolatedStringHandler.AppendFormatted<T>` over a value type OTHER
   than decimal/DateTime/Guid (the box helper is per-type; the MethodSpec name
   table would need a further box cast each).
+
+### 8g. HashAlgorithm object surface (HashSize / Initialize) -- WIRED
+
+`HashSize` (the digest size in BITS: MD5 128 / SHA-1 160 / SHA-256 256 /
+SHA-384 384 / SHA-512 512) and `Initialize` (a no-op -- ComputeHash is stateless
+per call) were LOUD. Now wired to `icall_<algo>_get_hash_size` /
+`icall_<algo>_initialize`. e2e: `hash-obj-surface`.

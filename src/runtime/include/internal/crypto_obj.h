@@ -230,6 +230,25 @@ void icall_sha256_dispose(Il2CppObject* self);
 void icall_sha384_dispose(Il2CppObject* self);
 void icall_sha512_dispose(Il2CppObject* self);
 
+//   icall_<algo>_get_hash_size() -- HashAlgorithm.HashSize: the digest size in
+//     BITS (net48 HashSizeValue: MD5 128 / SHA-1 160 / SHA-256 256 /
+//     SHA-384 384 / SHA-512 512).
+//   icall_<algo>_initialize(self) -- HashAlgorithm.Initialize: a no-op here
+//     (ComputeHash is stateless per call, so there is no streaming state to
+//     reset).
+//-----------------------------------------------------------------------------
+int32_t icall_md5_get_hash_size(Il2CppObject* self);
+int32_t icall_sha1_get_hash_size(Il2CppObject* self);
+int32_t icall_sha256_get_hash_size(Il2CppObject* self);
+int32_t icall_sha384_get_hash_size(Il2CppObject* self);
+int32_t icall_sha512_get_hash_size(Il2CppObject* self);
+
+void icall_md5_initialize(Il2CppObject* self);
+void icall_sha1_initialize(Il2CppObject* self);
+void icall_sha256_initialize(Il2CppObject* self);
+void icall_sha384_initialize(Il2CppObject* self);
+void icall_sha512_initialize(Il2CppObject* self);
+
 //------------------------------------------------------------------------------
 // HMAC object icalls (one shared surface; the algorithm is dispatched from
 // the receiver's class -- HMACSHA1/256/384/512 share the RFC 2104 core).

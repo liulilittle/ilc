@@ -389,6 +389,37 @@ public class MethodMapTestsCrypto
     }
 
     [Fact]
+    public void Resolve_GetHashSize_MD5_MapsToHashSizeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("MD5", "get_HashSize", Sig(B(0x08))), "get_HashSize");
+
+        Assert.Equal("il2cpp::runtime::icall_md5_get_hash_size", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_GetHashSize_HashAlgorithmParent_DispatchesFromReceiver()
+    {
+        // callvirt HashAlgorithm::get_HashSize with an SHA512 receiver.
+        var resolved = ResolveMember(Synthesize("HashAlgorithm", "get_HashSize",
+            Sig(B(0x08))), "get_HashSize",
+            receiverType: "System.Security.Cryptography.SHA512");
+
+        Assert.Equal("il2cpp::runtime::icall_sha512_get_hash_size", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_Initialize_SHA256_MapsToInitializeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("SHA256", "Initialize", Sig(B(0x00))), "Initialize");
+
+        Assert.Equal("il2cpp::runtime::icall_sha256_initialize", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+    }
+
+    [Fact]
     public void Resolve_Ctor_RngNamedCsp_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>

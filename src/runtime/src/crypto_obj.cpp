@@ -435,6 +435,23 @@ void icall_sha384_dispose(Il2CppObject*) {}
 void icall_sha512_dispose(Il2CppObject*) {}
 
 //------------------------------------------------------------------------------
+// HashAlgorithm object surface: HashSize (the digest size in BITS -- net48
+// HashSizeValue) and Initialize (a no-op here: ComputeHash is stateless per
+// call, so there is no streaming state to reset).
+//------------------------------------------------------------------------------
+int32_t icall_md5_get_hash_size(Il2CppObject*) { return kMd5.digestSize * 8; }
+int32_t icall_sha1_get_hash_size(Il2CppObject*) { return kSha1.digestSize * 8; }
+int32_t icall_sha256_get_hash_size(Il2CppObject*) { return kSha256.digestSize * 8; }
+int32_t icall_sha384_get_hash_size(Il2CppObject*) { return kSha384.digestSize * 8; }
+int32_t icall_sha512_get_hash_size(Il2CppObject*) { return kSha512.digestSize * 8; }
+
+void icall_md5_initialize(Il2CppObject*) {}
+void icall_sha1_initialize(Il2CppObject*) {}
+void icall_sha256_initialize(Il2CppObject*) {}
+void icall_sha384_initialize(Il2CppObject*) {}
+void icall_sha512_initialize(Il2CppObject*) {}
+
+//------------------------------------------------------------------------------
 // HMAC object icalls.
 //------------------------------------------------------------------------------
 void icall_hmac_ctor(Il2CppObject* self, Il2CppArray* key)
