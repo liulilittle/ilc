@@ -27,10 +27,11 @@ using Xunit;
 //   Legacy *CryptoServiceProvider / *Managed owners normalize onto the same
 //                          algorithm icalls (crypto-domain.md §4.4)
 //
-// Known-unwireable members MUST be LOUD (NotSupportedException): hash
-// TransformBlock/TransformFinalBlock (v2), ComputeHash(Stream) (v2), HMAC
-// Key property access, Aes parameterless CreateEncryptor/CreateDecryptor,
-// RNG named-CSP ctors, Aes.TransformBlock (v2).
+// Known-unwireable members MUST be LOUD (NotSupportedException):
+// HashAlgorithm.Create(string) (CryptoConfig), the RNG CspParameters ctor and
+// Aes.TransformBlock (v2). The hash TransformBlock/TransformFinalBlock,
+// ComputeHash(Stream), the Aes parameterless CreateEncryptor/CreateDecryptor
+// and the RNG named-CSP ctors are wired (batch 6).
 public class MethodMapTestsCrypto
 {
     [Fact]
@@ -312,14 +313,17 @@ public class MethodMapTestsCrypto
     }
 
     [Fact]
-    public void Resolve_TransformBlock_Hash_ThrowsLoud()
+    public void Resolve_TransformBlock_Hash_MapsToTransformBlockIcall()
     {
-        // v2 scope: incremental block streaming must NOT be silent.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("MD5", "TransformBlock",
-                Sig(B(0x08), B(0x1D, 0x08), B(0x08), B(0x08), B(0x1D, 0x08), B(0x08))), "TransformBlock"));
+        // batch 6: the hash family implements ICryptoTransform on HashAlgorithm
+        // (hashalgorithm.cs) -- TransformBlock feeds the inline context.
+        var resolved = ResolveMember(Synthesize("MD5", "TransformBlock",
+                Sig(B(0x08), B(0x1D, 0x08), B(0x08), B(0x08), B(0x1D, 0x08), B(0x08))), "TransformBlock");
 
-        Assert.Contains("TransformBlock", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_md5_transform_block", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(new[] { "", "a", "i", "i", "a", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]
@@ -333,26 +337,66 @@ public class MethodMapTestsCrypto
     }
 
     [Fact]
-    public void Resolve_ComputeHash_StreamOverload_ThrowsLoud()
+    public void Resolve_ComputeHash_StreamOverload_MapsToStreamIcall()
     {
-        // ComputeHash(Stream) is unwireable (v2); T4 defers when the algorithm
-        // is unpinned (null receiver), so the LOUD path is exercised with the
-        // receiver hint -- the parent-owner call with a concrete receiver.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("HashAlgorithm", "ComputeHash",
+        // batch 6: ComputeHash(Stream) is the 4096-byte chunked read loop; the
+        // concrete algorithm comes from the receiver hint.
+        var resolved = ResolveMember(Synthesize("HashAlgorithm", "ComputeHash",
                 Sig(B(0x1D, 0x08), B(0x12, 0x05))), "ComputeHash",
-                receiverType: "System.Security.Cryptography.SHA512"));
+            receiverType: "System.Security.Cryptography.SHA512");
 
-        Assert.Contains("Stream", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_sha512_compute_hash_stream", resolved.CppName);
+        Assert.Equal("System.Byte[]", resolved.ReturnTypeName);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
     }
 
     [Fact]
-    public void Resolve_CreateEncryptor_Parameterless_ThrowsLoud()
+    public void Resolve_CreateEncryptor_Parameterless_MapsToSelfIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("Aes", "CreateEncryptor", Sig(B(0x12, 0x05))), "CreateEncryptor"));
+        // batch 6: the parameterless SymmetricAlgorithm.CreateEncryptor() uses
+        // the stored Key/IV (generated on demand).
+        var resolved = ResolveMember(Synthesize("Aes", "CreateEncryptor", Sig(B(0x12, 0x05))), "CreateEncryptor");
 
-        Assert.Contains("CreateEncryptor", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_aes_create_encryptor_self", resolved.CppName);
+        Assert.Equal("System.Security.Cryptography.AesTransform", resolved.ReturnTypeName);
+        Assert.True(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_GetHash_HashAlgorithmParent_DispatchesFromReceiver()
+    {
+        // batch 6: HashAlgorithm.Hash -- the cached digest (a clone).
+        var resolved = ResolveMember(Synthesize("HashAlgorithm", "get_Hash",
+            Sig(B(0x1D, 0x08))), "get_Hash",
+            receiverType: "System.Security.Cryptography.MD5");
+
+        Assert.Equal("il2cpp::runtime::icall_md5_get_hash", resolved.CppName);
+        Assert.Equal("System.Byte[]", resolved.ReturnTypeName);
+        Assert.True(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_Clear_HashAlgorithmParent_DispatchesFromReceiver()
+    {
+        // batch 6: HashAlgorithm.Clear() -- the net48 disposed flag.
+        var resolved = ResolveMember(Synthesize("HashAlgorithm", "Clear",
+            Sig(B(0x00))), "Clear",
+            receiverType: "System.Security.Cryptography.MD5");
+
+        Assert.Equal("il2cpp::runtime::icall_md5_clear", resolved.CppName);
+        Assert.False(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_Clear_Aes_MapsToAesDispose()
+    {
+        // batch 6: SymmetricAlgorithm.Clear() (Aes) -- the CSP-handle Dispose.
+        var resolved = ResolveMember(Synthesize("SymmetricAlgorithm", "Clear",
+            Sig(B(0x00))), "Clear",
+            receiverType: "System.Security.Cryptography.Aes");
+
+        Assert.Equal("il2cpp::runtime::icall_aes_dispose", resolved.CppName);
+        Assert.False(resolved.ReturnsValue);
     }
 
     [Fact]
@@ -420,13 +464,17 @@ public class MethodMapTestsCrypto
     }
 
     [Fact]
-    public void Resolve_Ctor_RngNamedCsp_ThrowsLoud()
+    public void Resolve_Ctor_RngNamedCsp_MapsToRngCtor()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("RNGCryptoServiceProvider", ".ctor",
-                Sig(B(0x00), B(0x0E))), ".ctor"));
+        // batch 6: RNGCryptoServiceProvider(string) / (byte[]) delegate to
+        // this((CspParameters) null) -- a no-op (the OS CSPRNG is used).
+        var resolved = ResolveMember(Synthesize("RNGCryptoServiceProvider", ".ctor",
+                Sig(B(0x00), B(0x0E))), ".ctor");
 
-        Assert.Contains("RNGCryptoServiceProvider", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_rng_ctor", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(new[] { "", "drop" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
