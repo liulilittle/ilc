@@ -212,6 +212,79 @@ void il2cpp_array_reverse_double(Il2CppArray* arr)
     }
 }
 
+// The float / narrow-integral 1-arg reversers: the same raw two-pointer swap,
+// one per element stride (float 4, the narrow integrals 1/2/4). byte already
+// has its own entry above.
+void il2cpp_array_reverse_float(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireValueArrayExtra(a, sizeof(float));
+    if (a->length > 1)
+    {
+        ReverseValuesExtra(reinterpret_cast<float*>(a->data), a->length);
+    }
+}
+
+void il2cpp_array_reverse_sbyte(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireValueArrayExtra(a, 1);
+    if (a->length > 1)
+    {
+        ReverseValuesExtra(reinterpret_cast<int8_t*>(a->data), a->length);
+    }
+}
+
+void il2cpp_array_reverse_bool(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireValueArrayExtra(a, sizeof(bool));
+    if (a->length > 1)
+    {
+        ReverseValuesExtra(reinterpret_cast<bool*>(a->data), a->length);
+    }
+}
+
+void il2cpp_array_reverse_short(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireValueArrayExtra(a, sizeof(int16_t));
+    if (a->length > 1)
+    {
+        ReverseValuesExtra(reinterpret_cast<int16_t*>(a->data), a->length);
+    }
+}
+
+void il2cpp_array_reverse_ushort(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireValueArrayExtra(a, sizeof(uint16_t));
+    if (a->length > 1)
+    {
+        ReverseValuesExtra(reinterpret_cast<uint16_t*>(a->data), a->length);
+    }
+}
+
+void il2cpp_array_reverse_char(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireValueArrayExtra(a, sizeof(char16_t));
+    if (a->length > 1)
+    {
+        ReverseValuesExtra(reinterpret_cast<char16_t*>(a->data), a->length);
+    }
+}
+
+void il2cpp_array_reverse_uint(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireValueArrayExtra(a, sizeof(uint32_t));
+    if (a->length > 1)
+    {
+        ReverseValuesExtra(reinterpret_cast<uint32_t*>(a->data), a->length);
+    }
+}
+
 //------------------------------------------------------------------------------
 // il2cpp_array_reverse_string/object -- Array.Reverse(T[]) reference variants
 // (see header). In-place reversal of the Il2CppObject* slots (identity --

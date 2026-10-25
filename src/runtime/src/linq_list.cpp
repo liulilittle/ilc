@@ -823,6 +823,83 @@ Il2CppObject* il2cpp_linq_list_last_or_default_ref(Il2CppObject* list, int32_t k
 }
 
 //------------------------------------------------------------------------------
+// Single / SingleOrDefault (source-only)
+//
+// net48 Enumerable.Single: an empty source and a multi-element source both
+// throw InvalidOperationException ("Sequence contains no elements" /
+// "Sequence contains more than one element"); SingleOrDefault answers
+// default(T) for an empty source and throws only for more than one element.
+// The snapshot is exact storage, so the single element is read at index 0.
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_list_single_i4(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    if (snap->length > 1) il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    return ReadI4(snap, 0, kind);
+}
+
+int64_t il2cpp_linq_list_single_i8(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    if (snap->length > 1) il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    return ReadI8(snap, 0);
+}
+
+double il2cpp_linq_list_single_d(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    if (snap->length > 1) il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    return ReadD(snap, 0);
+}
+
+Il2CppObject* il2cpp_linq_list_single_ref(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0) il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    if (snap->length > 1) il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    return ReadRef(snap, 0);
+}
+
+int32_t il2cpp_linq_list_single_or_default_i4(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length > 1) il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    return snap->length == 1 ? ReadI4(snap, 0, kind) : 0;
+}
+
+int64_t il2cpp_linq_list_single_or_default_i8(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length > 1) il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    return snap->length == 1 ? ReadI8(snap, 0) : 0;
+}
+
+double il2cpp_linq_list_single_or_default_d(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length > 1) il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    return snap->length == 1 ? ReadD(snap, 0) : 0.0;
+}
+
+Il2CppObject* il2cpp_linq_list_single_or_default_ref(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length > 1) il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    return snap->length == 1 ? ReadRef(snap, 0) : nullptr;
+}
+
+//------------------------------------------------------------------------------
 // First(predicate) / FirstOrDefault(predicate)
 //------------------------------------------------------------------------------
 namespace {

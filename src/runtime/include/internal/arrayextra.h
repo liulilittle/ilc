@@ -90,6 +90,17 @@ void il2cpp_array_reverse_int64(Il2CppArray* arr);
 // (isRefElem == false, elemSize == 8).
 void il2cpp_array_reverse_double(Il2CppArray* arr);
 
+// The float / narrow-integral 1-arg reversers: the same raw two-pointer swap,
+// one per element stride (float 4, the narrow integrals 1/2/4). byte already
+// has its own entry above.
+void il2cpp_array_reverse_float(Il2CppArray* arr);
+void il2cpp_array_reverse_sbyte(Il2CppArray* arr);
+void il2cpp_array_reverse_bool(Il2CppArray* arr);
+void il2cpp_array_reverse_short(Il2CppArray* arr);
+void il2cpp_array_reverse_ushort(Il2CppArray* arr);
+void il2cpp_array_reverse_char(Il2CppArray* arr);
+void il2cpp_array_reverse_uint(Il2CppArray* arr);
+
 // Array.Reverse(string[]): in-place two-pointer reversal of the reference
 // slots (identity -- never the pointees, no string comparison). Reference
 // arrays only; null slots are legal and reverse like any other element.

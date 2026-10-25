@@ -219,6 +219,123 @@ public class MethodMapArrayTests
         Assert.Equal(0, resolved.ParamCount);
     }
 
+    //==========================================================================
+    // arrgen1 (loud-array-fam): the NON-int32 / NON-string Array families wired
+    // in this batch. Each runtime kernel already existed (or was added) with
+    // its own element kind; the transpiler's MethodMap.Array arms did not wire
+    // them, so e.g. long[].FindLast / double[].FindAll / Array.Empty<float>()
+    // / Array.Reverse<byte>() LOUD-rejected. The predicate/delegate/resize
+    // shapes are the same single-cast static methodPtr ABI as the int32 arm.
+    //==========================================================================
+
+    // FindLast<T>(T[], Predicate<T>): the result carrier follows the element
+    // kind (int64 -> "l", double -> "d", string -> a managed reference).
+    [Theory]
+    [InlineData(0x0A, "il2cpp::runtime::icall_array_find_last_i8", "l", false)]
+    [InlineData(0x0D, "il2cpp::runtime::icall_array_find_last_d", "d", false)]
+    [InlineData(0x0E, "il2cpp::runtime::icall_array_find_last_str", null, true)]
+    public void Resolve_Array_FindLast_NonInt32_MethodSpec_MapsToFamilyIcall(
+        byte elem, string icall, string? resultKind, bool returnsRef)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "FindLast",
+            new byte[] { 0x00, 0x02, 0x08, 0x1D, elem, 0x08 },
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(returnsRef, resolved.ReturnsRef);
+    }
+
+    // ForEach<T>(T[], Action<T>): void result, the same delegate ABI.
+    [Theory]
+    [InlineData(0x0A, "il2cpp::runtime::icall_array_for_each_i8")]
+    [InlineData(0x0D, "il2cpp::runtime::icall_array_for_each_d")]
+    [InlineData(0x0E, "il2cpp::runtime::icall_array_for_each_str")]
+    public void Resolve_Array_ForEach_NonInt32_MethodSpec_MapsToFamilyIcall(byte elem, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "ForEach",
+            new byte[] { 0x00, 0x02, 0x01, 0x1D, elem, 0x08 },
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.False(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_Array_FindAllDouble_MethodSpec_MapsToIcall()
+    {
+        // double[] FindAll<double>(double[], Predicate<double>): a NEW double[]
+        // (ReturnsRef true, the result temp stays Il2CppObject*).
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "FindAll",
+            new byte[] { 0x00, 0x02, 0x1D, 0x0D, 0x1D, 0x0D, 0x08 },
+            new byte[] { 0x0A, 0x01, 0x0D }));
+
+        Assert.Equal("il2cpp::runtime::icall_array_find_all_d", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.True(resolved.ReturnsRef);
+    }
+
+    [Fact]
+    public void Resolve_Array_ResizeDouble_MethodSpec_MapsToIcall()
+    {
+        // void Resize<double>(ref double[], int): the same byref array slot ABI
+        // ("addr:a") as the int32/int64/string arms.
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Resize",
+            new byte[] { 0x00, 0x02, 0x01, 0x10, 0x1D, 0x0D, 0x08 },
+            new byte[] { 0x0A, 0x01, 0x0D }));
+
+        Assert.Equal("il2cpp::runtime::icall_array_resize_d", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "addr:a", "i" }, resolved.ParamTypeNames);
+    }
+
+    // Array.Empty<T>(): the float / narrow-integral factories (a zero-length
+    // array of the matching element stride). char (0x03) already existed.
+    [Theory]
+    [InlineData(0x0C, "il2cpp::runtime::icall_array_empty_float")]
+    [InlineData(0x04, "il2cpp::runtime::icall_array_empty_sbyte")]
+    [InlineData(0x05, "il2cpp::runtime::icall_array_empty_byte")]
+    [InlineData(0x02, "il2cpp::runtime::icall_array_empty_bool")]
+    [InlineData(0x06, "il2cpp::runtime::icall_array_empty_short")]
+    [InlineData(0x07, "il2cpp::runtime::icall_array_empty_ushort")]
+    [InlineData(0x09, "il2cpp::runtime::icall_array_empty_uint")]
+    public void Resolve_Array_Empty_NonInt32_MethodSpec_MapsToIcall(byte elem, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Empty",
+            new byte[] { 0x00, 0x00, 0x1D, elem },
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+    }
+
+    // Array.Reverse<T>(T[]): the float / narrow-integral reversers (the raw
+    // two-pointer swap, one per element stride). byte already had its own arm.
+    [Theory]
+    [InlineData(0x0C, "il2cpp::il2cpp_array_reverse_float")]
+    [InlineData(0x04, "il2cpp::il2cpp_array_reverse_sbyte")]
+    [InlineData(0x05, "il2cpp::il2cpp_array_reverse_byte")]
+    [InlineData(0x02, "il2cpp::il2cpp_array_reverse_bool")]
+    [InlineData(0x06, "il2cpp::il2cpp_array_reverse_short")]
+    [InlineData(0x07, "il2cpp::il2cpp_array_reverse_ushort")]
+    [InlineData(0x03, "il2cpp::il2cpp_array_reverse_char")]
+    [InlineData(0x09, "il2cpp::il2cpp_array_reverse_uint")]
+    public void Resolve_Array_Reverse_NonInt32_MethodSpec_MapsToIcall(byte elem, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Reverse",
+            new byte[] { 0x00, 0x01, 0x01, 0x1D, elem },
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+    }
+
     //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (the MethodRefResolverDispatchTests
     // pipeline: one MemberReference, resolved via the public Resolve entry).

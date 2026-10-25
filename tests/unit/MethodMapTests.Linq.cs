@@ -1436,6 +1436,95 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "15" }, resolved.AppendLiterals);
     }
 
+    //==========================================================================
+    // D-LINQ-FAM (loud-linq-single): the SOURCE-ONLY Single / SingleOrDefault
+    // operators over the int64/float/double/narrow array families. The runtime
+    // already ships ONE family kernel per result ABI (linq_family.h
+    // il2cpp_linq_single_fam_i4/_i8/_d/_ref and single_or_default_fam_*), but the
+    // wide/narrow dispatch (TryMapLinqWide) did not wire them, so
+    // long[].Single() / double[].SingleOrDefault() LOUD-rejected.
+    //
+    // net48 semantics (the kernel's contract): Single throws
+    // InvalidOperationException for an empty OR a multi-element source;
+    // SingleOrDefault answers default(T) for an empty source and throws only
+    // for more than one element.
+    //==========================================================================
+    [Theory]
+    [InlineData("Single", 0x0A, "il2cpp::il2cpp_linq_single_fam_i8", "l", "8")]
+    [InlineData("Single", 0x0D, "il2cpp::il2cpp_linq_single_fam_d", "d", "10")]
+    [InlineData("Single", 0x0C, "il2cpp::il2cpp_linq_single_fam_d", "d", "9")]
+    [InlineData("Single", 0x05, "il2cpp::il2cpp_linq_single_fam_i4", null, "1")]
+    [InlineData("SingleOrDefault", 0x0A, "il2cpp::il2cpp_linq_single_or_default_fam_i8", "l", "8")]
+    [InlineData("SingleOrDefault", 0x0D, "il2cpp::il2cpp_linq_single_or_default_fam_d", "d", "10")]
+    [InlineData("SingleOrDefault", 0x05, "il2cpp::il2cpp_linq_single_or_default_fam_i4", null, "1")]
+    public void Resolve_WideNarrow_Single_MapToFamilyKernels(
+        string name, byte elem, string expected, string? resultKind, string cell)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: FamI1(),
+            genericSignature: new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(new[] { cell }, resolved.AppendLiterals);
+    }
+
+    // The int32 array path: Single/SingleOrDefault ride the family kernel with
+    // the int32 cell (7).
+    [Theory]
+    [InlineData("Single", "il2cpp::il2cpp_linq_single_fam_i4")]
+    [InlineData("SingleOrDefault", "il2cpp::il2cpp_linq_single_or_default_fam_i4")]
+    public void Resolve_Int32_Single_MapToFamilyKernel(string name, string expected)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: FamI1(),
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "7" }, resolved.AppendLiterals);
+    }
+
+    // The reference source (string): the ref cell (15) and the Il2CppObject*
+    // result ABI.
+    [Theory]
+    [InlineData("Single", "il2cpp::il2cpp_linq_single_fam_ref")]
+    [InlineData("SingleOrDefault", "il2cpp::il2cpp_linq_single_or_default_fam_ref")]
+    public void Resolve_RefFamily_Single_MapsToRefKernel(string name, string expected)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: FamI1(),
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.Equal(new[] { "15" }, resolved.AppendLiterals);
+    }
+
+    // The List<int> source: the list-domain single kernels (no array cast).
+    [Theory]
+    [InlineData("Single", "il2cpp::il2cpp_linq_list_single_i4")]
+    [InlineData("SingleOrDefault", "il2cpp::il2cpp_linq_list_single_or_default_i4")]
+    public void Resolve_ListInt_Single_MapsToListKernel(string name, string expected)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric(name,
+            memberRefSignature: FamI1(),
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }),
+            receiverType: "System.Collections.Generic.List`1_int");
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal("", resolved.ParamTypeNames![0]);
+        Assert.Equal(new[] { "0" }, resolved.AppendLiterals);
+    }
+
     private static ResolvedMethod ResolveMethodSpec(MemoryStream pe)
     {
         using var reader = new PEReader(pe);

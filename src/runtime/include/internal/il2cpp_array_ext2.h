@@ -343,6 +343,32 @@ double icall_array_find_d(Il2CppArray* arr, Il2CppObject* match);
 int32_t icall_array_exists_d(Il2CppArray* arr, Il2CppObject* match);
 int32_t icall_array_true_for_all_d(Il2CppArray* arr, Il2CppObject* match);
 
+// Array.FindLast<long> / Array.FindLast<double> / Array.FindLast<string>: the
+// VALUE of the LAST element whose predicate returns true, or default(T) when
+// none match (an empty array is always default(T)). BACKWARD scan; the same
+// validation order, per-binding callback and GC rooting contract as the
+// matching icall_array_find_*.
+int64_t      icall_array_find_last_i8(Il2CppArray* arr, Il2CppObject* match);
+double       icall_array_find_last_d(Il2CppArray* arr, Il2CppObject* match);
+Il2CppObject* icall_array_find_last_str(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.ForEach<long> / Array.ForEach<double> / Array.ForEach<string>: invoke
+// the action once per element in source order (the source is never modified).
+// Same validation order, per-binding callback and GC rooting contract as
+// icall_array_for_each_i4.
+void icall_array_for_each_i8(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_for_each_d(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_for_each_str(Il2CppArray* arr, Il2CppObject* action);
+
+// Array.FindAll<double>(double[], Predicate<double>): a NEW double[] holding
+// every matching element in source order (an empty result is a zero-length
+// array). Same contract and ABI as icall_array_find_all_i8. double arrays only.
+Il2CppArray* icall_array_find_all_d(Il2CppArray* arr, Il2CppObject* match);
+
+// Array.Resize<double>(ref double[], int newSize): the double twin of
+// icall_array_resize_i4 (same net48 contract and rooting discipline).
+void icall_array_resize_d(Il2CppArray** arraySlot, int32_t newSize);
+
 // Array.Empty<T>() -- a zero-length T[] (the source of the params-array
 // Roslyn lowers TrimStart()/TrimEnd() no-arg calls to, among other
 // consumers). One icall per wired generic argument:
@@ -362,6 +388,16 @@ Il2CppObject* icall_array_empty_string();
 Il2CppObject* icall_array_empty_object();
 Il2CppObject* icall_array_empty_long();
 Il2CppObject* icall_array_empty_double();
+// The float / narrow-integral empty factories (elemSize follows the element
+// type). The narrow families have no dedicated elemKind, matching the char
+// factory's plain allocation.
+Il2CppObject* icall_array_empty_float();
+Il2CppObject* icall_array_empty_sbyte();
+Il2CppObject* icall_array_empty_byte();
+Il2CppObject* icall_array_empty_bool();
+Il2CppObject* icall_array_empty_short();
+Il2CppObject* icall_array_empty_ushort();
+Il2CppObject* icall_array_empty_uint();
 
 // The shared CULTURE string comparator used by Array.Sort/BinarySearch
 // (string[]) and the default Comparer<string> paths (defined in arrayext2.cpp;

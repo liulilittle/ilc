@@ -1712,6 +1712,252 @@ int32_t icall_array_true_for_all_d(Il2CppArray* arr, Il2CppObject* match)
 }
 
 //------------------------------------------------------------------------------
+// icall_array_find_last_i8 / _d / _str -- Array.FindLast<T> for the int64,
+// double and reference (string) families. BACKWARD scan: the VALUE of the LAST
+// element whose predicate returns true, or default(T) when none match (an empty
+// array is always default(T)). Same validation order, per-binding callback and
+// GC rooting contract as the matching icall_array_find_*.
+//------------------------------------------------------------------------------
+int64_t icall_array_find_last_i8(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(int64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Int64 arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        const int64_t v = *reinterpret_cast<const int64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeI8Pred(d, v))
+        {
+            return v;
+        }
+    }
+    return 0; // default(long): no element matched
+}
+
+double icall_array_find_last_d(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(double))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Double arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        const double v = *reinterpret_cast<const double*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, v))
+        {
+            return v;
+        }
+    }
+    return 0.0; // default(double): no element matched
+}
+
+Il2CppObject* icall_array_find_last_str(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    RequireRefArrayExt2(a);
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        Il2CppString* v = *reinterpret_cast<Il2CppString* const*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeStrPred(d, v))
+        {
+            return reinterpret_cast<Il2CppObject*>(v);
+        }
+    }
+    return nullptr; // default(string): no element matched
+}
+
+//------------------------------------------------------------------------------
+// icall_array_for_each_i8 / _d / _str -- Array.ForEach<T> for the int64,
+// double and reference (string) families. The action is invoked once per
+// element in source order; the source is never modified. Same validation order,
+// per-binding callback and GC rooting contract as icall_array_for_each_i4.
+//------------------------------------------------------------------------------
+void icall_array_for_each_i8(Il2CppArray* arr, Il2CppObject* action)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(int64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Int64 arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(action, "action");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const int64_t v = *reinterpret_cast<const int64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        InvokeI8Pred(d, v);
+    }
+}
+
+void icall_array_for_each_d(Il2CppArray* arr, Il2CppObject* action)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(double))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Double arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(action, "action");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const double v = *reinterpret_cast<const double*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        InvokeDPred(d, v);
+    }
+}
+
+void icall_array_for_each_str(Il2CppArray* arr, Il2CppObject* action)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    RequireRefArrayExt2(a);
+    Il2CppDelegate* d = RequireArrayCallback(action, "action");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        Il2CppString* v = *reinterpret_cast<Il2CppString* const*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        InvokeStrPred(d, v);
+    }
+}
+
+//------------------------------------------------------------------------------
+// icall_array_find_all_d -- Array.FindAll<double>(double[], Predicate<double>):
+// a NEW double[] holding EVERY element for which the predicate returns true, in
+// source order (an empty result is a zero-length array). Same contract as
+// icall_array_find_all_i8.
+//------------------------------------------------------------------------------
+Il2CppArray* icall_array_find_all_d(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(double))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Double arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    Il2CppArray* full = il2cpp_array_new_typed(sizeof(double), 4, a->length);
+    roots.Add(reinterpret_cast<void**>(&full));
+
+    int32_t wi = 0;
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const double v = *reinterpret_cast<const double*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, v))
+        {
+            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(full, wi)) = v;
+            ++wi;
+        }
+    }
+    if (wi == a->length)
+    {
+        return full;
+    }
+    Il2CppArray* out = il2cpp_array_new_typed(sizeof(double), 4, wi);
+    if (wi > 0)
+    {
+        std::memcpy(out->data, full->data,
+                    static_cast<size_t>(wi) * sizeof(double));
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// icall_array_resize_d -- Array.Resize<double>(ref double[], int newSize): the
+// double twin of icall_array_resize_i4 (the same net48 contract and rooting).
+//------------------------------------------------------------------------------
+void icall_array_resize_d(Il2CppArray** arraySlot, int32_t newSize)
+{
+    if (arraySlot == nullptr)
+    {
+        il2cpp_throw_argument_exception("Array slot must not be null.");
+        return; // unreachable (the factory throws)
+    }
+    if (newSize < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "newSize", "newSize was out of range. Must be non-negative.");
+        return;
+    }
+
+    Il2CppArray* old = *arraySlot;
+    if (old == nullptr)
+    {
+        *arraySlot = il2cpp_array_new_typed(sizeof(double), 4, newSize);
+        return;
+    }
+    RequireFindIndexArray(old);
+    if (old->isRefElem || old->elemSize != sizeof(double))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Double arrays are supported.");
+    }
+    const int32_t oldLength = old->length;
+    if (oldLength == newSize)
+    {
+        return; // net48: an equal length keeps the same reference (no-op)
+    }
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(arraySlot));
+
+    Il2CppArray* fresh = il2cpp_array_new_typed(sizeof(double), 4, newSize);
+    Il2CppArray* moved = *arraySlot;
+    const int32_t copyLen = oldLength < newSize ? oldLength : newSize;
+    if (copyLen > 0)
+    {
+        std::memcpy(fresh->data, moved->data,
+                    static_cast<size_t>(copyLen) * sizeof(double));
+    }
+    *arraySlot = fresh;
+}
+
+//------------------------------------------------------------------------------
 // icall_array_resize_i4 -- Array.Resize<int>(ref int32[], int newSize) (see
 // header). net48 semantics: newSize < 0 -> ArgumentOutOfRangeException; a
 // null array is legal (becomes new int32[newSize]); an equal length is a
@@ -1804,6 +2050,44 @@ Il2CppObject* icall_array_empty_long()
 Il2CppObject* icall_array_empty_double()
 {
     return reinterpret_cast<Il2CppObject*>(il2cpp_array_new_typed(sizeof(double), 4, 0));
+}
+
+// The float / narrow-integral empty factories (elemSize follows the element
+// type; the narrow families have no dedicated elemKind, matching the existing
+// char factory's plain allocation).
+Il2CppObject* icall_array_empty_float()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new_typed(sizeof(float), 3, 0));
+}
+
+Il2CppObject* icall_array_empty_sbyte()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(int8_t), false, 0));
+}
+
+Il2CppObject* icall_array_empty_byte()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(uint8_t), false, 0));
+}
+
+Il2CppObject* icall_array_empty_bool()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(bool), false, 0));
+}
+
+Il2CppObject* icall_array_empty_short()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(int16_t), false, 0));
+}
+
+Il2CppObject* icall_array_empty_ushort()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(uint16_t), false, 0));
+}
+
+Il2CppObject* icall_array_empty_uint()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(uint32_t), false, 0));
 }
 
 } // namespace runtime

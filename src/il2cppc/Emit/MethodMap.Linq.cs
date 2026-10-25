@@ -589,6 +589,19 @@ public static partial class MethodRefResolver
                 case "LastOrDefault" when count >= 2:
                     return I("il2cpp::il2cpp_linq_last_or_default_pred_ref", 2, true, true, false, TwoArg,
                         returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                // D-LINQ-FAM (source-only): Single / SingleOrDefault over a
+                // REFERENCE-element array source. The family kernel reads the
+                // ref cell and the result rides the Il2CppObject* ABI. The
+                // predicate overloads (count >= 2) have no index-aware ref
+                // kernel and stay LOUD.
+                case "Single" when count < 2:
+                    return I("il2cpp::il2cpp_linq_single_fam_ref", 1, true, true, false, OneArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "SingleOrDefault" when count < 2:
+                    return I("il2cpp::il2cpp_linq_single_or_default_fam_ref", 1, true, true, false, OneArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
                 // B5-R2: OrderBy / OrderByDescending over a REFERENCE source.
                 // Enumerable.OrderBy passes a 1-arg key selector, so it must NOT
                 // go through il2cpp_linq_order_by_ref/string (2-arg Comparison<T>
@@ -1433,6 +1446,16 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_last_or_default_i4", 1, true, false, false, OneArg);
             case "LastOrDefault":
                 return I("il2cpp::il2cpp_linq_last_or_default_pred_i4", 2, true, false, false, TwoArg);
+            case "Single" when count < 2:
+                // Single<TSource>(IEnumerable<TSource>) -> the family kernel
+                // (int32 cell). net48: empty or >1 -> InvalidOperationException.
+                // The predicate overload (count >= 2) has no runtime kernel and
+                // stays unwired (see docs/audit/b4-gaps.md).
+                return I("il2cpp::il2cpp_linq_single_fam_i4", 1, true, false, false, OneArg,
+                    appendLiterals: new[] { "7" });
+            case "SingleOrDefault" when count < 2:
+                return I("il2cpp::il2cpp_linq_single_or_default_fam_i4", 1, true, false, false, OneArg,
+                    appendLiterals: new[] { "7" });
             case "ElementAt":
                 // ElementAt(source, index) -> il2cpp_linq_element_at_i4.
                 // index < 0 or >= length -> ArgumentOutOfRangeException.
@@ -2254,6 +2277,20 @@ public static partial class MethodRefResolver
                 return I($"il2cpp::il2cpp_linq_list_last_or_default_{abi}", 1, true, abi == "ref", false,
                     L1, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
                     returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
+            // Single / SingleOrDefault (source-only): exactly one element
+            // (Single throws for an empty OR a multi-element source;
+            // SingleOrDefault answers default(T) for an empty source and throws
+            // only for more than one). The list snapshot is exact storage, so
+            // the single element is index 0. The predicate overloads (count
+            // >= 2) have no list kernel and stay LOUD.
+            case "Single" when count < 2:
+                return I($"il2cpp::il2cpp_linq_list_single_{abi}", 1, true, abi == "ref", false,
+                    L1, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
+                    returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
+            case "SingleOrDefault" when count < 2:
+                return I($"il2cpp::il2cpp_linq_list_single_or_default_{abi}", 1, true, abi == "ref", false,
+                    L1, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
+                    returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
             case "ToArray":
                 return I("il2cpp::il2cpp_linq_list_to_array", 1, true, true, false,
                     L1, returnTypeName: elemTracked, appendLiterals: new[] { K });
@@ -2737,6 +2774,39 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
                     new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
                     appendLiterals: new[] { firstKind, secondKind, resKind });
+            }
+            // D-LINQ-FAM (source-only): Single / SingleOrDefault over the
+            // int64 / float / double / narrow array families. The family kernel
+            // validates the cell and reads the single element at its REAL width
+            // (the narrow cells widen into the int32 result slot). Single throws
+            // for an empty OR a multi-element source; SingleOrDefault answers
+            // default(T) for an empty source and throws only for more than one.
+            // The predicate overloads (count >= 2) have no kernel and stay LOUD.
+            case "Single" when count < 2:
+            {
+                if (cellCode == null) return null;
+                return srcFam switch
+                {
+                    "i8" => I("il2cpp::il2cpp_linq_single_fam_i8", 1, true, false, false,
+                        OneArg, resultKind: "l", appendLiterals: new[] { cellCode }),
+                    "f" or "d" => I("il2cpp::il2cpp_linq_single_fam_d", 1, true, false, false,
+                        OneArg, resultKind: "d", appendLiterals: new[] { cellCode }),
+                    _ => I("il2cpp::il2cpp_linq_single_fam_i4", 1, true, false, false,
+                        OneArg, appendLiterals: new[] { cellCode }),
+                };
+            }
+            case "SingleOrDefault" when count < 2:
+            {
+                if (cellCode == null) return null;
+                return srcFam switch
+                {
+                    "i8" => I("il2cpp::il2cpp_linq_single_or_default_fam_i8", 1, true, false, false,
+                        OneArg, resultKind: "l", appendLiterals: new[] { cellCode }),
+                    "f" or "d" => I("il2cpp::il2cpp_linq_single_or_default_fam_d", 1, true, false, false,
+                        OneArg, resultKind: "d", appendLiterals: new[] { cellCode }),
+                    _ => I("il2cpp::il2cpp_linq_single_or_default_fam_i4", 1, true, false, false,
+                        OneArg, appendLiterals: new[] { cellCode }),
+                };
             }
             default:
                 return null;

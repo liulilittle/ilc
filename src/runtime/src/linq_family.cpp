@@ -850,11 +850,74 @@ Il2CppGuid il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t arg, int32_t 
 // ElementAt has no empty-sequence special case: an index into an empty array
 // is out of range (the CHECK throws before the read).
 IL2CPP_LINQ_DEF_ELEM_ENTRIES(element_at, RequireNothing, CheckedIndex(src, arg), false)
+
+// Single / SingleOrDefault are source-only (no caller argument), so their
+// kernels take (src, cell) only.
+#define IL2CPP_LINQ_DEF_ELEM_ENTRIES_NOARG(NAME, CHECK, EMPTY_RET)                        \
+int32_t il2cpp_linq_##NAME##_fam_i4(Il2CppArray* src, int32_t cell)            \
+{                                                                              \
+    LinqRequireCell(src, cell);                                                \
+    CHECK(src);                                                                \
+    if (EMPTY_RET && src->length == 0) return 0;                               \
+    return LinqCellReadI4(src, 0, cell);                                       \
+}                                                                              \
+int64_t il2cpp_linq_##NAME##_fam_i8(Il2CppArray* src, int32_t cell)            \
+{                                                                              \
+    LinqRequireCell(src, cell);                                                \
+    CHECK(src);                                                                \
+    if (EMPTY_RET && src->length == 0) return 0;                               \
+    return LinqCellReadI8(src, 0, cell);                                       \
+}                                                                              \
+double il2cpp_linq_##NAME##_fam_d(Il2CppArray* src, int32_t cell)              \
+{                                                                              \
+    LinqRequireCell(src, cell);                                                \
+    CHECK(src);                                                                \
+    if (EMPTY_RET && src->length == 0) return 0.0;                             \
+    return LinqCellReadD(src, 0, cell);                                        \
+}                                                                              \
+Il2CppObject* il2cpp_linq_##NAME##_fam_ref(Il2CppArray* src, int32_t cell)     \
+{                                                                              \
+    LinqRequireCell(src, cell);                                                \
+    CHECK(src);                                                                \
+    if (EMPTY_RET && src->length == 0) return nullptr;                         \
+    return LinqCellReadRef(src, 0, cell);                                      \
+}                                                                              \
+runtime::Il2CppDecimal il2cpp_linq_##NAME##_fam_dec(Il2CppArray* src, int32_t cell) \
+{                                                                              \
+    LinqRequireCell(src, cell);                                                \
+    CHECK(src);                                                                \
+    runtime::Il2CppDecimal v;                                                  \
+    if (EMPTY_RET && src->length == 0) { std::memset(&v, 0, sizeof(v)); return v; } \
+    return LinqCellReadDec(src, 0);                                            \
+}                                                                              \
+runtime::Il2CppDateTime il2cpp_linq_##NAME##_fam_dt(Il2CppArray* src, int32_t cell) \
+{                                                                              \
+    LinqRequireCell(src, cell);                                                \
+    CHECK(src);                                                                \
+    if (EMPTY_RET && src->length == 0) return runtime::Il2CppDateTime();       \
+    return LinqCellReadDt(src, 0);                                             \
+}                                                                              \
+runtime::Il2CppTimeSpan il2cpp_linq_##NAME##_fam_ts(Il2CppArray* src, int32_t cell) \
+{                                                                              \
+    LinqRequireCell(src, cell);                                                \
+    CHECK(src);                                                                \
+    if (EMPTY_RET && src->length == 0) return runtime::Il2CppTimeSpan();       \
+    return LinqCellReadTs(src, 0);                                             \
+}                                                                              \
+Il2CppGuid il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t cell)       \
+{                                                                              \
+    LinqRequireCell(src, cell);                                                \
+    CHECK(src);                                                                \
+    if (EMPTY_RET && src->length == 0) { Il2CppGuid g; std::memset(g.b, 0, sizeof(g.b)); return g; } \
+    return LinqCellReadGuid(src, 0);                                           \
+}
+
 // Single: exactly one element (empty and >1 both throw).
-IL2CPP_LINQ_DEF_ELEM_ENTRIES(single, RequireSingle, 0, false)
+IL2CPP_LINQ_DEF_ELEM_ENTRIES_NOARG(single, RequireSingle, false)
 // SingleOrDefault: 0 or 1 (empty -> default, >1 throws).
-IL2CPP_LINQ_DEF_ELEM_ENTRIES(single_or_default, RequireAtMostOne, 0, true)
+IL2CPP_LINQ_DEF_ELEM_ENTRIES_NOARG(single_or_default, RequireAtMostOne, true)
 
 #undef IL2CPP_LINQ_DEF_ELEM_ENTRIES
+#undef IL2CPP_LINQ_DEF_ELEM_ENTRIES_NOARG
 
 } // namespace il2cpp

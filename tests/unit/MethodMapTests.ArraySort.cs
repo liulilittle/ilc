@@ -158,13 +158,16 @@ public class MethodMapArraySortTests
     }
 
     [Fact]
-    public void Resolve_Array_EmptyBoolean_MethodSpec_ThrowsLoud_Gap()
+    public void Resolve_Array_EmptyBoolean_MethodSpec_ResolvesToEmptyBoolIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Empty",
-                new byte[] { 0x00, 0x00, 0x1D, 0x02 }, new byte[] { 0x0A, 0x01, 0x02 })));
+        // arrgen1: Array.Empty<bool> is wired now (icall_array_empty_bool) --
+        // the former LOUD gap is a mapping (spec-change/test-sync rule).
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Empty",
+            new byte[] { 0x00, 0x00, 0x1D, 0x02 }, new byte[] { 0x0A, 0x01, 0x02 }));
 
-        Assert.Contains("System.Array::Empty", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_array_empty_bool", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------

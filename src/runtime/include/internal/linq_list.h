@@ -120,6 +120,20 @@ int64_t       il2cpp_linq_list_last_or_default_i8(Il2CppObject* list, int32_t ki
 double        il2cpp_linq_list_last_or_default_d(Il2CppObject* list, int32_t kind);
 Il2CppObject* il2cpp_linq_list_last_or_default_ref(Il2CppObject* list, int32_t kind);
 
+// Single / SingleOrDefault (source-only): exactly one element required
+// (Single throws InvalidOperationException for an empty OR a multi-element
+// source; SingleOrDefault answers default(T) for an empty source and throws
+// only for more than one element -- net48). Same result ABI classes as the
+// First/Last family above.
+int32_t       il2cpp_linq_list_single_i4(Il2CppObject* list, int32_t kind);
+int64_t       il2cpp_linq_list_single_i8(Il2CppObject* list, int32_t kind);
+double        il2cpp_linq_list_single_d(Il2CppObject* list, int32_t kind);
+Il2CppObject* il2cpp_linq_list_single_ref(Il2CppObject* list, int32_t kind);
+int32_t       il2cpp_linq_list_single_or_default_i4(Il2CppObject* list, int32_t kind);
+int64_t       il2cpp_linq_list_single_or_default_i8(Il2CppObject* list, int32_t kind);
+double        il2cpp_linq_list_single_or_default_d(Il2CppObject* list, int32_t kind);
+Il2CppObject* il2cpp_linq_list_single_or_default_ref(Il2CppObject* list, int32_t kind);
+
 // First(predicate) / FirstOrDefault(predicate) over the list: the FIRST
 // element satisfying the predicate (short-circuit). Empty or no match:
 // First -> InvalidOperationException, FirstOrDefault -> the family default.

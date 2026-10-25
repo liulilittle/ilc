@@ -171,12 +171,28 @@ Il2CppGuid              il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t 
 
 // ElementAt(source, index): index out of range -> ArgumentOutOfRangeException.
 IL2CPP_LINQ_DECL_ELEM_ENTRIES(element_at)
-// Single / SingleOrDefault: the source must hold exactly one element
-// (Single throws InvalidOperationException otherwise; SingleOrDefault throws
-// for more than one and answers default(T) for an empty source -- net48).
-IL2CPP_LINQ_DECL_ELEM_ENTRIES(single)
-IL2CPP_LINQ_DECL_ELEM_ENTRIES(single_or_default)
+
+// Single / SingleOrDefault are SOURCE-ONLY: they carry no caller argument, so
+// their kernels take (source, cell) directly. (A shared 3-parameter shape with
+// the unused `arg` slot would make the transpiler emit a 2-argument call that
+// does not match the C++ signature.)
+#define IL2CPP_LINQ_DECL_ELEM_ENTRIES_NOARG(NAME)                                     \
+int32_t                 il2cpp_linq_##NAME##_fam_i4(Il2CppArray* src, int32_t cell);   \
+int64_t                 il2cpp_linq_##NAME##_fam_i8(Il2CppArray* src, int32_t cell);   \
+double                  il2cpp_linq_##NAME##_fam_d(Il2CppArray* src, int32_t cell);    \
+Il2CppObject*           il2cpp_linq_##NAME##_fam_ref(Il2CppArray* src, int32_t cell);  \
+runtime::Il2CppDecimal  il2cpp_linq_##NAME##_fam_dec(Il2CppArray* src, int32_t cell);  \
+runtime::Il2CppDateTime il2cpp_linq_##NAME##_fam_dt(Il2CppArray* src, int32_t cell);   \
+runtime::Il2CppTimeSpan il2cpp_linq_##NAME##_fam_ts(Il2CppArray* src, int32_t cell);   \
+Il2CppGuid              il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t cell);
+
+// Single: the source must hold exactly one element (Single throws
+// InvalidOperationException otherwise; SingleOrDefault throws for more than
+// one and answers default(T) for an empty source -- net48).
+IL2CPP_LINQ_DECL_ELEM_ENTRIES_NOARG(single)
+IL2CPP_LINQ_DECL_ELEM_ENTRIES_NOARG(single_or_default)
 
 #undef IL2CPP_LINQ_DECL_ELEM_ENTRIES
+#undef IL2CPP_LINQ_DECL_ELEM_ENTRIES_NOARG
 
 } // namespace il2cpp

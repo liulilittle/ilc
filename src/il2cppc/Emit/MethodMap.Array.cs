@@ -306,6 +306,15 @@ public static partial class MethodRefResolver
                         // W7: long/double typed empty factories (arrayext2).
                         0x0A => I("il2cpp::runtime::icall_array_empty_long", 0, true, true, false),
                         0x0D => I("il2cpp::runtime::icall_array_empty_double", 0, true, true, false),
+                        // arrgen1: the float / narrow-integral empty factories
+                        // (a zero-length array of the matching element stride).
+                        0x0C => I("il2cpp::runtime::icall_array_empty_float", 0, true, true, false),
+                        0x04 => I("il2cpp::runtime::icall_array_empty_sbyte", 0, true, true, false),
+                        0x05 => I("il2cpp::runtime::icall_array_empty_byte", 0, true, true, false),
+                        0x02 => I("il2cpp::runtime::icall_array_empty_bool", 0, true, true, false),
+                        0x06 => I("il2cpp::runtime::icall_array_empty_short", 0, true, true, false),
+                        0x07 => I("il2cpp::runtime::icall_array_empty_ushort", 0, true, true, false),
+                        0x09 => I("il2cpp::runtime::icall_array_empty_uint", 0, true, true, false),
                         _ => throw new NotSupportedException($"Array.Empty<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
                     };
                 }
@@ -332,6 +341,16 @@ public static partial class MethodRefResolver
                             0x0D => I("il2cpp::il2cpp_array_reverse_double", 1, false, false, false, new[] { "a" }),
                             0x0E => I("il2cpp::il2cpp_array_reverse_string", 1, false, false, false, new[] { "a" }),
                             0x1C or 0x12 => I("il2cpp::il2cpp_array_reverse_object", 1, false, false, false, new[] { "a" }),
+                            // arrgen1: the float / narrow-integral reversers
+                            // (the raw two-pointer swap, one per element stride).
+                            0x0C => I("il2cpp::il2cpp_array_reverse_float", 1, false, false, false, new[] { "a" }),
+                            0x04 => I("il2cpp::il2cpp_array_reverse_sbyte", 1, false, false, false, new[] { "a" }),
+                            0x05 => I("il2cpp::il2cpp_array_reverse_byte", 1, false, false, false, new[] { "a" }),
+                            0x02 => I("il2cpp::il2cpp_array_reverse_bool", 1, false, false, false, new[] { "a" }),
+                            0x06 => I("il2cpp::il2cpp_array_reverse_short", 1, false, false, false, new[] { "a" }),
+                            0x07 => I("il2cpp::il2cpp_array_reverse_ushort", 1, false, false, false, new[] { "a" }),
+                            0x03 => I("il2cpp::il2cpp_array_reverse_char", 1, false, false, false, new[] { "a" }),
+                            0x09 => I("il2cpp::il2cpp_array_reverse_uint", 1, false, false, false, new[] { "a" }),
                             _ => throw new NotSupportedException($"Array.Reverse<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
                         };
                     }
@@ -348,6 +367,16 @@ public static partial class MethodRefResolver
                         "System.Double[]" => I("il2cpp::il2cpp_array_reverse_double", 1, false, false, false, new[] { "a" }),
                         "System.String[]" => I("il2cpp::il2cpp_array_reverse_string", 1, false, false, false, new[] { "a" }),
                         "System.Object[]" => I("il2cpp::il2cpp_array_reverse_object", 1, false, false, false, new[] { "a" }),
+                        // arrgen1: the float / narrow-integral tracked array names
+                        // (the same raw two-pointer swap, one per element stride).
+                        "System.Single[]" => I("il2cpp::il2cpp_array_reverse_float", 1, false, false, false, new[] { "a" }),
+                        "System.SByte[]" => I("il2cpp::il2cpp_array_reverse_sbyte", 1, false, false, false, new[] { "a" }),
+                        "System.Byte[]" => I("il2cpp::il2cpp_array_reverse_byte", 1, false, false, false, new[] { "a" }),
+                        "System.Boolean[]" => I("il2cpp::il2cpp_array_reverse_bool", 1, false, false, false, new[] { "a" }),
+                        "System.Int16[]" => I("il2cpp::il2cpp_array_reverse_short", 1, false, false, false, new[] { "a" }),
+                        "System.UInt16[]" => I("il2cpp::il2cpp_array_reverse_ushort", 1, false, false, false, new[] { "a" }),
+                        "System.Char[]" => I("il2cpp::il2cpp_array_reverse_char", 1, false, false, false, new[] { "a" }),
+                        "System.UInt32[]" => I("il2cpp::il2cpp_array_reverse_uint", 1, false, false, false, new[] { "a" }),
                         _ => I("il2cpp::runtime::icall_array_reverse", 1, false, false, false),
                     };
                 }
@@ -453,8 +482,20 @@ public static partial class MethodRefResolver
                 if (genArgs != null && genArgs[0] == 0x08)   // FindLast<int>
                     return I("il2cpp::runtime::icall_array_find_last_i4", 2, true, false, false,
                         new[] { "a", "" });
+                // arrgen1: the int64 / double / string families (the same
+                // single-cast static methodPtr predicate ABI and backward scan;
+                // the result carrier follows the element kind).
+                if (genArgs != null && genArgs[0] == 0x0A)   // FindLast<long>
+                    return I("il2cpp::runtime::icall_array_find_last_i8", 2, true, false, false,
+                        new[] { "a", "" }, "l");
+                if (genArgs != null && genArgs[0] == 0x0D)   // FindLast<double>
+                    return I("il2cpp::runtime::icall_array_find_last_d", 2, true, false, false,
+                        new[] { "a", "" }, "d");
+                if (genArgs != null && genArgs[0] == 0x0E)   // FindLast<string>
+                    return I("il2cpp::runtime::icall_array_find_last_str", 2, true, true, false,
+                        new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.FindLast<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the predicate icall icall_array_find_last_i4 (il2cpp_array_ext2.h)");
+                    $"Array.FindLast<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A), double (0x0D) and string (0x0E) have the predicate icalls icall_array_find_last[_i4/_i8/_d/_str] (il2cpp_array_ext2.h)");
             case "FindLastIndex":
                 // arrayc1: int Array.FindLastIndex<int>(int32[], Predicate<int>)
                 // and its range overloads -- the index of the LAST match in
@@ -484,8 +525,19 @@ public static partial class MethodRefResolver
                 if (genArgs != null && genArgs[0] == 0x08)   // ForEach<int>
                     return I("il2cpp::runtime::icall_array_for_each_i4", 2, false, false, false,
                         new[] { "a", "" });
+                // arrgen1: the int64 / double / string families (the same
+                // single-cast static methodPtr action ABI).
+                if (genArgs != null && genArgs[0] == 0x0A)   // ForEach<long>
+                    return I("il2cpp::runtime::icall_array_for_each_i8", 2, false, false, false,
+                        new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0D)   // ForEach<double>
+                    return I("il2cpp::runtime::icall_array_for_each_d", 2, false, false, false,
+                        new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0E)   // ForEach<string>
+                    return I("il2cpp::runtime::icall_array_for_each_str", 2, false, false, false,
+                        new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.ForEach<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08) has the action icall icall_array_for_each_i4 (il2cpp_array_ext2.h)");
+                    $"Array.ForEach<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A), double (0x0D) and string (0x0E) have the action icalls icall_array_for_each[_i4/_i8/_d/_str] (il2cpp_array_ext2.h)");
             case "FindAll":
                 // int32[] Array.FindAll<int>(int32[], Predicate<int>): a NEW
                 // int32[] holding EVERY element whose predicate returns true,
@@ -505,8 +557,11 @@ public static partial class MethodRefResolver
                 if (genArgs != null && genArgs[0] == 0x0E)   // FindAll<string>
                     return I("il2cpp::runtime::icall_array_find_all_str", 2, true, true, false,
                         new[] { "a", "" });
+                if (genArgs != null && genArgs[0] == 0x0D)   // FindAll<double>
+                    return I("il2cpp::runtime::icall_array_find_all_d", 2, true, true, false,
+                        new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.FindAll<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A) and string (0x0E) have the predicate icalls (il2cpp_array_ext2.h)");
+                    $"Array.FindAll<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A), double (0x0D) and string (0x0E) have the predicate icalls (il2cpp_array_ext2.h)");
             case "Exists":
                 // bool Array.Exists<int>(int32[], Predicate<int>): 1 when any
                 // element matches, 0 otherwise. The int32 result rides the bool
@@ -595,8 +650,12 @@ public static partial class MethodRefResolver
                 if (genArgs != null && genArgs[0] == 0x0E)   // Resize<string>
                     return I("il2cpp::runtime::icall_array_resize_str", 2, false, false, false,
                         new[] { "addr:a", "i" });
+                // arrgen1: the double family (the same byref array slot ABI).
+                if (genArgs != null && genArgs[0] == 0x0D)   // Resize<double>
+                    return I("il2cpp::runtime::icall_array_resize_d", 2, false, false, false,
+                        new[] { "addr:a", "i" });
                 throw new NotSupportedException(
-                    $"Array.Resize<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A) and string (0x0E) have the resize icalls (il2cpp_array_ext2.h)");
+                    $"Array.Resize<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A), double (0x0D) and string (0x0E) have the resize icalls (il2cpp_array_ext2.h)");
             case "GetLength":
                 return I("il2cpp::runtime::icall_array_get_length", 1, true, false, true, new[] { "", "i" });
             case "GetUpperBound":
