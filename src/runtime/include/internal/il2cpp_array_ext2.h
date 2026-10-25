@@ -268,6 +268,27 @@ void icall_array_resize_i4(Il2CppArray** arraySlot, int32_t newSize);
 // (the slots are written through the write barrier).
 Il2CppArray* icall_array_convert_all_i4_str(Il2CppArray* arr, Il2CppObject* converter);
 
+// BATCH4: the general Array.ConvertAll<TInput,TOutput> converter (see
+// arrayext2.cpp). A NEW array of the same length whose element i is
+// converter(array[i]); the source is never modified. The converter is invoked
+// through its statically declared (TInput) -> TOutput ABI with per-binding
+// dispatch; the result is a value cell (int32/int64/double) or a reference
+// array (string/object/class). Same validation order and GC rooting as
+// icall_array_convert_all_i4_i4. The family suffixes:
+//   i4 int32 | i8 int64 | d double | str the reference families.
+Il2CppArray* icall_array_convert_all_i4_d(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_i8_i4(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_i8_i8(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_i8_d(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_i8_str(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_d_i4(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_d_i8(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_d_d(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_d_str(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_str_i8(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_str_d(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_str_str(Il2CppArray* arr, Il2CppObject* converter);
+
 // Array.Resize<long>(ref long[], int) / Array.Resize<string>(ref string[],
 // int): the int64 / reference-element twins of icall_array_resize_i4 (the same
 // net48 contract: newSize < 0 -> ArgumentOutOfRangeException; a null array is

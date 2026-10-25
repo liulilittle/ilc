@@ -28,6 +28,33 @@ public static partial class MethodRefResolver
         return t1 == "System.Array" || (t1 != null && t1.StartsWith("SZARRAY", StringComparison.Ordinal));
     }
 
+    // BATCH4: the Array.ConvertAll<TInput,TOutput> converter entry name, or null
+    // when the family pair has no converter icall. The families are the ones
+    // the runtime's general converter template covers (int32 / int64 / double /
+    // the reference families); float has no converter icall yet.
+    private static string? ConvertAllEntry(byte ti, byte to)
+    {
+        static string? InSuffix(byte b) => b switch
+        {
+            0x08 => "i4",
+            0x0A or 0x0B => "i8",
+            0x0D => "d",
+            0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "str",
+            _ => null,
+        };
+        static string? OutSuffix(byte b) => b switch
+        {
+            0x08 => "i4",
+            0x0A or 0x0B => "i8",
+            0x0D => "d",
+            0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "str",
+            _ => null,
+        };
+        var i = InSuffix(ti);
+        var o = OutSuffix(to);
+        return i == null || o == null ? null : $"il2cpp::runtime::icall_array_convert_all_{i}_{o}";
+    }
+
     private static ResolvedMethod? TryMapArray(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
         string? paramTypes = null)
@@ -602,35 +629,23 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     $"Array.TrueForAll<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A), string (0x0E) and double (0x0D) have the predicate icalls (il2cpp_array_ext2.h)");
             case "ConvertAll":
-                // int32[] Array.ConvertAll<int,int>(int32[], Converter<int,int>):
-                // a NEW int32[] of the same length; the source is never modified.
-                // The result is a managed reference (ReturnsRef) -- the icall
-                // returns Il2CppArray*; the result temp stays Il2CppObject*.
-                if (genArgs != null && genArgs.Length == 2
-                    && genArgs[0] == 0x08 && genArgs[1] == 0x08)   // ConvertAll<int,int>
-                    return I("il2cpp::runtime::icall_array_convert_all_i4_i4", 2, true, true, false,
-                        new[] { "a", "" });
-                // net9/10 E2E icallcase: ConvertAll<string,int>(string[], int.Parse)
-                // -- the string source variant (arrayext2 str_i4 icall).
-                if (genArgs != null && genArgs.Length == 2
-                    && genArgs[0] == 0x0E && genArgs[1] == 0x08)   // ConvertAll<string,int>
-                    return I("il2cpp::runtime::icall_array_convert_all_str_i4", 2, true, true, false,
-                        new[] { "a", "" });
-                // icallwide E2E: ConvertAll<int,long>(int32[], x => (long)x * 2)
-                // -- the int64-output variant (arrayext2 i4_i8 icall).
-                if (genArgs != null && genArgs.Length == 2
-                    && genArgs[0] == 0x08 && genArgs[1] == 0x0A)   // ConvertAll<int,long>
-                    return I("il2cpp::runtime::icall_array_convert_all_i4_i8", 2, true, true, false,
-                        new[] { "a", "" });
-                // arrayc1: ConvertAll<int,string>(int32[], x => "v" + x) -- the
-                // string-output variant (arrayext2 i4_str icall; the result is a
-                // NEW reference-element string[]).
-                if (genArgs != null && genArgs.Length == 2
-                    && genArgs[0] == 0x08 && genArgs[1] == 0x0E)   // ConvertAll<int,string>
-                    return I("il2cpp::runtime::icall_array_convert_all_i4_str", 2, true, true, false,
-                        new[] { "a", "" });
-                throw new NotSupportedException(
-                    $"Array.ConvertAll<TInput,TOutput> generic arguments 0x{(genArgs?[0] ?? 0):X2},0x{(genArgs is { Length: 2 } g ? g[1] : 0):X2} not wired: only (int32,int32) (0x08,0x08), (string,int32) and (int32,int64) have converter icalls");
+            {
+                // BATCH4: the general ConvertAll<TInput,TOutput> surface over the
+                // int32 / int64 / double / reference element families. A NEW array
+                // of the same length whose element i is converter(array[i]); the
+                // source is never modified. The result is a managed reference
+                // (ReturnsRef) -- the icall returns Il2CppArray*; the result temp
+                // stays Il2CppObject*.
+                byte ti = genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08;
+                byte to = genArgs is { Length: >= 2 } ? genArgs[1] : ti;
+                string? entry = ConvertAllEntry(ti, to);
+                if (entry == null)
+                    throw new NotSupportedException(
+                        $"Array.ConvertAll<TInput,TOutput> generic arguments 0x{ti:X2},0x{to:X2} not wired: " +
+                        "the converter surface covers int32/int64/double and the reference families " +
+                        "(float has no converter icall yet)");
+                return I(entry, 2, true, true, false, new[] { "a", "" });
+            }
             case "Resize":
                 // void Array.Resize<int>(ref int32[] array, int newSize): the
                 // byref array slot arrives as an ldloca LocAddrExpr -- the

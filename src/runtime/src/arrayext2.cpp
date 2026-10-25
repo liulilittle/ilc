@@ -49,6 +49,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <type_traits>
 
 namespace il2cpp {
 namespace runtime {
@@ -1197,6 +1198,184 @@ Il2CppArray* icall_array_convert_all_i4_str(Il2CppArray* arr, Il2CppObject* conv
         il2cpp_write_barrier(reinterpret_cast<void**>(slot), robj);
     }
     return out;
+}
+
+//------------------------------------------------------------------------------
+// BATCH4: the general Array.ConvertAll<TInput,TOutput> converter.
+//
+// The stage-1 surface only had the (int32,int32), (string,int32),
+// (int32,int64) and (int32,string) combinations, so every other family pair
+// was LOUD-rejected at transpile time. This template covers the remaining
+// value / reference element families the runtime can read: int32, int64,
+// double (a float source is read at its own 4-byte width) and the reference
+// families (string / object / class). The converter is invoked through its
+// STATICALLY DECLARED (TInput) -> TOutput ABI with per-binding dispatch; the
+// result is a value cell (int32/int64/double) or a reference array
+// (string/object/class).
+//------------------------------------------------------------------------------
+namespace {
+
+template <typename T>
+void ConvertAllRequireSource(Il2CppArray* a)
+{
+    if constexpr (std::is_pointer<T>::value)
+    {
+        if (!a->isRefElem)
+            il2cpp_throw_not_supported_exception(
+                "Array.ConvertAll: only a reference-element source array is supported.");
+    }
+    else if constexpr (std::is_same<T, int32_t>::value)
+    {
+        if (a->isRefElem || a->elemSize != sizeof(int32_t))
+            il2cpp_throw_not_supported_exception(
+                "Only one-dimensional System.Int32 arrays are supported.");
+    }
+    else if constexpr (std::is_same<T, int64_t>::value)
+    {
+        if (a->isRefElem || a->elemSize != sizeof(int64_t))
+            il2cpp_throw_not_supported_exception(
+                "Only one-dimensional System.Int64 arrays are supported.");
+    }
+    else if constexpr (std::is_same<T, double>::value)
+    {
+        if (a->isRefElem || a->elemSize != sizeof(double))
+            il2cpp_throw_not_supported_exception(
+                "Only one-dimensional System.Double arrays are supported.");
+    }
+    else
+    {
+        if (a->isRefElem || a->elemSize != sizeof(float))
+            il2cpp_throw_not_supported_exception(
+                "Only one-dimensional System.Single arrays are supported.");
+    }
+}
+
+template <typename T>
+T ConvertAllReadSource(Il2CppArray* a, int32_t i)
+{
+    if constexpr (std::is_pointer<T>::value)
+        return reinterpret_cast<T>(*reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(a, i)));
+    else
+        return *reinterpret_cast<const T*>(il2cpp_array_get_elem_ptr(a, i));
+}
+
+template <typename TIn, typename TOut>
+TOut ConvertAllInvoke(Il2CppDelegate* d, TIn v)
+{
+    if (d->target != nullptr)
+        return reinterpret_cast<TOut (*)(Il2CppObject*, TIn)>(d->methodPtr)(d->target, v);
+    return reinterpret_cast<TOut (*)(TIn)>(d->methodPtr)(v);
+}
+
+template <typename T>
+int32_t ConvertAllResultElemKind()
+{
+    if constexpr (std::is_same<T, int64_t>::value) return 2;
+    else if constexpr (std::is_same<T, double>::value) return 4;
+    else return 1;
+}
+
+template <typename TIn, typename TOut>
+Il2CppArray* ConvertAllFamily(Il2CppArray* arr, Il2CppObject* converter)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    ConvertAllRequireSource<TIn>(a);
+    Il2CppDelegate* d = RequireArrayCallback(converter, "converter");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    Il2CppArray* out = std::is_pointer<TOut>::value
+        ? il2cpp_array_new(nullptr, sizeof(void*), true, a->length)
+        : il2cpp_array_new_typed(sizeof(TOut), ConvertAllResultElemKind<TOut>(), a->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        // The callback runs FIRST; the result slot is computed afterwards
+        // through the rooted 'out' (a collection can move the array -- a slot
+        // address cached across the call would be stale). No allocation
+        // separates the address computation from the store.
+        const TIn v = ConvertAllReadSource<TIn>(a, i);
+        const TOut r = ConvertAllInvoke<TIn, TOut>(d, v);
+        if constexpr (std::is_pointer<TOut>::value)
+        {
+            Il2CppObject* robj = reinterpret_cast<Il2CppObject*>(r);
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(out, i));
+            *slot = robj;
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), robj);
+        }
+        else
+        {
+            *reinterpret_cast<TOut*>(il2cpp_array_get_elem_ptr(out, i)) = r;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+Il2CppArray* icall_array_convert_all_i4_d(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<int32_t, double>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_i8_i4(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<int64_t, int32_t>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_i8_i8(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<int64_t, int64_t>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_i8_d(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<int64_t, double>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_i8_str(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<int64_t, Il2CppString*>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_d_i4(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<double, int32_t>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_d_i8(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<double, int64_t>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_d_d(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<double, double>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_d_str(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<double, Il2CppString*>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_str_i8(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<Il2CppString*, int64_t>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_str_d(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<Il2CppString*, double>(arr, converter);
+}
+
+Il2CppArray* icall_array_convert_all_str_str(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<Il2CppString*, Il2CppString*>(arr, converter);
 }
 
 //------------------------------------------------------------------------------

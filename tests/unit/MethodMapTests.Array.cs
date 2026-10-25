@@ -137,6 +137,33 @@ public class MethodMapArrayTests
         Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
     }
 
+    // BATCH4: the general ConvertAll<TInput,TOutput> surface over the int64 /
+    // double / reference element families.
+    [Theory]
+    [InlineData(0x08, 0x0D, "il2cpp::runtime::icall_array_convert_all_i4_d")]
+    [InlineData(0x0A, 0x08, "il2cpp::runtime::icall_array_convert_all_i8_i4")]
+    [InlineData(0x0A, 0x0A, "il2cpp::runtime::icall_array_convert_all_i8_i8")]
+    [InlineData(0x0A, 0x0D, "il2cpp::runtime::icall_array_convert_all_i8_d")]
+    [InlineData(0x0A, 0x0E, "il2cpp::runtime::icall_array_convert_all_i8_str")]
+    [InlineData(0x0D, 0x08, "il2cpp::runtime::icall_array_convert_all_d_i4")]
+    [InlineData(0x0D, 0x0A, "il2cpp::runtime::icall_array_convert_all_d_i8")]
+    [InlineData(0x0D, 0x0D, "il2cpp::runtime::icall_array_convert_all_d_d")]
+    [InlineData(0x0D, 0x0E, "il2cpp::runtime::icall_array_convert_all_d_str")]
+    [InlineData(0x0E, 0x0A, "il2cpp::runtime::icall_array_convert_all_str_i8")]
+    [InlineData(0x0E, 0x0D, "il2cpp::runtime::icall_array_convert_all_str_d")]
+    [InlineData(0x0E, 0x0E, "il2cpp::runtime::icall_array_convert_all_str_str")]
+    public void Resolve_Array_ConvertAllFamilies_MapsToConverterIcall(int ti, int to, string cpp)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "ConvertAll",
+            new byte[] { 0x00, 0x02, 0x1D, 0x08, 0x1D, 0x08, 0x08 },
+            new byte[] { 0x0A, 0x02, (byte)ti, (byte)to }));
+
+        Assert.Equal(cpp, resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
     [Fact]
     public void Resolve_Array_ResizeInt_MethodSpec_MapsToResizeIcall()
     {
