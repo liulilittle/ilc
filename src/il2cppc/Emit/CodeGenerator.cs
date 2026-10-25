@@ -11262,6 +11262,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "box:dec" => $"il2cpp::runtime::icall_box_decimal(&({code}))",
                 "box:dt" => $"il2cpp::runtime::icall_box_date_time({code})",
                 "box:guid" => $"il2cpp::runtime::icall_box_guid(&({code}))",
+                "box:ts" => $"il2cpp::runtime::icall_box_time_span({code})",
                 // Value-type tuple KEY box (Dictionary`2 / HashSet`1 tuple key):
                 // box the tuple struct into a GC carrier whose payload holds the
                 // struct bytes; the runtime reads the payload structurally (the

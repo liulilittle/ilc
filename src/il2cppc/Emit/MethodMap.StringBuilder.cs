@@ -310,6 +310,7 @@ public static partial class MethodRefResolver
                         "System.Decimal" => "box:dec",
                         "System.DateTime" => "box:dt",
                         "System.Guid" => "box:guid",
+                        "System.TimeSpan" => "box:ts",
                         _ => null,
                     };
                     if (valCast == null)
