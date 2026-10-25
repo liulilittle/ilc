@@ -84,6 +84,7 @@
 #include "il2cpp_time.h" // A3: Il2CppDateTime/Il2CppTimeSpan by-value entries
 #include "decimal.h"     // p0grp: the 16-byte System.Decimal enumerator carrier
 #include <cstdint>
+#include <cstring>       // il2cpp_ienum_get_current_tuple_t (payload copy)
 
 //------------------------------------------------------------------------------
 // D-ICMP-2 (icomparedeep): the net48 System.Collections.Comparer::Default /
@@ -543,6 +544,29 @@ void il2cpp_ienum_get_current_dec(runtime::Il2CppDecimal* result, Il2CppObject* 
 // ("r:System.Object()"). Distinct from il2cpp_ienum_get_current_ref, which
 // targets the generic IEnumerator<T>.get_Current carrier slot.
 Il2CppObject* il2cpp_ienum_get_current_obj(Il2CppObject* receiver);
+
+// Value-type tuple element (a LINQ Select result): the snapshot array holds
+// BOXED tuples (the shared tuple-box contract -- see il2cpp_valuetuple.h);
+// get_Current copies the box payload into the caller's struct slot and returns
+// it BY VALUE (the same shape as a user-struct element). 'kinds' is the
+// element-kind string (diagnostic only; the box klass name is authoritative).
+template <typename T>
+inline T il2cpp_ienum_get_current_tuple_t(Il2CppObject* receiver, const char* kinds)
+{
+    (void)kinds;
+    Il2CppObject* box = il2cpp_ienum_get_current_ref(receiver);
+    T out;
+    if (box != nullptr)
+    {
+        const void* payload = reinterpret_cast<const char*>(box) + 8;
+        std::memcpy(&out, payload, sizeof(T));
+    }
+    else
+    {
+        std::memset(&out, 0, sizeof(T));
+    }
+    return out;
+}
 
 // IEnumerable<T>.GetEnumerator (and the non-generic IEnumerable/IEnumerator
 // pair below) -- the generic interface entry dispatches to the generic

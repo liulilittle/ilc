@@ -106,6 +106,26 @@ public static partial class MethodRefResolver
             && instTag.IndexOf('`', "System.Collections.Generic.List`1_".Length) >= 0)
             nestedReceiver = true;
         if (nestedReceiver) objReceiver = true;
+        // Value-type tuple element: the tuple is BOXED into the listobj
+        // reference storage through the shared user-struct forwarders (the box
+        // is a value-type box -- see il2cpp_valuetuple.h). The element kinds
+        // come from the instantiation name; an unsupported element (nested
+        // tuple / user struct / BCL value struct) leaves the list unwired.
+        var tupleElemName = instTag != null
+            && instTag.StartsWith("System.Collections.Generic.List`1_System.ValueTuple`", StringComparison.Ordinal)
+            ? instTag["System.Collections.Generic.List`1_".Length..]
+            : null;
+        var tupleKinds = tupleElemName != null ? ValueTupleSupport.KeyKinds(tupleElemName) : null;
+        var tupleReceiver = tupleKinds != null;
+        if (tupleReceiver)
+        {
+            objReceiver = false;
+            nestedReceiver = false;
+        }
+        var tupleCpp = tupleReceiver ? ValueTupleSupport.StructName(tupleElemName!) : null;
+        var tupleKlassExpr = tupleReceiver
+            ? $"il2cpp::runtime::il2cpp_tuple_box_class(\"{tupleKinds}\")"
+            : null;
         // A5/B1/B6 (myIList/baudit2/ilistException): user-class
         // instantiations ("List`1_System.Exception" /
         // "List`1_Cases.Baudit2.P") ride the SHARED listobj reference
@@ -162,7 +182,7 @@ public static partial class MethodRefResolver
                 // listobj domain.
                 if (count == 0)
                     return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                        || decReceiver || dtReceiver || tsReceiver || structDef != null
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null || tupleReceiver
                         ? I("il2cpp::il2cpp_list_obj_create", 0, true, true, true, new[] { "drop" })
                         : i4Receiver
                             ? I("il2cpp::il2cpp_list_i4_create", 0, true, true, true, new[] { "drop" })
@@ -186,7 +206,7 @@ public static partial class MethodRefResolver
                 // contract -- Count is T-free).
                 if (count != 0) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                        || decReceiver || dtReceiver || tsReceiver || structDef != null
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null || tupleReceiver
                     ? I("il2cpp::il2cpp_list_obj_get_count", 0, true, false, true)
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_get_count", 0, true, false, true)
@@ -199,7 +219,7 @@ public static partial class MethodRefResolver
                 // backing array length).
                 if (count != 0) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                        || decReceiver || dtReceiver || tsReceiver || structDef != null
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null || tupleReceiver
                     ? I("il2cpp::il2cpp_list_obj_get_capacity", 0, true, false, true)
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_get_capacity", 0, true, false, true)
@@ -211,7 +231,7 @@ public static partial class MethodRefResolver
                 // exactly 'value' slots. The value is int32 on both domains.
                 if (count != 1 || ps.Length != 1 || ps[0] != 0x08) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                        || decReceiver || dtReceiver || tsReceiver || structDef != null
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null || tupleReceiver
                     ? I("il2cpp::il2cpp_list_obj_set_capacity", 1, false, false, true, new[] { "", "i" })
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_set_capacity", 1, false, false, true, new[] { "", "i" })
@@ -222,7 +242,7 @@ public static partial class MethodRefResolver
                 // element slots are cleared through write barriers there).
                 if (count != 0) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                        || decReceiver || dtReceiver || tsReceiver || structDef != null
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null || tupleReceiver
                     ? I("il2cpp::il2cpp_list_obj_clear", 0, false, false, true)
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_clear", 0, false, false, true)
@@ -251,6 +271,9 @@ public static partial class MethodRefResolver
                     if (structCpp != null)
                         return I($"il2cpp::il2cpp_list_obj_add_struct_t<{structCpp}>", 1, false, false, true,
                             new[] { "", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_add_struct_t<{tupleCpp}>", 1, false, false, true,
+                            new[] { "", "addr:v" }, appendLiterals: new[] { tupleKlassExpr! });
                     var valKindAdd = ListValKind(instTag);
                     if (valKindAdd != null)
                         return I($"il2cpp::il2cpp_list_obj_add_{valKindAdd}", 1, false, false, true,
@@ -290,6 +313,10 @@ public static partial class MethodRefResolver
                     return I($"il2cpp::il2cpp_list_obj_get_item_struct_t<{structCpp}>", 1, true, false, true,
                         new[] { "", "i" }, resultKind: "us:" + structCpp,
                         returnTypeName: structDef!.FullName);
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_get_item_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "", "i" }, resultKind: "us:" + tupleCpp,
+                        returnTypeName: tupleElemName);
                 var valKindGet = ListValKind(instTag);
                 if (valKindGet != null)
                     return valKindGet == "float"
@@ -322,6 +349,9 @@ public static partial class MethodRefResolver
                 if (structCpp != null)
                     return I($"il2cpp::il2cpp_list_obj_set_item_struct_t<{structCpp}>", 2, false, false, true,
                         new[] { "", "i", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_set_item_struct_t<{tupleCpp}>", 2, false, false, true,
+                        new[] { "", "i", "addr:v" }, appendLiterals: new[] { tupleKlassExpr! });
                 var valKindSet = ListValKind(instTag);
                 if (valKindSet != null)
                     return I($"il2cpp::il2cpp_list_obj_set_item_{valKindSet}", 2, false, false, true,
@@ -350,6 +380,9 @@ public static partial class MethodRefResolver
                 if (structCpp != null)
                     return I($"il2cpp::il2cpp_list_obj_insert_struct_t<{structCpp}>", 2, false, false, true,
                         new[] { "", "i", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_insert_struct_t<{tupleCpp}>", 2, false, false, true,
+                        new[] { "", "i", "addr:v" }, appendLiterals: new[] { tupleKlassExpr! });
                 var valKindInsert = ListValKind(instTag);
                 if (valKindInsert != null)
                     return I($"il2cpp::il2cpp_list_obj_insert_{valKindInsert}", 2, false, false, true,
@@ -378,6 +411,9 @@ public static partial class MethodRefResolver
                 if (structCpp != null)
                     return I($"il2cpp::il2cpp_list_obj_remove_struct_t<{structCpp}>", 1, true, false, true,
                         new[] { "", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_remove_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "", "addr:v" }, appendLiterals: new[] { tupleKlassExpr! });
                 var valKindRemove = ListValKind(instTag);
                 if (valKindRemove != null)
                     return I($"il2cpp::il2cpp_list_obj_remove_{valKindRemove}", 1, true, false, true,
@@ -412,6 +448,9 @@ public static partial class MethodRefResolver
                 if (structCpp != null)
                     return I($"il2cpp::il2cpp_list_obj_to_array_struct_t<{structCpp}>", 0, true, true, true,
                         returnTypeName: structDef!.FullName + "[]");
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_to_array_struct_t<{tupleCpp}>", 0, true, true, true,
+                        returnTypeName: tupleElemName + "[]");
                 var valKindToArray = ListValKind(instTag);
                 if (valKindToArray != null)
                     return I($"il2cpp::il2cpp_list_obj_to_array_{valKindToArray}", 0, true, true, true,
@@ -426,7 +465,7 @@ public static partial class MethodRefResolver
                 // plain int32 on both domains.
                 if (count != 1 || ps.Length != 1 || ps[0] != 0x08) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                        || decReceiver || dtReceiver || tsReceiver || structDef != null
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null || tupleReceiver
                     ? I("il2cpp::il2cpp_list_obj_remove_at", 1, false, false, true, new[] { "", "i" })
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_remove_at", 1, false, false, true, new[] { "", "i" })
@@ -448,6 +487,9 @@ public static partial class MethodRefResolver
                 if (structCpp != null)
                     return I($"il2cpp::il2cpp_list_obj_index_of_struct_t<{structCpp}>", 1, true, false, true,
                         new[] { "", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_index_of_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "", "addr:v" }, appendLiterals: new[] { tupleKlassExpr! });
                 var valKindIndexOf = ListValKind(instTag);
                 if (valKindIndexOf != null)
                     return I($"il2cpp::il2cpp_list_obj_index_of_{valKindIndexOf}", 1, true, false, true,
@@ -473,6 +515,9 @@ public static partial class MethodRefResolver
                 if (structCpp != null)
                     return I($"il2cpp::il2cpp_list_obj_contains_struct_t<{structCpp}>", 1, true, false, true,
                         new[] { "", "addr:v" }, appendLiterals: new[] { $"&{structCpp}_class" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_contains_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "", "addr:v" }, appendLiterals: new[] { tupleKlassExpr! });
                 var valKindContains = ListValKind(instTag);
                 if (valKindContains != null)
                     return I($"il2cpp::il2cpp_list_obj_contains_{valKindContains}", 1, true, false, true,
@@ -494,7 +539,7 @@ public static partial class MethodRefResolver
                 // listobj enumerator icalls.
                 if (count != 0) return Loud();
                 return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                        || decReceiver || dtReceiver || tsReceiver || structDef != null
+                        || decReceiver || dtReceiver || tsReceiver || structDef != null || tupleReceiver
                     ? I("il2cpp::il2cpp_list_obj_get_enumerator", 0, true, true, true,
                         returnTypeName: ListEnumeratorTrackedType(instTag))
                     : i4Receiver
@@ -508,7 +553,7 @@ public static partial class MethodRefResolver
                 // numeric listi4 sort).
                 if (count == 0)
                     return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                            || decReceiver || dtReceiver || tsReceiver || structDef != null
+                            || decReceiver || dtReceiver || tsReceiver || structDef != null || tupleReceiver
                         ? I("il2cpp::il2cpp_list_obj_sort", 0, false, false, true)
                         : i4Receiver
                             ? I("il2cpp::il2cpp_list_i4_sort", 0, false, false, true)
@@ -695,6 +740,11 @@ public static partial class MethodRefResolver
     // "System.Collections.Generic.List`1.Enumerator".
     private static string? ListEnumeratorTrackedType(string? instTag) => instTag switch
     {
+        // Value-type tuple element: the tracked suffix carries the tuple's
+        // closed name so TryMapListEnumerator resolves the struct C++ type.
+        _ when instTag != null
+            && instTag.StartsWith("System.Collections.Generic.List`1_System.ValueTuple`", StringComparison.Ordinal)
+            => "System.Collections.Generic.List`1.Enumerator_" + instTag["System.Collections.Generic.List`1_".Length..],
         "System.Collections.Generic.List`1_class" => "System.Collections.Generic.List`1.Enumerator_class",
         "System.Collections.Generic.List`1_string" => "System.Collections.Generic.List`1.Enumerator_string",
         "System.Collections.Generic.List`1_object" => "System.Collections.Generic.List`1.Enumerator_object",

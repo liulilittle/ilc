@@ -1047,8 +1047,20 @@ public static partial class MethodRefResolver
         var nullableMr = TryMapNullableMember(md, mr2.Parent, mrName, pc);
         if (nullableMr != null) return nullableMr;
 
+        // The generic KEY type of the parent instantiation (the Dictionary`2
+        // tuple-key mapper derives the element kinds from it). null for a
+        // non-generic parent.
+        string? genericKeyTypeName = null;
+        string? genericValueTypeName = null;
+        if (mr2.Parent.Kind == HandleKind.TypeSpecification)
+        {
+            var specArgs = GenericInstantiationArgs(md, (TypeSpecificationHandle)mr2.Parent);
+            if (specArgs is { Length: > 0 }) genericKeyTypeName = specArgs[0];
+            if (specArgs is { Length: > 1 }) genericValueTypeName = specArgs[1];
+        }
         var bcl2 = BclResolve(md, owner2, mrName, mr2.Signature, null, receiverType, receiverIsAddress, arg0Type, arg1Type,
-            instName: mr2.Parent.Kind == HandleKind.TypeSpecification ? cppPrefix : null);
+            instName: mr2.Parent.Kind == HandleKind.TypeSpecification ? cppPrefix : null,
+            keyTypeName: genericKeyTypeName, valueTypeName: genericValueTypeName);
         if (bcl2 != null) return bcl2;
 
         // M5 BCL wiring: System.Object::.ctor and BCL exception ctors stay
@@ -1215,12 +1227,13 @@ public static partial class MethodRefResolver
 
     public static ResolvedMethod? BclResolve(MetadataReader md, string owner, string name, BlobHandle sigHandle,
         byte[]? genArgs, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type = null,
-        string[]? genArgNames = null, string? instName = null)
+        string[]? genArgNames = null, string? instName = null, string? keyTypeName = null,
+        string? valueTypeName = null)
     {
         try
         {
             var r = BclResolveCore(md, owner, name, sigHandle, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type,
-                genArgNames, instName);
+                genArgNames, instName, keyTypeName, valueTypeName);
             if (r == null && IsExternalBclOwner(md, owner) && receiverType != null)
             {
                 // P26 (bcldeep): the generated-name fallback for an EXTERNAL
@@ -1292,7 +1305,8 @@ public static partial class MethodRefResolver
     //--------------------------------------------------------------------------
     private static ResolvedMethod? BclResolveCore(MetadataReader md, string owner, string name, BlobHandle sigHandle,
         byte[]? genArgs, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
-        string[]? genArgNames = null, string? instName = null)
+        string[]? genArgNames = null, string? instName = null, string? keyTypeName = null,
+        string? valueTypeName = null)
     {
         var (count, ret, ps) = RawSignature(md, sigHandle);
         // excmsg: the Argument*Exception family resolves through the EXCEPTION
@@ -1700,7 +1714,7 @@ public static partial class MethodRefResolver
                 // checks here; unknown receivers keep the interface dispatch.
                 return TryMapSortedListSiView(owner, name, count, receiverType)
                     ?? TryMapEnumIface(owner, name, count, instName);
-            case "System.Collections.Generic.Dictionary`2": return TryMapDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            case "System.Collections.Generic.Dictionary`2": return TryMapDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName, keyTypeName, valueTypeName);
             // P25d (dictp25): the Dictionary<string,int> enumeration struct
             // owners (Dictionary`2+Enumerator / +KeyCollection+Enumerator /
             // +ValueCollection+Enumerator and the KeyValuePair`2 struct) -- the
@@ -2448,6 +2462,19 @@ var userRecvLike = receiverType ?? arg0Type;
                         // reference arm (the DottedRefArg kind rule).
                         if (DottedRefArg(instName) != null)
                             return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true);
+                        // Value-type tuple element (a LINQ Select result): the
+                        // snapshot array holds BOXED tuples; get_Current copies
+                        // the box payload into the caller's struct slot.
+                        if (instName != null
+                            && instName.StartsWith("System.Collections.Generic.IEnumerator`1_System.ValueTuple`", StringComparison.Ordinal)
+                            && ValueTupleSupport.KeyKinds(instName["System.Collections.Generic.IEnumerator`1_".Length..]) is { } enumKinds)
+                        {
+                            var tupleName = instName["System.Collections.Generic.IEnumerator`1_".Length..];
+                            return I($"il2cpp::il2cpp_ienum_get_current_tuple_t<{ValueTupleSupport.StructName(tupleName)}>",
+                                0, true, false, true, Array.Empty<string>(),
+                                resultKind: "vt:" + tupleName, returnTypeName: tupleName,
+                                appendLiterals: new[] { "\"" + enumKinds + "\"" });
+                        }
                         // int32-slot primitives (int/bool/char/sbyte/byte/
                         // short/ushort/uint) and unknown instantiations.
                         return I("il2cpp::il2cpp_ienum_get_current_i4", 0, true, false, true);
@@ -3351,51 +3378,81 @@ var userRecvLike = receiverType ?? arg0Type;
         {
             // ECMA-335 II.23.1.16: strip custom modifiers (0x1F/0x20) first.
             var b = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
-            // M6 generic-argument expansion (the same byte table as
-            // StackFold.cs GenericInstantiationName / CodeGenerator.cs
-            // GenericInstantiationName): dictcase hit 0x0E
-            // (Dictionary<string,int>), linqcase hit 0x02 (Func<int,bool>)
-            // -- before the expansion every non-int32 arg threw here and
-            // the transpile died before codegen. The suffix feeds the
-            // generic-instance C++ name ({def}_<arg>_...), matching
-            // TypeEmitter's {TypeCppName}_int encoding.
-            args[i] = b switch
-            {
-                0x02 => "bool",
-                0x03 => "char",
-                0x04 => "sbyte",
-                0x05 => "byte",
-                0x06 => "short",
-                0x07 => "ushort",
-                0x08 => "int", // int32 argument
-                0x09 => "uint",
-                0x0A => "long",
-                0x0B => "ulong",
-                0x0C => "float",
-                0x0D => "double",
-                0x0E => "string",
-                 0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
-                 0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
-                0x1C => "object",
-                0x1D => ReadM3ArrayArg(md, ref sig),
-                0x14 => ReadM3MultidimArg(md, ref sig),
-                0x15 => ReadM3GenericArgNested(md, ref sig),
-                // B2/B5 family (boxunbox/generics; MyList<T> definition
-                // bodies): an OPEN TypeSpec arg (VAR 0x13 + index) denotes
-                // the enclosing closed clone's T -- the R2b P2
-                // InstantiationSuffixHint mechanism (the nested arm above is
-                // the precedent; the 2031-2039 comment documents this arm as
-                // intended). Outside a body pass the hint is null and the
-                // historical "int" encoding holds.
-                0x13 => ReadM3VarArg(ref sig),
-                var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
-            };
+            args[i] = ReadM3GenericArgName(md, ref sig, b);
         }
         GenericUsageAnalyzer.CollapseInstantiation(defName, args); // P-G2 shared collapse
         // GN-N5: disambiguate colliding generic-instance names (Sanitize maps
-        // '.' and '_' identically -- "Box<Cases.A_B>" vs "Box<Cases.A.B>").
+        // '.' and '_' identically -- "Box<Cases.A_B>" vs "Box<Cases.A.B").
         return defName + "_" + string.Join("_", args)
             + TypeEmitter.GenericInstanceCppNameSuffix(defName, args);
+    }
+
+    // The generic-ARGUMENT names of a TypeSpec parent (the decode
+    // GenericInstantiationName performs, minus the name join) -- the
+    // Dictionary`2 mapper needs the KEY type to derive a tuple-key shape.
+    // null when the TypeSpec is not a GenericInst.
+    private static string[]? GenericInstantiationArgs(MetadataReader md, TypeSpecificationHandle handle)
+    {
+        try
+        {
+            var spec = md.GetTypeSpecification(handle);
+            var sig = md.GetBlobReader(spec.Signature);
+            if (sig.ReadByte() != 0x15) return null;
+            sig.ReadByte(); // CLASS/VALUETYPE marker
+            _ = sig.ReadTypeHandle();
+            var argCount = sig.ReadCompressedInteger();
+            var args = new string[argCount];
+            for (var i = 0; i < argCount; ++i)
+                args[i] = ReadM3GenericArgName(md, ref sig,
+                    MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte()));
+            return args;
+        }
+        catch (NotSupportedException) { return null; }
+    }
+
+    // ONE generic-argument byte -> its M3 name token (shared by
+    // GenericInstantiationName and GenericInstantiationArgs).
+    private static string ReadM3GenericArgName(MetadataReader md, ref BlobReader sig, byte b)
+    {
+        // M6 generic-argument expansion (the same byte table as
+        // StackFold.cs GenericInstantiationName / CodeGenerator.cs
+        // GenericInstantiationName): dictcase hit 0x0E
+        // (Dictionary<string,int>), linqcase hit 0x02 (Func<int,bool>)
+        // -- before the expansion every non-int32 arg threw here and
+        // the transpile died before codegen. The suffix feeds the
+        // generic-instance C++ name ({def}_<arg>_...), matching
+        // TypeEmitter's {TypeCppName}_int encoding.
+        return b switch
+        {
+            0x02 => "bool",
+            0x03 => "char",
+            0x04 => "sbyte",
+            0x05 => "byte",
+            0x06 => "short",
+            0x07 => "ushort",
+            0x08 => "int", // int32 argument
+            0x09 => "uint",
+            0x0A => "long",
+            0x0B => "ulong",
+            0x0C => "float",
+            0x0D => "double",
+            0x0E => "string",
+             0x11 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+             0x12 => MethodSignatureCoder.ResolveM3ArgTypeName(md, ref sig),
+            0x1C => "object",
+            0x1D => ReadM3ArrayArg(md, ref sig),
+            0x14 => ReadM3MultidimArg(md, ref sig),
+            0x15 => ReadM3GenericArgNested(md, ref sig),
+            // B2/B5 family (boxunbox/generics; MyList<T> definition
+            // bodies): an OPEN TypeSpec arg (VAR 0x13 + index) denotes
+            // the enclosing closed clone's T -- the R2b P2
+            // InstantiationSuffixHint mechanism (the nested arm above is
+            // the precedent; the 2031-2039 comment documents this arm as
+            // intended). Outside a body pass the hint is null and the
+            // historical "int" encoding holds.
+            0x13 => ReadM3VarArg(ref sig),
+            var other => throw new NotSupportedException($"generic argument byte 0x{other:X2} in M3"),
+        };
     }
 
     // VAR (0x13) generic-argument consumption: the index byte follows.

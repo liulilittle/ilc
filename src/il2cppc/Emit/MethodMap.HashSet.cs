@@ -36,7 +36,7 @@ using Il2Cpp.Transpiler.Model;
 public static partial class MethodRefResolver
 {
     // The element family of a HashSet instantiation.
-    private enum HashSetKind { Ref, I4, I8, D, U4, Dec, Dt, Ts, Guid, Struct, Enum }
+    private enum HashSetKind { Ref, I4, I8, D, U4, Dec, Dt, Ts, Guid, Struct, Enum, Tuple }
 
     private static HashSetKind? HashSetKindOf(string? instTag)
     {
@@ -55,6 +55,16 @@ public static partial class MethodRefResolver
             case "System.Collections.Generic.HashSet`1_object":
             case "System.Collections.Generic.HashSet`1_class":
                 return HashSetKind.Ref;
+        }
+        // A ValueTuple element: the tuple is BOXED by the call site (the
+        // "box:vt:" cast) and rides the reference carrier family. The element
+        // kinds come from the instantiation name; an unsupported element
+        // (nested tuple / user struct / BCL value struct) leaves the set
+        // unwired (LOUD) rather than degrading to identity semantics.
+        if (instTag.StartsWith("System.Collections.Generic.HashSet`1_System.ValueTuple`", StringComparison.Ordinal))
+        {
+            var elem = instTag["System.Collections.Generic.HashSet`1_".Length..];
+            return ValueTupleSupport.KeyKinds(elem) != null ? HashSetKind.Tuple : null;
         }
         // Any other CLOSED instantiation (a user class / struct / enum / a
         // nested generic): its element is a managed reference at the C++ ABI
@@ -97,7 +107,7 @@ public static partial class MethodRefResolver
     private static bool IsUserValueTypeElement(string? instTag) => HashSetValueTypeElement(instTag) != null;
 
     // The concrete C++ parameter/return code for an element family.
-    private static string HashSetCode(HashSetKind k, bool asArgument) => k switch
+    private static string HashSetCode(HashSetKind k, bool asArgument, string? tupleKinds = null) => k switch
     {
         HashSetKind.I4 => "i",
         HashSetKind.U4 => "i",
@@ -112,6 +122,9 @@ public static partial class MethodRefResolver
         // A user value type: the carrier is a BOX, so the argument is boxed
         // through the element type's own descriptor.
         HashSetKind.Struct => "box:us",
+        // A ValueTuple element: the tuple is boxed into a GC carrier whose
+        // payload holds the struct bytes (the runtime reads it structurally).
+        HashSetKind.Tuple => "box:vt:" + tupleKinds,
         _ => "",
     };
 
@@ -125,6 +138,9 @@ public static partial class MethodRefResolver
         HashSetKind.Dt => "dt",
         HashSetKind.Ts => "ts",
         HashSetKind.Guid => "guid",
+        // The tuple family rides the reference carrier table (the boxed tuple
+        // is a managed carrier).
+        HashSetKind.Tuple => "ref",
         _ => "ref",
     };
 
@@ -196,7 +212,8 @@ public static partial class MethodRefResolver
         if (kind == null) return null; // DEFER
 
         var k = kind.Value;
-        var code = HashSetCode(k, true);
+        var code = HashSetCode(k, true,
+            k == HashSetKind.Tuple ? ValueTupleSupport.KeyKinds(HashSetElementName(instTag)) : null);
         var suffix = HashSetIcallSuffix(k);
 
         // The T-bearing parameter of the generic DEFINITION signature.
@@ -374,6 +391,8 @@ public static partial class MethodRefResolver
         HashSetKind.Dt => "dt",
         HashSetKind.Ts => "ts",
         HashSetKind.Guid => "guid",
+        // The tuple family stores managed carriers (boxed tuples).
+        HashSetKind.Tuple => "a",
         _ => "a",
     };
 

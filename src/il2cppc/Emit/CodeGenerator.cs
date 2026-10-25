@@ -5998,6 +5998,11 @@ public static class CodeGenerator
         // a prefix rule rather than an exact key.
         var nestedListAlloc when nestedListAlloc.StartsWith("System.Collections.Generic.List`1_System.Collections.Generic.List", StringComparison.Ordinal)
             => "il2cpp_object_new(il2cpp::il2cpp_list_obj_class())",
+        // Value-type tuple element: List<ValueTuple<..>> rides the listobj
+        // reference domain (the tuple element is BOXED by the call site through
+        // the shared user-struct forwarders -- the box is a value-type box).
+        var tupleListAlloc when tupleListAlloc.StartsWith("System.Collections.Generic.List`1_System.ValueTuple`", StringComparison.Ordinal)
+            => "il2cpp_object_new(il2cpp::il2cpp_list_obj_class())",
         // rtdict-b23 (DICT-GC): Dictionary<string,int> allocates through the
         // runtime GLOBAL wrapper descriptor (dictsi_obj.h) -- the same
         // contract as the listi4/random descriptors: without this entry the
@@ -6019,6 +6024,12 @@ public static class CodeGenerator
         // shared descriptor; the Uri key normalizes per call inside the
         // icall_dict_gen_*_o twins (Phase-2 absorption of the forwarders).
         "System.Collections.Generic.Dictionary`2_System.Uri_string" => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",
+        // Value-type tuple key: Dictionary<ValueTuple<..>, V> rides the shared
+        // generic wrapper descriptor (dictgen.h); the tuple key itself is boxed
+        // by the call site through the "box:vt:" cast (the runtime reads the
+        // boxed payload structurally).
+        var dictTupleAlloc when dictTupleAlloc.StartsWith("System.Collections.Generic.Dictionary`2_System.ValueTuple`", StringComparison.Ordinal)
+            => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",
         // HashSet`1: EVERY element family allocates the dedicated slot-ordered
         // set descriptor (hashset.h). The historical routing reused the
         // hashtable / dictsi descriptors, whose enumeration is BUCKET ordered
@@ -11228,6 +11239,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "box:i" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
                     ? code
                     : $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({code}))",
+                // Value-type tuple KEY box (Dictionary`2 / HashSet`1 tuple key):
+                // box the tuple struct into a GC carrier whose payload holds the
+                // struct bytes; the runtime reads the payload structurally (the
+                // net48 ValueTuple hash/equality). The cast carries the element
+                // kinds ("box:vt:ii" -- see il2cpp_valuetuple.h).
+                var vtBox when vtBox.StartsWith("box:vt:", StringComparison.Ordinal)
+                    => $"il2cpp::runtime::il2cpp_tuple_box(&({code}), \"{vtBox[7..]}\")",
                 // batch 148 (enum ToString box path): pass the BOXED object
                 // through uncast -- the icall reads the klass identity from
                 // the box itself (il2cpp_enum_to_string(_format)).

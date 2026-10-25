@@ -409,7 +409,7 @@ public static class MetadataLoader
             if (!iface.MatchesFullName(md.GetFullName(h))) continue;
             List<CustomAttributeDef> attrs;
             try { attrs = ReadCustomAttributes(md, h); }
-            catch (NotSupportedException) { return null; }
+            catch (Exception ex) when (ex is NotSupportedException or BadImageFormatException) { return null; }
             foreach (var a in attrs)
             {
                 if (a.AttributeType != "System.Runtime.InteropServices.GuidAttribute") continue;
@@ -547,7 +547,7 @@ public static class MetadataLoader
                 if (attrs.Count > 0)
                     result.Add((typeName, attrs));
             }
-            catch (NotSupportedException ex)
+            catch (Exception ex) when (ex is NotSupportedException or BadImageFormatException)
             {
                 Console.WriteLine($"attribute: skipping custom attributes of '{typeName}' (unsupported blob: {ex.Message})");
             }
@@ -580,7 +580,7 @@ public static class MetadataLoader
                     var attrs = DecodeCustomAttributes(md, mdef.GetCustomAttributes());
                     if (attrs.Count > 0) result.Add((typeName, mName, attrs));
                 }
-                catch (NotSupportedException ex)
+                catch (Exception ex) when (ex is NotSupportedException or BadImageFormatException)
                 {
                     Console.WriteLine($"attribute: skipping custom attributes of member '{typeName}::{mName}' (unsupported blob: {ex.Message})");
                 }
@@ -594,7 +594,7 @@ public static class MetadataLoader
                     var attrs = DecodeCustomAttributes(md, fdef.GetCustomAttributes());
                     if (attrs.Count > 0) result.Add((typeName, fName, attrs));
                 }
-                catch (NotSupportedException ex)
+                catch (Exception ex) when (ex is NotSupportedException or BadImageFormatException)
                 {
                     Console.WriteLine($"attribute: skipping custom attributes of member '{typeName}::{fName}' (unsupported blob: {ex.Message})");
                 }
@@ -608,7 +608,7 @@ public static class MetadataLoader
                     var attrs = DecodeCustomAttributes(md, pdef.GetCustomAttributes());
                     if (attrs.Count > 0) result.Add((typeName, pName, attrs));
                 }
-                catch (NotSupportedException ex)
+                catch (Exception ex) when (ex is NotSupportedException or BadImageFormatException)
                 {
                     Console.WriteLine($"attribute: skipping custom attributes of member '{typeName}::{pName}' (unsupported blob: {ex.Message})");
                 }
@@ -726,8 +726,21 @@ public static class MetadataLoader
             var b = sig.ReadByte();
             byte? elem = null;
             if (b == 0x1D)
-                elem = sig.ReadByte();       // SZARRAY element type byte
-            ConsumeTypeTrailing(ref sig, b);
+            {
+                // SZARRAY: the element type byte FOLLOWS the leading byte and
+                // its own trailing payload (e.g. a VALUETYPE TypeDefOrRef) is
+                // consumed here. The element byte is read ONCE -- the historical
+                // shape read it both here and inside ConsumeTypeTrailing,
+                // over-reading the blob for TupleElementNamesAttribute(string[])
+                // (a 5-byte ctor signature) and crashing with
+                // BadImageFormatException ("Read out of bounds").
+                elem = sig.ReadByte();
+                ConsumeTypeTrailing(ref sig, elem.Value);
+            }
+            else
+            {
+                ConsumeTypeTrailing(ref sig, b);
+            }
             result.Add(new CtorParam(b, elem));
         }
         return result;

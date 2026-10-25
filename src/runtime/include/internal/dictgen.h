@@ -68,6 +68,11 @@ constexpr int32_t kGenKind_Int32 = 1;  // boxed int32
 // Phase-2: Uri keys normalize to their string form at the twin entry, then
 // ride the string-kind table path (the T4 uristr contract, no twin family).
 constexpr int32_t kGenKind_Uri = 2; // normalized to string on entry
+// Value-type tuple key: the key carrier is a BOXED ValueTuple (a GC object
+// whose payload holds the struct bytes; klass name "System.ValueTuple`<kinds>"
+// -- see il2cpp_valuetuple.h). The hash/equals are the structural net48
+// ValueTuple semantics (EqualityComparer<ValueTuple<...>>.Default).
+constexpr int32_t kGenKind_ValueTuple = 3;
 
 // One slot; collision chains link through 'next', the insertion sequence
 // through 'seqNext'. hashCode == -1 marks a FREE slot (skipped by

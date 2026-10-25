@@ -26,6 +26,7 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_value_semantics.h"
+#include "il2cpp_valuetuple.h" // il2cpp_tuple_box / il2cpp_tuple_box_size (tuple Select results)
 #include "listi4.h"
 #include "listobj.h"
 
@@ -645,6 +646,55 @@ Il2CppArray* il2cpp_linq_list_select(Il2CppObject* list, Il2CppObject* sel,
                     break;
             }
         }
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// Select with a VALUE-TYPE TUPLE result (resKind 5). The selector leaf returns
+// the tuple struct BY VALUE; a trivial struct of <= 8 bytes rides the integer
+// return register (the Itanium C++ ABI), so the 64-bit carrier is the struct's
+// raw bits. Each result is boxed through the shared tuple-box contract and the
+// result array is a REFERENCE array of boxes (the shared array enumerator reads
+// the box back; il2cpp_ienum_get_current_tuple_t copies the payload).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_list_select_tuple(Il2CppObject* list, Il2CppObject* sel,
+                                           int32_t kind, const char* kinds)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    const int32_t payloadSize = runtime::il2cpp_tuple_box_size(kinds);
+    if (payloadSize < 0 || payloadSize > 8)
+    {
+        // Only the register-carried tuple shapes (<= 8 bytes) are wired; a
+        // larger struct uses the memory return class and is out of scope.
+        il2cpp_throw_new(
+            "System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception",
+            "Select with this tuple result shape is not supported.");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, snap->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    typedef int64_t (*SelI4TupleFn)(int32_t);
+    typedef int64_t (*SelI4TupleThisFn)(Il2CppObject*, int32_t);
+    for (int32_t i = 0; i < snap->length; ++i)
+    {
+        const int32_t v = ReadI4(snap, i, kind);
+        const int64_t bits = d->target != nullptr
+            ? reinterpret_cast<SelI4TupleThisFn>(d->methodPtr)(d->target, v)
+            : reinterpret_cast<SelI4TupleFn>(d->methodPtr)(v);
+        Il2CppObject* box = runtime::il2cpp_tuple_box(&bits, kinds);
+        if (box != nullptr)
+        {
+            roots.Add(reinterpret_cast<void**>(&box));
+        }
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), box);
+        *slot = box;
     }
     return out;
 }

@@ -15,6 +15,7 @@
 #include "il2cpp_runtime.h"  // il2cpp_box_int32
 #include "il2cpp_string.h"
 #include "il2cpp_value_semantics.h" // (string-hash authority, dictsi precedent)
+#include "il2cpp_valuetuple.h" // il2cpp_tuple_box_hash / il2cpp_tuple_box_equals (tuple keys)
 #include "versionuri.h" // icall_uri_to_string (Uri-key normalization, T4 contract)
 
 #include <cstddef>
@@ -103,6 +104,11 @@ int32_t IncomingHash(int32_t keyInt, Il2CppObject* keyRef, int32_t kind)
     {
         return StringHash(reinterpret_cast<Il2CppString*>(keyRef));
     }
+    if (kind == kGenKind_ValueTuple)
+    {
+        // A boxed ValueTuple carrier: the structural ValueTuple hash.
+        return runtime::il2cpp_tuple_box_hash(keyRef);
+    }
     return AddressHash(keyRef);
 }
 
@@ -119,6 +125,11 @@ bool IncomingEquals(int32_t keyInt, Il2CppObject* keyRef,
     {
         return StrEquals(reinterpret_cast<Il2CppString*>(keyRef),
                          reinterpret_cast<const Il2CppString*>(stored->keyRef));
+    }
+    if (kind == kGenKind_ValueTuple)
+    {
+        // A boxed ValueTuple carrier: the structural ValueTuple equality.
+        return runtime::il2cpp_tuple_box_equals(keyRef, stored->keyRef);
     }
     return keyRef == stored->keyRef;
 }
@@ -269,6 +280,10 @@ int32_t il2cpp_dict_gen_hash_carrier(const Il2CppObject* carrier, int32_t kind)
     {
         return StringHash(reinterpret_cast<const Il2CppString*>(carrier));
     }
+    if (kind == kGenKind_ValueTuple)
+    {
+        return runtime::il2cpp_tuple_box_hash(carrier);
+    }
     return AddressHash(carrier);
 }
 
@@ -282,6 +297,10 @@ bool il2cpp_dict_gen_carrier_equals(const Il2CppObject* a, const Il2CppObject* b
     {
         return StrEquals(reinterpret_cast<const Il2CppString*>(a),
                          reinterpret_cast<const Il2CppString*>(b));
+    }
+    if (kind == kGenKind_ValueTuple)
+    {
+        return runtime::il2cpp_tuple_box_equals(a, b);
     }
     return a == b;
 }
@@ -892,3 +911,4 @@ Il2CppObject* il2cpp_kvp_gen_int_string_get_value(Il2CppObject* self)
 }
 
 } // namespace il2cpp
+

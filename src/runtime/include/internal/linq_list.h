@@ -86,6 +86,12 @@ bool    il2cpp_linq_list_all_pred(Il2CppObject* list, Il2CppObject* pred, int32_
 Il2CppArray* il2cpp_linq_list_where(Il2CppObject* list, Il2CppObject* pred, int32_t kind);
 Il2CppArray* il2cpp_linq_list_select(Il2CppObject* list, Il2CppObject* sel,
                                      int32_t kind, int32_t resKind);
+// Value-type tuple result (resKind 5): the selector returns the tuple struct by
+// value; the result array holds BOXED tuples (the shared tuple-box contract --
+// see il2cpp_valuetuple.h). 'kinds' is the element-kind string carried in the
+// box klass name.
+Il2CppArray* il2cpp_linq_list_select_tuple(Il2CppObject* list, Il2CppObject* sel,
+                                           int32_t kind, const char* kinds);
 
 //------------------------------------------------------------------------------
 // Element operators. The entry suffix is the RESULT ABI, not the list kind:

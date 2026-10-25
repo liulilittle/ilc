@@ -44,7 +44,8 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapDictionary(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null,
+        string? keyTypeName = null, string? valueTypeName = null)
     {
         // The TypeSpec instantiation (when the call's parent carries one) is
         // AUTHORITATIVE -- it disambiguates the FIRST pass too (the List
@@ -86,8 +87,20 @@ public static partial class MethodRefResolver
         // string-ref). The int32 key arrives unboxed ("i" cast) and is boxed
         // inside the icall; string values/references are ReturnsRef.
         var isReceiver = instTag is "System.Collections.Generic.Dictionary`2_int_string";
+        // Value-type tuple key: the key is a BOXED ValueTuple -- the runtime
+        // reads the boxed payload structurally (net48
+        // EqualityComparer<ValueTuple<..>>.Default). The element kinds come
+        // from the KEY type name ("System.ValueTuple`2_int_int" -> "ii"); an
+        // unsupported element (nested tuple / user struct / BCL value struct)
+        // leaves the key unwired (LOUD) rather than degrading to identity
+        // semantics. The value kind is 1 (int32-boxed) for an int32 value,
+        // else 0 (managed reference).
+        var tupleKinds = ValueTupleSupport.KeyKinds(keyTypeName);
+        var tupleReceiver = tupleKinds != null;
+        var tupleValueKind = valueTypeName is "int" or "System.Int32" ? "1" : "0";
+        var tupleKeyCast = tupleReceiver ? "box:vt:" + tupleKinds! : "";
         ResolvedMethod Loud() => throw new NotSupportedException(
-            $"Dictionary`2 member '{name}' is not a wired expansion (receiver '{receiverType ?? "<untracked>"}', ps [{BitConverter.ToString(ps)}]) -- only the string->int32 dictsi domain and the dictgen domains (int32->string, string->string, Uri->string) are wired");
+            $"Dictionary`2 member '{name}' is not a wired expansion (receiver '{receiverType ?? "<untracked>"}', instName '{instName ?? "<null>"}', keyType '{keyTypeName ?? "<null>"}', ps [{BitConverter.ToString(ps)}]) -- only the string->int32 dictsi domain, the dictgen domains (int32->string, string->string, Uri->string) and value-type tuple keys are wired");
 
         switch (name)
         {
@@ -98,7 +111,7 @@ public static partial class MethodRefResolver
                 if (count == 0)
                     return siReceiver
                         ? I("il2cpp::runtime::icall_dict_si_ctor", 0, false, false, true, null, null, appendZero: true)
-                        : ssReceiver || nestedListReceiver || uriReceiver || isReceiver
+                        : ssReceiver || nestedListReceiver || uriReceiver || isReceiver || tupleReceiver
                             ? I("il2cpp::runtime::icall_dict_gen_ctor", 0, false, false, true, null, null, appendZero: true)
                             : Loud();
                 if (count == 1 && ps.Length == 1 && ps[0] == 0x08 && (ssReceiver || nestedListReceiver || uriReceiver || isReceiver))
@@ -116,6 +129,9 @@ public static partial class MethodRefResolver
                 return uriReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_add_o", 2, false, false, true, new[] { "", "", "" },
                         appendLiterals: new[] { "2", "0" })
+                    : tupleReceiver
+                    ? I("il2cpp::runtime::icall_dict_gen_add_o", 2, false, false, true, new[] { "", tupleKeyCast, "" },
+                        appendLiterals: new[] { "3", tupleValueKind })
                     : ssReceiver || nestedListReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_add_o", 2, false, false, true, new[] { "", "", "" },
                         appendLiterals: new[] { "0", "0" })
@@ -132,6 +148,9 @@ public static partial class MethodRefResolver
                 return uriReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_set_o", 2, false, false, true, new[] { "", "", "" },
                         appendLiterals: new[] { "2", "0" })
+                    : tupleReceiver
+                    ? I("il2cpp::runtime::icall_dict_gen_set_o", 2, false, false, true, new[] { "", tupleKeyCast, "" },
+                        appendLiterals: new[] { "3", tupleValueKind })
                     : ssReceiver || nestedListReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_set_o", 2, false, false, true, new[] { "", "", "" },
                         appendLiterals: new[] { "0", "0" })
@@ -152,6 +171,9 @@ public static partial class MethodRefResolver
                 return uriReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_get_o", 1, true, true, true, new[] { "", "" },
                         appendLiterals: new[] { "2", "0" })
+                    : tupleReceiver
+                    ? I("il2cpp::runtime::icall_dict_gen_get_o", 1, true, true, true, new[] { "", tupleKeyCast },
+                        appendLiterals: new[] { "3", tupleValueKind })
                     : ssReceiver || nestedListReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_get_o", 1, true, true, true, new[] { "", "" },
                         appendLiterals: new[] { "0", "0" },
@@ -170,6 +192,9 @@ public static partial class MethodRefResolver
                 return uriReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_try_get_value_o", 2, true, false, true, new[] { "", "", "" },
                         appendLiterals: new[] { "2", "0" })
+                    : tupleReceiver
+                    ? I("il2cpp::runtime::icall_dict_gen_try_get_value_o", 2, true, false, true, new[] { "", tupleKeyCast, "" },
+                        appendLiterals: new[] { "3", tupleValueKind })
                     : ssReceiver || nestedListReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_try_get_value_o", 2, true, false, true, new[] { "", "", "" },
                         appendLiterals: new[] { "0", "0" })
@@ -185,6 +210,9 @@ public static partial class MethodRefResolver
                 return uriReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_contains_key_o", 1, true, false, true, new[] { "", "" },
                         appendLiterals: new[] { "2", "0" })
+                    : tupleReceiver
+                    ? I("il2cpp::runtime::icall_dict_gen_contains_key_o", 1, true, false, true, new[] { "", tupleKeyCast },
+                        appendLiterals: new[] { "3", tupleValueKind })
                     : ssReceiver || nestedListReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_contains_key_o", 1, true, false, true, new[] { "", "" },
                         appendLiterals: new[] { "0", "0" })
@@ -200,6 +228,9 @@ public static partial class MethodRefResolver
                 return uriReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_remove_o", 1, true, false, true, new[] { "", "" },
                         appendLiterals: new[] { "2", "0" })
+                    : tupleReceiver
+                    ? I("il2cpp::runtime::icall_dict_gen_remove_o", 1, true, false, true, new[] { "", tupleKeyCast },
+                        appendLiterals: new[] { "3", tupleValueKind })
                     : ssReceiver || nestedListReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_remove_o", 1, true, false, true, new[] { "", "" },
                         appendLiterals: new[] { "0", "0" })
@@ -211,14 +242,14 @@ public static partial class MethodRefResolver
                             : Loud();
             case "get_Count":
                 if (count != 0) return Loud();
-                return ssReceiver || nestedListReceiver || uriReceiver || isReceiver
+                return ssReceiver || nestedListReceiver || uriReceiver || isReceiver || tupleReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_get_count", 0, true, false, true, new[] { "" })
                     : siReceiver
                         ? I("il2cpp::runtime::icall_dict_si_get_count", 0, true, false, true, new[] { "" })
                         : Loud();
             case "Clear":
                 if (count != 0) return Loud();
-                return ssReceiver || nestedListReceiver || uriReceiver || isReceiver
+                return ssReceiver || nestedListReceiver || uriReceiver || isReceiver || tupleReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_clear", 0, false, false, true, new[] { "" })
                     : siReceiver
                         ? I("il2cpp::runtime::icall_dict_si_clear", 0, false, false, true, new[] { "" })

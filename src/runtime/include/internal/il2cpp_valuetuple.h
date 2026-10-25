@@ -133,5 +133,37 @@ int32_t il2cpp_tuple_user_struct_equals(Il2CppClass* klass, const void* a, const
 // (the net48 ArgumentException family is not reproduced -- documented).
 int32_t il2cpp_tuple_user_struct_compare(Il2CppClass* klass, const void* a, const void* b);
 
+//------------------------------------------------------------------------------
+// Value-type tuple KEY carrier (the Dictionary`2 / HashSet`1 key path).
+//
+// A C# tuple used as a key is a VALUE type; the runtime key domains store
+// MANAGED carriers, so the tuple is BOXED into a GC object whose payload at
+// the shared box offset holds the struct bytes. The box's klass name is
+// "System.ValueTuple`<kinds>" -- one char per element:
+//   'i' int32 family (int/uint/short/ushort/byte/sbyte)   'b' bool
+//   'c' char                                              'l' int64/uint64
+//   'd' double                                            'f' float (widened)
+//   'r' managed reference (string/object/array/class/...)
+// The key path reads the payload structurally, reproducing net48
+// EqualityComparer<ValueTuple<...>>.Default (ValueTuple.GetHashCode /
+// ValueTuple.Equals). The layout mirrors the transpiler's generated C++
+// struct (fields in order, each at its natural alignment, the whole struct
+// rounded to the largest member alignment); the runtime derives both the
+// element offsets and the box size from 'kinds', so the caller only supplies
+// the struct address. Unsupported kind chars (nested tuples / user structs /
+// BCL value structs) are rejected by il2cpp_tuple_box (nullptr), and the key
+// path then falls back to the identity hash/equality.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_tuple_box(const void* value, const char* kinds);
+int32_t il2cpp_tuple_box_hash(const Il2CppObject* carrier);
+bool il2cpp_tuple_box_equals(const Il2CppObject* a, const Il2CppObject* b);
+// The byte size of a boxed tuple payload for 'kinds' (the generated C++ struct
+// size); -1 when any element kind is unsupported.
+int32_t il2cpp_tuple_box_size(const char* kinds);
+// The class descriptor of a boxed tuple for 'kinds' (lazily created +
+// registered; a value-type box whose base is System.ValueType). nullptr when
+// any element kind is unsupported.
+Il2CppClass* il2cpp_tuple_box_class(const char* kinds);
+
 } // namespace runtime
 } // namespace il2cpp

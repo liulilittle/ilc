@@ -35,6 +35,7 @@
 // (the Nullable<T> representation boxes the underlying T).
 #include "guid.h"
 #include "il2cpp_time.h"
+#include "il2cpp_valuetuple.h" // il2cpp_tuple_box_hash / il2cpp_tuple_box_equals (tuple key boxes)
 
 // decimal_format.h owns the il2cpp::runtime::Il2CppDecimal definition AND the
 // T2 formatting icalls (its struct is the decimal_format.h/decimal.cpp side
@@ -70,6 +71,17 @@ bool HasKlassName(const Il2CppObject* obj, const char* name)
 bool IsString(const Il2CppObject* obj)    { return HasKlassName(obj, "System.String"); }
 bool IsBoxedInt32(const Il2CppObject* o)  { return HasKlassName(o, "System.Int32"); }
 bool IsBoxedBoolean(const Il2CppObject* o){ return HasKlassName(o, "System.Boolean"); }
+
+// A boxed value-type tuple carrier (the Dictionary`2 / HashSet`1 key path; the
+// klass name is "System.ValueTuple`<kinds>" -- see il2cpp_valuetuple.h). The
+// box payload holds the tuple struct bytes; equality/hash are the structural
+// net48 ValueTuple semantics.
+bool IsTupleBox(const Il2CppObject* obj)
+{
+    return obj->klass != nullptr && obj->klass->name != nullptr &&
+           std::strncmp(obj->klass->name, "System.ValueTuple`", 18) == 0 &&
+           obj->klass->name[18] != '\0';
+}
 
 // 4-byte payload at byte offset 8 (Int32 box; bool/char boxes store their
 // value in the same slot).
@@ -479,6 +491,12 @@ int32_t icall_object_get_hash_code(Il2CppObject* obj)
     {
         return il2cpp_enum_boxed_get_hash_code(obj);
     }
+    // A boxed value-type tuple carrier: the structural ValueTuple hash (the
+    // dictgen/hashset key path boxes the tuple -- see il2cpp_valuetuple.h).
+    if (IsTupleBox(obj))
+    {
+        return il2cpp_tuple_box_hash(obj);
+    }
     // vtype2: a boxed USER STRUCT (or a translated class) with its own
     // GetHashCode override dispatches the override (net48 virtual call); a
     // type without one keeps the address-hash default below.
@@ -721,6 +739,12 @@ bool icall_object_equals(Il2CppObject* a, Il2CppObject* b)
     {
         return StringOrdinalEquals(reinterpret_cast<const Il2CppString*>(a),
                                    reinterpret_cast<const Il2CppString*>(b));
+    }
+    // A boxed value-type tuple carrier: the structural ValueTuple equality
+    // (element-wise; reference elements compare through Object.Equals).
+    if (IsTupleBox(a) && IsTupleBox(b))
+    {
+        return il2cpp_tuple_box_equals(a, b);
     }
     if (a->klass != nullptr && b->klass != nullptr &&
         std::strcmp(a->klass->name, b->klass->name) == 0)

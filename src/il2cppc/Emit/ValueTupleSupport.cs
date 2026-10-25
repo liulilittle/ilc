@@ -300,6 +300,42 @@ internal static class ValueTupleSupport
         _ => (pointerSize, pointerSize),
     };
 
+    //--------------------------------------------------------------------------
+    // KeyKinds -- the Dictionary`2 / HashSet`1 KEY-path element kinds of a
+    // closed tuple instance name ("ii" for ValueTuple`2_int_int), the string the
+    // runtime's il2cpp_tuple_box / il2cpp_tuple_box_hash / _equals read the
+    // boxed payload with (see il2cpp_valuetuple.h). Returns null when any
+    // element is not a key-path primitive (a nested tuple, a user struct, a BCL
+    // value struct) -- the caller keeps the tuple key unwired (LOUD) rather than
+    // degrading to identity semantics.
+    //--------------------------------------------------------------------------
+    internal static string? KeyKinds(string? fullName, IReadOnlyList<TypeDef>? types = null)
+    {
+        if (fullName == null || !IsValueTupleName(fullName)) return null;
+        TupleElem[] elems;
+        try { elems = ResolveElems(fullName, types); }
+        catch (NotSupportedException) { return null; }
+        if (elems.Length == 0) return null;
+        var sb = new System.Text.StringBuilder(elems.Length);
+        foreach (var e in elems)
+        {
+            var k = e.Shape switch
+            {
+                TupleElemShape.Int32 => "i",
+                TupleElemShape.Int64 => "l",
+                TupleElemShape.Double => "d",
+                TupleElemShape.Single => "f",
+                TupleElemShape.Bool => "b",
+                TupleElemShape.Char => "c",
+                TupleElemShape.Ref => "r",
+                _ => null,
+            };
+            if (k == null) return null;
+            sb.Append(k);
+        }
+        return sb.ToString();
+    }
+
     // The C++ struct size of a CLOSED tuple instance (the exact layout
     // EmitDefinitions emits: fields in order, each aligned to its own natural
     // alignment, the whole struct rounded up to its largest member alignment).

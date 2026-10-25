@@ -119,7 +119,7 @@ public static partial class MethodRefResolver
             if (LinqListKind(srcType, genArgs, aggFam) is { } aggListKind)
             {
                 var listAgg = TryMapLinqList(md, sigHandle, name, count, genArgs, aggListKind,
-                    aggFam, srcType, TwoArg, OneArg);
+                    aggFam, srcType, TwoArg, OneArg, genArgNames);
                 if (listAgg != null) return listAgg;
             }
             if (aggRecv is "System.Linq.IGrouping" or "System.Linq.IGroupingResult")
@@ -419,7 +419,7 @@ public static partial class MethodRefResolver
         if (listKind is { } lk)
         {
             var listDispatch = TryMapLinqList(md, sigHandle, name, count, genArgs, lk, linqSrcFam,
-                srcType, TwoArg, OneArg);
+                srcType, TwoArg, OneArg, genArgNames);
             if (listDispatch != null) return listDispatch;
         }
 
@@ -2082,7 +2082,7 @@ public static partial class MethodRefResolver
     //--------------------------------------------------------------------------
     private static ResolvedMethod? TryMapLinqList(MetadataReader md, BlobHandle sigHandle, string name,
         int count, byte[]? genArgs, string listKind, string srcFam, string? srcType,
-        string[] TwoArg, string[] OneArg)
+        string[] TwoArg, string[] OneArg, string[]? genArgNames = null)
     {
         string K = listKind;
         string abi = LinqListAbiSuffix(K);
@@ -2128,6 +2128,17 @@ public static partial class MethodRefResolver
                         "Enumerable.Select with a (element, index) selector over a List source is not wired " +
                         "(the runtime has no list index-selector entry)");
                 byte tRes = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                // Value-type tuple result: the selector returns the tuple struct
+                // by value; the runtime boxes it into the reference result array
+                // (the shared tuple-box contract).
+                if (tRes == 0x15 && genArgNames is { Length: >= 2 }
+                    && ValueTupleSupport.IsValueTupleName(genArgNames[1])
+                    && ValueTupleSupport.KeyKinds(genArgNames[1]) is { } tupleKinds)
+                {
+                    return I("il2cpp::il2cpp_linq_list_select_tuple", 2, true, true, false, L2,
+                        returnTypeName: genArgNames[1] + "[]",
+                        appendLiterals: new[] { K, "\"" + tupleKinds + "\"" });
+                }
                 string resKind = tRes switch
                 {
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",

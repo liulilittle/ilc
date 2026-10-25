@@ -246,6 +246,14 @@ public static partial class MethodRefResolver
             }
         }
         var boxedValueElem = decElem || dtElem || tsElem || structElemDef != null;
+        // Value-type tuple element: the tracked suffix carries the tuple's
+        // closed name; get_Current copies the boxed payload into the caller's
+        // struct slot (the same shape as a user-struct element).
+        var tupleElemKinds = objElemSuffix != null && ValueTupleSupport.IsValueTupleName(objElemSuffix)
+            ? ValueTupleSupport.KeyKinds(objElemSuffix)
+            : null;
+        var tupleElemCpp = tupleElemKinds != null ? ValueTupleSupport.StructName(objElemSuffix!) : null;
+        if (tupleElemCpp != null) boxedValueElem = true;
         switch (name)
         {
             case "MoveNext":
@@ -283,6 +291,10 @@ public static partial class MethodRefResolver
                     return I($"il2cpp::il2cpp_list_obj_enumerator_get_current_struct_t<{structElemCpp}>", 0, true, false, true,
                         new[] { "deref:r" }, resultKind: "us:" + structElemCpp,
                         returnTypeName: structElemDef!.FullName);
+                if (tupleElemCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_enumerator_get_current_struct_t<{tupleElemCpp}>", 0, true, false, true,
+                        new[] { "deref:r" }, resultKind: "us:" + tupleElemCpp,
+                        returnTypeName: objElemSuffix);
                 if (valIntElem)
                     return I($"il2cpp::il2cpp_list_obj_enumerator_get_current_{objElemSuffix}", 0, true, false, true, new[] { "deref:r" });
                 return isObjEnum

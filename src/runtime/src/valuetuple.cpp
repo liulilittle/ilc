@@ -9,6 +9,8 @@
 #include "il2cpp_value_semantics.h"   // icall_*_get_hash_code, icall_object_to_string
 #include "il2cpp_boxing_ext2.h"       // kBoxPayloadOffset, box helpers
 #include "il2cpp_runtime.h"           // il2cpp_object_new
+#include "il2cpp_gc.h"                // il2cpp_gc_alloc_size (tuple key box)
+#include "il2cpp_metadata.h"          // il2cpp_class_register (tuple box descriptor)
 #include "typeinfo.h"                 // il2cpp_typeinfo_lookup + reflected dispatch
 #include "arraysort.h"                // il2cpp_icomparable_compare_to (user-struct element order)
 
@@ -378,6 +380,291 @@ int32_t il2cpp_tuple_user_struct_compare(Il2CppClass* klass, const void* a, cons
         std::memcpy(reinterpret_cast<char*>(boxedB) + kTupleBoxPayloadOffset, b, static_cast<size_t>(size));
     }
     return il2cpp_icomparable_compare_to(boxedA, boxedB);
+}
+
+//------------------------------------------------------------------------------
+// Value-type tuple KEY carrier (see il2cpp_valuetuple.h). A boxed tuple is a
+// GC object whose payload at kTupleBoxPayloadOffset holds the struct bytes;
+// its klass name "System.ValueTuple`<kinds>" carries the element kinds so the
+// key path can read the payload structurally. The descriptor registry is a
+// small static table (one entry per distinct kind string); the runtime is
+// single-threaded on this path.
+//------------------------------------------------------------------------------
+namespace {
+
+constexpr int32_t kMaxTupleBoxClasses = 16;
+constexpr int32_t kTupleBoxNameMax = 48;
+
+struct TupleBoxClassSlot
+{
+    char name[kTupleBoxNameMax];
+    Il2CppClass klass;
+};
+
+TupleBoxClassSlot g_tupleBoxSlots[kMaxTupleBoxClasses];
+int32_t g_tupleBoxSlotCount = 0;
+
+// The element kinds encoded in a tuple-box klass name, or null when the name
+// is not a tuple-box descriptor ("System.ValueTuple`<kinds>").
+const char* TupleBoxKinds(const Il2CppObject* box)
+{
+    if (box == nullptr || box->klass == nullptr || box->klass->name == nullptr)
+    {
+        return nullptr;
+    }
+    const char* name = box->klass->name;
+    if (std::strncmp(name, "System.ValueTuple`", 18) != 0)
+    {
+        return nullptr;
+    }
+    const char* kinds = name + 18;
+    return kinds[0] != '\0' ? kinds : nullptr;
+}
+
+// One element's offset + kind char in the generated C++ struct layout.
+struct TupleElemView
+{
+    int32_t offset;
+    char kind;
+};
+
+// The (size, alignment) of one element kind. Returns false for an unsupported
+// kind (nested tuple / user struct / BCL value struct -- the caller falls back
+// to identity semantics).
+bool TupleElemShape(char kind, int32_t* size, int32_t* align)
+{
+    switch (kind)
+    {
+    case 'i': case 'b': case 'c':
+        *size = 4; *align = 4; return true;
+    case 'l': case 'd': case 'f':
+        *size = 8; *align = 8; return true;
+    case 'r':
+        *size = static_cast<int32_t>(sizeof(void*));
+        *align = static_cast<int32_t>(sizeof(void*));
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Compute the total struct size from the kinds, mirroring the transpiler's C++
+// layout: fields in order, each aligned to its natural alignment, the whole
+// struct rounded up to the largest member alignment. Returns false on an
+// unsupported kind.
+bool TupleElemTotalSize(const char* kinds, int32_t* totalSize)
+{
+    int32_t offset = 0;
+    int32_t maxAlign = 1;
+    for (int32_t i = 0; kinds[i] != '\0'; ++i)
+    {
+        int32_t size = 0;
+        int32_t align = 1;
+        if (!TupleElemShape(kinds[i], &size, &align))
+        {
+            return false;
+        }
+        offset = (offset + align - 1) / align * align + size;
+        if (align > maxAlign) maxAlign = align;
+    }
+    *totalSize = (offset + maxAlign - 1) / maxAlign * maxAlign;
+    return true;
+}
+
+// The offset of element 'index' (the layout authority is the same loop as
+// TupleElemTotalSize; recomputed per call so the hash/equals paths need no
+// stored array).
+int32_t TupleElemOffset(const char* kinds, int32_t index)
+{
+    int32_t offset = 0;
+    for (int32_t i = 0; i < index; ++i)
+    {
+        int32_t size = 0;
+        int32_t align = 1;
+        TupleElemShape(kinds[i], &size, &align);
+        offset = (offset + align - 1) / align * align + size;
+    }
+    int32_t size = 0;
+    int32_t align = 1;
+    TupleElemShape(kinds[index], &size, &align);
+    return (offset + align - 1) / align * align;
+}
+
+// Read one element's raw bits (and the managed reference for 'r').
+int64_t ReadElemBits(const char* payload, const TupleElemView& view, Il2CppObject** obj)
+{
+    const char* p = payload + view.offset;
+    *obj = nullptr;
+    switch (view.kind)
+    {
+    case 'i': case 'b': case 'c':
+        return *reinterpret_cast<const int32_t*>(p);
+    case 'l':
+        return *reinterpret_cast<const int64_t*>(p);
+    case 'd': case 'f':
+    {
+        double value = *reinterpret_cast<const double*>(p);
+        int64_t bits = 0;
+        std::memcpy(&bits, &value, sizeof(bits));
+        return bits;
+    }
+    case 'r':
+        *obj = *reinterpret_cast<Il2CppObject* const*>(p);
+        return 0;
+    default:
+        return 0;
+    }
+}
+
+// The per-kind descriptor for a tuple box (lazily created + registered).
+Il2CppClass* TupleBoxClassFor(const char* kinds)
+{
+    for (int32_t i = 0; i < g_tupleBoxSlotCount; ++i)
+    {
+        if (std::strcmp(g_tupleBoxSlots[i].name + 18, kinds) == 0)
+        {
+            return &g_tupleBoxSlots[i].klass;
+        }
+    }
+    if (g_tupleBoxSlotCount >= kMaxTupleBoxClasses)
+    {
+        return nullptr;
+    }
+    TupleBoxClassSlot& slot = g_tupleBoxSlots[g_tupleBoxSlotCount++];
+    std::memset(&slot, 0, sizeof(slot));
+    std::snprintf(slot.name, kTupleBoxNameMax, "System.ValueTuple`%s", kinds);
+    slot.klass.name = slot.name;
+    slot.klass.instanceSize = 8; // header only; il2cpp_gc_alloc_size extends
+    slot.klass.refFieldBitmap = 0;
+    slot.klass.refFieldCount = 0;
+    // A value-type box: the base chain reaches System.ValueType so the shared
+    // user-struct unbox helper (il2cpp_unbox_user_struct) accepts the box and
+    // the listobj struct forwarders can reuse it for List<ValueTuple<..>>.
+    slot.klass.baseClass = &System_ValueType_class;
+    slot.klass.vtable = nullptr;
+    slot.klass.vtableSize = 0;
+    slot.klass.interfaces = nullptr;
+    slot.klass.interfaceCount = 0;
+    il2cpp_class_register(&slot.klass);
+    return &slot.klass;
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_tuple_box(const void* value, const char* kinds)
+{
+    if (value == nullptr || kinds == nullptr || kinds[0] == '\0')
+    {
+        return nullptr;
+    }
+    int32_t size = il2cpp_tuple_box_size(kinds);
+    if (size < 0)
+    {
+        return nullptr;
+    }
+    Il2CppClass* klass = TupleBoxClassFor(kinds);
+    if (klass == nullptr)
+    {
+        return nullptr;
+    }
+    Il2CppObject* box = il2cpp_gc_alloc_size(klass, static_cast<size_t>(kTupleBoxPayloadOffset + size));
+    if (box == nullptr)
+    {
+        return nullptr;
+    }
+    std::memcpy(reinterpret_cast<char*>(box) + kTupleBoxPayloadOffset, value, static_cast<size_t>(size));
+    return box;
+}
+
+int32_t il2cpp_tuple_box_size(const char* kinds)
+{
+    if (kinds == nullptr)
+    {
+        return -1;
+    }
+    int32_t size = 0;
+    return TupleElemTotalSize(kinds, &size) ? size : -1;
+}
+
+Il2CppClass* il2cpp_tuple_box_class(const char* kinds)
+{
+    if (kinds == nullptr || kinds[0] == '\0')
+    {
+        return nullptr;
+    }
+    int32_t size = 0;
+    if (!TupleElemTotalSize(kinds, &size))
+    {
+        return nullptr;
+    }
+    return TupleBoxClassFor(kinds);
+}
+
+int32_t il2cpp_tuple_box_hash(const Il2CppObject* carrier)
+{
+    const char* kinds = TupleBoxKinds(carrier);
+    if (kinds == nullptr)
+    {
+        // Not a tuple box: the identity hash fallback (never a silent
+        // wrong-bucket, equality still decides).
+        return static_cast<int32_t>(reinterpret_cast<uintptr_t>(carrier) >> 3) & 0x7FFFFFFF;
+    }
+    const char* payload = reinterpret_cast<const char*>(carrier) + kTupleBoxPayloadOffset;
+    int32_t h = 0;
+    bool first = true;
+    for (int32_t i = 0; kinds[i] != '\0'; ++i)
+    {
+        int32_t size = 0;
+        int32_t align = 1;
+        if (!TupleElemShape(kinds[i], &size, &align))
+        {
+            return static_cast<int32_t>(reinterpret_cast<uintptr_t>(carrier) >> 3) & 0x7FFFFFFF;
+        }
+        TupleElemView view { TupleElemOffset(kinds, i), kinds[i] };
+        Il2CppObject* obj = nullptr;
+        const int64_t bits = ReadElemBits(payload, view, &obj);
+        const int32_t eh = il2cpp_tuple_element_hash(kinds[i], bits, obj);
+        h = first ? eh : il2cpp_tuple_combine_hash(h, eh);
+        first = false;
+    }
+    return h & 0x7FFFFFFF;
+}
+
+bool il2cpp_tuple_box_equals(const Il2CppObject* a, const Il2CppObject* b)
+{
+    const char* kinds = TupleBoxKinds(a);
+    if (kinds == nullptr || TupleBoxKinds(b) == nullptr)
+    {
+        return a == b;
+    }
+    const char* pa = reinterpret_cast<const char*>(a) + kTupleBoxPayloadOffset;
+    const char* pb = reinterpret_cast<const char*>(b) + kTupleBoxPayloadOffset;
+    for (int32_t i = 0; kinds[i] != '\0'; ++i)
+    {
+        int32_t size = 0;
+        int32_t align = 1;
+        if (!TupleElemShape(kinds[i], &size, &align))
+        {
+            return a == b;
+        }
+        TupleElemView view { TupleElemOffset(kinds, i), kinds[i] };
+        Il2CppObject* oa = nullptr;
+        Il2CppObject* ob = nullptr;
+        const int64_t ba = ReadElemBits(pa, view, &oa);
+        const int64_t bb = ReadElemBits(pb, view, &ob);
+        if (kinds[i] == 'r')
+        {
+            if (!icall_object_equals(oa, ob))
+            {
+                return false;
+            }
+        }
+        else if (ba != bb)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace runtime
