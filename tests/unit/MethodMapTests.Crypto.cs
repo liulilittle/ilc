@@ -356,12 +356,36 @@ public class MethodMapTestsCrypto
     }
 
     [Fact]
-    public void Resolve_GetKey_Hmac_ThrowsLoud()
+    public void Resolve_GetKey_Hmac_MapsToHmacGetKey()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("HMACSHA256", "get_Key", Sig(B(0x1D, 0x08))), "get_Key"));
+        var resolved = ResolveMember(Synthesize("HMACSHA256", "get_Key", Sig(B(0x1D, 0x08))), "get_Key");
 
-        Assert.Contains("Key", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_hmac_get_key", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Byte[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_SetKey_Hmac_MapsToHmacSetKey()
+    {
+        var resolved = ResolveMember(Synthesize("HMACSHA256", "set_Key",
+            Sig(B(0x00), B(0x1D, 0x08))), "set_Key");
+
+        Assert.Equal("il2cpp::runtime::icall_hmac_set_key", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(new[] { "", "a" }, resolved.ParamTypeNames);
+        Assert.False(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_Ctor_HmacKeyless_MapsToHmacCtorDefault()
+    {
+        var resolved = ResolveMember(Synthesize("HMACSHA1", ".ctor", Sig(B(0x00))), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_hmac_ctor_default", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
     }
 
     [Fact]

@@ -41,6 +41,26 @@ public class MethodMapTestsConvertDouble
         Assert.Equal(resultKind, resolved.ResultKind);
     }
 
+    // Convert.ToXxx(string): the throwing parse icalls with the null-means-zero
+    // rule (conv-str-parse e2e). The narrow widths ride int32 carriers; uint64
+    // returns the "l" slot; float rides the "d" slot.
+    [Theory]
+    [InlineData("ToByte", "il2cpp::runtime::icall_convert_to_byte_string", null)]
+    [InlineData("ToSByte", "il2cpp::runtime::icall_convert_to_sbyte_string", null)]
+    [InlineData("ToInt16", "il2cpp::runtime::icall_convert_to_int16_string", null)]
+    [InlineData("ToUInt16", "il2cpp::runtime::icall_convert_to_uint16_string", null)]
+    [InlineData("ToUInt32", "il2cpp::runtime::icall_convert_to_uint32_string", null)]
+    [InlineData("ToUInt64", "il2cpp::runtime::icall_convert_to_uint64_string", "l")]
+    [InlineData("ToSingle", "il2cpp::runtime::icall_convert_to_single_string", "d")]
+    public void Resolve_Convert_StringSource_MapsToThrowingParseIcall(string name, string expected, string? resultKind)
+    {
+        var resolved = ResolveMember(Synthesize(name, new byte[] { 0x00, 0x01, 0x05, 0x0E }), name);
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(new[] { "s" }, resolved.ParamTypeNames);
+        Assert.Equal(resultKind, resolved.ResultKind);
+    }
+
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)
     {
         using var reader = new PEReader(pe);

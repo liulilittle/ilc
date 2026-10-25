@@ -106,6 +106,30 @@ double icall_convert_to_double_string(Il2CppString* value);
 // -> FormatException; out-of-range -> OverflowException.
 int64_t icall_convert_to_int64_string(Il2CppString* value);
 
+// Convert.ToByte/ToSByte/ToInt16/ToUInt16/ToUInt32/ToUInt64(string): null -> 0
+// (the Convert "null means zero" rule), then the .NET Parse grammar over the
+// target range -- malformed text -> FormatException, an out-of-range magnitude
+// or a negative input to an unsigned target -> OverflowException. Narrow widths
+// ride int32 carriers; uint64 returns the raw uint64 slot.
+int32_t icall_convert_to_byte_string(Il2CppString* value);
+int32_t icall_convert_to_sbyte_string(Il2CppString* value);
+int32_t icall_convert_to_int16_string(Il2CppString* value);
+int32_t icall_convert_to_uint16_string(Il2CppString* value);
+uint32_t icall_convert_to_uint32_string(Il2CppString* value);
+uint64_t icall_convert_to_uint64_string(Il2CppString* value);
+
+// Convert.ToSingle(string): null -> 0f (Convert null semantics), then
+// float.Parse over the double grammar; a magnitude beyond Single.MaxValue
+// throws OverflowException (net48: NOT a silent Infinity). The result rides the
+// double slot (the MathF/_d precedent).
+float icall_convert_to_single_string(Il2CppString* value);
+
+// Convert.ToChar(string): null -> ArgumentNullException (the Convert
+// null-means-zero rule does NOT extend to the char target); a text that is not
+// exactly one UTF-16 unit -> FormatException; otherwise the unit (int32
+// carrier).
+int32_t icall_convert_to_char_string(Il2CppString* value);
+
 // Convert.ToString(int32/int64/double/bool): delegate to the format.cpp
 // formatting icalls (net48 "G15" / decimal / "True"/"False").
 Il2CppString* icall_convert_to_string_i4(int32_t value);

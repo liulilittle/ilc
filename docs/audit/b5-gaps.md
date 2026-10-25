@@ -211,3 +211,74 @@ translates through the explicit named table `ZipSideOfListKind`.
 
 The second source's family travels as an appended literal (`secondKind`) derived
 from the SAME MethodSpec authority as `kind`.
+
+## 8. Batch 5 -- the String/StringBuilder + Convert/Crypto residual LOUD (WIRED)
+
+The batch-5 scan anchors (MethodMap.String.cs:605, MethodMap.StringBuilder.cs
+:149/311/320/357/376, MethodMap.Crypto.cs:65/123/260, MethodMap.Convert.cs:282,
+MethodMap.ConvertExtra.cs:93/124/153/189) were re-checked against a live
+transpile. The genuinely-static-but-unwired members are now wired (each with an
+e2e difftest + unit test); the truly-unwireable ones stay LOUD with a reason.
+
+### 8a. String.Join(start/count)
+
+`String.Join(string, string[], int, int)` and `String.Join(string, object[],
+int, int)` were ALREADY wired (`icall_string_join_range_s` /
+`_range_c`). The `MethodMap.String.cs:605` throw is the catch-all for arities
+that net48 does not define; no residual form was found (a probe of the
+params-string / params-object `Join(sep, a, b, ...)` shapes transpiles clean --
+the compiler binds them to the `string[]` overload).
+
+### 8b. StringBuilder.AppendFormat(IFormatProvider, ...)
+
+The params-object[] provider form was wired; the explicit 1/2/3-argument
+provider forms were LOUD. Now wired to the new
+`icall_stringbuilder_append_format_{1,3}_provider` (the 2-argument form already
+existed). e2e: `sb-provider-fmt`.
+
+### 8c. DefaultInterpolatedStringHandler.AppendFormatted<T> over a VALUE type
+
+The primitive slots (int/long/double/bool/char/string) were wired; a generic
+value type `T` (0x11 -- decimal / DateTime / Guid) was LOUD for the 1/2/3-arg
+forms. Now wired: the MethodSpec generic-arg NAME table names the closed type,
+the transpiler boxes the value slot (`box:dec` / `box:dt` / `box:guid`), and the
+runtime renders the box through the composite engine
+(`icall_stringbuilder_append_o[_w/_f/_wf]`). The composite engine also learned
+the DateTime/Guid FORMAT specifier (net48 applies `IFormattable.ToString(format,
+provider)` in `string.Format` too -- probe-pinned: `string.Format("{0:yyyy}",
+dt)` -> "2020"). e2e: `interp-valtype` (net8 oracle -- the handler is a net6+
+lowering).
+
+### 8d. HMAC Key property + keyless ctor
+
+`HMAC Key` get/set and `HMACSHAx()` were LOUD. Now wired over the net48
+`HMAC.Key` / `InitializeKey` contract: the getter returns a CLONE of the stored
+key; the setter runs InitializeKey (null -> NullReferenceException, a key longer
+than the block size is hashed first, otherwise cloned); the keyless ctor
+generates a random key of the algorithm's block size (64 for SHA-1/256, 128 for
+SHA-384/512). `icall_hmac_ctor` now normalizes the key the same way (so the
+getter reports the normalized key). e2e: `hmac-key`.
+
+### 8e. Convert.ToChar(string) + Convert.ToXxx(string)
+
+The throwing-parse string conversions were LOUD. Now wired to
+`icall_convert_to_char_string` and
+`icall_convert_to_{byte,sbyte,int16,uint16,uint32,uint64,single}_string` with
+the net48 contract: null -> 0 (the Convert "null means zero" rule -- EXCEPT
+`ToChar(string)`, where null -> ArgumentNullException, probe-pinned), malformed
+text -> FormatException, an out-of-range magnitude or a negative input to an
+unsigned target -> OverflowException, and `ToSingle` throws OverflowException
+beyond Single.MaxValue (not a silent Infinity). e2e: `conv-str-parse`.
+
+### 8f. Still LOUD (unchanged, each with a reason)
+
+* `HashAlgorithm.Create(string)` -- depends on machine-level crypto config
+  (CryptoConfig); not statically analyzable from the call site.
+* `TransformBlock` / `TransformFinalBlock` on the hash/HMAC family (v2),
+  `ComputeHash(Stream)` (v2), `Aes` parameterless `CreateEncryptor` /
+  `CreateDecryptor`, RNG named-CSP ctors, `Aes.TransformBlock` (v2).
+* `Convert.ToByte/.../ToSingle` over a `decimal` source, and the
+  `char`-source narrow targets (net48 semantics not pinned).
+* `DefaultInterpolatedStringHandler.AppendFormatted<T>` over a value type OTHER
+  than decimal/DateTime/Guid (the box helper is per-type; the MethodSpec name
+  table would need a further box cast each).

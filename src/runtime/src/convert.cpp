@@ -144,6 +144,71 @@ int64_t ParseInt64Text(Il2CppString* text)
     return v;
 }
 
+// Parse the base-10 MAGNITUDE of a Convert string text into a uint64, with the
+// sign returned separately. net48 Convert.ToXxx(string) grammar: ASCII
+// whitespace trim, optional '+'/'-', decimal digits; malformed text throws
+// FormatException; a magnitude that cannot be represented in uint64 throws
+// OverflowException. Each caller then applies its target range check (the
+// signed/unsigned bound differs per target, and unsigned targets also reject a
+// negative sign with OverflowException). Leading zeros do not count toward the
+// uint64 capacity guard ("000000000000000000042" is two significant digits).
+uint64_t ConvertParseMagnitude(Il2CppString* text, bool& negative)
+{
+    const char16_t* p = text->chars;
+    const char16_t* end = p + text->length;
+    while (p < end && IsConvertWhitespace(*p))
+    {
+        ++p;
+    }
+    negative = false;
+    if (p < end && (*p == u'+' || *p == u'-'))
+    {
+        negative = (*p == u'-');
+        ++p;
+    }
+    const char16_t* digitStart = p;
+    while (p < end && *p >= u'0' && *p <= u'9')
+    {
+        ++p;
+    }
+    const char16_t* trail = p;
+    while (trail < end && IsConvertWhitespace(*trail))
+    {
+        ++trail;
+    }
+    if (digitStart == p || trail != end)
+    {
+        il2cpp_throw_format_exception("Input string was not in a correct format.");
+    }
+    const char16_t* sig = digitStart;
+    while (sig < p && *sig == u'0')
+    {
+        ++sig;
+    }
+    uint64_t acc = 0;
+    for (const char16_t* q = sig; q < p; ++q)
+    {
+        const uint64_t d = static_cast<uint64_t>(*q - u'0');
+        if (acc > (UINT64_MAX - d) / 10ULL)
+        {
+            il2cpp_throw_overflow_exception("Value was either too large or too small.");
+        }
+        acc = acc * 10ULL + d;
+    }
+    return acc;
+}
+
+// Shared range-check helper for the narrow integer string targets: rejects a
+// negative sign and/or a magnitude outside [0, maxMag] with OverflowException
+// (the net48 Convert contract; a null input is handled by each icall).
+void ConvertThrowRangeUnsigned(uint64_t mag, bool negative, uint64_t maxMag)
+{
+    if (negative || mag > maxMag)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small.");
+    }
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -308,6 +373,128 @@ int64_t icall_convert_to_int64_string(Il2CppString* value)
         return 0;
     }
     return ParseInt64Text(value);
+}
+
+// Convert.ToByte(string): null -> 0 (Convert null semantics), otherwise
+// byte.Parse -- grammar/overflow semantics of ConvertParseMagnitude over [0, 255].
+int32_t icall_convert_to_byte_string(Il2CppString* value)
+{
+    if (value == nullptr)
+    {
+        return 0;
+    }
+    bool negative = false;
+    const uint64_t mag = ConvertParseMagnitude(value, negative);
+    ConvertThrowRangeUnsigned(mag, negative, 255ULL);
+    return static_cast<int32_t>(mag);
+}
+
+// Convert.ToSByte(string): [-128, 127].
+int32_t icall_convert_to_sbyte_string(Il2CppString* value)
+{
+    if (value == nullptr)
+    {
+        return 0;
+    }
+    bool negative = false;
+    const uint64_t mag = ConvertParseMagnitude(value, negative);
+    if (negative ? mag > 128ULL : mag > 127ULL)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a SByte.");
+    }
+    return negative ? -static_cast<int32_t>(mag) : static_cast<int32_t>(mag);
+}
+
+// Convert.ToInt16(string): [-32768, 32767].
+int32_t icall_convert_to_int16_string(Il2CppString* value)
+{
+    if (value == nullptr)
+    {
+        return 0;
+    }
+    bool negative = false;
+    const uint64_t mag = ConvertParseMagnitude(value, negative);
+    if (negative ? mag > 32768ULL : mag > 32767ULL)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for an Int16.");
+    }
+    return negative ? -static_cast<int32_t>(mag) : static_cast<int32_t>(mag);
+}
+
+// Convert.ToUInt16(string): [0, 65535].
+int32_t icall_convert_to_uint16_string(Il2CppString* value)
+{
+    if (value == nullptr)
+    {
+        return 0;
+    }
+    bool negative = false;
+    const uint64_t mag = ConvertParseMagnitude(value, negative);
+    ConvertThrowRangeUnsigned(mag, negative, 65535ULL);
+    return static_cast<int32_t>(mag);
+}
+
+// Convert.ToUInt32(string): [0, 2^32).
+uint32_t icall_convert_to_uint32_string(Il2CppString* value)
+{
+    if (value == nullptr)
+    {
+        return 0;
+    }
+    bool negative = false;
+    const uint64_t mag = ConvertParseMagnitude(value, negative);
+    ConvertThrowRangeUnsigned(mag, negative, 4294967295ULL);
+    return static_cast<uint32_t>(mag);
+}
+
+// Convert.ToUInt64(string): [0, 2^64). A null input yields 0.
+uint64_t icall_convert_to_uint64_string(Il2CppString* value)
+{
+    if (value == nullptr)
+    {
+        return 0;
+    }
+    bool negative = false;
+    const uint64_t mag = ConvertParseMagnitude(value, negative);
+    ConvertThrowRangeUnsigned(mag, negative, UINT64_MAX);
+    return mag;
+}
+
+// Convert.ToSingle(string): null -> 0f, otherwise float.Parse over the
+// double-parse grammar; a magnitude beyond Single.MaxValue throws
+// OverflowException (net48: NOT a silent Infinity). NaN is legal.
+float icall_convert_to_single_string(Il2CppString* value)
+{
+    if (value == nullptr)
+    {
+        return 0.0f;
+    }
+    const double d = icall_string_parse_double(value);
+    if (!std::isnan(d))
+    {
+        const double fMax = static_cast<double>(3.4028234663852886e38);
+        if (d > fMax || d < -fMax)
+        {
+            il2cpp_throw_overflow_exception("Value was either too large or too small for a Single.");
+        }
+    }
+    return static_cast<float>(d);
+}
+
+// Convert.ToChar(string): null -> ArgumentNullException (net48 contract --
+// Convert's "null means zero" rule does NOT apply to the char target); a text
+// that is not exactly one UTF-16 unit -> FormatException; otherwise the unit.
+int32_t icall_convert_to_char_string(Il2CppString* value)
+{
+    if (value == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("value");
+    }
+    if (value->length != 1)
+    {
+        il2cpp_throw_format_exception("String must be exactly one character long.");
+    }
+    return value->chars[0];
 }
 
 //------------------------------------------------------------------------------

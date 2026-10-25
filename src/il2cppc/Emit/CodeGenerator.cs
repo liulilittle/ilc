@@ -11253,6 +11253,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "box:i" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
                     ? code
                     : $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({code}))",
+                // P25h: the DefaultInterpolatedStringHandler.AppendFormatted<T>
+                // value-type (0x11) forms -- the value slot is boxed through the
+                // matching BCL box helper (the composite engine renders the box):
+                //   box:dec -> System.Decimal (16-byte payload, by address)
+                //   box:dt  -> System.DateTime (8-byte payload, by value)
+                //   box:guid-> System.Guid (16-byte payload, by address)
+                "box:dec" => $"il2cpp::runtime::icall_box_decimal(&({code}))",
+                "box:dt" => $"il2cpp::runtime::icall_box_date_time({code})",
+                "box:guid" => $"il2cpp::runtime::icall_box_guid(&({code}))",
                 // Value-type tuple KEY box (Dictionary`2 / HashSet`1 tuple key):
                 // box the tuple struct into a GC carrier whose payload holds the
                 // struct bytes; the runtime reads the payload structurally (the

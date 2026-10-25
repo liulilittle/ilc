@@ -94,17 +94,31 @@ public class MethodMapStringBuilderTests
     }
 
     [Fact]
-    public void Resolve_AppendFormat_FormatProviderOverload_ThrowsLoud()
+    public void Resolve_AppendFormat_FormatProviderOneArg_MapsToProvider1Icall()
     {
         // (IFormatProvider, string, object) -- ps[0] is a CLASS, not string.
         // Hand-built blob: the CLASS param (0x12) consumes its TypeRef coded
         // index (0x05 = the synthetic PE's single TypeRef row), so the param
         // count is 3, not 4 (the Sig helper cannot express this).
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendFormat",
-                new byte[] { 0x00, 0x03, 0x1C, 0x12, 0x05, 0x0E, 0x1C }), "AppendFormat"));
+        var resolved = ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendFormat",
+            new byte[] { 0x00, 0x03, 0x1C, 0x12, 0x05, 0x0E, 0x1C }), "AppendFormat");
 
-        Assert.Contains("System.Text.StringBuilder::AppendFormat", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_format_1_provider", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal("System.Text.StringBuilder", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_AppendFormat_FormatProviderThreeArgs_MapsToProvider3Icall()
+    {
+        // (IFormatProvider, string, object, object, object): the three-arg
+        // provider form (the Sig helper cannot express the CLASS param, so the
+        // blob is hand-built: 0x12 + TypeRef index 0x05, string, 3 objects).
+        var resolved = ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendFormat",
+            new byte[] { 0x00, 0x05, 0x1C, 0x12, 0x05, 0x0E, 0x1C, 0x1C, 0x1C }), "AppendFormat");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_format_3_provider", resolved.CppName);
+        Assert.Equal(5, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------
@@ -214,6 +228,49 @@ public class MethodMapStringBuilderTests
         Assert.Equal("System.String", resolved.ReturnTypeName);
     }
 
+    // P25h: the generic VALUE-type AppendFormatted forms (decimal) -- the
+    // MethodSpec carries the VALUETYPE arg; the generic-arg NAME table names
+    // System.Decimal, so the resolver boxes the value slot and routes to the
+    // boxed-object append icall (the composite engine renders the box).
+    [Fact]
+    public void Resolve_HandlerAppendFormatted_DecimalOneArg_MapsToBoxedAppendO()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", "AppendFormatted",
+            new byte[] { 0x00, 0x01, 0x1C, 0x1E, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x11, 0x09 },
+            "System", "Decimal"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_o", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_HandlerAppendFormatted_DecimalWidth_MapsToBoxedAppendOW()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", "AppendFormatted",
+            new byte[] { 0x00, 0x02, 0x1C, 0x1E, 0x00, 0x08 },
+            new byte[] { 0x0A, 0x01, 0x11, 0x09 },
+            "System", "Decimal"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_o_w", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_HandlerAppendFormatted_DecimalWidthFormat_MapsToBoxedAppendOWF()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", "AppendFormatted",
+            new byte[] { 0x00, 0x03, 0x1C, 0x1E, 0x00, 0x08, 0x0E },
+            new byte[] { 0x0A, 0x01, 0x11, 0x09 },
+            "System", "Decimal"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_o_wf", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+    }
+
     //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same harness as the other
     // MethodMapTests: real ECMA-335 assembly whose only MemberReference is
@@ -270,5 +327,32 @@ public class MethodMapStringBuilderTests
         var blob = new BlobBuilder();
         peBuilder.Serialize(blob);
         return new MemoryStream(blob.ToArray());
+    }
+
+    // Resolve a MethodSpecification token (the generic-instantiation call shape).
+    private static ResolvedMethod ResolveMethodSpec(MemoryStream pe)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var token = MetadataTokens.GetToken(MetadataTokens.MethodSpecificationHandle(1));
+        return MethodRefResolver.Resolve(md, token, Array.Empty<TypeDef>(), null, false, null, null);
+    }
+
+    // MemberReference + MethodSpecification. The generic signature names a
+    // SECOND TypeRef (row 2 -> coded index 0x09) so GenericArgFullNames can
+    // resolve the closed value-type name (e.g. System.Decimal).
+    private static MemoryStream SynthesizeGeneric(string ns, string typeName, string memberName,
+        byte[] memberRefSignature, byte[] genericSignature, string genArgNs, string genArgName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString(genArgNs), mdb.GetOrAddString(genArgName));
+        var memberRef = mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(memberRefSignature));
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
+        return Serialize(mdb);
     }
 }

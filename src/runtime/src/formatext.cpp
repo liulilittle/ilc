@@ -39,6 +39,8 @@
 #include "il2cpp_metadata.h"      // Il2CppClass (boxed-klass dispatch)
 #include "il2cpp_value_semantics.h" // icall_object_to_string (composite fallback)
 #include "decimal_format.h"        // icall_decimal_to_string_custom (boxed decimal)
+#include "il2cpp_time_ext.h"       // icall_datetime_to_string_format (boxed DateTime)
+#include "guid.h"                  // il2cpp_guid_to_string_format (boxed Guid)
 
 #include <cmath>
 #include <cstdint>
@@ -1962,6 +1964,28 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
                 v = raw & (wide16 ? 0xFFFF : 0xFF);
             text = reinterpret_cast<Il2CppString*>(
                 icall_format_narrow_custom(v, format, provider, wide16 ? 0xFFFF : 0xFF));
+        }
+        else if (name != nullptr && std::strcmp(name, "System.DateTime") == 0)
+        {
+            // net48 composite formatting applies the format specifier through
+            // IFormattable (DateTime.ToString(format, provider)); the plain
+            // ToString is the no-format path. The box payload sits at byte
+            // offset 8 (the valuesemantics.cpp box contract).
+            Il2CppDateTime v;
+            std::memcpy(&v, reinterpret_cast<const char*>(boxed) + 8, sizeof(v));
+            text = reinterpret_cast<Il2CppString*>(
+                format != nullptr
+                    ? icall_datetime_to_string_format(v, format, provider)
+                    : icall_datetime_to_string(v));
+        }
+        else if (name != nullptr && std::strcmp(name, "System.Guid") == 0)
+        {
+            // Guid.ToString(format): the format specifier is honored (net48).
+            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(boxed) + 8;
+            text = reinterpret_cast<Il2CppString*>(
+                format != nullptr
+                    ? il2cpp_guid_to_string_format(bytes, reinterpret_cast<Il2CppString*>(format))
+                    : il2cpp_guid_to_string(bytes));
         }
         else
         {

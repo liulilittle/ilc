@@ -278,8 +278,11 @@ public static partial class MethodRefResolver
                             // net48 InvalidCastException ALWAYS (unsupported).
                             0x02 => throw new NotSupportedException("Convert.ToChar(bool) throws InvalidCastException on net48 and no existing icall raises it"),
                             0x0C or 0x0D => throw new NotSupportedException("Convert.ToChar(float/double) throws InvalidCastException on net48 and no existing icall raises it"),
-                            // NEEDS-NEW: null -> '\\0', length != 1 -> FormatException.
-                            0x0E => throw new NotSupportedException("Convert.ToChar(string) needs a new icall (null -> '\\0', single-char else FormatException)"),
+                            // Convert.ToChar(string): null -> ArgumentNullException (the
+                            // Convert null-means-zero rule does NOT extend to the char
+                            // target -- net48 probe-pinned), a text that is not exactly
+                            // one UTF-16 unit -> FormatException, otherwise the unit.
+                            0x0E => I("il2cpp::runtime::icall_convert_to_char_string", 1, true, false, false, new[] { "s" }),
                             _ => throw new NotSupportedException($"Convert.ToChar param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
                         };
                     default: return null;

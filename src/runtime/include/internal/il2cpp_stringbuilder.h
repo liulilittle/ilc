@@ -302,6 +302,15 @@ Il2CppObject* icall_stringbuilder_append_format(Il2CppObject* self, Il2CppObject
 // String.Format(provider, ...)). See _1.
 Il2CppObject* icall_stringbuilder_append_format_2_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
 
+// AppendFormat(IFormatProvider provider, string format, object arg0) -- the
+// provider-prefixed 1-argument form (net48). See _2_provider.
+Il2CppObject* icall_stringbuilder_append_format_1_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0);
+
+// AppendFormat(IFormatProvider provider, string format, object arg0, object
+// arg1, object arg2) -- the provider-prefixed 3-argument form (net48). See
+// _2_provider.
+Il2CppObject* icall_stringbuilder_append_format_3_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
+
 // AppendFormat(IFormatProvider provider, string format, params object[] args)
 // -- the provider-prefixed params form (net48). A null ARRAY ->
 // ArgumentNullException("args"). See _1.
@@ -531,6 +540,14 @@ Il2CppObject* icall_stringbuilder_append_c_wf(Il2CppObject* self, int32_t utf16,
 Il2CppObject* icall_stringbuilder_append_s_w(Il2CppObject* self, Il2CppObject* value, int32_t width);
 Il2CppObject* icall_stringbuilder_append_s_f(Il2CppObject* self, Il2CppObject* value, Il2CppObject* format);
 Il2CppObject* icall_stringbuilder_append_s_wf(Il2CppObject* self, Il2CppObject* value, int32_t width, Il2CppObject* format);
+
+// AppendFormatted<T> alignment/format overloads for a BOXED value type
+// (decimal / DateTime / Guid) -- the DefaultInterpolatedStringHandler value
+// forms the transpiler cannot express as a primitive slot (P25h). The value
+// arrives boxed; the composite engine renders it. See _i_w/_i_f/_i_wf.
+Il2CppObject* icall_stringbuilder_append_o_w(Il2CppObject* self, Il2CppObject* value, int32_t width);
+Il2CppObject* icall_stringbuilder_append_o_f(Il2CppObject* self, Il2CppObject* value, Il2CppObject* format);
+Il2CppObject* icall_stringbuilder_append_o_wf(Il2CppObject* self, Il2CppObject* value, int32_t width, Il2CppObject* format);
 
 } // namespace runtime
 

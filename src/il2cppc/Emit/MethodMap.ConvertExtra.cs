@@ -33,8 +33,9 @@ namespace Il2Cpp.Transpiler.Emit;
 //     silently different results (Convert.ToByte(3.5) == 4, truncation == 3).
 //     Needs new rounding-aware icalls (needs-new list in
 //     tmp/reports/edit_convert.md).
-//   * string sources: only TryParse-contract (no-throw) parsers exist; the
-//     Convert overloads need throwing parsers with the null-means-zero rule.
+//   * string sources: NOW WIRED (batch 5) -- the throwing parse icalls
+//     icall_convert_to_{byte,sbyte,int16,uint16,uint32,uint64,single}_string
+//     with the null-means-zero rule (conv-str-parse e2e).
 //   * decimal sources: no decimal converter exists at all (and
 //     icall_decimal_to_int32 TRUNCATES -- the explicit-cast semantics, not
 //     Convert's banker's rounding).
@@ -88,9 +89,9 @@ public static partial class MethodRefResolver
                     // (net48 rounds half-to-even first; the ovf_*_d truncate).
                     // Float rides the double slot ("d", the ToInt32 precedent).
                     0x0C or 0x0D => I($"il2cpp::runtime::icall_convert_to_{dName}_d", 1, true, false, false, new[] { "d" }),
-                    // NEEDS-NEW: throwing parser with the null-means-zero rule
-                    // (only the no-throw Byte.TryParse-contract helper exists).
-                    0x0E => throw new NotSupportedException($"Convert.{name}(string) needs a throwing parse icall with the null-means-zero rule (only the TryParse-contract helper exists)"),
+                    // Convert.ToXxx(string): the throwing parse icall with the
+                    // null-means-zero rule (conv-str-parse e2e).
+                    0x0E => I($"il2cpp::runtime::icall_convert_to_{dName}_string", 1, true, false, false, new[] { "s" }),
                     _ => throw new NotSupportedException($"Convert.{name} param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
                 };
             }
@@ -121,7 +122,7 @@ public static partial class MethodRefResolver
                     // T1 parity: rounding-aware icall_convert_to_uint32_d
                     // (ovf_u4_d truncates; net48 rounds half-to-even first).
                     0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_uint32_d", 1, true, false, false, new[] { "d" }),
-                    0x0E => throw new NotSupportedException("Convert.ToUInt32(string) needs a throwing parse icall with the null-means-zero rule (no uint parser exists at all)"),
+                    0x0E => I("il2cpp::runtime::icall_convert_to_uint32_string", 1, true, false, false, new[] { "s" }),
                     _ => throw new NotSupportedException($"Convert.ToUInt32 param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
@@ -150,7 +151,7 @@ public static partial class MethodRefResolver
                     // T1 parity: rounding-aware icall_convert_to_uint64_d ("l"
                     // carries the uint64 slot, the ovf_u8 precedent).
                     0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_uint64_d", 1, true, false, false, new[] { "d" }, "l"),
-                    0x0E => throw new NotSupportedException("Convert.ToUInt64(string) needs a throwing parse icall with the null-means-zero rule (no ulong parser exists at all)"),
+                    0x0E => I("il2cpp::runtime::icall_convert_to_uint64_string", 1, true, false, false, new[] { "s" }, "l"),
                     _ => throw new NotSupportedException($"Convert.ToUInt64 param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
@@ -186,7 +187,7 @@ public static partial class MethodRefResolver
                     0x11 => I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, false, new[] { "dec" }, "d"),
                     // net48 InvalidCastException ALWAYS (unsupported).
                     0x02 or 0x03 => throw new NotSupportedException($"Convert.ToSingle({(ps[0] == 0x02 ? "bool" : "char")}) throws InvalidCastException on net48 and no existing icall raises it"),
-                    0x0E => throw new NotSupportedException("Convert.ToSingle(string) needs a throwing float-parse icall with the null-means-zero rule (no float parser exists)"),
+                    0x0E => I("il2cpp::runtime::icall_convert_to_single_string", 1, true, false, false, new[] { "s" }, "d"),
                     _ => throw new NotSupportedException($"Convert.ToSingle param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }

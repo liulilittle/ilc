@@ -176,6 +176,36 @@ const il2cpp::runtime::Il2CppHmacHash* HmacDescriptorOf(const il2cpp::Il2CppHmac
     return &kIl2CppHmacSha512;
 }
 
+// Clone a managed byte[] (net48's `(byte[]) KeyValue.Clone()` / InitializeKey
+// key clone). A fresh byte[] of the same length with the same payload.
+Il2CppArray* CloneByteArray(const Il2CppArray* src)
+{
+    Il2CppArray* clone = il2cpp_array_new(nullptr, 1, false, src->length);
+    if (src->length > 0)
+    {
+        std::memcpy(clone->data, src->data, static_cast<size_t>(src->length));
+    }
+    return clone;
+}
+
+// net48 HMAC.InitializeKey: a key longer than the algorithm's block size is
+// compressed first (KeyValue = H(key)); otherwise the key is cloned into the
+// slot. The result is stored (a GC reference).
+Il2CppArray* HmacNormalizeKey(const il2cpp::Il2CppHmacObject* obj, const Il2CppArray* key)
+{
+    const il2cpp::runtime::Il2CppHmacHash* desc = HmacDescriptorOf(obj);
+    if (key->length > static_cast<int32_t>(desc->blockSize))
+    {
+        il2cpp::runtime::Il2CppHmacCtx ctx;
+        desc->create(&ctx);
+        desc->update(&ctx, key->data, static_cast<size_t>(key->length));
+        Il2CppArray* hashed = il2cpp_array_new(nullptr, 1, false, static_cast<int32_t>(desc->digestSize));
+        desc->final(&ctx, reinterpret_cast<uint8_t*>(hashed->data));
+        return hashed;
+    }
+    return CloneByteArray(key);
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -415,7 +445,7 @@ void icall_hmac_ctor(Il2CppObject* self, Il2CppArray* key)
         il2cpp_throw_argument_null_exception("key");
     }
     auto* obj = reinterpret_cast<il2cpp::Il2CppHmacObject*>(self);
-    obj->key = key;
+    obj->key = HmacNormalizeKey(obj, key);
     // The context is (re)built on every ComputeHash from the stored key --
     // no state survives between calls (crypto-domain.md section 2.1 HMAC contract).
 }
@@ -439,6 +469,50 @@ void icall_hmac_dispose(Il2CppObject* self)
 {
     // Null the stored key so it becomes collectable (net48 key clearing).
     reinterpret_cast<il2cpp::Il2CppHmacObject*>(self)->key = nullptr;
+}
+
+//------------------------------------------------------------------------------
+// HMAC Key property + the keyless ctor (net48 HMAC.Key / InitializeKey and
+// HMACSHAx() contract).
+//
+//   icall_hmac_get_key(self)      -- the Key getter returns a CLONE of the
+//     stored key (net48 HMAC.Key: `(byte[]) KeyValue.Clone()` -- the identity
+//     is never the stored array).
+//   icall_hmac_set_key(self, key) -- InitializeKey: a null key throws
+//     NullReferenceException (net48 reads value.Length before any guard); a key
+//     longer than the algorithm's block size is compressed first
+//     (KeyValue = H(key)), otherwise it is cloned into the stored slot.
+//   icall_hmac_ctor_default(self) -- the keyless HMACSHAx() ctor: a fresh
+//     CSPRNG key of the algorithm's block size (net48 Utils.GenerateRandom).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_hmac_get_key(Il2CppObject* self)
+{
+    auto* obj = reinterpret_cast<il2cpp::Il2CppHmacObject*>(self);
+    if (obj->key == nullptr)
+    {
+        return nullptr;
+    }
+    return reinterpret_cast<Il2CppObject*>(CloneByteArray(obj->key));
+}
+
+void icall_hmac_set_key(Il2CppObject* self, Il2CppArray* key)
+{
+    auto* obj = reinterpret_cast<il2cpp::Il2CppHmacObject*>(self);
+    // net48 InitializeKey dereferences key.Length before any guard -> NRE.
+    if (key == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    obj->key = HmacNormalizeKey(obj, key);
+}
+
+void icall_hmac_ctor_default(Il2CppObject* self)
+{
+    auto* obj = reinterpret_cast<il2cpp::Il2CppHmacObject*>(self);
+    il2cpp::il2cpp_crypto_register_classes();
+    const il2cpp::runtime::Il2CppHmacHash* desc = HmacDescriptorOf(obj);
+    obj->key = il2cpp_array_new(nullptr, 1, false, static_cast<int32_t>(desc->blockSize));
+    il2cpp_rng_fill(reinterpret_cast<uint8_t*>(obj->key->data), desc->blockSize);
 }
 
 //------------------------------------------------------------------------------

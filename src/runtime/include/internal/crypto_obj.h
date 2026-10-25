@@ -236,11 +236,21 @@ void icall_sha512_dispose(Il2CppObject* self);
 //
 //   icall_hmac_ctor(self, byte[] key) -- new HMACSHAx(key): null key ->
 //     ArgumentNullException; the key is stored as a GC reference field.
+//   icall_hmac_ctor_default(self) -- the keyless HMACSHAx() ctor: a fresh
+//     CSPRNG key of the algorithm's block size (net48 Utils.GenerateRandom).
+//   icall_hmac_get_key(self) / icall_hmac_set_key(self, byte[]) -- the
+//     Key property: the getter returns a CLONE of the stored key (net48
+//     HMAC.Key clones); the setter runs InitializeKey (null ->
+//     NullReferenceException, a key longer than the block size is hashed
+//     first, otherwise it is cloned).
 //   icall_hmac_compute_hash(self, byte[]) -- rebuilds the HMAC context from
 //     the stored key (ipad/opad), feeds the data, returns byte[digestSize].
 //   icall_hmac_dispose(self) -- nulls the stored key (net48 key clearing).
 //------------------------------------------------------------------------------
 void icall_hmac_ctor(Il2CppObject* self, Il2CppArray* key);
+void icall_hmac_ctor_default(Il2CppObject* self);
+Il2CppObject* icall_hmac_get_key(Il2CppObject* self);
+void icall_hmac_set_key(Il2CppObject* self, Il2CppArray* key);
 Il2CppObject* icall_hmac_compute_hash(Il2CppObject* self, Il2CppArray* data);
 void icall_hmac_dispose(Il2CppObject* self);
 

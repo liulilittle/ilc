@@ -226,12 +226,12 @@ public class MethodRefResolverDispatchTests
     }
 
     [Fact]
-    public void Resolve_Convert_ToCharString_ThrowsLoud()
+    public void Resolve_Convert_ToCharString_MapsToCharParseIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Convert", "ToChar", Sig(0x03, 0x0E)), "ToChar"));
+        var resolved = ResolveMember(Synthesize("System", "Convert", "ToChar", Sig(0x03, 0x0E)), "ToChar");
 
-        Assert.Contains("System.Convert::ToChar", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_convert_to_char_string", resolved.CppName);
+        Assert.Equal(new[] { "s" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

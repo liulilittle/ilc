@@ -1104,6 +1104,33 @@ Il2CppObject* icall_stringbuilder_append_format_2_provider(Il2CppObject* self, I
     return self;
 }
 
+// icall_stringbuilder_append_format_1_provider -- AppendFormat(IFormatProvider,
+// string, object): the single-arg provider form (the same composite expansion
+// as _2_provider).
+Il2CppObject* icall_stringbuilder_append_format_1_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&format));
+    Il2CppObject* args[1] = { arg0 };
+    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 1, provider);
+    return self;
+}
+
+// icall_stringbuilder_append_format_3_provider -- AppendFormat(IFormatProvider,
+// string, object, object, object): the three-arg provider form.
+Il2CppObject* icall_stringbuilder_append_format_3_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&format));
+    Il2CppObject* args[3] = { arg0, arg1, arg2 };
+    AppendFormatCore(&self, reinterpret_cast<const Il2CppString*>(format), args, 3, provider);
+    return self;
+}
+
 // icall_stringbuilder_append_format_provider -- AppendFormat(IFormatProvider,
 // string, params object[]) (net48). See icall_string_format_provider.
 Il2CppObject* icall_stringbuilder_append_format_provider(Il2CppObject* self, Il2CppObject* provider, Il2CppObject* format, Il2CppObject* argsArray)
@@ -2359,6 +2386,27 @@ Il2CppObject* icall_stringbuilder_append_s_f(Il2CppObject* self, Il2CppObject* v
     return InterpAppendFormatted(self, value, 0, format);
 }
 Il2CppObject* icall_stringbuilder_append_s_wf(Il2CppObject* self, Il2CppObject* value, int32_t width, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, value, width, format);
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_append_o_w/_f/_wf -- the DefaultInterpolatedStringHandler
+// AppendFormatted<T> ALIGNMENT / FORMAT overloads for a BOXED value type
+// (decimal / DateTime / Guid). The transpiler boxes the value slot; the
+// composite engine (icall_format_composite_item) renders it with the same
+// net48 composite semantics the primitive _w/_f/_wf trios use. A null boxed
+// value renders as the empty string (the net48 composite null rule).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_append_o_w(Il2CppObject* self, Il2CppObject* value, int32_t width)
+{
+    return InterpAppendFormatted(self, value, width, nullptr);
+}
+Il2CppObject* icall_stringbuilder_append_o_f(Il2CppObject* self, Il2CppObject* value, Il2CppObject* format)
+{
+    return InterpAppendFormatted(self, value, 0, format);
+}
+Il2CppObject* icall_stringbuilder_append_o_wf(Il2CppObject* self, Il2CppObject* value, int32_t width, Il2CppObject* format)
 {
     return InterpAppendFormatted(self, value, width, format);
 }

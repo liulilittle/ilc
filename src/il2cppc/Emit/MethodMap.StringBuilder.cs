@@ -139,13 +139,18 @@ public static partial class MethodRefResolver
                 if (ps.Length >= 2 && ps[0] == 0x12 && ps[1] == 0x0E)
                 {
                     // (provider, string) / (provider, string, params object[])
-                    // / (provider, string, object, object).
+                    // / (provider, string, object) / (provider, string, object,
+                    // object) / (provider, string, object, object, object).
                     if (ps.Length == 2)
                         return I("il2cpp::runtime::icall_stringbuilder_append_format_provider", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                     if (ps.Length == 3 && ps[2] == 0x1D)
                         return I("il2cpp::runtime::icall_stringbuilder_append_format_provider", 3, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                    if (ps.Length == 3 && ps[2] == 0x1C)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_format_1_provider", 3, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                     if (ps.Length == 4 && ps[2] == 0x1C && ps[3] == 0x1C)
                         return I("il2cpp::runtime::icall_stringbuilder_append_format_2_provider", 4, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                    if (ps.Length == 5 && ps[2] == 0x1C && ps[3] == 0x1C && ps[4] == 0x1C)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_format_3_provider", 5, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                     throw new NotSupportedException($"StringBuilder.AppendFormat provider signature not wired in M5");
                 }
                 if (count < 2 || ps[0] != 0x0E)
@@ -265,7 +270,7 @@ public static partial class MethodRefResolver
     // builder object), and ToStringAndClear reads the built string.
     //--------------------------------------------------------------------------
     private static ResolvedMethod? TryMapDefaultInterpHandler(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string[]? genArgNames, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {
         switch (name)
         {
@@ -291,6 +296,52 @@ public static partial class MethodRefResolver
                 // dedicated _w / _f / _wf runtime trios (P25g).
                 var vk = genArgs != null && genArgs.Length > 0 ? genArgs[0]
                     : ps.Length > 0 ? ps[0] : (byte)0xFF;
+                // P25h: a generic VALUE type (0x11 -- decimal / DateTime / Guid)
+                // has no primitive slot cast. The MethodSpec generic-arg NAME
+                // table names the closed type, and the transpiler boxes the value
+                // slot through the matching BCL box helper; the runtime composite
+                // engine (icall_format_composite_item) renders the box (the same
+                // net48 composite semantics the primitive _w/_f/_wf trios use).
+                if (vk == 0x11)
+                {
+                    var vtypeName = genArgNames != null && genArgNames.Length > 0 ? genArgNames[0] : null;
+                    var valCast = vtypeName switch
+                    {
+                        "System.Decimal" => "box:dec",
+                        "System.DateTime" => "box:dt",
+                        "System.Guid" => "box:guid",
+                        _ => null,
+                    };
+                    if (valCast == null)
+                        throw new NotSupportedException(
+                            $"DefaultInterpolatedStringHandler.AppendFormatted value type '{vtypeName ?? "0x11"}' not wired in M5");
+                    if (count == 1)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_o", 1, false, false, true,
+                            new[] { "deref:r", valCast });
+                    if (count == 2)
+                    {
+                        var isWidth = ps.Length > 1 && ps[1] == 0x08;
+                        var isFmt = ps.Length > 1 && ps[1] == 0x0E;
+                        if (!isWidth && !isFmt)
+                            throw new NotSupportedException(
+                                $"DefaultInterpolatedStringHandler.AppendFormatted 2-arg signature not wired in M5");
+                        return isWidth
+                            ? I("il2cpp::runtime::icall_stringbuilder_append_o_w", 2, false, false, true,
+                                new[] { "deref:r", valCast, "i" })
+                            : I("il2cpp::runtime::icall_stringbuilder_append_o_f", 2, false, false, true,
+                                new[] { "deref:r", valCast, "" });
+                    }
+                    if (count == 3)
+                    {
+                        if (ps.Length != 3 || ps[1] != 0x08 || ps[2] != 0x0E)
+                            throw new NotSupportedException(
+                                "DefaultInterpolatedStringHandler.AppendFormatted 3-arg signature not wired in M5");
+                        return I("il2cpp::runtime::icall_stringbuilder_append_o_wf", 3, false, false, true,
+                            new[] { "deref:r", valCast, "i", "" });
+                    }
+                    throw new NotSupportedException(
+                        $"DefaultInterpolatedStringHandler.AppendFormatted with {count} arg(s) not wired in M5");
+                }
                 if (count == 1)
                 {
                     return vk switch

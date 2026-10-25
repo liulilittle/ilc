@@ -39,9 +39,9 @@ namespace Il2Cpp.Transpiler.Emit;
 // LOUD rejections (known-but-unwireable members must not be silent, the
 // MethodMap manual convention): TransformBlock/TransformFinalBlock on the
 // hash/HMAC family (v2), ComputeHash(Stream) (v2), HashAlgorithm.Create
-// (CryptoConfig), HMAC Key property access, Aes parameterless
-// CreateEncryptor/CreateDecryptor, RNG named-CSP ctors, Aes.TransformBlock
-// (v2). Everything else falls back to the generated-name path (return null).
+// (CryptoConfig), Aes parameterless CreateEncryptor/CreateDecryptor, RNG
+// named-CSP ctors, Aes.TransformBlock (v2). Everything else falls back to the
+// generated-name path (return null).
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -119,8 +119,21 @@ public static partial class MethodRefResolver
             case "get_IV":
                 if (algo == null) return null;
                 if (algo.StartsWith("hmac-", StringComparison.Ordinal))
-                    throw new NotSupportedException(
-                        "HMAC Key property access is not wired (the key is fixed at construction)");
+                {
+                    // HMAC Key property (net48 HMAC.Key / InitializeKey): the
+                    // getter clones the stored key; the setter runs
+                    // InitializeKey (null -> NRE, > block size -> H(key),
+                    // else clone). HMAC has no IV -- a set_IV/get_IV here is
+                    // unwireable, not silent.
+                    if (name is not ("set_Key" or "get_Key"))
+                        throw new NotSupportedException($"HMAC {name} is not wired (HMAC has no IV)");
+                    return name == "get_Key"
+                        ? I("il2cpp::runtime::icall_hmac_get_key", 0, true, true, true, new[] { "" },
+                            returnTypeName: "System.Byte[]")
+                        : count == 1 && ps[0] == 0x1D
+                            ? I("il2cpp::runtime::icall_hmac_set_key", 1, false, false, true, new[] { "", "a" })
+                            : throw new NotSupportedException($"HMAC {name} overload (arity {count}) not wired");
+                }
                 if (algo != "aes") return null;
                 return name switch
                 {
@@ -256,8 +269,10 @@ public static partial class MethodRefResolver
         {
             if (count == 1 && ps[0] == 0x1D)
                 return I("il2cpp::runtime::icall_hmac_ctor", 1, false, false, true, new[] { "", "a" });
+            // net48 HMACSHAx() : this(Utils.GenerateRandom(BlockSizeValue))
+            // -- a fresh CSPRNG key of the algorithm's block size.
             if (count == 0)
-                throw new NotSupportedException("HMACSHAx() without a key is not wired (net48 requires the key at construction)");
+                return I("il2cpp::runtime::icall_hmac_ctor_default", 0, false, false, true);
             throw new NotSupportedException($"HMACSHAx ctor with {count} param(s) not wired");
         }
         if (count == 0)
