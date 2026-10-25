@@ -37,10 +37,11 @@ namespace Il2Cpp.Transpiler.Emit;
 // (Il2CppObject* -> Il2CppArray*); the runtime extracts the payload.
 //
 // LOUD rejections (known-but-unwireable members must not be silent, the
-// MethodMap manual convention): TransformBlock/TransformFinalBlock on the
-// hash/HMAC family (v2), ComputeHash(Stream) (v2), HashAlgorithm.Create
-// (CryptoConfig), Aes parameterless CreateEncryptor/CreateDecryptor, RNG
-// named-CSP ctors, Aes.TransformBlock (v2). Everything else falls back to the
+// MethodMap manual convention): HashAlgorithm.Create (CryptoConfig) and the
+// RNG CspParameters ctor. The hash family's Hash / Clear / Dispose /
+// Initialize / ComputeHash(Stream) / TransformBlock / TransformFinalBlock, the
+// Aes parameterless CreateEncryptor()/CreateDecryptor() and the RNG
+// string/byte[] ctors are wired. Everything else falls back to the
 // generated-name path (return null).
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
@@ -93,20 +94,40 @@ public static partial class MethodRefResolver
                 };
 
             case "TransformBlock":
+                // The AES transform's streaming entry point arrives under the
+                // ICryptoTransform INTERFACE owner (CreateEncryptor's result is
+                // typed ICryptoTransform in user code).
+                if (owner == "System.Security.Cryptography.ICryptoTransform")
+                    throw new NotSupportedException("Aes incremental block streaming (TransformBlock) is not wired (v2)");
+                // The HASH family implements ICryptoTransform on HashAlgorithm /
+                // KeyedHashAlgorithm (hashalgorithm.cs): TransformBlock feeds the
+                // inline context, sets State=1, copies the input to the output
+                // buffer and returns the input count.
+                if (algo == null) return null;
+                if (algo.StartsWith("hmac-", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_hmac_transform_block", 5, true, true, true,
+                        new[] { "", "a", "i", "i", "a", "i" }, resultKind: "i");
+                if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
+                    return I($"il2cpp::runtime::icall_{algo}_transform_block", 5, true, true, true,
+                        new[] { "", "a", "i", "i", "a", "i" }, resultKind: "i");
+                throw new NotSupportedException($"HashAlgorithm.TransformBlock on '{algo}' not wired");
+
             case "TransformFinalBlock":
-                // The AES transform's streaming entry points arrive under
-                // the ICryptoTransform INTERFACE owner (CreateEncryptor's
-                // result is typed ICryptoTransform in user code).
                 if (owner == "System.Security.Cryptography.ICryptoTransform")
                 {
-                    if (name == "TransformFinalBlock" && count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                    if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                         return I("il2cpp::runtime::icall_aes_transform_final_block", 3, true, true, true,
                             new[] { "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
-                    throw new NotSupportedException("Aes incremental block streaming (TransformBlock) is not wired (v2)");
+                    throw new NotSupportedException("Aes incremental block streaming (TransformFinalBlock) is not wired (v2)");
                 }
                 if (algo == null) return null;
-                throw new NotSupportedException(
-                    "Incremental streaming hashing (TransformBlock/TransformFinalBlock) is not wired (v2)");
+                if (algo.StartsWith("hmac-", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_hmac_transform_final_block", 3, true, true, true,
+                        new[] { "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
+                if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
+                    return I($"il2cpp::runtime::icall_{algo}_transform_final_block", 3, true, true, true,
+                        new[] { "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
+                throw new NotSupportedException($"HashAlgorithm.TransformFinalBlock on '{algo}' not wired");
 
             case "get_HashSize":
                 // HashAlgorithm.HashSize: the digest size in BITS (net48
@@ -117,18 +138,40 @@ public static partial class MethodRefResolver
                     return I($"il2cpp::runtime::icall_{algo}_get_hash_size", 0, true, false, true);
                 return null;
 
+            case "get_Hash":
+                // HashAlgorithm.Hash: the cached last digest (a CLONE). ODE
+                // after Clear()/Dispose(), CryptographicUnexpectedOperationException
+                // mid-stream (State != 0), NRE before the first ComputeHash.
+                if (algo == null) return null;
+                if (algo.StartsWith("hmac-", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_hmac_get_hash", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Byte[]");
+                if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
+                    return I($"il2cpp::runtime::icall_{algo}_get_hash", 0, true, true, true,
+                        new[] { "" }, returnTypeName: "System.Byte[]");
+                return null;
+
             case "Initialize":
-                // HashAlgorithm.Initialize: a no-op here (ComputeHash is
-                // stateless per call -- no streaming state to reset).
+                // HashAlgorithm.Initialize: reset the inline context (net48
+                // Initialize -- the tail of every ComputeHash).
                 if (algo == null) return null;
                 if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
                     return I($"il2cpp::runtime::icall_{algo}_initialize", 0, false, false, true);
                 return null;
 
             case "Clear":
+                // HashAlgorithm.Clear(): (this as IDisposable).Dispose() -- the
+                // net48 disposed flag (a later Hash/ComputeHash/Transform* throws
+                // ObjectDisposedException). SymmetricAlgorithm.Clear() (Aes)
+                // is the same Dispose contract (the CSP handle is closed).
                 if (algo == null) return null;
-                throw new NotSupportedException(
-                    "HashAlgorithm.Clear() not wired (ComputeHash is stateless per call -- dispose/recreate the instance instead)");
+                if (algo.StartsWith("hmac-", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::icall_hmac_clear", 0, false, false, true, new[] { "" });
+                if (algo == "aes")
+                    return I("il2cpp::runtime::icall_aes_dispose", 0, false, false, true, new[] { "" });
+                if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
+                    return I($"il2cpp::runtime::icall_{algo}_clear", 0, false, false, true, new[] { "" });
+                return null;
 
             case "set_Key":
             case "get_Key":
@@ -176,9 +219,15 @@ public static partial class MethodRefResolver
                             : "il2cpp::runtime::icall_aes_create_decryptor",
                         2, true, true, true, new[] { "", "a", "a" },
                         returnTypeName: "System.Security.Cryptography.AesTransform");
+                // net48 SymmetricAlgorithm.CreateEncryptor()/CreateDecryptor()
+                // (parameterless): CreateEncryptor(Key, IV) -- the Key/IV
+                // getters generate a fresh key/IV when unset.
                 if (count == 0)
-                    throw new NotSupportedException(
-                        "CreateEncryptor()/CreateDecryptor() without arguments (stored Key/IV) is not wired -- pass key and iv explicitly");
+                    return I(name == "CreateEncryptor"
+                            ? "il2cpp::runtime::icall_aes_create_encryptor_self"
+                            : "il2cpp::runtime::icall_aes_create_decryptor_self",
+                        0, true, true, true, new[] { "" },
+                        returnTypeName: "System.Security.Cryptography.AesTransform");
                 throw new NotSupportedException($"Aes {name} overload (arity {count}) not wired");
 
             case "GenerateKey":
@@ -278,6 +327,12 @@ public static partial class MethodRefResolver
         if (algo == "rng")
         {
             if (count == 0) return I("il2cpp::runtime::icall_rng_ctor", 0, false, false, true);
+            // net48 RNGCryptoServiceProvider(string) / (byte[]) delegate to
+            // this((CspParameters) null) -- a no-op (the OS CSPRNG is used
+            // regardless of the name; the CspParameters ctor is the unwireable
+            // one). The name argument is dropped.
+            if (count == 1 && (ps[0] == 0x0E || ps[0] == 0x1D))
+                return I("il2cpp::runtime::icall_rng_ctor", 0, false, false, true, new[] { "", "drop" });
             throw new NotSupportedException(
                 "Named-CSP / CspParameters RNGCryptoServiceProvider constructors are not supported");
         }
@@ -307,7 +362,18 @@ public static partial class MethodRefResolver
             return I($"il2cpp::runtime::icall_{algo}_compute_hash_range", 3, true, true, true,
                 new[] { "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
         if (count == 1 && ps[0] == 0x12)
-            throw new NotSupportedException("ComputeHash(Stream) is not wired (v2 -- requires a streaming read loop)");
+        {
+            // ComputeHash(Stream): the 4096-byte chunked read loop (net48).
+            // The Stream is a reference type -- the "" cast passes it as an
+            // Il2CppObject* (the runtime resolves the backend through the handle).
+            if (algo.StartsWith("hmac-", StringComparison.Ordinal))
+                return I("il2cpp::runtime::icall_hmac_compute_hash_stream", 1, true, true, true,
+                    new[] { "", "" }, returnTypeName: "System.Byte[]");
+            if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
+                return I($"il2cpp::runtime::icall_{algo}_compute_hash_stream", 1, true, true, true,
+                    new[] { "", "" }, returnTypeName: "System.Byte[]");
+            throw new NotSupportedException($"ComputeHash(Stream) on '{algo}' not wired");
+        }
         throw new NotSupportedException(
             $"ComputeHash overload (arity {count}, param 0x{(count > 0 ? ps[0] : 0):X2}) not wired");
     }

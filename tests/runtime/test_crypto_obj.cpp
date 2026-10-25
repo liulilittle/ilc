@@ -43,6 +43,7 @@
 #include "il2cpp_array.h"
 #include "il2cpp_exception.h"
 #include "il2cpp_runtime.h"
+#include "il2cpp_streamio.h" // il2cpp_stream_memory_from_bytes (ComputeHash(Stream))
 #include "stubs.h" // crypto/x509 LOUD stubs (parity-T7 section below)
 
 #include <cstdint>
@@ -253,7 +254,12 @@ void RunHmacObjTests(const HmacObjSpec& s, const char* what)
     auto* obj = reinterpret_cast<il2cpp::Il2CppHmacObject*>(
         il2cpp_object_new(s.klass));
     il2cpp::runtime::icall_hmac_ctor(reinterpret_cast<Il2CppObject*>(obj), key);
-    Expect(obj->key == key, what);
+    // net48 HMAC.InitializeKey clones the key (the stored slot is never the
+    // caller's array) -- batch 5 introduced the clone; the assertion now pins
+    // the clone (identity) + the payload.
+    Expect(obj->key != key, what);
+    Expect(obj->key->length == key->length &&
+           std::memcmp(obj->key->data, key->data, static_cast<size_t>(key->length)) == 0, what);
 
     Il2CppArray* m1 = AsBytes(il2cpp::runtime::icall_hmac_compute_hash(
         reinterpret_cast<Il2CppObject*>(obj), hiThere), s.digestLen, what);
@@ -310,6 +316,100 @@ void AesRoundTrip(const char* keyHex, const char* ivHex, const uint8_t* plain,
     }
 
     il2cpp::runtime::icall_aes_dispose(aes);
+}
+
+//------------------------------------------------------------------------------
+// HashAlgorithm.Hash / Clear / Transform* / ComputeHash(Stream) surface spec
+// (batch 6 -- the net48 HashAlgorithm object contract).
+//------------------------------------------------------------------------------
+struct HashSurfaceSpec
+{
+    Il2CppObject* (*create)();
+    Il2CppObject* (*compute)(Il2CppObject*, Il2CppArray*);
+    Il2CppObject* (*getHash)(Il2CppObject*);
+    void (*clear)(Il2CppObject*);
+    int32_t (*transformBlock)(Il2CppObject*, Il2CppArray*, int32_t, int32_t, Il2CppArray*, int32_t);
+    Il2CppObject* (*transformFinalBlock)(Il2CppObject*, Il2CppArray*, int32_t, int32_t);
+    Il2CppObject* (*computeStream)(Il2CppObject*, Il2CppObject*);
+    int32_t digestLen;
+    const char* abcHex;
+};
+
+void RunHashSurfaceTests(const HashSurfaceSpec& s, const char* what)
+{
+    Il2CppObject* obj = s.create();
+    Expect(obj != nullptr, what);
+
+    // Hash before any ComputeHash -> NullReferenceException (HashValue null).
+    Expect(ThrowsExactType([&]() { s.getHash(obj); }, "System.NullReferenceException"), what);
+
+    // ComputeHash caches the digest; Hash returns a CLONE (a fresh array).
+    Il2CppArray* abc = MakeBytes("616263"); // "abc"
+    Il2CppArray* d = AsBytes(s.compute(obj, abc), s.digestLen, what);
+    ExpectHex(reinterpret_cast<uint8_t*>(d->data), s.digestLen, s.abcHex, what);
+    Il2CppObject* h1 = s.getHash(obj);
+    Il2CppObject* h2 = s.getHash(obj);
+    Expect(h1 != h2, what); // a clone each time (never the cached identity)
+    Il2CppArray* ha = AsBytes(h1, s.digestLen, what);
+    ExpectHex(reinterpret_cast<uint8_t*>(ha->data), s.digestLen, s.abcHex, what);
+
+    // TransformBlock -> state != 0 -> Hash throws CryptographicUnexpectedOperationException.
+    Il2CppArray* part1 = MakeBytes("6162"); // "ab"
+    uint8_t outBuf[2] = {0, 0};
+    Il2CppArray* out1 = MakeBytes(outBuf, 2);
+    int32_t n = s.transformBlock(obj, part1, 0, 2, out1, 0);
+    Expect(n == 2, what);
+    ExpectHex(reinterpret_cast<uint8_t*>(out1->data), 2, "6162", what); // input copied to output
+    Expect(ThrowsExactType([&]() { s.getHash(obj); },
+                           "System.Security.Cryptography.CryptographicUnexpectedOperationException"), what);
+
+    // TransformFinalBlock finalizes: the digest of "abc", and the returned
+    // array is a COPY of the input (not the digest).
+    Il2CppArray* part2 = MakeBytes("63"); // "c"
+    Il2CppArray* fin = AsBytes(s.transformFinalBlock(obj, part2, 0, 1), 1, what);
+    ExpectHex(reinterpret_cast<uint8_t*>(fin->data), 1, "63", what);
+    Il2CppArray* h3 = AsBytes(s.getHash(obj), s.digestLen, what);
+    ExpectHex(reinterpret_cast<uint8_t*>(h3->data), s.digestLen, s.abcHex, what);
+
+    // Clear -> disposed: Hash/ComputeHash/Transform* all throw ODE.
+    s.clear(obj);
+    Expect(ThrowsExactType([&]() { s.getHash(obj); }, "System.ObjectDisposedException"), what);
+    Expect(ThrowsExactType([&]() { s.compute(obj, abc); }, "System.ObjectDisposedException"), what);
+    Expect(ThrowsExactType([&]() { s.transformFinalBlock(obj, part2, 0, 1); },
+                           "System.ObjectDisposedException"), what);
+}
+
+//------------------------------------------------------------------------------
+// Aes parameterless CreateEncryptor/Decryptor + the disposed flag (batch 6).
+//------------------------------------------------------------------------------
+void RunAesSelfCtorTests()
+{
+    il2cpp::Il2CppClass* aesClass = &System_Security_Cryptography_Aes_class;
+    Il2CppObject* aes = il2cpp::runtime::icall_aes_create();
+    Expect(aes->klass == aesClass, "Aes.Create klass");
+
+    // The parameterless CreateEncryptor/Decryptor auto-generate Key/IV.
+    Il2CppObject* enc = il2cpp::runtime::icall_aes_create_encryptor_self(aes);
+    Il2CppObject* dec = il2cpp::runtime::icall_aes_create_decryptor_self(aes);
+    Expect(enc != nullptr && dec != nullptr, "Aes self CreateEncryptor/Decryptor");
+
+    uint8_t plain[14];
+    for (int i = 0; i < 14; ++i) plain[i] = static_cast<uint8_t>('a' + i);
+    Il2CppArray* input = MakeBytes(plain, 14);
+            Il2CppArray* ct = AsBytes(il2cpp::runtime::icall_aes_transform_final_block(enc, input, 0, 14), 16,
+                                      "Aes self encrypt length");
+    Il2CppArray* back = AsBytes(il2cpp::runtime::icall_aes_transform_final_block(dec, ct, 0, 16), 14,
+                                "Aes self decrypt length");
+    Expect(std::memcmp(back->data, plain, 14) == 0, "Aes self round trip");
+
+    // Clear -> disposed: CreateEncryptor/Key throw ODE.
+    il2cpp::runtime::icall_aes_dispose(aes);
+    Expect(ThrowsType([&]() { il2cpp::runtime::icall_aes_create_encryptor_self(aes); },
+                      "System.ObjectDisposedException"),
+           "Aes disposed CreateEncryptor -> ODE");
+    Expect(ThrowsType([&]() { il2cpp::runtime::icall_aes_get_key(aes); },
+                      "System.ObjectDisposedException"),
+           "Aes disposed Key -> ODE");
 }
 
 } // namespace
@@ -573,6 +673,124 @@ int main()
                "RNG Fill(null) -> ArgumentNullException");
         il2cpp::runtime::icall_rng_dispose(reinterpret_cast<Il2CppObject*>(rng));
     }
+
+    // --- 5. HashAlgorithm.Hash / Clear / Transform* / ComputeHash(Stream) ---
+    {
+        const HashSurfaceSpec md5 = {
+            &il2cpp::runtime::icall_md5_create,
+            &il2cpp::runtime::icall_md5_compute_hash,
+            &il2cpp::runtime::icall_md5_get_hash,
+            &il2cpp::runtime::icall_md5_clear,
+            &il2cpp::runtime::icall_md5_transform_block,
+            &il2cpp::runtime::icall_md5_transform_final_block,
+            &il2cpp::runtime::icall_md5_compute_hash_stream,
+            16,
+            "900150983cd24fb0d6963f7d28e17f72",
+        };
+        RunHashSurfaceTests(md5, "MD5 Hash surface");
+
+        const HashSurfaceSpec sha1 = {
+            &il2cpp::runtime::icall_sha1_create,
+            &il2cpp::runtime::icall_sha1_compute_hash,
+            &il2cpp::runtime::icall_sha1_get_hash,
+            &il2cpp::runtime::icall_sha1_clear,
+            &il2cpp::runtime::icall_sha1_transform_block,
+            &il2cpp::runtime::icall_sha1_transform_final_block,
+            &il2cpp::runtime::icall_sha1_compute_hash_stream,
+            20,
+            "a9993e364706816aba3e25717850c26c9cd0d89d",
+        };
+        RunHashSurfaceTests(sha1, "SHA1 Hash surface");
+
+        const HashSurfaceSpec sha256 = {
+            &il2cpp::runtime::icall_sha256_create,
+            &il2cpp::runtime::icall_sha256_compute_hash,
+            &il2cpp::runtime::icall_sha256_get_hash,
+            &il2cpp::runtime::icall_sha256_clear,
+            &il2cpp::runtime::icall_sha256_transform_block,
+            &il2cpp::runtime::icall_sha256_transform_final_block,
+            &il2cpp::runtime::icall_sha256_compute_hash_stream,
+            32,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        };
+        RunHashSurfaceTests(sha256, "SHA256 Hash surface");
+
+        const HashSurfaceSpec sha384 = {
+            &il2cpp::runtime::icall_sha384_create,
+            &il2cpp::runtime::icall_sha384_compute_hash,
+            &il2cpp::runtime::icall_sha384_get_hash,
+            &il2cpp::runtime::icall_sha384_clear,
+            &il2cpp::runtime::icall_sha384_transform_block,
+            &il2cpp::runtime::icall_sha384_transform_final_block,
+            &il2cpp::runtime::icall_sha384_compute_hash_stream,
+            48,
+            "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed"
+            "8086072ba1e7cc2358baeca134c825a7",
+        };
+        RunHashSurfaceTests(sha384, "SHA384 Hash surface");
+
+        const HashSurfaceSpec sha512 = {
+            &il2cpp::runtime::icall_sha512_create,
+            &il2cpp::runtime::icall_sha512_compute_hash,
+            &il2cpp::runtime::icall_sha512_get_hash,
+            &il2cpp::runtime::icall_sha512_clear,
+            &il2cpp::runtime::icall_sha512_transform_block,
+            &il2cpp::runtime::icall_sha512_transform_final_block,
+            &il2cpp::runtime::icall_sha512_compute_hash_stream,
+            64,
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2"
+            "192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+        };
+        RunHashSurfaceTests(sha512, "SHA512 Hash surface");
+
+        // ComputeHash(Stream): the 4096-byte chunked read loop.
+        {
+            const uint8_t streamData[] = "hello world";
+            Il2CppObject* stream = il2cpp::runtime::il2cpp_stream_memory_from_bytes(
+                streamData, static_cast<int32_t>(sizeof(streamData) - 1));
+            Il2CppObject* sha = il2cpp::runtime::icall_sha1_create();
+            Il2CppArray* digest = AsBytes(
+                il2cpp::runtime::icall_sha1_compute_hash_stream(sha, stream), 20,
+                "SHA1 ComputeHash(Stream) length");
+            ExpectHex(reinterpret_cast<uint8_t*>(digest->data), 20,
+                      "2aae6c35c94fcfb415dbe95f408b9ce91ee846ed",
+                      "SHA1 ComputeHash(Stream) digest");
+        }
+    }
+
+    // --- 6. HMAC Hash getter + Clear (KeyedHashAlgorithm) ---
+    {
+        il2cpp::Il2CppClass* hmacClass = &System_Security_Cryptography_HMACSHA256_class;
+        uint8_t keyBuf[3] = {'k', 'e', 'y'};
+        Il2CppArray* key = MakeBytes(keyBuf, 3);
+        auto* obj = reinterpret_cast<il2cpp::Il2CppHmacObject*>(il2cpp_object_new(hmacClass));
+        il2cpp::runtime::icall_hmac_ctor(reinterpret_cast<Il2CppObject*>(obj), key);
+
+        Expect(ThrowsExactType([&]() {
+                    il2cpp::runtime::icall_hmac_get_hash(reinterpret_cast<Il2CppObject*>(obj));
+                }, "System.NullReferenceException"),
+               "HMAC Hash before compute -> NRE");
+
+        Il2CppArray* abc = MakeBytes("616263");
+        il2cpp::runtime::icall_hmac_compute_hash(reinterpret_cast<Il2CppObject*>(obj), abc);
+        Il2CppArray* h1 = AsBytes(
+            il2cpp::runtime::icall_hmac_get_hash(reinterpret_cast<Il2CppObject*>(obj)), 32,
+            "HMAC Hash length");
+        Il2CppArray* h2 = AsBytes(
+            il2cpp::runtime::icall_hmac_get_hash(reinterpret_cast<Il2CppObject*>(obj)), 32,
+            "HMAC Hash clone length");
+        Expect(h1 != h2, "HMAC Hash returns a clone");
+        Expect(std::memcmp(h1->data, h2->data, 32) == 0, "HMAC Hash clone payload");
+
+        il2cpp::runtime::icall_hmac_clear(reinterpret_cast<Il2CppObject*>(obj));
+        Expect(ThrowsExactType([&]() {
+                    il2cpp::runtime::icall_hmac_get_hash(reinterpret_cast<Il2CppObject*>(obj));
+                }, "System.ObjectDisposedException"),
+               "HMAC Hash after Clear -> ODE");
+    }
+
+    // --- 7. Aes parameterless CreateEncryptor/Decryptor + disposed ---
+    RunAesSelfCtorTests();
 
     // --- T7. Crypto/X509 object stubs are LOUD (parity-T7): the CSP/X509
     // models do not exist, so every object-returning helper throws
