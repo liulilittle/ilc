@@ -72,6 +72,15 @@ Il2CppArray* il2cpp_linq_where_ref(Il2CppArray* src, Il2CppObject* pred);
 // fresh exact-size int32[] preserving first-appearance order.
 Il2CppArray* il2cpp_linq_where_idx_i4(Il2CppArray* src, Il2CppObject* pred);
 
+// Where(source, (element, index) => bool) over a REFERENCE-element source --
+// the reference counterpart of il2cpp_linq_where_idx_i4 (net48
+// Func<TSource,int,bool>). The predicate runs EXACTLY ONCE per element with
+// the element AND its 0-based SOURCE index; the result is a fresh exact-size
+// reference-element array preserving first-appearance order. The predicate ABI
+// is bool(*)(Il2CppObject*, int32_t) for a STATIC leaf / bool(*)(Il2CppObject*,
+// Il2CppObject*, int32_t) for an INSTANCE leaf (target in the `this` slot).
+Il2CppArray* il2cpp_linq_where_idx_ref(Il2CppArray* src, Il2CppObject* pred);
+
 // Select -- map every element through the selector. Result length equals the
 // source length. The selector returns Il2CppObject* for the ref-result
 // entries (a string IS an Il2CppObject* -- int32 -> string[] uses the
@@ -515,6 +524,37 @@ double  il2cpp_linq_average_sel_d(Il2CppArray* src, Il2CppObject* sel);
 // elements materialize as double[]; the result carrier stays float.
 Il2CppArray* il2cpp_linq_select_i4_f(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_i4_f(Il2CppArray* src, Il2CppObject* sel);
+
+// Select(source, (element, index) => TResult) over a REFERENCE-element source
+// returning a REFERENCE result (net48 Func<TSource,int,TResult>) -- the
+// reference counterpart of il2cpp_linq_select_idx_i4_ref. The selector runs
+// EXACTLY ONCE per element with the element AND its 0-based SOURCE index; the
+// result is a fresh reference-element array of the SAME length as the source.
+// The selector ABI is Il2CppObject*(*)(Il2CppObject*, int32_t) for a STATIC
+// leaf / Il2CppObject*(*)(Il2CppObject*, Il2CppObject*, int32_t) for an
+// INSTANCE leaf (target in the `this` slot).
+Il2CppArray* il2cpp_linq_select_idx_ref_ref(Il2CppArray* src, Il2CppObject* sel);
+
+//------------------------------------------------------------------------------
+// Single / SingleOrDefault WITH a predicate (net48 Func<TSource,bool>).
+//
+// The source-only forms (il2cpp_linq_single_fam_* / *_single_or_default_fam_*,
+// linq_family.h) answer on the SOURCE length alone. The predicate forms walk
+// every element and count the matches (net48 does NOT short-circuit -- a second
+// match must remain detectable even when it appears early, so the predicate
+// runs on EVERY element):
+//   * Single(predicate)          -- 0 matches -> InvalidOperationException;
+//                                  >1 -> InvalidOperationException; 1 -> it.
+//   * SingleOrDefault(predicate) -- 0 -> default(T); >1 -> InvalidOperationException.
+// The int32 family returns the widened value; the reference family returns the
+// matching reference (nullptr for the empty SingleOrDefault). Both validate the
+// source (null -> ArgumentNullException) and the predicate (null ->
+// ArgumentNullException; multicast -> InvalidOperationException).
+//------------------------------------------------------------------------------
+int32_t       il2cpp_linq_single_pred_i4(Il2CppArray* src, Il2CppObject* pred);
+int32_t       il2cpp_linq_single_or_default_pred_i4(Il2CppArray* src, Il2CppObject* pred);
+Il2CppObject* il2cpp_linq_single_pred_ref(Il2CppArray* src, Il2CppObject* pred);
+Il2CppObject* il2cpp_linq_single_or_default_pred_ref(Il2CppArray* src, Il2CppObject* pred);
 float   il2cpp_linq_sum_sel_f(Il2CppArray* src, Il2CppObject* sel);
 float   il2cpp_linq_min_sel_f(Il2CppArray* src, Il2CppObject* sel);
 float   il2cpp_linq_max_sel_f(Il2CppArray* src, Il2CppObject* sel);

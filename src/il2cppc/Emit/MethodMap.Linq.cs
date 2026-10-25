@@ -537,18 +537,34 @@ public static partial class MethodRefResolver
                 case "All":
                     return I("il2cpp::il2cpp_linq_all_ref", 2, true, false, false, TwoArg);
                 case "Where" when count >= 2:
+                    // The index overload Where(Func<TSource,int,bool>) carries a
+                    // 3-argument Func -- route it to the reference index kernel
+                    // (il2cpp_linq_where_idx_ref: bool(*)(Il2CppObject*, int32_t)).
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                        throw new NotSupportedException(
-                            "Enumerable.Where with a (element, index) predicate over a reference-element " +
-                            "source is not wired: the runtime has no il2cpp_linq_where_idx_ref entry");
+                        return I("il2cpp::il2cpp_linq_where_idx_ref", 2, true, true, false, TwoArg,
+                            returnTypeName: LinqRefArrayTypeName(genArgs, srcType));
                     return I("il2cpp::il2cpp_linq_where_ref", 2, true, true, false, TwoArg,
                         returnTypeName: LinqRefArrayTypeName(genArgs, srcType));
                 case "Select":
                 {
+                    // The index overload Select(Func<TSource,int,TResult>) carries
+                    // a 3-argument Func. A reference TResult routes to the
+                    // reference index kernel (il2cpp_linq_select_idx_ref_ref:
+                    // Il2CppObject*(*)(Il2CppObject*, int32_t)); a non-reference
+                    // TResult over a reference source still has no kernel.
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    {
+                        if (genArgs is not { Length: >= 2 })
+                            return null;
+                        if (IsRefFamilyByte(genArgs[1]))
+                            return I("il2cpp::il2cpp_linq_select_idx_ref_ref", 2, true, true, false, TwoArg,
+                                returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
                         throw new NotSupportedException(
-                            "Enumerable.Select with a (element, index) selector over a reference-element " +
-                            "source is not wired: the runtime has no il2cpp_linq_select_idx_ref_* entry");
+                            $"Enumerable.Select<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
+                            "with a (element, index) selector over a reference-element source is not wired: " +
+                            "the reference index-selector surface covers a REFERENCE TResult only " +
+                            "(il2cpp_linq_select_idx_ref_ref)");
+                    }
                     if (genArgs is not { Length: >= 2 })
                         return null;
                     // p0linq4 (D3): a DECIMAL result over a reference source --
@@ -602,6 +618,15 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_linq_single_or_default_fam_ref", 1, true, true, false, OneArg,
                         returnTypeName: LinqRefElementTypeName(genArgs, srcType),
                         appendLiterals: new[] { "15" });
+                // The predicate forms (count >= 2): net48 Single(predicate) /
+                // SingleOrDefault(predicate) walk every element and count the
+                // matches; the reference result rides the Il2CppObject* ABI.
+                case "Single":
+                    return I("il2cpp::il2cpp_linq_single_pred_ref", 2, true, true, false, TwoArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                case "SingleOrDefault":
+                    return I("il2cpp::il2cpp_linq_single_or_default_pred_ref", 2, true, true, false, TwoArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
                 // B5-R2: OrderBy / OrderByDescending over a REFERENCE source.
                 // Enumerable.OrderBy passes a 1-arg key selector, so it must NOT
                 // go through il2cpp_linq_order_by_ref/string (2-arg Comparison<T>
@@ -1449,13 +1474,18 @@ public static partial class MethodRefResolver
             case "Single" when count < 2:
                 // Single<TSource>(IEnumerable<TSource>) -> the family kernel
                 // (int32 cell). net48: empty or >1 -> InvalidOperationException.
-                // The predicate overload (count >= 2) has no runtime kernel and
-                // stays unwired (see docs/audit/b4-gaps.md).
                 return I("il2cpp::il2cpp_linq_single_fam_i4", 1, true, false, false, OneArg,
                     appendLiterals: new[] { "7" });
+            case "Single":
+                // Single(source, predicate): net48 walks every element and
+                // counts the matches (0 -> InvalidOperationException; >1 ->
+                // InvalidOperationException; 1 -> that element).
+                return I("il2cpp::il2cpp_linq_single_pred_i4", 2, true, false, false, TwoArg);
             case "SingleOrDefault" when count < 2:
                 return I("il2cpp::il2cpp_linq_single_or_default_fam_i4", 1, true, false, false, OneArg,
                     appendLiterals: new[] { "7" });
+            case "SingleOrDefault":
+                return I("il2cpp::il2cpp_linq_single_or_default_pred_i4", 2, true, false, false, TwoArg);
             case "ElementAt":
                 // ElementAt(source, index) -> il2cpp_linq_element_at_i4.
                 // index < 0 or >= length -> ArgumentOutOfRangeException.

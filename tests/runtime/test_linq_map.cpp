@@ -233,6 +233,40 @@ bool RefNonEmpty(il2cpp::Il2CppObject* o)
 il2cpp::Il2CppObject* RefIdentity(il2cpp::Il2CppObject* o) { return o; }
 
 //------------------------------------------------------------------------------
+// Batch-3 fixtures: the reference-source INDEX overloads (net48
+// Func<TSource,int,...>) and the Single(predicate) predicates.
+//------------------------------------------------------------------------------
+
+// Where(source, (element, index) => bool) over a reference-element source:
+// keep the element when its SOURCE index is below the threshold (index-only
+// predicate -- the value is ignored).
+bool RefIdxBelow(il2cpp::Il2CppObject*, int32_t index) { return index < 2; }
+bool RefIdxAlwaysTrue(il2cpp::Il2CppObject*, int32_t) { return true; }
+bool RefIdxAlwaysFalse(il2cpp::Il2CppObject*, int32_t) { return false; }
+
+// Select(source, (element, index) => TResult) over a reference-element source:
+// materialize the element's 0-based SOURCE index as a new string "i=<index>".
+il2cpp::Il2CppObject* RefIdxToStr(il2cpp::Il2CppObject*, int32_t index)
+{
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "i=%d", index);
+    return reinterpret_cast<il2cpp::Il2CppObject*>(
+        il2cpp::il2cpp_string_new_from_cs(buf));
+}
+
+// Single/SingleOrDefault(predicate) reference predicates: match a string by
+// content (a null/empty match answers false, so a null element is never a
+// candidate).
+bool RefIsLong(il2cpp::Il2CppObject* o)
+{
+    return o != nullptr && il2cpp::il2cpp_string_get_length(o) >= 4;
+}
+
+// Single/SingleOrDefault(predicate) int32 predicates.
+bool IsOne(int32_t v) { return v == 1; }
+bool IsOddSingle(int32_t v) { return (v & 1) == 1; }
+
+//------------------------------------------------------------------------------
 // Instance-bound predicate fixtures (the linqcase shape: p.IsEven). A test
 // instance is a GC object with an int payload; the instance methods below
 // read it through their `this` (arg0) -- exactly what transpiler-generated
@@ -288,6 +322,24 @@ bool InstLt(il2cpp::Il2CppObject* this_, int32_t v)
 bool InstIdxBound(il2cpp::Il2CppObject* this_, int32_t, int32_t i)
 {
     return i < reinterpret_cast<LinqPredInst*>(this_)->threshold;
+}
+
+// Batch-3 instance-bound REFERENCE-index overloads (target in the `this`
+// slot): the bound instance's `threshold` drives the decision. These exercise
+// the per-binding dispatch of il2cpp_linq_where_idx_ref /
+// il2cpp_linq_select_idx_ref_ref.
+bool InstRefIdxBelow(il2cpp::Il2CppObject* this_, il2cpp::Il2CppObject*, int32_t index)
+{
+    return index < reinterpret_cast<LinqPredInst*>(this_)->threshold;
+}
+
+il2cpp::Il2CppObject* InstRefIdxToStr(il2cpp::Il2CppObject* this_, il2cpp::Il2CppObject*, int32_t index)
+{
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "t%d-%d",
+                  reinterpret_cast<LinqPredInst*>(this_)->threshold, index);
+    return reinterpret_cast<il2cpp::Il2CppObject*>(
+        il2cpp::il2cpp_string_new_from_cs(buf));
 }
 
 // GC probe (1-arg): reads the bound payload first (a managed pointer must not
@@ -2464,6 +2516,197 @@ int main()
                "group_by_dec_key keyKind=1 narrows a byte key (300 -> 44, one bucket)");
     }
 
+    // --- 23. batch-3: reference (element,index) operators + Single(predicate) ---
+    {
+        il2cpp::Il2CppObject* w0 = reinterpret_cast<Il2CppObject*>(
+            il2cpp::il2cpp_string_new_from_cs("aa"));
+        il2cpp::Il2CppObject* w1 = reinterpret_cast<Il2CppObject*>(
+            il2cpp::il2cpp_string_new_from_cs("bb"));
+        il2cpp::Il2CppObject* w2 = reinterpret_cast<Il2CppObject*>(
+            il2cpp::il2cpp_string_new_from_cs("cc"));
+        il2cpp::Il2CppObject* w3 = reinterpret_cast<Il2CppObject*>(
+            il2cpp::il2cpp_string_new_from_cs("dd"));
+        const Il2CppObject* words[4] = { w0, w1, w2, w3 };
+        Il2CppArray* src = MakeRefArray(words, 4);
+        Il2CppObject* refPred = reinterpret_cast<Il2CppObject*>(
+            Del(reinterpret_cast<void*>(&RefIdxBelow)));
+
+        // 23a. where_idx_ref: keep the first 2 elements by SOURCE index.
+        Il2CppArray* out = il2cpp::il2cpp_linq_where_idx_ref(src, refPred);
+        Expect(out != nullptr && out->length == 2,
+               "where_idx_ref keeps the first 2 elements (index < 2)");
+        Expect(out->isRefElem && out->elemSize == static_cast<int32_t>(sizeof(void*)),
+               "where_idx_ref result is a reference-element array");
+        Expect(out->length == 2 &&
+                   *reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(out, 0)) == w0 &&
+                   *reinterpret_cast<Il2CppObject**>(il2cpp::il2cpp_array_get_elem_ptr(out, 1)) == w1,
+               "where_idx_ref preserves source order and element identity");
+        // Instance-bound index predicate (bound threshold 3 -> 3 elements).
+        LinqPredInst* inst = NewPredInst(3);
+        Il2CppArray* outInst = il2cpp::il2cpp_linq_where_idx_ref(
+            src, reinterpret_cast<Il2CppObject*>(
+                DelInst(reinterpret_cast<void*>(&InstRefIdxBelow), reinterpret_cast<Il2CppObject*>(inst))));
+        Expect(outInst != nullptr && outInst->length == 3,
+               "where_idx_ref instance-bound predicate keeps 3 elements (threshold 3)");
+        // all-true / all-false.
+        Il2CppArray* twoElem = MakeRefArray(words, 2);
+        Expect(il2cpp::il2cpp_linq_where_idx_ref(
+                   twoElem, reinterpret_cast<Il2CppObject*>(
+                       Del(reinterpret_cast<void*>(&RefIdxAlwaysTrue))))->length == 2,
+               "where_idx_ref all-true keeps the whole source");
+        Expect(il2cpp::il2cpp_linq_where_idx_ref(
+                   twoElem, reinterpret_cast<Il2CppObject*>(
+                       Del(reinterpret_cast<void*>(&RefIdxAlwaysFalse))))->length == 0,
+               "where_idx_ref all-false yields an empty result");
+        // Validation: null source, null predicate, wrong element family.
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_where_idx_ref(nullptr, refPred); },
+                   "System.ArgumentNullException"),
+               "where_idx_ref with a null source raises ArgumentNullException");
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_where_idx_ref(src, nullptr); },
+                   "System.ArgumentNullException"),
+               "where_idx_ref with a null predicate raises ArgumentNullException");
+        int32_t iv[2] = { 1, 2 };
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_where_idx_ref(MakeI4Array(iv, 2), refPred);
+               }, "System.NotSupportedException"),
+               "where_idx_ref on an int32 source raises NotSupportedException");
+
+        // 23b. select_idx_ref_ref: map each element to its SOURCE index string.
+        Il2CppArray* sel = il2cpp::il2cpp_linq_select_idx_ref_ref(
+            src, reinterpret_cast<Il2CppObject*>(
+                Del(reinterpret_cast<void*>(&RefIdxToStr))));
+        Expect(sel != nullptr && sel->length == 4, "select_idx_ref_ref result length equals the source");
+        Expect(sel->isRefElem && sel->elemSize == static_cast<int32_t>(sizeof(void*)),
+               "select_idx_ref_ref result is a reference-element array");
+        const char* expectIdx[4] = { "i=0", "i=1", "i=2", "i=3" };
+        bool idxOk = sel != nullptr && sel->length == 4;
+        for (int32_t i = 0; i < 4 && idxOk; ++i)
+        {
+            Il2CppObject* e = *reinterpret_cast<Il2CppObject**>(
+                il2cpp::il2cpp_array_get_elem_ptr(sel, i));
+            if (!IsAsciiString(e, expectIdx[i])) idxOk = false;
+        }
+        Expect(idxOk, "select_idx_ref_ref materializes the SOURCE index (i=0..i=3)");
+        // Instance-bound index selector.
+        Il2CppArray* selInst = il2cpp::il2cpp_linq_select_idx_ref_ref(
+            twoElem, reinterpret_cast<Il2CppObject*>(
+                DelInst(reinterpret_cast<void*>(&InstRefIdxToStr), reinterpret_cast<Il2CppObject*>(inst))));
+        Expect(selInst != nullptr && selInst->length == 2 &&
+                   IsAsciiString(*reinterpret_cast<Il2CppObject**>(
+                       il2cpp::il2cpp_array_get_elem_ptr(selInst, 0)), "t3-0"),
+               "select_idx_ref_ref instance-bound selector reads the bound target");
+        // Validation: null source, null selector, wrong element family.
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_select_idx_ref_ref(nullptr, refPred); },
+                   "System.ArgumentNullException"),
+               "select_idx_ref_ref with a null source raises ArgumentNullException");
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_select_idx_ref_ref(src, nullptr); },
+                   "System.ArgumentNullException"),
+               "select_idx_ref_ref with a null selector raises ArgumentNullException");
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_select_idx_ref_ref(MakeI4Array(iv, 2), refPred);
+               }, "System.NotSupportedException"),
+               "select_idx_ref_ref on an int32 source raises NotSupportedException");
+    }
+
+    // --- 23c. Single / SingleOrDefault(predicate) ---
+    {
+        Il2CppObject* predOne = reinterpret_cast<Il2CppObject*>(
+            Del(reinterpret_cast<void*>(&IsOne)));
+        Il2CppObject* predOdd = reinterpret_cast<Il2CppObject*>(
+            Del(reinterpret_cast<void*>(&IsOddSingle)));
+        int32_t one3[3] = { 1, 2, 3 };
+        int32_t none3[3] = { 2, 4, 6 };
+        int32_t empty0[1] = { 0 };
+        int32_t multi3[3] = { 1, 3, 5 };
+
+        // Single(predicate): exactly one match.
+        Expect(il2cpp::il2cpp_linq_single_pred_i4(MakeI4Array(one3, 3), predOne) == 1,
+               "single_pred_i4 returns the single match (1)");
+        // Single(predicate): >1 match -> InvalidOperationException.
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_single_pred_i4(MakeI4Array(multi3, 3), predOdd);
+               }, "System.InvalidOperationException"),
+               "single_pred_i4 with more than one match raises InvalidOperationException");
+        // Single(predicate): 0 matches -> InvalidOperationException.
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_single_pred_i4(MakeI4Array(none3, 3), predOne);
+               }, "System.InvalidOperationException"),
+               "single_pred_i4 with no match raises InvalidOperationException");
+        // Single(predicate): empty source -> InvalidOperationException.
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_single_pred_i4(MakeI4Array(empty0, 0), predOne);
+               }, "System.InvalidOperationException"),
+               "single_pred_i4 on an empty source raises InvalidOperationException");
+        // SingleOrDefault(predicate): 0 matches -> default 0.
+        Expect(il2cpp::il2cpp_linq_single_or_default_pred_i4(MakeI4Array(none3, 3), predOne) == 0,
+               "single_or_default_pred_i4 with no match returns 0");
+        // SingleOrDefault(predicate): exactly one match.
+        Expect(il2cpp::il2cpp_linq_single_or_default_pred_i4(MakeI4Array(one3, 3), predOne) == 1,
+               "single_or_default_pred_i4 returns the single match (1)");
+        // SingleOrDefault(predicate): >1 match -> InvalidOperationException.
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_single_or_default_pred_i4(MakeI4Array(multi3, 3), predOdd);
+               }, "System.InvalidOperationException"),
+               "single_or_default_pred_i4 with more than one match raises InvalidOperationException");
+        // Validation: null source, null predicate, wrong family.
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_single_pred_i4(nullptr, predOne); },
+                   "System.ArgumentNullException"),
+               "single_pred_i4 with a null source raises ArgumentNullException");
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_single_pred_i4(MakeI4Array(one3, 3), nullptr); },
+                   "System.ArgumentNullException"),
+               "single_pred_i4 with a null predicate raises ArgumentNullException");
+        Il2CppObject* sOne = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("x"));
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_single_pred_i4(MakeRefArray(&sOne, 1), predOne);
+               }, "System.NotSupportedException"),
+               "single_pred_i4 on a reference source raises NotSupportedException");
+
+        // Reference family: {"a","bbbb","cc"} -> "bbbb".
+        Il2CppObject* rA = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("a"));
+        Il2CppObject* rLong = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("bbbb"));
+        Il2CppObject* rC = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("cc"));
+        const Il2CppObject* refOne[3] = { rA, rLong, rC };
+        Il2CppArray* refSrc1 = MakeRefArray(refOne, 3);
+        Il2CppObject* predLong = reinterpret_cast<Il2CppObject*>(
+            Del(reinterpret_cast<void*>(&RefIsLong)));
+        Il2CppObject* got = il2cpp::il2cpp_linq_single_pred_ref(refSrc1, predLong);
+        Expect(got == rLong, "single_pred_ref returns the single long string");
+        Expect(il2cpp::il2cpp_linq_single_or_default_pred_ref(refSrc1, predLong) == rLong,
+               "single_or_default_pred_ref returns the single long string");
+        // 0 matches -> Single throws / SingleOrDefault returns nullptr.
+        const Il2CppObject* refNone[2] = { rA, rC };
+        Il2CppArray* refSrcNone = MakeRefArray(refNone, 2);
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_single_pred_ref(refSrcNone, predLong);
+               }, "System.InvalidOperationException"),
+               "single_pred_ref with no match raises InvalidOperationException");
+        Expect(il2cpp::il2cpp_linq_single_or_default_pred_ref(refSrcNone, predLong) == nullptr,
+               "single_or_default_pred_ref with no match returns nullptr");
+        // >1 match -> both throw.
+        Il2CppObject* rLong2 = reinterpret_cast<Il2CppObject*>(il2cpp::il2cpp_string_new_from_cs("cccc"));
+        const Il2CppObject* refTwo[2] = { rLong, rLong2 };
+        Il2CppArray* refSrcTwo = MakeRefArray(refTwo, 2);
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_single_pred_ref(refSrcTwo, predLong);
+               }, "System.InvalidOperationException"),
+               "single_pred_ref with more than one match raises InvalidOperationException");
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_single_or_default_pred_ref(refSrcTwo, predLong);
+               }, "System.InvalidOperationException"),
+               "single_or_default_pred_ref with more than one match raises InvalidOperationException");
+        // Validation: null source, null predicate, wrong family.
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_single_pred_ref(nullptr, predLong); },
+                   "System.ArgumentNullException"),
+               "single_pred_ref with a null source raises ArgumentNullException");
+        Expect(ThrowsDotNet([&]() { il2cpp::il2cpp_linq_single_pred_ref(refSrc1, nullptr); },
+                   "System.ArgumentNullException"),
+               "single_pred_ref with a null predicate raises ArgumentNullException");
+        Expect(ThrowsDotNet([&]() {
+                   il2cpp::il2cpp_linq_single_pred_ref(MakeI4Array(one3, 3), predLong);
+               }, "System.NotSupportedException"),
+               "single_pred_ref on an int32 source raises NotSupportedException");
+    }
+
     // --- Report ---
     if (g_failures != 0)
     {
@@ -2473,3 +2716,4 @@ int main()
     std::printf("all runtime linq-map tests passed\n");
     return 0;
 }
+

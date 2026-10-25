@@ -366,6 +366,34 @@ bool InvokePredI4I4(Il2CppDelegate* d, int32_t v, int32_t index)
         : reinterpret_cast<PredI4I4Fn>(d->methodPtr)(v, index);
 }
 
+// The REFERENCE-source, 2-arg index PREDICATE ABI (net48 Func<TSource,int,bool>
+// over a reference-element source): bool(*)(Il2CppObject*, int32_t) for a
+// STATIC leaf; bool(*)(Il2CppObject*, Il2CppObject*, int32_t) for an INSTANCE
+// leaf (target in the `this` slot -- the per-binding dispatch above).
+typedef bool (*PredRefIdxFn)(Il2CppObject*, int32_t);
+typedef bool (*PredRefIdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+
+bool InvokePredRefIdx(Il2CppDelegate* d, Il2CppObject* o, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredRefIdxThisFn>(d->methodPtr)(d->target, o, index)
+        : reinterpret_cast<PredRefIdxFn>(d->methodPtr)(o, index);
+}
+
+// The REFERENCE-source, 2-arg index SELECTOR ABI (net48
+// Func<TSource,int,TResult> returning a reference): Il2CppObject*(*)(Il2CppObject*,
+// int32_t) for a STATIC leaf; Il2CppObject*(*)(Il2CppObject*, Il2CppObject*,
+// int32_t) for an INSTANCE leaf (target in the `this` slot).
+typedef Il2CppObject* (*SelRefRefIdxFn)(Il2CppObject*, int32_t);
+typedef Il2CppObject* (*SelRefRefIdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+
+Il2CppObject* InvokeSelRefRefIdx(Il2CppDelegate* d, Il2CppObject* o, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefRefIdxThisFn>(d->methodPtr)(d->target, o, index)
+        : reinterpret_cast<SelRefRefIdxFn>(d->methodPtr)(o, index);
+}
+
 // The element-selector ABIs (Func<TSource,TElement>): int64 / double results.
 typedef int64_t (*SelI4I8Fn)(int32_t);
 typedef int64_t (*SelI4I8ThisFn)(Il2CppObject*, int32_t);
@@ -664,6 +692,51 @@ Il2CppArray* il2cpp_linq_where_idx_i4(Il2CppArray* src, Il2CppObject* pred)
     {
         *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
             *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(scratch, i));
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_where_idx_ref(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    // SINGLE index-aware predicate pass over the reference family (net48
+    // Func<TSource,int,bool>): the index is the element's 0-based SOURCE
+    // position. The scratch and the exact result are reference arrays, so
+    // every store goes through the write barrier (a collecting predicate may
+    // move both the source and the scratch).
+    Il2CppArray* scratch = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, src->length);
+    roots.Add(reinterpret_cast<void**>(&scratch));
+    int32_t w = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = RefAt(src, i);
+        if (InvokePredRefIdx(d, elem, i))
+        {
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(scratch, w));
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), elem);
+            *slot = elem;
+            ++w;
+        }
+    }
+    if (w == src->length) return scratch;
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+    {
+        Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(out, i));
+        Il2CppObject* moved = *reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(scratch, i));
+        il2cpp_write_barrier(reinterpret_cast<void**>(dst), moved);
+        *dst = moved;
     }
     return out;
 }
@@ -1100,6 +1173,131 @@ int32_t il2cpp_linq_last_or_default_pred_i4(Il2CppArray* src, Il2CppObject* pred
         if (InvokePredI4(d, elem)) last = elem;
     }
     return last;
+}
+
+//------------------------------------------------------------------------------
+// Single / SingleOrDefault WITH a predicate (net48 Func<TSource,bool>).
+//
+// Unlike the source-only forms (linq_family.h, which answer on the array
+// length), these walk EVERY element and count the matches. net48 does NOT
+// short-circuit -- a second match must remain detectable even when it appears
+// early -- so the predicate runs on every element:
+//   * Single(predicate)          -- 0 matches -> InvalidOperationException
+//                                  ("no matching element"); >1 -> InvalidOperation-
+//                                  Exception ("more than one matching element");
+//                                  exactly 1 -> that element.
+//   * SingleOrDefault(predicate) -- 0 -> default(T); >1 -> InvalidOperationException
+//                                  ("more than one matching element").
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_single_pred_i4(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireInt32Family(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t result = 0;
+    int32_t count = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t elem = I4At(src, i);
+        if (InvokePredI4(d, elem))
+        {
+            result = elem;
+            ++count;
+        }
+    }
+    if (count == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no matching element");
+    if (count > 1)
+        il2cpp_throw_invalid_operation_exception("Sequence contains more than one matching element");
+    return result;
+}
+
+int32_t il2cpp_linq_single_or_default_pred_i4(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireInt32Family(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t result = 0;
+    int32_t count = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t elem = I4At(src, i);
+        if (InvokePredI4(d, elem))
+        {
+            result = elem;
+            ++count;
+        }
+    }
+    if (count > 1)
+        il2cpp_throw_invalid_operation_exception("Sequence contains more than one matching element");
+    return result;
+}
+
+Il2CppObject* il2cpp_linq_single_pred_ref(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    // The element is a managed reference, so it is re-read through the rooted
+    // 'src' slot on every iteration and kept only through the result local
+    // (also rooted), never cached across a callback invocation.
+    Il2CppObject* result = nullptr;
+    int32_t count = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = RefAt(src, i);
+        if (InvokePredRef(d, elem))
+        {
+            result = elem;
+            ++count;
+        }
+    }
+    if (count == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no matching element");
+    if (count > 1)
+        il2cpp_throw_invalid_operation_exception("Sequence contains more than one matching element");
+    return result;
+}
+
+Il2CppObject* il2cpp_linq_single_or_default_pred_ref(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* result = nullptr;
+    int32_t count = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = RefAt(src, i);
+        if (InvokePredRef(d, elem))
+        {
+            result = elem;
+            ++count;
+        }
+    }
+    if (count > 1)
+        il2cpp_throw_invalid_operation_exception("Sequence contains more than one matching element");
+    return result;
 }
 
 int32_t il2cpp_linq_first_or_default_predicate(Il2CppArray* src, Il2CppObject* pred)
@@ -3445,6 +3643,35 @@ Il2CppArray* il2cpp_linq_select_idx_i4_f(Il2CppArray* src, Il2CppObject* sel)
     {
         const float r = InvokeZipI4F(d, I4At(src, i), i);
         *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(r);
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_ref_ref(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    // Index-aware reference selector (net48 Func<TSource,int,TResult>): the
+    // index is the element's 0-based SOURCE position, and the selector runs
+    // EXACTLY ONCE per element. The callback runs FIRST; the result slot is
+    // computed afterwards through the rooted 'out' (a cached slot address
+    // would be stale after a collecting selector). The result is a reference
+    // array, so the store goes through the write barrier.
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* r = InvokeSelRefRefIdx(d, RefAt(src, i), i);
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(out, i));
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+        *slot = r;
     }
     return out;
 }

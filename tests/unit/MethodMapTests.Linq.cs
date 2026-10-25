@@ -1508,6 +1508,87 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "15" }, resolved.AppendLiterals);
     }
 
+    //--------------------------------------------------------------------------
+    // BATCH-3 (b5-gaps item 1): the reference-source (element, index) overloads
+    // (net48 Func<TSource,int,...>). The index discriminator is the SECOND
+    // parameter's GenericInst argument count (3 for Func<T,int,...>, 2 for
+    // Func<T,...>); the runtime kernels il2cpp_linq_where_idx_ref /
+    // il2cpp_linq_select_idx_ref_ref are the reference counterparts of the
+    // int32 index entries.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Where_StringElement_Index_MapsToWhereIdxRef()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Where",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x00, 0x08, 0x02 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_where_idx_ref", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Select_StringElement_IndexRef_MapsToSelectIdxRefRef()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Select",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x00, 0x08, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0E, 0x0E }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_select_idx_ref_ref", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+    }
+
+    // BATCH-3 (b5-gaps item 2): Single / SingleOrDefault WITH a predicate. The
+    // 2-parameter form (source + Func<TSource,bool>) routes to the new
+    // il2cpp_linq_single[_or_default]_pred_i4/_ref kernels.
+    [Theory]
+    [InlineData("Single", "il2cpp::il2cpp_linq_single_pred_i4")]
+    [InlineData("SingleOrDefault", "il2cpp::il2cpp_linq_single_or_default_pred_i4")]
+    public void Resolve_Int32_SinglePredicate_MapsToKernel(string name, string expected)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData("Single", "il2cpp::il2cpp_linq_single_pred_ref")]
+    [InlineData("SingleOrDefault", "il2cpp::il2cpp_linq_single_or_default_pred_ref")]
+    public void Resolve_RefFamily_SinglePredicate_MapsToKernel(string name, string expected)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+    }
+
     // The List<int> source: the list-domain single kernels (no array cast).
     [Theory]
     [InlineData("Single", "il2cpp::il2cpp_linq_list_single_i4")]
