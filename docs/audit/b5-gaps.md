@@ -112,7 +112,9 @@ current state is the compile-time rejection (arrays and `List<T>`, lock:
 
 | Operator | Shape | Reason |
 | --- | --- | --- |
-| `Where` / `Select` / `OrderBy` | `Func<T,int,...>` (index overload) over an ARRAY or LIST | no `where_idx_*` / `select_idx_*_ref` / index key-selector entries |
+| `Where` / `Select` | `Func<T,int,...>` (index overload) over a **LIST** source | no list index kernel (the ARRAY forms are wired: `where_idx_i4`, `where_idx_ref`, `select_idx_i4_*`, `select_idx_ref_ref`) |
+| `OrderBy` / `OrderByDescending` | `Func<T,int,TKey>` (index key selector) | no index key-selector entry |
+| `Select` | `Func<T,int,TResult>` over a reference source with a NON-reference `TResult` | the reference index-selector surface covers a REFERENCE `TResult` only (`select_idx_ref_ref`) |
 | `Select` | reference source with a NON-reference `TResult` | only `il2cpp_linq_select_ref_ref` exists for ref sources |
 | `OrderBy` / `OrderByDescending` | `decimal` (or any non-i4/i8/d/ref) key family | no key kernel |
 | `OrderBy` / `OrderByDescending` | a `System.String` key -- STATIC (`TKey == string`) | transpile-time rejection (no collation) |
