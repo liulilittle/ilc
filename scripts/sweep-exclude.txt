@@ -15,7 +15,8 @@ p-adb-loud        # RUNTIME-CONTRACT probe: net48 deliberately diverges (returns
 # documented exception", which scripts/loud-gate.ps1 verifies instead.
 loud-p0-14-strkey-loud   # LOUD contract: string key ordering requires culture-aware collation (transpile-time NotSupported)
 loud-p0-16-objkey-loud   # LOUD contract: object/string key ordering rejected at runtime (NotSupportedException)
-loud-p0-17-zipres-loud   # LOUD contract: 1/2-byte or bool/char Zip result has no cell ABI (transpile-time NotSupported)
+# BATCH4: loud-p0-17-zipres-loud is now WIRED (the narrow 1/2-byte Zip result
+# cell ABI) and was removed from this list.
 loud-p0-18-strmin-loud   # LOUD contract: string Min/Max requires culture-aware collation (transpile-time NotSupported)
 # BATCH4: loud-p0-grp-key-long (long/ulong/decimal/DateTime/Guid key carriers) and
 # loud-p0-grp-dec-op (decimal-bucket aggregate/Contains operators) are now WIRED

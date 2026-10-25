@@ -40,6 +40,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <type_traits>
 #include <vector>
 
 namespace il2cpp {
@@ -2643,6 +2644,79 @@ void ZipFill(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
     }
 }
 
+//------------------------------------------------------------------------------
+// BATCH4: the reference-source / narrow-result Zip surface.
+//
+// Enumerable.Zip over a reference-element source (string[] / object[] / class[])
+// reads each element as Il2CppObject* and calls the selector through the mixed
+// ABI. The result cell ABI is wider than the old 4/8-byte-only surface:
+//   resKind 6   a reference TResult -> a REFERENCE array (Il2CppObject* cells)
+//   resKind 7   sbyte   -> a 1-byte cell
+//   resKind 8   byte    -> a 1-byte cell
+//   resKind 9   short   -> a 2-byte cell
+//   resKind 10  ushort  -> a 2-byte cell
+//   resKind 11  char    -> a 2-byte cell
+//   resKind 12  bool    -> a 1-byte cell
+// The value-result codes (0 int32 / 2 int64 / 3 float / 4 double / 5 uint32)
+// are unchanged; the float code still rides the 8-byte double carrier.
+//------------------------------------------------------------------------------
+template <typename T>
+T ZipReadParam(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    // A reference-element array yields Il2CppObject*; a value array yields its
+    // own width (the ZIP side code).
+    if constexpr (std::is_pointer<T>::value)
+        return *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(arr, i));
+    else
+        return ZipReadAs<T>(arr, i, side);
+}
+
+// Fill `out` by pairing `first[i]` and `second[i]` through the selector. T1/T2
+// are the selector's STATICALLY DECLARED parameter types (Il2CppObject* for a
+// reference side, int32_t/int64_t/double for a value side); R follows resKind.
+template <typename T1, typename T2>
+void ZipFillMixed(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
+                  int32_t firstSide, int32_t secondSide, int32_t resKind,
+                  Il2CppArray* out, int32_t n)
+{
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const T1 a = ZipReadParam<T1>(first, i, firstSide);
+        const T2 b = ZipReadParam<T2>(second, i, secondSide);
+        if (resKind == 6)
+        {
+            Il2CppObject* r = ZipCall<T1, T2, Il2CppObject*>(d, a, b);
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(out, i));
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+            *slot = r;
+        }
+        else if (resKind == 2)
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                ZipCall<T1, T2, int64_t>(d, a, b);
+        else if (resKind == 3 || resKind == 4)
+            *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                ZipCall<T1, T2, double>(d, a, b);
+        else if (resKind == 5)
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                static_cast<int32_t>(ZipCall<T1, T2, uint32_t>(d, a, b));
+        else if (resKind >= 7)
+        {
+            // A narrow result: the CLR widens a narrow return to the int32
+            // register, so read it as int32 and store the low bytes.
+            const int32_t r = ZipCall<T1, T2, int32_t>(d, a, b);
+            char* p = il2cpp_array_get_elem_ptr(out, i);
+            if (out->elemSize == 1)
+                *reinterpret_cast<uint8_t*>(p) = static_cast<uint8_t>(r);
+            else
+                *reinterpret_cast<uint16_t*>(p) = static_cast<uint16_t>(r);
+        }
+        else
+            *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                ZipCall<T1, T2, int32_t>(d, a, b);
+    }
+}
+
 Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
                                   Il2CppObject* sel, int32_t firstSide,
                                   int32_t secondSide, int32_t resKind)
@@ -2697,6 +2771,76 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
             ZipFill<double, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
         else
             ZipFill<double, double>(first, second, d, firstSide, secondSide, resKind, out, n);
+    }
+    return out;
+}
+
+// The reference-source / narrow-result Zip entry. `firstKind` / `secondKind` are
+// the IL2CPP_LIST_KIND_* codes from the MethodSpec element bytes; a reference
+// element byte maps to IL2CPP_LIST_KIND_REF. `resKind` is the TResult cell code
+// (see the ZipFillMixed comment).
+Il2CppArray* il2cpp_linq_zip_mixed(Il2CppArray* first, Il2CppArray* second,
+                                   Il2CppObject* sel, int32_t firstKind,
+                                   int32_t secondKind, int32_t resKind)
+{
+    CheckSource(first);
+    CheckSource(second);
+    Il2CppDelegate* d = RequireCallback(sel);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&first));
+    roots.Add(reinterpret_cast<void**>(&second));
+
+    const bool aRef = first->isRefElem;
+    const bool bRef = second->isRefElem;
+    const int32_t n = first->length < second->length ? first->length : second->length;
+
+    // Result cell ABI.
+    int32_t resSize = 4;
+    int32_t resElemKind = 1;
+    bool refResult = false;
+    switch (resKind)
+    {
+        case 2: resSize = 8; resElemKind = 2; break;
+        case 3: resSize = 8; resElemKind = 3; break;
+        case 4: resSize = 8; resElemKind = 4; break;
+        case 5: resSize = 4; resElemKind = 5; break;
+        case 6: refResult = true; resSize = 8; resElemKind = 0; break;
+        case 7: case 8: case 12: resSize = 1; resElemKind = 0; break;
+        case 9: case 10: case 11: resSize = 2; resElemKind = 0; break;
+        default: resSize = 4; resElemKind = 1; break;
+    }
+    Il2CppArray* out = refResult
+        ? il2cpp_array_new(nullptr, resSize, true, n)
+        : il2cpp_array_new_typed(resSize, resElemKind, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    // The value side's ZIP width code (-1 for a reference side, which reads
+    // Il2CppObject* directly and needs no side code).
+    const int32_t c1 = aRef ? -1 : ZipSideWidthCode(ZipSideOfListKind(firstKind));
+    const int32_t c2 = bRef ? -1 : ZipSideWidthCode(ZipSideOfListKind(secondKind));
+    const int32_t s1 = aRef ? 0 : ZipSideOfListKind(firstKind);
+    const int32_t s2 = bRef ? 0 : ZipSideOfListKind(secondKind);
+
+    if (aRef && bRef)
+    {
+        ZipFillMixed<Il2CppObject*, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
+    }
+    else if (aRef)
+    {
+        if (c2 == 0)      ZipFillMixed<Il2CppObject*, int32_t>(first, second, d, s1, s2, resKind, out, n);
+        else if (c2 == 1) ZipFillMixed<Il2CppObject*, int64_t>(first, second, d, s1, s2, resKind, out, n);
+        else              ZipFillMixed<Il2CppObject*, double>(first, second, d, s1, s2, resKind, out, n);
+    }
+    else if (bRef)
+    {
+        if (c1 == 0)      ZipFillMixed<int32_t, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
+        else if (c1 == 1) ZipFillMixed<int64_t, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
+        else              ZipFillMixed<double, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
+    }
+    else
+    {
+        return il2cpp_linq_zip_wide(first, second, sel, s1, s2, resKind);
     }
     return out;
 }

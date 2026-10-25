@@ -203,6 +203,24 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
                                   Il2CppObject* sel, int32_t firstSide,
                                   int32_t secondSide, int32_t resKind);
 
+// BATCH4: the reference-source / narrow-result Zip entry. Same source
+// descriptors as il2cpp_linq_zip_wide (the IL2CPP_LIST_KIND_* codes; a
+// reference element byte maps to IL2CPP_LIST_KIND_REF), but it reads a
+// reference side as Il2CppObject* and supports a wider result cell ABI:
+//   0 int32 / 2 int64 / 3 float (double carrier) / 4 double / 5 uint32 /
+//   6 reference (a REFERENCE array) /
+//   7 sbyte / 8 byte / 12 bool (1-byte cells) /
+//   9 short / 10 ushort / 11 char (2-byte cells).
+Il2CppArray* il2cpp_linq_zip_mixed(Il2CppArray* first, Il2CppArray* second,
+                                   Il2CppObject* sel, int32_t firstKind,
+                                   int32_t secondKind, int32_t resKind);
+
+// The ZIP SIDE descriptor (IL2CPP_LINQ_ZIP_*/IL2CPP_LINQ_NARROW_*) of an
+// IL2CPP_LIST_KIND_* element family. Defined in linq_list.cpp and shared with
+// linq.cpp's il2cpp_linq_zip_mixed. IL2CPP_LIST_KIND_REF has no value-side
+// code (a reference side is read directly); the caller must not pass it.
+int32_t ZipSideOfListKind(int32_t kind);
+
 // Sum on int32[]: CHECKED int32 addition -- an overflowing sum throws
 // OverflowException (net48 Enumerable.Sum is checked, D-LINQ-3); empty -> 0.
 int32_t il2cpp_linq_sum_i4(Il2CppArray* src);

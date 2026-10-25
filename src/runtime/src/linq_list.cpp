@@ -1404,19 +1404,13 @@ Il2CppArray* il2cpp_linq_zip_family(Il2CppObject* first, Il2CppObject* second,
         roots.Add(reinterpret_cast<void**>(&b));
     }
 
-    // NO REFERENCE BRANCH: Enumerable.Zip over a reference-element source is
-    // rejected at TRANSPILE time (both arms of MethodMap.Linq.cs), because the
-    // reference ABI below would call a value-result thunk through
-    // Il2CppObject*(Il2CppObject*, Il2CppObject*) and store EAX as a GC pointer
-    // -- a measured wild write (0xC0000005) that this branch used to reach.
-    // The branch was therefore REMOVED (docs/audit/b5-gaps.md section 5c): an
-    // unreachable "return a reference array" path is worse than no path, since
-    // a future caller could re-enter it with a value selector.
+    // BATCH4: a reference-element source (or a narrow result cell) goes through
+    // the mixed entry, which reads a reference side as Il2CppObject* and calls
+    // the selector through the STATICALLY DECLARED ABI (the old code stored a
+    // value-result thunk's EAX as a GC pointer -- a measured 0xC0000005).
     if (firstKind == IL2CPP_LIST_KIND_REF || secondKind == IL2CPP_LIST_KIND_REF ||
-        a->isRefElem || b->isRefElem)
-        il2cpp_throw_not_supported_exception(
-            "Enumerable.Zip over a reference-element source is not wired (see "
-            "docs/audit/b5-gaps.md).");
+        a->isRefElem || b->isRefElem || resKind >= 6)
+        return il2cpp_linq_zip_mixed(a, b, sel, firstKind, secondKind, resKind);
     return il2cpp_linq_zip_wide(a, b, sel, ZipSideOfListKind(firstKind),
                                 ZipSideOfListKind(secondKind), resKind);
 }

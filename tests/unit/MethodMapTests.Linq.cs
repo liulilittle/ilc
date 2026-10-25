@@ -881,6 +881,81 @@ public class MethodMapTestsLinq
         Assert.Equal("il2cpp::il2cpp_linq_grouping_get_key", resolved.CppName);
     }
 
+    // BATCH4: Zip's result cell ABI -- a reference result rides a reference
+    // array (resKind 6), a 1/2-byte integral / bool / char result rides a narrow
+    // cell (7..12), and a reference source rides the mixed entry (side kind 1).
+    [Theory]
+    [InlineData(0x0E, 0x0E, 0x0E, "1", "1", "6")] // ref,ref -> ref result
+    [InlineData(0x0E, 0x0E, 0x08, "1", "1", "0")] // ref,ref -> int32 result
+    [InlineData(0x0E, 0x08, 0x08, "1", "0", "0")] // ref,int -> int32 result
+    [InlineData(0x08, 0x0E, 0x08, "0", "1", "0")] // int,ref -> int32 result
+    [InlineData(0x08, 0x08, 0x05, "0", "0", "8")] // byte result (1-byte cell)
+    [InlineData(0x08, 0x08, 0x06, "0", "0", "9")] // short result (2-byte cell)
+    [InlineData(0x08, 0x08, 0x02, "0", "0", "12")] // bool result (1-byte cell)
+    public void Resolve_Zip_MapsResultCellAbi(int tFirst, int tSecond, int tRes,
+        string firstKind, string secondKind, string resKind)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeZip((byte)tFirst, (byte)tSecond, (byte)tRes));
+
+        Assert.Equal("il2cpp::il2cpp_linq_zip_family", resolved.CppName);
+        Assert.Equal(new[] { firstKind, secondKind, resKind }, resolved.AppendLiterals);
+    }
+
+    // Zip<TSource,TSecond,TResult>(IEnumerable<TSource>, IEnumerable<TSecond>,
+    // Func<TSource,TSecond,TResult>): the signature the Zip branch reads.
+    private static MemoryStream SynthesizeZip(byte tFirst, byte tSecond, byte tRes)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        var iEnum = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        var func3 = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"),
+            mdb.GetOrAddString("Func`3"));
+        var bb = new BlobBuilder();
+        bb.WriteByte(0x10);
+        bb.WriteCompressedInteger(3); // GenericParameterCount
+        bb.WriteCompressedInteger(3); // param count
+        WriteGenericInstArg(bb, iEnum, 1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(2); // VAR 2 (TResult) -- the return type
+        WriteGenericInstArg(bb, iEnum, 1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(0); // VAR 0 (TSource)
+        WriteGenericInstArg(bb, iEnum, 1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(1); // VAR 1 (TSecond)
+        WriteGenericInstArg(bb, func3, 3);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(0);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(2); // VAR 2
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Zip"),
+            mdb.GetOrAddBlob(bb.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(3);
+        spec.WriteByte(tFirst);
+        spec.WriteByte(tSecond);
+        spec.WriteByte(tRes);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    private static void WriteGenericInstArg(BlobBuilder bb, TypeReferenceHandle def, int argc)
+    {
+        bb.WriteByte(0x15);
+        bb.WriteByte(0x12); // CLASS marker
+        bb.WriteCompressedInteger((MetadataTokens.GetRowNumber(def) << 2) | 1); // TypeRef coded
+        bb.WriteCompressedInteger(argc);
+    }
+
 
 
     //--------------------------------------------------------------------------

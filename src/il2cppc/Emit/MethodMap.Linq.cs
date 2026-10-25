@@ -1470,24 +1470,16 @@ public static partial class MethodRefResolver
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(ztFirst)},{GenericArgTypeName(ztSecond)},...> " +
                         "not wired: an element family with no cell ABI (see docs/audit/b5-gaps.md)");
-                // A reference-element source is NOT wired: the reference branch of
-                // il2cpp_linq_zip_family calls the selector through the
-                // Il2CppObject* -> Il2CppObject* ABI, so a VALUE TResult thunk
-                // (int32 in EAX) would be stored as a GC pointer -- a wild write
-                // (measured: 0xC0000005). Rejecting the source keeps that
-                // combination out of the runtime entirely.
-                if (zFirstKind == "1" || zSecondKind == "1")
-                    throw new NotSupportedException(
-                        $"Enumerable.Zip<{GenericArgTypeName(ztFirst)},{GenericArgTypeName(ztSecond)}," +
-                        $"{GenericArgTypeName(ztRes)}> not wired: Enumerable.Zip over a reference-element " +
-                        "source is not wired (see docs/audit/b5-gaps.md)");
+                // BATCH4: a reference-element source rides the mixed entry (it
+                // reads the element as Il2CppObject* and calls the selector
+                // through the statically declared ABI); the result cell may be a
+                // reference array (6) or a narrow 1/2-byte cell (7..12).
                 string? zResKind = LinqZipResKindOfElemByte(ztRes);
                 if (zResKind == null)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(ztFirst)},{GenericArgTypeName(ztSecond)}," +
-                        $"{GenericArgTypeName(ztRes)}> not wired: the zip surface writes a 4- or 8-byte " +
-                        "result cell (int32/uint32/int64/double/float), so a 1/2-byte integral, " +
-                        "bool/char or reference TResult has no cell ABI (see docs/audit/b5-gaps.md)");
+                        $"{GenericArgTypeName(ztRes)}> not wired: no result cell ABI for this TResult " +
+                        "(see docs/audit/b5-gaps.md)");
                 return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
                     new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(ztRes),
                     appendLiterals: new[] { zFirstKind, zSecondKind, zResKind });
@@ -2132,9 +2124,12 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
-    // The zip RESULT family code of an element type BYTE (0 int32 / 2 int64 /
-    // 3 float / 4 double / 5 uint32), or null when the result cell has no ABI
-    // (1/2-byte integral, bool/char, reference). A ulong result rides the int64
+    // The zip RESULT family code of an element type BYTE:
+    //   0 int32 / 2 int64 / 3 float / 4 double / 5 uint32 (the 4/8-byte cells)
+    //   6 reference (a REFERENCE array)
+    //   7 sbyte / 8 byte / 12 bool (1-byte cells)
+    //   9 short / 10 ushort / 11 char (2-byte cells)
+    // or null when the result cell has no ABI. A ulong result rides the int64
     // family: the cell width and the write ABI are identical (documented
     // deviation in docs/audit/b5-gaps.md section 3).
     private static string? LinqZipResKindOfElemByte(byte b) => b switch
@@ -2144,6 +2139,13 @@ public static partial class MethodRefResolver
         0x0A or 0x0B => "2",  // int64 / uint64
         0x0C => "3",  // float -> the 8-byte double carrier
         0x0D => "4",  // double
+        0x04 => "7",  // sbyte (1-byte cell)
+        0x05 => "8",  // byte (1-byte cell)
+        0x06 => "9",  // short (2-byte cell)
+        0x07 => "10", // ushort (2-byte cell)
+        0x03 => "11", // char (2-byte cell)
+        0x02 => "12", // bool (1-byte cell)
+        0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "6", // reference
         _ => null,
     };
 
@@ -2461,44 +2463,22 @@ public static partial class MethodRefResolver
                 byte tRes = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
                 byte tFirst = genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08;
                 byte tSecond = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
-                if (K == "1")
-                {
-                    // Reference-element List: NOT wired. The runtime's reference
-                    // branch calls the selector through the
-                    // Il2CppObject*(Il2CppObject*, Il2CppObject*) ABI, but a value
-                    // TResult thunk returns int32 in EAX -- stored as a GC
-                    // pointer it is a wild write (measured: 0xC0000005). A
-                    // reference TResult has no cell ABI either. Both shapes are
-                    // rejected here, and the runtime branch was removed (see
-                    // docs/audit/b5-gaps.md).
-                    throw new NotSupportedException(
-                        $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
-                        $"{GenericArgTypeName(tRes)}> over a reference-element List not wired: " +
-                        "Enumerable.Zip over a reference-element source is not wired " +
-                        "(see docs/audit/b5-gaps.md)");
-                }
-                string? resKind = tRes switch
-                {
-                    0x08 => "0",        // int32
-                    0x09 => "5",        // uint32 (4-byte cell, elemKind 5)
-                    0x0A or 0x0B => "2", // int64 / uint64 (8-byte cell, elemKind 2)
-                    0x0C => "3",        // float -> the 8-byte double carrier
-                    0x0D => "4",        // double
-                    _ => null,
-                };
+                // BATCH4: a reference-element List rides the mixed entry (it
+                // reads the element as Il2CppObject* and calls the selector
+                // through the statically declared ABI); the result cell may be a
+                // reference array (6) or a narrow 1/2-byte cell (7..12).
+                string? resKind = LinqZipResKindOfElemByte(tRes);
                 if (resKind == null)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
-                        $"{GenericArgTypeName(tRes)}> over a List not wired: the wide/narrow zip surface " +
-                        "writes a 4- or 8-byte result cell (int32/uint32/int64/double/float), so a " +
-                        "1/2-byte integral, bool/char or reference TResult has no cell ABI " +
-                        "(see docs/audit/b5-gaps.md)");
-                string? secondKind = LinqListKindOfElemByte(tSecond);
+                        $"{GenericArgTypeName(tRes)}> over a List not wired: no result cell ABI for " +
+                        "this TResult (see docs/audit/b5-gaps.md)");
+                string? secondKind = IsRefFamilyByte(tSecond) ? "1" : LinqListKindOfElemByte(tSecond);
                 if (secondKind == null)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)},...> " +
-                        "over a List not wired: the second source's element family has no value-cell ABI " +
-                        "(a reference-element second source cannot be paired with a value-family List)");
+                        "over a List not wired: the second source's element family has no cell ABI " +
+                        "(see docs/audit/b5-gaps.md)");
                 return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
                     new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
                     appendLiterals: new[] { K, secondKind, resKind });
@@ -2872,21 +2852,15 @@ public static partial class MethodRefResolver
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)},...> " +
                         "not wired: an element family with no cell ABI (see docs/audit/b5-gaps.md)");
-                // A reference-element source is NOT wired (see the int32 arm
-                // above): the reference branch would call a VALUE-result thunk
-                // through the Il2CppObject* ABI and store EAX as a GC pointer.
-                if (firstKind == "1" || secondKind == "1")
-                    throw new NotSupportedException(
-                        $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
-                        $"{GenericArgTypeName(tRes)}> not wired: Enumerable.Zip over a reference-element " +
-                        "source is not wired (see docs/audit/b5-gaps.md)");
+                // BATCH4: a reference-element source rides the mixed entry (it
+                // reads the element as Il2CppObject* and calls the selector
+                // through the statically declared ABI); the result cell may be a
+                // reference array (6) or a narrow 1/2-byte cell (7..12).
                 string? resKind = LinqZipResKindOfElemByte(tRes);
                 if (resKind == null)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
-                        $"{GenericArgTypeName(tRes)}> not wired: the zip surface writes a 4- or 8-byte " +
-                        "result cell (int32/uint32/int64/double/float), so a 1/2-byte integral, " +
-                        "bool/char or value-result-over-reference-source has no cell ABI " +
+                        $"{GenericArgTypeName(tRes)}> not wired: no result cell ABI for this TResult " +
                         "(see docs/audit/b5-gaps.md)");
                 return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
                     new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
