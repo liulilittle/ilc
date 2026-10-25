@@ -2466,6 +2466,62 @@ uint64_t icall_decimal_to_uint64_round(const Il2CppDecimal* d)
     return ToUInt64Core(v);
 }
 
+// Batch 6 (conv-narrow): the narrow integral Convert targets. Round half-to-even
+// to an integer first (RoundCore), then range-check the NARROW target. The
+// signed forms range-check the rounded int64; the unsigned forms use
+// ToUInt64Core (a negative value throws OverflowException there).
+int32_t icall_decimal_to_byte_round(const Il2CppDecimal* d)
+{
+    DecCalc v;
+    Load(v, d);
+    RoundCore(v, 0, 0);
+    const uint64_t r = ToUInt64Core(v);
+    if (r > 255)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Byte.");
+    }
+    return static_cast<int32_t>(static_cast<uint8_t>(r));
+}
+
+int32_t icall_decimal_to_sbyte_round(const Il2CppDecimal* d)
+{
+    DecCalc v;
+    Load(v, d);
+    RoundCore(v, 0, 0);
+    const int64_t r = ToInt64Core(v);
+    if (r < -128 || r > 127)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a SByte.");
+    }
+    return static_cast<int32_t>(static_cast<int8_t>(r));
+}
+
+int32_t icall_decimal_to_int16_round(const Il2CppDecimal* d)
+{
+    DecCalc v;
+    Load(v, d);
+    RoundCore(v, 0, 0);
+    const int64_t r = ToInt64Core(v);
+    if (r < -32768 || r > 32767)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for an Int16.");
+    }
+    return static_cast<int32_t>(static_cast<int16_t>(r));
+}
+
+int32_t icall_decimal_to_uint16_round(const Il2CppDecimal* d)
+{
+    DecCalc v;
+    Load(v, d);
+    RoundCore(v, 0, 0);
+    const uint64_t r = ToUInt64Core(v);
+    if (r > 65535)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt16.");
+    }
+    return static_cast<int32_t>(static_cast<uint16_t>(r));
+}
+
 // Forward declarations: both live in the floating-point section further down
 // (the net48 conversion + hash pair), but the hash icall above them needs them.
 double DecimalToDoubleBits(const Il2CppDecimal* d);

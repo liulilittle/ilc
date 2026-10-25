@@ -137,6 +137,28 @@ void ExpectThrows(const char* what, const char* typeTag,
     Expect(caught, what);
 }
 
+// Batch 6 (conv-narrow): throw-expectation for a unary decimal icall.
+void ExpectThrowsDec(const char* what, const char* typeTag,
+                     int32_t (*fn)(const Il2CppDecimal*), const Il2CppDecimal& d)
+{
+    bool caught = false;
+    try
+    {
+        (void)fn(&d);
+    }
+    catch (const il2cpp::DotNetException& e)
+    {
+        caught = true;
+        Expect(std::strncmp(e.type_name(), typeTag, std::strlen(typeTag)) == 0, what);
+    }
+    catch (...)
+    {
+        caught = true;
+        Expect(false, "wrong exception carrier type (not DotNetException)");
+    }
+    Expect(caught, what);
+}
+
 } // namespace
 
 int main()
@@ -833,6 +855,48 @@ int main()
         ExpectBits("T3 ceiling: fn(t,d) == -2m", t, 2, 0, 0, 0x80000000);
         ExpectBits("T3 trunc/floor/ceil: input d untouched", d, 27, 0, 0,
                    0x80010000);
+    }
+
+    // --- Batch 6 (conv-narrow): the narrow integral Convert targets ---
+    {
+        Il2CppDecimal d;
+        // Convert.ToByte(decimal): round half-to-even then [0, 255].
+        d = MakeDec(35, 1); // 3.5m
+        Expect(il2cpp::runtime::icall_decimal_to_byte_round(&d) == 4, "ToByte(3.5m) == 4");
+        d = MakeDec(5, 1, true); // -0.5m
+        Expect(il2cpp::runtime::icall_decimal_to_byte_round(&d) == 0, "ToByte(-0.5m) == 0");
+        d = MakeDec(255, 0);
+        Expect(il2cpp::runtime::icall_decimal_to_byte_round(&d) == 255, "ToByte(255m) == 255");
+        d = MakeDec(256, 0);
+        ExpectThrowsDec("ToByte(256m) -> OverflowException", "System.OverflowException",
+                        &il2cpp::runtime::icall_decimal_to_byte_round, d);
+        // Convert.ToSByte(decimal): [-128, 127].
+        d = MakeDec(35, 1);
+        Expect(il2cpp::runtime::icall_decimal_to_sbyte_round(&d) == 4, "ToSByte(3.5m) == 4");
+        d = MakeDec(128, 0);
+        ExpectThrowsDec("ToSByte(128m) -> OverflowException", "System.OverflowException",
+                        &il2cpp::runtime::icall_decimal_to_sbyte_round, d);
+        d = MakeDec(129, 0, true);
+        ExpectThrowsDec("ToSByte(-129m) -> OverflowException", "System.OverflowException",
+                        &il2cpp::runtime::icall_decimal_to_sbyte_round, d);
+        // Convert.ToInt16(decimal): [-32768, 32767].
+        d = MakeDec(35, 1);
+        Expect(il2cpp::runtime::icall_decimal_to_int16_round(&d) == 4, "ToInt16(3.5m) == 4");
+        d = MakeDec(32768, 0);
+        ExpectThrowsDec("ToInt16(32768m) -> OverflowException", "System.OverflowException",
+                        &il2cpp::runtime::icall_decimal_to_int16_round, d);
+        d = MakeDec(32769, 0, true);
+        ExpectThrowsDec("ToInt16(-32769m) -> OverflowException", "System.OverflowException",
+                        &il2cpp::runtime::icall_decimal_to_int16_round, d);
+        // Convert.ToUInt16(decimal): [0, 65535].
+        d = MakeDec(35, 1);
+        Expect(il2cpp::runtime::icall_decimal_to_uint16_round(&d) == 4, "ToUInt16(3.5m) == 4");
+        d = MakeDec(65536, 0);
+        ExpectThrowsDec("ToUInt16(65536m) -> OverflowException", "System.OverflowException",
+                        &il2cpp::runtime::icall_decimal_to_uint16_round, d);
+        d = MakeDec(1, 0, true);
+        ExpectThrowsDec("ToUInt16(-1m) -> OverflowException", "System.OverflowException",
+                        &il2cpp::runtime::icall_decimal_to_uint16_round, d);
     }
 
     if (g_failures == 0)

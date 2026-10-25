@@ -170,6 +170,16 @@ int32_t icall_decimal_to_int32_round(const Il2CppDecimal* d);
 int64_t icall_decimal_to_int64_round(const Il2CppDecimal* d);
 uint32_t icall_decimal_to_uint32_round(const Il2CppDecimal* d);
 uint64_t icall_decimal_to_uint64_round(const Il2CppDecimal* d);
+// Batch 6 (conv-narrow): the same round-then-range-check contract for the
+// NARROW integral targets Convert.ToByte/ToSByte/ToInt16/ToUInt16(decimal).
+// net48 rounds half-to-even first, then range-checks the target
+// (probe-pinned: ToByte(3.5m)==4, ToByte(-0.5m)==0, ToByte(256m)->Overflow,
+// ToSByte(128m)->Overflow, ToInt16(32768m)->Overflow, ToUInt16(-1m)->Overflow).
+// The result is carried in an int32 slot (the MethodMap "i" cast).
+int32_t icall_decimal_to_byte_round(const Il2CppDecimal* d);
+int32_t icall_decimal_to_sbyte_round(const Il2CppDecimal* d);
+int32_t icall_decimal_to_int16_round(const Il2CppDecimal* d);
+int32_t icall_decimal_to_uint16_round(const Il2CppDecimal* d);
 
 // --- T1: misc ---------------------------------------------------------------
 // DecCalc.GetHashCode (DecCalc.cs:1854-1871): canonicalizes the scale

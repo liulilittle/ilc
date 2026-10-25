@@ -36,12 +36,13 @@ namespace Il2Cpp.Transpiler.Emit;
 //   * string sources: NOW WIRED (batch 5) -- the throwing parse icalls
 //     icall_convert_to_{byte,sbyte,int16,uint16,uint32,uint64,single}_string
 //     with the null-means-zero rule (conv-str-parse e2e).
-//   * decimal sources: no decimal converter exists at all (and
-//     icall_decimal_to_int32 TRUNCATES -- the explicit-cast semantics, not
-//     Convert's banker's rounding).
-//   * char sources of ToByte/ToSByte/ToInt16/ToUInt16: net48 semantics not
-//     pinned by any e2e run yet (ToInt32(char) IS pinned as zero-extend;
-//     the narrower targets are not) -- pin before wiring, never guess.
+//   * decimal sources: NOW WIRED for the narrow integral targets (batch 6) --
+//     icall_decimal_to_{byte,sbyte,int16,uint16}_round round half-to-even then
+//     range-check (the conv-narrow e2e pins them); the 32/64-bit forms were
+//     wired by p0conv2 (icall_decimal_to_uint32_round/_uint64_round).
+//   * char sources of ToByte/ToSByte/ToInt16/ToUInt16: NOW WIRED (batch 6) --
+//     the checked conv.ovf_{u1,i1,i2,u2}_i8 helpers over the "l"-extended char
+//     slot (conv-narrow e2e pins the checked ranges).
 //   * ToSingle(uint)/ToDouble(uint): the existing u4-source helpers take
 //     uint32_t params and there is no unsigned VALUE cast code in
 //     EmitIcallCallArgs (only deref:ui) -- needs an _i4-input helper form.
@@ -82,9 +83,17 @@ public static partial class MethodRefResolver
                     0x0B => I($"il2cpp::runtime::icall_conv_ovf_{suffix}_u8", 1, true, false, false, new[] { "q" }),
                     // bool: 0/1 identity on the documented bool-slot domain.
                     0x02 => I("il2cpp::runtime::icall_conv_bool_i4", 1, true, false, false),
-                    // Semantics NOT pinned against net48 yet (ToInt32(char) is;
-                    // these are not) -- pin before wiring, never guess.
-                    0x03 => throw new NotSupportedException($"Convert.{name}(char): net48 semantics not pinned by any e2e run (pin before wiring; see edit_convert.md)"),
+                    // char: a CHECKED conversion of the 16-bit value (net48
+                    // probe-pinned: ToByte('\u0100') -> OverflowException,
+                    // ToSByte('\u00E9') -> OverflowException, ToUInt16('\uFFFF')
+                    // == 65535). The "l" cast sign-extends the char slot
+                    // (0..65535) into the checked int64 helper.
+                    0x03 => I($"il2cpp::runtime::icall_conv_ovf_{suffix}_i8", 1, true, false, false, new[] { "l" }),
+                    // decimal: net48 Convert ROUNDS half-to-even to an integer
+                    // then range-checks the narrow target (probe-pinned:
+                    // ToByte(3.5m)==4, ToByte(-0.5m)==0, ToByte(256m) ->
+                    // OverflowException). NOT the truncating decimal icall.
+                    0x11 => I($"il2cpp::runtime::icall_decimal_to_{dName}_round", 1, true, false, false, new[] { "dec" }),
                     // T1 parity: rounding-aware icall_convert_to_<kind>_d
                     // (net48 rounds half-to-even first; the ovf_*_d truncate).
                     // Float rides the double slot ("d", the ToInt32 precedent).
@@ -92,7 +101,7 @@ public static partial class MethodRefResolver
                     // Convert.ToXxx(string): the throwing parse icall with the
                     // null-means-zero rule (conv-str-parse e2e).
                     0x0E => I($"il2cpp::runtime::icall_convert_to_{dName}_string", 1, true, false, false, new[] { "s" }),
-                    _ => throw new NotSupportedException($"Convert.{name} param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
+                    _ => throw new NotSupportedException($"Convert.{name} param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
             case "ToUInt32":
