@@ -124,17 +124,31 @@ public static partial class MethodRefResolver
             }
             if (aggRecv is "System.Linq.IGrouping" or "System.Linq.IGroupingResult")
             {
-                // p0grp: a DECIMAL-source bucket holds 16-byte System.Decimal
-                // cells; the per-bucket aggregate entries are int32 kernels.
-                // Reject loudly instead of reading a decimal as an int32 (and
-                // emitting an ill-typed temp for the decimal-typed result).
+                // p0grp / BATCH4: a DECIMAL-source bucket holds 16-byte
+                // System.Decimal cells. Route the decimal aggregate family
+                // (Sum/Min/Max/Average) to the decimal bucket kernels instead
+                // of reinterpreting every cell as an int32; the remaining
+                // operators stay LOUD (registered in docs/audit/b5-gaps.md).
                 if (genArgs is { Length: >= 1 } && genArgs[0] == 0x11)
                 {
+                    if (count < 2)
+                    {
+                        var decEntry = name switch
+                        {
+                            "Sum" => "il2cpp::il2cpp_linq_grouping_sum_dec",
+                            "Min" => "il2cpp::il2cpp_linq_grouping_min_dec",
+                            "Max" => "il2cpp::il2cpp_linq_grouping_max_dec",
+                            "Average" => "il2cpp::il2cpp_linq_grouping_average_dec",
+                            _ => null,
+                        };
+                        if (decEntry != null)
+                            return I(decEntry, 1, true, false, false, new[] { "" }, resultKind: "dec");
+                    }
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a System.Decimal-element GroupBy bucket is not wired: " +
-                        "the per-bucket aggregate surface is the int32 kernel family " +
-                        "(see docs/audit/b4-gaps.md); a decimal bucket supports Count()/Any()/" +
-                        "ToArray() and foreach");
+                        "the decimal bucket surface covers Sum()/Min()/Max()/Average() (the decimal " +
+                        "kernels); the int32 predicate/selector operators have no decimal bucket kernel " +
+                        "(see docs/audit/b5-gaps.md)");
                 }
                 if (name == "Sum")
                 {
@@ -297,34 +311,51 @@ public static partial class MethodRefResolver
         // reuses the int32 array kernels), so no operator falls through to the
         // array-family icall with an object cast.
         if (srcType == "System.Linq.IGrouping"
+            || (srcType != null && srcType.StartsWith("System.Linq.IGrouping_key_", StringComparison.Ordinal))
             || (owner == "System.Linq.IGrouping`2" && name == "get_Key"))
         {
             if (name == "get_Key" && count == 0)
+            {
                 // INSTANCE property accessor: ParamCount is the EXPLICIT
                 // parameter count (0); the emitter prepends the receiver.
-                return I("il2cpp::il2cpp_linq_grouping_get_key", 0, true, false, true);
-            // p0grp: a DECIMAL-source bucket (il2cpp_linq_group_by_dec_key)
-            // holds 16-byte System.Decimal cells. The per-bucket operator
-            // family below is int32-kernel only (it snapshots the bucket and
-            // reuses the int32 array kernels), so it would reinterpret every
-            // decimal as an int32 -- a silent wrong value, and an ill-typed
-            // C++ temp for a decimal-typed result. Only the family-agnostic
-            // members are let through: Count()/Any() (bucket metadata),
-            // ToArray() (get_elements copies by element width) and get_Key.
+                // BATCH4: dispatch on the tracked grouping type's key-family
+                // marker ("System.Linq.IGrouping_key_i8/_dec/_dt/_guid").
+                var keyMarker = srcType != null && srcType.StartsWith("System.Linq.IGrouping_key_", StringComparison.Ordinal)
+                    ? srcType["System.Linq.IGrouping".Length..] : "";
+                return keyMarker switch
+                {
+                    "_key_i8" => I("il2cpp::il2cpp_linq_grouping_get_key_i8", 0, true, false, true,
+                        resultKind: "l"),
+                    "_key_dec" => I("il2cpp::il2cpp_linq_grouping_get_key_dec", 0, true, false, true,
+                        new[] { "" }, resultKind: "dec"),
+                    "_key_dt" => I("il2cpp::il2cpp_linq_grouping_get_key_dt", 0, true, false, true,
+                        new[] { "" }, resultKind: "dt"),
+                    "_key_guid" => I("il2cpp::il2cpp_linq_grouping_get_key_guid", 0, true, false, true,
+                        new[] { "" }, resultKind: "guid"),
+                    _ => I("il2cpp::il2cpp_linq_grouping_get_key", 0, true, false, true),
+                };
+            }
+            // p0grp / BATCH4: a DECIMAL-source bucket (il2cpp_linq_group_by_dec_key)
+            // holds 16-byte System.Decimal cells. The int32 operator family below
+            // would reinterpret every decimal as an int32 -- a silent wrong value,
+            // and an ill-typed C++ temp for a decimal-typed result. The decimal
+            // aggregate family is dispatched in the Sum/Min/Max/Average block
+            // above; the family-agnostic members (Count()/Any()/ToArray()/
+            // get_Key) stay here.
             bool decBucket = genArgs is { Length: >= 1 } && genArgs[0] == 0x11;
             if (decBucket)
             {
                 bool agnostic = name == "ToArray"
                     || (name == "Count" && count < 2)
-                    || (name == "Any" && count < 2);
+                    || (name == "Any" && count < 2)
+                    || (name == "Contains" && count >= 2);
                 if (!agnostic)
                 {
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a System.Decimal-element GroupBy bucket is not wired: " +
-                        "the per-bucket operator surface is the int32 kernel family (Where/Select/" +
-                        "Sum/Min/Max/Average/First/FirstOrDefault/Last/ElementAt/Contains/Count(pred)/" +
-                        "Any(pred)/All); a decimal bucket only supports Count()/Any()/ToArray() and " +
-                        "foreach (see docs/audit/b4-gaps.md)");
+                        "the decimal bucket surface covers the aggregate family (Sum/Min/Max/Average) " +
+                        "plus Count()/Any()/Contains()/ToArray()/get_Key; the int32 predicate/selector " +
+                        "operators have no decimal bucket kernel (see docs/audit/b5-gaps.md)");
                 }
             }
             switch (name)
@@ -361,6 +392,12 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_linq_grouping_element_at_i4", 2, true, false, false,
                         new[] { "", "i" });
                 case "Contains":
+                    // BATCH4: a decimal bucket's Contains takes the decimal by
+                    // value (the decimal equality kernel); an int32 bucket rides
+                    // the int32 entry.
+                    if (decBucket)
+                        return I("il2cpp::il2cpp_linq_grouping_contains_dec", 2, true, false, false,
+                            new[] { "", "" });
                     return I("il2cpp::il2cpp_linq_grouping_contains_i4", 2, true, false, false,
                         new[] { "", "i" });
                 default:
@@ -1282,7 +1319,8 @@ public static partial class MethodRefResolver
                 // (long/ulong/decimal/DateTime/Guid/any 0x11 key, non-int32
                 // source arrays) with the required ABI change surface lives in
                 // docs/audit/b4-gaps.md -- never widen this gate without it.
-                int keyKind = genArgs is { Length: >= 2 } ? KeyKindFor(genArgs[1]) : -1;
+                int keyKind = genArgs is { Length: >= 2 }
+                    ? KeyKindForNamed(genArgs[1], genArgNames, 1) : -1;
                 if (genArgs is not { Length: >= 2 } || keyKind < 0)
                 {
                     // The FULL type name (GenericArgFullNames) is the only way to
@@ -1299,10 +1337,11 @@ public static partial class MethodRefResolver
                         : "?";
                     throw new NotSupportedException(
                         $"Enumerable.GroupBy<{elemArgType},{keyArgType}> not wired: " +
-                        "the stage-1 runtime grouping surface is int32 (0x08) elements AND an integer " +
-                        "key that fits the int32 bucket (int/bool/char/sbyte/byte/short/ushort/uint); " +
+                        "the grouping surface buckets int32 (0x08) elements by a key carrier of " +
+                        "int32-slot (int/bool/char/sbyte/byte/short/ushort/uint), int64 (long/ulong) " +
+                        "or 16-byte struct (System.Decimal/System.DateTime/System.Guid); " +
                         $"{DescribeRejectedKey(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0, keyArgType)} " +
-                        "has no runtime key carrier yet (see docs/audit/b4-gaps.md)");
+                        "has no runtime key carrier (see docs/audit/b5-gaps.md)");
                 }
                 {
                     var gbParams = LinqEncodedParamTypes(md, sigHandle);
@@ -1930,8 +1969,56 @@ public static partial class MethodRefResolver
         0x06 => 4, // short
         0x09 => 5, // uint (bit pattern; equality only)
         0x02 => 6, // bool
-        _ => -1,   // long/ulong/decimal/DateTime/Guid/reference: LOUD
+        0x0A or 0x0B => 7, // BATCH4: long / ulong (the 64-bit key carrier)
+        _ => -1,   // decimal/DateTime/Guid (name-resolved below) / reference: LOUD
     };
+
+    // BATCH4: the name-aware KeyKindFor. A 0x11 VALUETYPE key byte is shared by
+    // every struct/enum, so the byte alone cannot say whether the key is a
+    // System.Decimal / System.DateTime / System.Guid (all wireable through the
+    // 16-byte key carrier) or a user struct (still LOUD). The generic-argument
+    // NAME is the authority (the same metadata-first rule LinqListKind uses).
+    private static int KeyKindForNamed(byte keyByte, string[]? genArgNames, int index)
+    {
+        if (keyByte == 0x11 && genArgNames is { Length: > 0 } && index < genArgNames.Length)
+        {
+            var n = genArgNames[index];
+            if (n is "System.Decimal" or "decimal") return 8;
+            if (n is "System.DateTime" or "DateTime") return 9;
+            if (n is "System.Guid" or "Guid") return 10;
+        }
+        return KeyKindFor(keyByte);
+    }
+
+    // BATCH4: the grouping key-family marker carried in the tracked enumerator /
+    // grouping type names so get_Current and get_Key can dispatch on the REAL
+    // key family. The marker is decided at the GroupBy call and flows through
+    // the IEnumerator<IGrouping<TKey,TElement>> instantiation name.
+    private static string LinqGroupingKeyMarker(string? keyTypeName) =>
+        keyTypeName switch
+        {
+            "long" or "ulong" or "System.Int64" or "System.UInt64" => "_key_i8",
+            "System.Decimal" or "decimal" => "_key_dec",
+            "System.DateTime" or "DateTime" => "_key_dt",
+            "System.Guid" or "Guid" => "_key_guid",
+            _ => "",
+        };
+
+    // Extract the TKey NAME from an IGrouping`2<TKey,TElement> instantiation
+    // name ("...IGrouping`2_long_int" -> "long"). The token ends at the first
+    // '_' after the marker; a nested generic key (List`1_int) is not a wireable
+    // key family, so its token simply yields the empty marker.
+    private static string? LinqGroupingKeyTypeName(string? instName)
+    {
+        if (instName == null) return null;
+        const string marker = "IGrouping`2_";
+        int idx = instName.IndexOf(marker, StringComparison.Ordinal);
+        if (idx < 0) return null;
+        int start = idx + marker.Length;
+        int end = instName.IndexOf('_', start);
+        string token = end < 0 ? instName[start..] : instName[start..end];
+        return token.Length > 0 ? token : null;
+    }
 
     // D6: the rejected GroupBy KEY described in the LOUD message. The old
     // template called every non-integer key a "value-type", so a ulong key was

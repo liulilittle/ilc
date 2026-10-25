@@ -848,6 +848,41 @@ public class MethodMapTestsLinq
         Assert.False(resolved.ReturnsRef);
     }
 
+    // BATCH4: get_Key dispatches on the tracked grouping type's key-family marker
+    // ("System.Linq.IGrouping_key_i8/_dec/_dt/_guid"), set by the
+    // IEnumerator<IGrouping<TKey,TElement>> instantiation name.
+    [Theory]
+    [InlineData("System.Linq.IGrouping_key_i8", "il2cpp::il2cpp_linq_grouping_get_key_i8", "l")]
+    [InlineData("System.Linq.IGrouping_key_dec", "il2cpp::il2cpp_linq_grouping_get_key_dec", "dec")]
+    [InlineData("System.Linq.IGrouping_key_dt", "il2cpp::il2cpp_linq_grouping_get_key_dt", "dt")]
+    [InlineData("System.Linq.IGrouping_key_guid", "il2cpp::il2cpp_linq_grouping_get_key_guid", "guid")]
+    public void Resolve_GetKey_GroupingKeyMarker_MapsToWideKeyGetter(string receiverType, string cpp, string resultKind)
+    {
+        var resolved = ResolveMemberRefWithReceiver(
+            SynthesizeMemberRef("System.Linq", "IGrouping`2", "get_Key", new byte[] { 0x00, 0x00, 0x08 }),
+            "get_Key", receiverType);
+
+        Assert.Equal(cpp, resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(resultKind, resolved.ResultKind);
+    }
+
+    // BATCH4: the int32-slot key path is unchanged -- an unmarked grouping type
+    // still maps to the int32 getter.
+    [Fact]
+    public void Resolve_GetKey_GroupingUnmarked_MapsToGroupingGetKey()
+    {
+        var resolved = ResolveMemberRefWithReceiver(
+            SynthesizeMemberRef("System.Linq", "IGrouping`2", "get_Key", new byte[] { 0x00, 0x00, 0x08 }),
+            "get_Key", "System.Linq.IGrouping");
+
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_get_key", resolved.CppName);
+    }
+
+
+
     //--------------------------------------------------------------------------
     // D-LINQ-4 array return: a method returning SZARRAY (int[]) must carry
     // ReturnsRef=true (the array is a managed reference, Il2CppArray*).
@@ -1675,6 +1710,17 @@ public class MethodMapTestsLinq
         var md = reader.GetMetadataReader();
         var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
         return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>());
+    }
+
+    // BATCH4: the receiver-aware MemberReference overload -- the grouping
+    // get_Key dispatch keys on the tracked receiver type's key-family marker.
+    private static ResolvedMethod ResolveMemberRefWithReceiver(MemoryStream pe, string memberName, string? receiverType)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+            receiverType, false, receiverType, null);
     }
 
     private static MemoryStream SynthesizeMemberRef(string ns, string typeName, string memberName, byte[] signature)

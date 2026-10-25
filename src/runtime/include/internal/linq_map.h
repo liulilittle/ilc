@@ -51,7 +51,9 @@
 
 #include "il2cpp_array.h"
 #include "il2cpp_object.h"
-#include "decimal.h" // P0LINQ1 (D2): the 16-byte System.Decimal value slot
+#include "decimal.h"     // P0LINQ1 (D2): the 16-byte System.Decimal value slot
+#include "guid.h"        // BATCH4: the 16-byte System.Guid key carrier
+#include "il2cpp_time.h" // BATCH4: the System.DateTime key carrier
 
 #include <cstdint>
 
@@ -339,11 +341,12 @@ Il2CppArray* il2cpp_linq_select_ref_dec(Il2CppArray* src, Il2CppObject* sel);
 //   struct Il2CppLinqGrouping         // one bucket (an IGrouping<int,int>)
 //   {
 //       Il2CppObject obj;      // object header: klass pointer
-//       int32_t      key;      // the bucket key (NOT a GC reference)
+//       int64_t      key;      // bucket key: low 64 bits (NOT a GC reference)
 //       Il2CppArray* elements; // INT32 value array: slot i = bucket element i
 //       int32_t      count;    // number of elements in the bucket
+//       int64_t      keyHi;    // bucket key: high 64 bits (16-byte struct keys)
 //   };
-//   // instanceSize 32, refFieldBitmap bit 2 (elements)
+//   // instanceSize 40, refFieldBitmap bit 2 (elements)
 //
 //   struct Il2CppLinqGroupingResult    // the GroupBy() return value
 //   {
@@ -362,12 +365,26 @@ Il2CppArray* il2cpp_linq_select_ref_dec(Il2CppArray* src, Il2CppObject* sel);
 // emitted), so the runtime unit test drives Count/Sum/order directly.
 //------------------------------------------------------------------------------
 // Managed bucket (an IGrouping<int,int>): key + element int32[].
+//
+// The key is a 16-byte carrier split across two 8-byte slots so ONE struct
+// serves every key family the grouping surface buckets by:
+//   * int32-slot keys (int/bool/char/sbyte/byte/short/ushort/uint): key holds
+//     the narrowed int32 (zero/sign-extended), keyHi is 0;
+//   * int64 keys (long/ulong): key/keyHi hold the 64-bit value (ulong rides the
+//     same bit pattern);
+//   * 16-byte struct keys (System.Decimal / System.DateTime / System.Guid):
+//     the raw 16 bytes are split low64 -> key, high64 -> keyHi.
+// The elements/count offsets are UNCHANGED from the original 32-byte layout
+// (elements at slot 2 = bitmap bit 2, count at slot 3), so the shared
+// IGrouping readers (get_elements / get_count / get_enumerator) keep working
+// for every key family; only the key accessors are family-specific.
 struct Il2CppLinqGrouping
 {
     Il2CppObject obj;       // object header (klass pointer)
-    int32_t      key;       // the bucket key (NOT a GC reference)
+    int64_t      key;       // bucket key: low 64 bits (int32-slot keys ride here)
     Il2CppArray* elements;  // INT32 value array: slot i = bucket element i
     int32_t      count;     // number of elements in the bucket
+    int64_t      keyHi;     // bucket key: high 64 bits (0 for int32/int64 keys)
 };
 
 // Managed GroupBy() result: the buckets in first-appearance key order.
@@ -576,6 +593,16 @@ int32_t       il2cpp_linq_grouping_last_i4(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_element_at_i4(Il2CppObject* grouping, int32_t index);
 bool          il2cpp_linq_grouping_contains_i4(Il2CppObject* grouping, int32_t value);
 Il2CppArray*  il2cpp_linq_grouping_to_array(Il2CppObject* grouping);
+
+// BATCH4: the DECIMAL-bucket operators (a decimal-source bucket stores 16-byte
+// System.Decimal cells). The aggregate results ride the decimal T3 result-slot
+// ABI (the result slot is the FIRST C++ parameter); Contains takes the value by
+// const reference (the decimal equality kernel).
+void          il2cpp_linq_grouping_sum_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+void          il2cpp_linq_grouping_min_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+void          il2cpp_linq_grouping_max_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+void          il2cpp_linq_grouping_average_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+bool          il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDecimal value);
 Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result);
 
 // The whole GroupBy result: the buckets as a reference array / the first bucket.
@@ -604,6 +631,22 @@ Il2CppObject* il2cpp_linq_grouping_result_get_grouping(Il2CppObject* result, int
 int32_t       il2cpp_linq_grouping_get_key(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_get_count(Il2CppObject* grouping);
 Il2CppArray*  il2cpp_linq_grouping_get_elements(Il2CppObject* grouping);
+
+// BATCH4: the wide-key accessors. The bucket's key is a 16-byte carrier; each
+// entry returns it in the family's REAL ABI:
+//   _i8   long / ulong  -> int64_t (ulong rides the same bit pattern)
+//   _dec  System.Decimal -> by value (the result slot is the FIRST C++ param,
+//                           the decimal T3 contract)
+//   _dt   System.DateTime -> runtime::Il2CppDateTime (ticks + kind; the struct's trailing
+//                             padding is not part of the key)
+//   _guid System.Guid   -> by value through the uint8_t* output buffer (the
+//                          guid.h contract: args first, buffer last)
+int64_t            il2cpp_linq_grouping_get_key_i8(Il2CppObject* grouping);
+void               il2cpp_linq_grouping_get_key_dec(runtime::Il2CppDecimal* result,
+                                                    Il2CppObject* grouping);
+runtime::Il2CppDateTime     il2cpp_linq_grouping_get_key_dt(Il2CppObject* grouping);
+void               il2cpp_linq_grouping_get_key_guid(Il2CppObject* grouping,
+                                                     uint8_t bytes[16]);
 
 // IEnumerable.GetEnumerator over the two grouping surfaces (nb9): the
 // result yields its buckets in first-appearance order (reference elements),
@@ -666,3 +709,4 @@ Il2CppArray* il2cpp_linq_zip_i4(Il2CppArray* first, Il2CppArray* second,
                                 Il2CppObject* sel);
 
 } // namespace il2cpp
+

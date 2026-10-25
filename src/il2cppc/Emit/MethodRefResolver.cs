@@ -1952,8 +1952,13 @@ public static partial class MethodRefResolver
 var userRecvLike = receiverType ?? arg0Type;
                     if (userRecvLike == "System.Collections.IEnumerator" || userRecvLike == "System.Collections.IEnumerable"
                             || userRecvLike == "System.Collections.Generic.IEnumerator`1" || userRecvLike == "System.Collections.Generic.IEnumerable`1"
-                        || (userRecvLike != null && !userRecvLike.StartsWith("System.", StringComparison.Ordinal)
-                            && !userRecvLike.StartsWith("Microsoft.", StringComparison.Ordinal)))
+                            // BATCH4: the grouping enumerator carries the key-family
+                            // marker ("...IEnumerator`1_System.Linq.IGrouping[_key_*]");
+                            // the foreach-finally Dispose is the same no-op dispatch.
+                            || (userRecvLike != null && userRecvLike.StartsWith(
+                                "System.Collections.Generic.IEnumerator`1_System.Linq.IGrouping", StringComparison.Ordinal))
+                            || (userRecvLike != null && !userRecvLike.StartsWith("System.", StringComparison.Ordinal)
+                                && !userRecvLike.StartsWith("Microsoft.", StringComparison.Ordinal)))
                         return I("il2cpp::il2cpp_ienum_dispose", 0, false, false, true);
                     if (receiverType == null && arg0Type == null)
                         // P25c: the untracked-receiver IDisposable.Dispose (the
@@ -2416,8 +2421,16 @@ var userRecvLike = receiverType ?? arg0Type;
         {
             case "System.Collections.Generic.IEnumerable`1":
                 if (name == "GetEnumerator")
+                {
+                    // BATCH4: an IEnumerable<IGrouping<TKey,TElement>> carries the
+                    // grouping KEY family in its instantiation name; propagate it
+                    // into the tracked enumerator type so get_Current -> get_Key
+                    // can dispatch on the REAL key carrier (int32/int64/16-byte
+                    // struct) instead of assuming the int32 bucket key.
+                    var keyMarker = LinqGroupingKeyMarker(LinqGroupingKeyTypeName(instName));
                     return I("il2cpp::il2cpp_ienum_get_enumerator", 0, true, true, true,
-                        returnTypeName: "System.Collections.Generic.IEnumerator`1");
+                        returnTypeName: "System.Collections.Generic.IEnumerator`1_System.Linq.IGrouping" + keyMarker);
+                }
                 return null;
             case "System.Collections.Generic.IEnumerator`1":
                 switch (name)
@@ -2437,8 +2450,15 @@ var userRecvLike = receiverType ?? arg0Type;
                         // the old order picked the int64 carrier and emitted
                         // get_key(int64) -- ill-typed C++.
                         if (instName?.Contains("IGrouping", StringComparison.Ordinal) == true)
+                        {
+                            // BATCH4: propagate the key-family marker carried by the
+                            // IEnumerator<IGrouping<TKey,TElement>> instantiation
+                            // name into the tracked grouping type so get_Key
+                            // dispatches on the REAL key carrier.
+                            var marker = LinqGroupingKeyMarker(LinqGroupingKeyTypeName(instName));
                             return I("il2cpp::il2cpp_ienum_get_current_ref", 0, true, true, true,
-                                returnTypeName: "System.Linq.IGrouping");
+                                returnTypeName: "System.Linq.IGrouping" + marker);
+                        }
                         // p0grp: a DECIMAL element carrier (IEnumerator<decimal>).
                         // It MUST come after the IGrouping arm above: the
                         // instantiation of IEnumerator<IGrouping<int,decimal>>

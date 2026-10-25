@@ -9,7 +9,7 @@ p-stacktrace      # W7 whitelist: net48 CLR internal frames cannot be statically
 p-adb-loud        # RUNTIME-CONTRACT probe: net48 deliberately diverges (returns localized name); assertion is runtime-only [loud.tostring]=True
 
 # --- LOUD contract cases (B5-R6) ---
-# These three are INTENTIONALLY non-zero-exit: each locks a compile-time or
+# These are INTENTIONALLY non-zero-exit: each locks a compile-time or
 # run-time NotSupportedException that prevents a silent wrong value. They are
 # excluded from the byte-exact sweep because a PASS for them means "threw the
 # documented exception", which scripts/loud-gate.ps1 verifies instead.
@@ -17,8 +17,9 @@ loud-p0-14-strkey-loud   # LOUD contract: string key ordering requires culture-a
 loud-p0-16-objkey-loud   # LOUD contract: object/string key ordering rejected at runtime (NotSupportedException)
 loud-p0-17-zipres-loud   # LOUD contract: 1/2-byte or bool/char Zip result has no cell ABI (transpile-time NotSupported)
 loud-p0-18-strmin-loud   # LOUD contract: string Min/Max requires culture-aware collation (transpile-time NotSupported)
-loud-p0-grp-key-long     # LOUD contract: GroupBy long/ulong/decimal keys have no runtime key carrier (transpile-time NotSupported)
-loud-p0-grp-dec-op       # LOUD contract: int32-only bucket operators over a decimal-source GroupBy bucket (transpile-time NotSupported)
+# BATCH4: loud-p0-grp-key-long (long/ulong/decimal/DateTime/Guid key carriers) and
+# loud-p0-grp-dec-op (decimal-bucket aggregate/Contains operators) are now WIRED
+# real cases, so they were removed from this list.
 
 # --- Incomplete WIP case assets (added by the 2026-10-23 wip commit with only a
 # --- .csproj; the .cs source was never committed, so the net48 oracle build fails
