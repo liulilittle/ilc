@@ -1976,9 +1976,18 @@ var userRecvLike = receiverType ?? arg0Type;
                 return TryMapCollectionInterface(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                     ?? (receiverType != null ? TryMapEnumIface(owner, name, count, instName) : null)
                     // excapi1: System.Exception.Data (an IDictionary) inherits
-                    // Count from ICollection; its Count / this[key] get/set map
-                    // to the Hashtable icalls over the dictionary object.
-                    ?? TryMapExceptionData(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                    // Count from ICollection; its Count maps to the Hashtable
+                    // icall over the dictionary object. GATED on the tracked
+                    // IDictionary receiver so the FIRST pass (receiverType==null)
+                    // DEFERS instead of handing back an il2cpp:: CppName: the
+                    // receiver-aware re-resolve then selects the SortedList
+                    // Keys/Values snapshot count (TryMapCollectionInterface
+                    // above) rather than this arm shadowing it with the
+                    // Hashtable icall (the enumeratordeep / icollectiondeep /
+                    // sldeep regression introduced by fix-io 104dcb54).
+                    ?? (receiverType == "System.Collections.IDictionary"
+                        ? TryMapExceptionData(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                        : null);
             case "System.IO.StringReader":
             case "System.IO.StringWriter":
             case "System.IO.TextReader":
