@@ -10,7 +10,9 @@ using Xunit;
 // RuntimeTypeHandle / RuntimeMethodHandle / RuntimeFieldHandle value ops to
 // the reflecthandle.cpp icalls (reflecthandle.h, namespace il2cpp):
 //
-//   get_Value   -> il2cpp_rthandle_get_value / rmethodhandle / rfieldhandle
+//   get_Value   -> il2cpp_{rthandle,rmethodhandle,rfieldhandle}_get_value_intptr
+//                 (the handle VALUE rides in the intptr_t carrier; the address
+//                 receiver is dereferenced by the "deref:l" cast)
 //   Equals      -> il2cpp_rthandle_equals / ... (instance, one handle arg)
 //   GetHashCode -> il2cpp_rthandle_get_hash_code / ...
 //   GetRuntimeType -> il2cpp_rthandle_get_runtime_type (type handle only)
@@ -27,7 +29,7 @@ public class MethodMapReflectHandleTests
         var m = ResolveMember(Synthesize("System", "RuntimeTypeHandle", "get_Value", Sig(0x11, 0x05)),
             "get_Value", receiverIsAddress: true);
 
-        Assert.Equal("il2cpp::il2cpp_rthandle_get_value", m.CppName);
+        Assert.Equal("il2cpp::il2cpp_rthandle_get_value_intptr", m.CppName);
         Assert.True(m.IsInstance);
         Assert.True(m.ReturnsValue);
         Assert.Equal(0, m.ParamCount);
@@ -80,7 +82,7 @@ public class MethodMapReflectHandleTests
         var m = ResolveMember(Synthesize("System", "RuntimeMethodHandle", "get_Value", Sig(0x11, 0x05)),
             "get_Value", receiverIsAddress: true);
 
-        Assert.Equal("il2cpp::il2cpp_rmethodhandle_get_value", m.CppName);
+        Assert.Equal("il2cpp::il2cpp_rmethodhandle_get_value_intptr", m.CppName);
         Assert.True(m.IsInstance);
         Assert.Equal("ptr", m.ResultKind);
     }
@@ -113,7 +115,7 @@ public class MethodMapReflectHandleTests
         var m = ResolveMember(Synthesize("System", "RuntimeFieldHandle", "get_Value", Sig(0x11, 0x05)),
             "get_Value", receiverIsAddress: true);
 
-        Assert.Equal("il2cpp::il2cpp_rfieldhandle_get_value", m.CppName);
+        Assert.Equal("il2cpp::il2cpp_rfieldhandle_get_value_intptr", m.CppName);
         Assert.True(m.IsInstance);
         Assert.Equal("ptr", m.ResultKind);
     }
