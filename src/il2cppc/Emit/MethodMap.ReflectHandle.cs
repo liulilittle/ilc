@@ -32,7 +32,7 @@ namespace Il2Cpp.Transpiler.Emit;
 // All defensive: null/default handles return 0/nullptr, never throw (net48
 // probe). Unknown members -> LOUD with the covered surface.
 //
-// LOUD classification (impl-type2): all three NotSupportedException sites are
+// LOUD classification (impl-type2): all three LOUD throws are
 // WHITELIST category (4) -- net48-nonexistent shapes, not statically-analyzable
 // statements. The owners are exactly the three net48 handle value types
 // (System.RuntimeTypeHandle / System.RuntimeMethodHandle /

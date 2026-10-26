@@ -37,7 +37,7 @@ namespace Il2Cpp.Transpiler.Emit;
 // signatures.
 //------------------------------------------------------------------------------
 //
-// LOUD classification (impl-type2): every remaining NotSupportedException in
+// LOUD classification (impl-type2): every remaining LOUD throw in
 // this file is a WHITELIST guard. The analyzable net48 overloads are wired:
 // GetValue(object[, object[]]), SetValue(object, object[, object[]] +
 // binder arities), GetGetMethod/GetSetMethod([bool]), MethodBase/MethodInfo.

@@ -21,7 +21,7 @@ namespace Il2Cpp.Transpiler.Emit;
 //     get_Name string-receiver precedent (MethodMap.CultureInfo.cs /
 //     MethodMap.Object.cs).
 //
-// LOUD classification (impl-type2): the single NotSupportedException is
+// LOUD classification (impl-type2): the single LOUD throw is
 // WHITELIST category (4) -- net48-nonexistent shape. System.Reflection.Module.
 // get_Module is a parameterless property (net48
 // mscorlib/system/reflection/module.cs: the Module property on Type/MemberInfo

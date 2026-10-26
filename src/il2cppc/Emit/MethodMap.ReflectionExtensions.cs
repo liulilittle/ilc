@@ -18,7 +18,7 @@ namespace Il2Cpp.Transpiler.Emit;
 //     Type-domain mapping (.Name/.FullName/.IsClass/BaseType/
 //     GetProperty/==) resolving on the Type registry receiver.
 //
-// LOUD classification (impl-type2): all three NotSupportedException sites are
+// LOUD classification (impl-type2): all three LOUD throws are
 // WHITELIST. GetTypeCode/IntrospectionExtensions.GetTypeInfo take exactly one
 // (Type) argument in net48 (the arity catch-alls are category (4)
 // net48-nonexistent); the TypeInfo-only surface (DeclaredMethods/

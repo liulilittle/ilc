@@ -18,7 +18,7 @@ namespace Il2Cpp.Transpiler.Emit;
 // it resolve -- the GetType()-linkage the fold already uses.
 //------------------------------------------------------------------------------
 //
-// LOUD classification (impl-type2): every remaining NotSupportedException in
+// LOUD classification (impl-type2): every remaining LOUD throw in
 // this file is a WHITELIST guard -- the arity/signature shape is compile-time
 // known but the member is NOT a net48 overload, or the receiver is a runtime
 // value the registry cannot classify. None is a statically-analyzable net48
