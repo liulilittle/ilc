@@ -675,6 +675,92 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_group_by_full_key", count, true, true, false, dtCasts,
                     returnTypeName: dtRetType, appendLiterals: dtLiterals, argOrder: dtArgOrder);
             }
+            // vtsrc: GroupBy over a Guid[] SOURCE (net48 GroupBy<TSource,TKey>
+            // with TSource = System.Guid). The Guid element crosses as the
+            // 16-byte value struct BY VALUE (the InvokeSelGuid* ABIs); the
+            // bucket stores the Guid cells (GroupElemKind::Guid).
+            if (name == "GroupBy" && genArgs is { Length: >= 1 } && genArgs[0] == 0x11
+                && genArgNames is { Length: >= 1 }
+                && (genArgNames[0] == "System.Guid" || genArgNames[0] == "V:System.Guid"))
+            {
+                int guidKeyKind = KeyKindForNamed(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08,
+                    genArgNames, 1);
+                if (genArgs is not { Length: >= 2 } || guidKeyKind < 0)
+                    throw new NotSupportedException(
+                        "Enumerable.GroupBy<System.Guid,...> not wired: the Guid-source grouping " +
+                        "surface buckets by a key carrier of int32-slot/int64/16-byte struct/reference " +
+                        "(see docs/audit/b4-gaps.md)");
+                var guidParams = LinqEncodedParamTypes(md, sigHandle);
+                int guidElemArg = -1, guidCmpArg = -1, guidResArg = -1;
+                for (int pi = 2; pi < guidParams.Length; pi++)
+                {
+                    var guiddef = GenericDefNameOf(guidParams[pi]);
+                    if (guiddef == "System.Func`2") guidElemArg = pi;
+                    else if (guiddef == "System.Func`3") guidResArg = pi;
+                    else if (guiddef == "System.Collections.Generic.IEqualityComparer`1") guidCmpArg = pi;
+                }
+                byte? guidElemByte = guidElemArg >= 0 && genArgs.Length >= 3 ? genArgs[2] : null;
+                byte? guidResByte = guidResArg >= 0 && genArgs.Length >= 3
+                    ? (genArgs.Length >= 4 ? genArgs[3] : genArgs[2]) : null;
+                string GuidElemFamily(byte b, int nameIndex)
+                {
+                    switch (b)
+                    {
+                        case 0x08:
+                        case 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09:
+                            return "0";
+                        case 0x0A or 0x0B: return "2";
+                        case 0x0D: return "3";
+                        case 0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E: return "1";
+                        case 0x11:
+                        {
+                            var n = genArgNames is { Length: > 0 } && nameIndex < genArgNames.Length
+                                ? genArgNames[nameIndex] : null;
+                            if (n is not null && n.StartsWith("V:", StringComparison.Ordinal)) n = n[2..];
+                            return n switch
+                            {
+                                "System.Decimal" => "4",
+                                "System.DateTime" => "5",
+                                "System.Guid" => "6",
+                                _ => "",
+                            };
+                        }
+                        default: return "";
+                    }
+                }
+                string GuidResultFamily(byte b) => b switch
+                {
+                    0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                    0x0A or 0x0B => "3",
+                    0x0D => "4",
+                    0x0C => "5",
+                    _ => "2",
+                };
+                string guidEk = guidElemByte is { } gb ? GuidElemFamily(gb, 2) : "6";
+                if (guidEk.Length == 0)
+                {
+                    string elemName = genArgNames is { Length: > 2 } ? genArgNames[2] : "?";
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy TElement '{elemName}' over a System.Guid source is not " +
+                        "wired: whitelist 3 -- a USER-STRUCT bucket element has no runtime cell ABI");
+                }
+                string guidRk = guidResByte is { } grb ? GuidResultFamily(grb) : "0";
+                int guidElemIdx = guidElemArg >= 0 ? guidElemArg : -1;
+                int guidCmpIdx = guidCmpArg >= 0 ? guidCmpArg : -1;
+                int guidResIdx = guidResArg >= 0 ? guidResArg : -1;
+                var guidArgOrder = new[] { 0, 1, guidElemIdx, guidCmpIdx, guidResIdx };
+                var guidCasts = new[] { "a", "", "", "", "" };
+                var guidLiterals = new[] { guidEk, guidRk,
+                    guidKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture), "4" };
+                var guidRetType = guidRk == "0"
+                    ? "System.Linq.IGroupingResult"
+                    : guidRk == "1" ? "System.Int32[]"
+                    : guidRk == "3" ? "System.Int64[]"
+                    : guidRk == "4" ? "System.Double[]"
+                    : guidRk == "5" ? "System.Double[]" : "System.Object[]";
+                return I("il2cpp::il2cpp_linq_group_by_full_key", count, true, true, false, guidCasts,
+                    returnTypeName: guidRetType, appendLiterals: guidLiterals, argOrder: guidArgOrder);
+            }
             // p0grp: GroupBy over a decimal[] SOURCE with an int32-slot key.
             // Before this arm the call fell past the decimal block, past the
             // ref block (no GroupBy there) and into the int32-only gate at
@@ -706,8 +792,10 @@ public static partial class MethodRefResolver
                 if (!IsDecimalGenArg(genArgNames, 0))
                     throw new NotSupportedException(
                         $"Enumerable.GroupBy<{(genArgNames is { Length: >= 1 } ? genArgNames[0] : "valuetype")},...> " +
-                        "over a value-type source is not wired: the decimal-source grouping surface " +
-                        "covers System.Decimal[] only (see docs/audit/b4-gaps.md)");
+                        "over a USER-STRUCT source is not wired: whitelist 3 -- the runtime has no " +
+                        "descriptor/layout for an arbitrary user struct, so no by-value key-selector ABI " +
+                        "can be generated (System.Decimal / System.DateTime / System.Guid sources are wired; " +
+                        "see docs/audit/b4-gaps.md)");
                 int decKeyKind = KeyKindForNamed(genArgs[1], genArgNames, 1);
                 if (decKeyKind < 0)
                 {

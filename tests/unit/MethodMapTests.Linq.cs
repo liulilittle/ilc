@@ -1418,6 +1418,18 @@ public class MethodMapTestsLinq
         Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
     }
 
+    // GroupBy over a Guid SOURCE (net48 GroupBy<Guid,int>): the Guid-source
+    // grouping surface (srcKind 4, elemKind 6).
+    [Fact]
+    public void Resolve_GroupBy_GuidSource_MapsToGroupingFullKey()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGroupByGuid(0x08));
+
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "6", "0", "0", "4" }, resolved.AppendLiterals);
+    }
+
     // GroupBy over a DECIMAL source with an ELEMENT selector (net48
     // GroupBy<decimal,int,int>): the decimal-source grouping surface with the
     // projected int32 element family.
@@ -2768,6 +2780,43 @@ public class MethodMapTestsLinq
         spec.WriteByte(0x0A);
         spec.WriteCompressedInteger(2);
         spec.WriteByte(0x11); spec.WriteCompressedInteger(dtCoded);     // TSource = System.DateTime
+        spec.WriteByte(tKey);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // GroupBy over a Guid SOURCE (net48 GroupBy<Guid,int>): the Guid-source
+    // grouping surface (srcKind 4, elemKind 6).
+    private static MemoryStream SynthesizeGroupByGuid(byte tKey)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var guidRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Guid"));
+        var guidCoded = (MetadataTokens.GetRowNumber(guidRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // return TKey (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0 (TSource)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   VAR 1
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("GroupBy"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(guidCoded);   // TSource = System.Guid
         spec.WriteByte(tKey);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);

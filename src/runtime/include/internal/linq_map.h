@@ -551,6 +551,12 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
 //   5 uint32 (bit pattern, equality only) | 6 bool (0/1)
 // The element/result families and every other argument are identical to
 // il2cpp_linq_group_by_full (which forwards keyKind = 0).
+//
+// vtsrc: `srcKind` names the SOURCE element family (the array image alone
+// cannot tell a Guid[] from a decimal[] -- both are 16-byte non-reference):
+//   0 int32 | 1 reference | 2 decimal | 3 DateTime | 4 Guid
+// The TElement family code covers 0 int32 | 1 reference | 2 int64 | 3 double |
+// 4 decimal | 5 DateTime | 6 Guid.
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keySel,
                                             Il2CppObject* elemSel, Il2CppObject* cmp,
