@@ -136,6 +136,16 @@ namespace Cases { public static class StreamLoud {
         Console.WriteLine("ctor5_eof=" + (sr5.ReadLine() == null));
         sr5.Close();
 
+        // StreamWriter(Stream, Encoding) -- the encoder is selected from the
+        // encoding object (UTF-8 here: "enc" is 3 bytes, no BOM).
+        MemoryStream ems = new MemoryStream();
+        StreamWriter ew = new StreamWriter(ems, Encoding.UTF8);
+        ew.Write("enc");
+        ew.Flush();
+        byte[] ebytes = ems.ToArray();
+        ew.Close();
+        Console.WriteLine("enc_len3=" + (ebytes.Length == 3));
+
         File.Delete(file);
     }
 }}

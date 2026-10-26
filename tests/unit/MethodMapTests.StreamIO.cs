@@ -267,6 +267,34 @@ public class MethodMapStreamIOTests
     }
 
     [Fact]
+    public void Resolve_StreamWriter_Ctor_StreamEncoding_MapsToEncodingCtorIcall()
+    {
+        // binrw3/StreamIO: StreamWriter(Stream, Encoding) ->
+        // icall_stream_writer_encoding_ctor (the encoder is selected from the
+        // encoding object).
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", ".ctor",
+            Sig(0x01, 0x12, 0x05, 0x12, 0x05)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_writer_encoding_ctor", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_Ctor_StreamEncodingBufferSizeLeaveOpen_MapsToEncodingCtor4Icall()
+    {
+        // (Stream, Encoding, int bufferSize, bool leaveOpen) ->
+        // icall_stream_writer_encoding_ctor4 (bufferSize validated, leaveOpen
+        // dropped).
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", ".ctor",
+            Sig(0x01, 0x12, 0x05, 0x12, 0x05, 0x08, 0x02)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_writer_encoding_ctor4", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "", "i", "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
     public void Resolve_StreamWriter_Ctor_String_MapsToPathCtorIcall()
     {
         // StreamWriter(string path): the runtime string-path ctor

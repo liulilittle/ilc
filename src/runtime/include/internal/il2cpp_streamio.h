@@ -193,6 +193,22 @@ void icall_stream_reader_path_ctor(Il2CppObject* self, Il2CppObject* path);
 // closes the shared file). Errors as icall_stream_reader_ctor.
 void icall_stream_writer_ctor(Il2CppObject* self, Il2CppObject* stream);
 
+// binrw3/StreamIO: StreamWriter(Stream stream, Encoding encoding) -- wrap an
+// EXISTING stream and select the text encoder from the managed encoding object
+// (the same page/emitBom mapping as the path encoding ctor). The wrapped
+// stream's backend state is shared (refCounted close). Errors as
+// icall_stream_reader_ctor.
+void icall_stream_writer_encoding_ctor(Il2CppObject* self, Il2CppObject* stream,
+                                       Il2CppObject* encoding);
+
+// StreamWriter(Stream stream, Encoding encoding, int bufferSize, bool leaveOpen):
+// identical byte output; net48 validates bufferSize > 0
+// (ArgumentOutOfRangeException otherwise) and leaveOpen only suppresses the
+// close-on-dispose ownership transfer (this runtime always shares the state).
+void icall_stream_writer_encoding_ctor4(Il2CppObject* self, Il2CppObject* stream,
+                                        Il2CppObject* encoding, int32_t bufferSize,
+                                        bool leaveOpen);
+
 // StreamWriter(string path): opens 'path' with FileMode.Create + FileAccess.Write
 // (runtime "wb" mode 1 -- create/truncate) and stores the handle on the writer
 // object. Null path -> ArgumentNullException; unopenable target ->

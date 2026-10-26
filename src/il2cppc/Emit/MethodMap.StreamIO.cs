@@ -494,6 +494,23 @@ public static partial class MethodRefResolver
             case "System.IO.StreamWriter":
                 if (ps.Length == 1 && ps[0] == 0x12)
                     return I("il2cpp::runtime::icall_stream_writer_ctor", 1, false, false, true);
+                // binrw3/StreamIO: StreamWriter(Stream, Encoding) -- wrap the
+                // stream and select the text encoder from the encoding object
+                // (icall_stream_writer_encoding_ctor).
+                if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x12)
+                    return I("il2cpp::runtime::icall_stream_writer_encoding_ctor", 2, false, false, true,
+                        new[] { "", "", "" });
+                // (Stream, Encoding, int bufferSize): bufferSize is dropped
+                // (it never changes the written bytes).
+                if (ps.Length == 3 && ps[0] == 0x12 && ps[1] == 0x12 && ps[2] == 0x08)
+                    return I("il2cpp::runtime::icall_stream_writer_encoding_ctor", 3, false, false, true,
+                        new[] { "", "", "", "drop" });
+                // (Stream, Encoding, int bufferSize, bool leaveOpen): both the
+                // bufferSize and leaveOpen are dropped (the runtime shares the
+                // wrapped state unconditionally).
+                if (ps.Length == 4 && ps[0] == 0x12 && ps[1] == 0x12 && ps[2] == 0x08 && ps[3] == 0x02)
+                    return I("il2cpp::runtime::icall_stream_writer_encoding_ctor4", 4, false, false, true,
+                        new[] { "", "", "", "i", "drop" });
                 // streamops: `new StreamWriter(file)` -- the runtime path ctor
                 // opens FileMode.Create + FileAccess.Write ("wb" create/
                 // truncate) and stores the handle on the writer object. The
@@ -517,9 +534,16 @@ public static partial class MethodRefResolver
                 if (ps.Length == 4 && ps[0] == 0x0E && ps[1] == 0x02 && ps[2] == 0x12 && ps[3] == 0x08)
                     return I("il2cpp::runtime::icall_stream_writer_path_encoding_ctor4", 4, false, false, true,
                         new[] { "", "", "i", "", "i" });
+                // net48 StreamWriter has exactly (Stream), (Stream, Encoding),
+                // (Stream, Encoding, int), (Stream, Encoding, int, bool),
+                // (string), (string, bool), (string, bool, Encoding) and
+                // (string, bool, Encoding, int) (Reference Source
+                // mscorlib/system/io/streamwriter.cs:124-174) -- any other
+                // shape is not a net48 overload (whitelist category 4).
                 throw new NotSupportedException(
-                    $"StreamWriter ctor with {count} arg(s) not wired: the object-typed icall takes exactly " +
-                    "(Stream), (string path), (string, bool append) or (string, bool, Encoding[, int bufferSize])");
+                    $"StreamWriter ctor with {count} arg(s) not wired: the object-typed icalls take " +
+                    "(Stream[, Encoding[, int[, bool]]]) and (string[, bool[, Encoding[, int]]]) " +
+                    "(streamwriter.cs:124-174)");
             default: return null;
         }
     }

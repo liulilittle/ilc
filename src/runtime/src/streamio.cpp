@@ -2354,6 +2354,44 @@ void icall_stream_writer_ctor(Il2CppObject* self, Il2CppObject* stream)
     icall_stream_reader_ctor(self, stream); // identical wrap semantics
 }
 
+// binrw3/StreamIO: StreamWriter(Stream, Encoding) -- wrap an existing stream and
+// select the text encoder from the managed encoding object (the same page/
+// emitBom mapping as icall_stream_writer_path_encoding_ctor). The wrapped
+// stream's backend state is shared (refCounted close).
+void icall_stream_writer_encoding_ctor(Il2CppObject* self, Il2CppObject* stream,
+                                       Il2CppObject* encoding)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    if (encoding == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("encoding");
+    }
+    StreamState* shared = WrapStreamShared(self, stream);
+    const int32_t page = reinterpret_cast<Il2CppEncodingObject*>(encoding)->page;
+    const int32_t emitBom = reinterpret_cast<Il2CppEncodingObject*>(encoding)->emitBom;
+    shared->writerEncoding = (page == 65001) ? 0 : (page == 20127) ? 2 : 1;
+    // net48: the preamble is written only when the stream starts empty.
+    shared->writerBomPending = emitBom != 0 && il2cpp_stream_get_length(shared) == 0;
+    AsStream(self)->handle = StreamHandleAlloc(shared);
+}
+
+void icall_stream_writer_encoding_ctor4(Il2CppObject* self, Il2CppObject* stream,
+                                        Il2CppObject* encoding, int32_t bufferSize,
+                                        bool leaveOpen)
+{
+    // net48: bufferSize <= 0 -> ArgumentOutOfRangeException; the value never
+    // changes the written bytes. leaveOpen is not modeled (the runtime always
+    // shares the wrapped state).
+    (void)leaveOpen;
+    if (bufferSize <= 0)
+    {
+        il2cpp_throw_new("System.ArgumentOutOfRangeException,System.Exception",
+                         "Positive number required.");
+    }
+    icall_stream_writer_encoding_ctor(self, stream, encoding);
+}
+
 //------------------------------------------------------------------------------
 // icall_stream_writer_path_ctor -- StreamWriter(string path) object ctor.
 //
