@@ -1549,6 +1549,51 @@ public class MethodMapTestsLinq
     }
 
     //==========================================================================
+    // The reference-source Select with a VALUE result (net48
+    // Select<TSource,TResult> over a reference source): int32 / int64 / double /
+    // float. Before this change the non-reference non-decimal results LOUD-
+    // rejected.
+    //==========================================================================
+    [Theory]
+    [InlineData(0x08, "il2cpp::il2cpp_linq_select_ref_i4", "System.Int32[]")]
+    [InlineData(0x0A, "il2cpp::il2cpp_linq_select_ref_i8", "System.Int64[]")]
+    [InlineData(0x0D, "il2cpp::il2cpp_linq_select_ref_d", "System.Double[]")]
+    [InlineData(0x0C, "il2cpp::il2cpp_linq_select_ref_f", "System.Double[]")]
+    public void Resolve_RefSelect_ValueResult_MapsToRefValueKernel(byte resByte, string icall, string retType)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Select",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, resByte,
+                0x15, 0x12, 0x09, 0x01, 0x0E,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x0E, resByte },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0E, resByte }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(retType, resolved.ReturnTypeName);
+    }
+
+    // The reference-source INDEX Select with a VALUE result (net48
+    // Select<TSource,int,TResult>): the selector receives the element AND its
+    // zero-based source index.
+    [Theory]
+    [InlineData(0x08, "il2cpp::il2cpp_linq_select_idx_ref_i4", "System.Int32[]")]
+    [InlineData(0x0A, "il2cpp::il2cpp_linq_select_idx_ref_i8", "System.Int64[]")]
+    [InlineData(0x0D, "il2cpp::il2cpp_linq_select_idx_ref_d", "System.Double[]")]
+    [InlineData(0x0C, "il2cpp::il2cpp_linq_select_idx_ref_f", "System.Double[]")]
+    public void Resolve_RefSelect_IndexValueResult_MapsToRefIndexValueKernel(byte resByte, string icall, string retType)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("Select",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, resByte,
+                0x15, 0x12, 0x09, 0x01, 0x0E,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x00, 0x0E, 0x08, resByte },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0E, resByte }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(retType, resolved.ReturnTypeName);
+    }
+
+    //==========================================================================
     // D-LINQ-FAM (loud-linq-fam): the FAMILY-GENERIC element operators over the
     // int64/float/double/narrow array families. The runtime ships ONE kernel per
     // operator (linq_family.h) with the cell code as the trailing literal; the

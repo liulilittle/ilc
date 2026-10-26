@@ -326,6 +326,23 @@ Il2CppArray* il2cpp_linq_select_idx_i4_dec(Il2CppArray* src, Il2CppObject* sel);
 //   Il2CppDecimal (*)(Il2CppObject* this, Il2CppObject* elem)        (bound)
 Il2CppArray* il2cpp_linq_select_ref_dec(Il2CppArray* src, Il2CppObject* sel);
 
+// The reference-source Select with a VALUE result (net48
+// Select<TSource,TResult> with a non-reference TResult over a reference source):
+// int32 / int64 / double / float. The result array carries the matching
+// elemKind.
+Il2CppArray* il2cpp_linq_select_ref_i4(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_ref_i8(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_ref_d(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_ref_f(Il2CppArray* src, Il2CppObject* sel);
+
+// The reference-source INDEX Select with a VALUE result (net48
+// Select<TSource,int,TResult>): the selector receives the element AND its
+// zero-based source index.
+Il2CppArray* il2cpp_linq_select_idx_ref_i4(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_ref_i8(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_ref_d(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_ref_f(Il2CppArray* src, Il2CppObject* sel);
+
 //------------------------------------------------------------------------------
 // LINQ GROUPING domain (D-LINQ-4) -- Enumerable.GroupBy, int32 family.
 //

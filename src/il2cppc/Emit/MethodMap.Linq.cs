@@ -642,8 +642,9 @@ public static partial class MethodRefResolver
                     // The index overload Select(Func<TSource,int,TResult>) carries
                     // a 3-argument Func. A reference TResult routes to the
                     // reference index kernel (il2cpp_linq_select_idx_ref_ref:
-                    // Il2CppObject*(*)(Il2CppObject*, int32_t)); a non-reference
-                    // TResult over a reference source still has no kernel.
+                    // Il2CppObject*(*)(Il2CppObject*, int32_t)); a VALUE TResult
+                    // routes to the reference index value kernel
+                    // (il2cpp_linq_select_idx_ref_i4/_i8/_d/_f).
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     {
                         if (genArgs is not { Length: >= 2 })
@@ -651,11 +652,15 @@ public static partial class MethodRefResolver
                         if (IsRefFamilyByte(genArgs[1]))
                             return I("il2cpp::il2cpp_linq_select_idx_ref_ref", 2, true, true, false, TwoArg,
                                 returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
-                        throw new NotSupportedException(
-                            $"Enumerable.Select<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
-                            "with a (element, index) selector over a reference-element source is not wired: " +
-                            "the reference index-selector surface covers a REFERENCE TResult only " +
-                            "(il2cpp_linq_select_idx_ref_ref)");
+                        string? idxVs = LinqValueResultSuffix(genArgs[1]);
+                        if (idxVs is null)
+                            throw new NotSupportedException(
+                                $"Enumerable.Select<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
+                                "with a (element, index) selector over a reference-element source is not wired: " +
+                                "the reference index-selector surface covers a REFERENCE TResult and the " +
+                                "int32/int64/double/float VALUE results only");
+                        return I($"il2cpp::il2cpp_linq_select_idx_ref_{idxVs}", 2, true, true, false, TwoArg,
+                            returnTypeName: LinqValueResultArrayName(idxVs));
                     }
                     if (genArgs is not { Length: >= 2 })
                         return null;
@@ -666,18 +671,20 @@ public static partial class MethodRefResolver
                     if (genArgs[1] == 0x11 && IsDecimalGenArg(genArgNames, 1))
                         return I("il2cpp::il2cpp_linq_select_ref_dec", 2, true, true, false, TwoArg,
                             returnTypeName: "System.Decimal[]");
-                    if (!IsRefFamilyByte(genArgs[1]))
-                    {
+                    if (IsRefFamilyByte(genArgs[1]))
+                        return I("il2cpp::il2cpp_linq_select_ref_ref", 2, true, true, false, TwoArg,
+                            returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
+                    // A VALUE TResult over a reference source (net48
+                    // Select<TSource,TResult>): int32 / int64 / double / float.
+                    string? vs = LinqValueResultSuffix(genArgs[1]);
+                    if (vs is null)
                         throw new NotSupportedException(
                             $"Enumerable.Select<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
                             "not wired: the runtime reference-source select surface is ref -> ref " +
-                            "(il2cpp_linq_select_ref_ref) and ref -> decimal " +
-                            "(il2cpp_linq_select_ref_dec); the decimal-result entries over a VALUE source " +
-                            "cover the int32/int64/double/float/decimal SOURCE families " +
-                            "(il2cpp_linq_select_i4_dec/_i8_dec/_d_dec/_f_dec/_dec_dec)");
-                    }
-                    return I("il2cpp::il2cpp_linq_select_ref_ref", 2, true, true, false, TwoArg,
-                        returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
+                            "(il2cpp_linq_select_ref_ref), ref -> decimal (il2cpp_linq_select_ref_dec) and " +
+                            "ref -> int32/int64/double/float (il2cpp_linq_select_ref_i4/_i8/_d/_f)");
+                    return I($"il2cpp::il2cpp_linq_select_ref_{vs}", 2, true, true, false, TwoArg,
+                        returnTypeName: LinqValueResultArrayName(vs));
                 }
                 case "First" when count < 2:
                     return I("il2cpp::il2cpp_linq_first_ref", 1, true, true, false, OneArg,
@@ -2353,6 +2360,29 @@ public static partial class MethodRefResolver
         0x0D => "System.Double[]",
         0x0E => "System.String[]",
         _ => "System.Object[]",
+    };
+
+    // The VALUE-result ABI suffix of the reference-source Select kernels for a
+    // non-reference TResult (int32-slot primitives -> _i4, long/ulong -> _i8,
+    // float -> _f, double -> _d), or null when the TResult is a reference /
+    // value type with no kernel.
+    private static string? LinqValueResultSuffix(byte b) => b switch
+    {
+        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+        0x0A or 0x0B => "i8",
+        0x0C => "f",
+        0x0D => "d",
+        _ => null,
+    };
+
+    // The tracked array type of a reference-source VALUE-result Select: the
+    // int32-slot primitives and long ride their own array; a float result rides
+    // the F-stack carrier (an 8-byte double cell stamped elemKind F).
+    private static string LinqValueResultArrayName(string suffix) => suffix switch
+    {
+        "i4" => "System.Int32[]",
+        "i8" => "System.Int64[]",
+        _ => "System.Double[]",
     };
 
     // The RESULT ABI suffix of the element-operator entries for a List kind.

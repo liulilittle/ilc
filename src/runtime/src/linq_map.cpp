@@ -434,6 +434,45 @@ int64_t InvokeSelFSrcI8(Il2CppDelegate* d, double v) { return InvokeSelDSrcI8(d,
 double InvokeSelFSrcD(Il2CppDelegate* d, double v) { return InvokeSelDSrcD(d, v); }
 float InvokeSelFSrcF(Il2CppDelegate* d, double v) { return InvokeSelDSrcF(d, v); }
 
+//------------------------------------------------------------------------------
+// The reference-source INDEX selector ABIs (net48 Func<TSource,int,TResult>):
+// the element crosses as Il2CppObject* and the zero-based source index as the
+// second argument.
+//------------------------------------------------------------------------------
+typedef int32_t       (*SelRefI4IdxFn)(Il2CppObject*, int32_t);
+typedef int32_t       (*SelRefI4IdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+typedef int64_t       (*SelRefI8IdxFn)(Il2CppObject*, int32_t);
+typedef int64_t       (*SelRefI8IdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+typedef double        (*SelRefDIdxFn)(Il2CppObject*, int32_t);
+typedef double        (*SelRefDIdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+typedef float         (*SelRefFIdxFn)(Il2CppObject*, int32_t);
+typedef float         (*SelRefFIdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+
+int32_t InvokeSelRefI4Idx(Il2CppDelegate* d, Il2CppObject* o, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefI4IdxThisFn>(d->methodPtr)(d->target, o, index)
+        : reinterpret_cast<SelRefI4IdxFn>(d->methodPtr)(o, index);
+}
+int64_t InvokeSelRefI8Idx(Il2CppDelegate* d, Il2CppObject* o, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefI8IdxThisFn>(d->methodPtr)(d->target, o, index)
+        : reinterpret_cast<SelRefI8IdxFn>(d->methodPtr)(o, index);
+}
+double InvokeSelRefDIdx(Il2CppDelegate* d, Il2CppObject* o, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefDIdxThisFn>(d->methodPtr)(d->target, o, index)
+        : reinterpret_cast<SelRefDIdxFn>(d->methodPtr)(o, index);
+}
+float InvokeSelRefFIdx(Il2CppDelegate* d, Il2CppObject* o, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefFIdxThisFn>(d->methodPtr)(d->target, o, index)
+        : reinterpret_cast<SelRefFIdxFn>(d->methodPtr)(o, index);
+}
+
 // p0grp: the DECIMAL-source KEY-SELECTOR ABI (Func<System.Decimal,int32>).
 // The generated leaf takes the decimal struct BY VALUE and returns int32:
 //   int32_t (*)(il2cpp::runtime::Il2CppDecimal)                    (static)
@@ -1079,6 +1118,141 @@ Il2CppArray* il2cpp_linq_select_ref_ref(Il2CppArray* src, Il2CppObject* sel)
         il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
         *slot = r;
     }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// The reference-source Select with a VALUE result (net48
+// Select<TSource,TResult> with a non-reference TResult over a reference source):
+// int32 / int64 / double / float. The result array carries the matching
+// elemKind so downstream formatting/scans read the real cell width.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_select_ref_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(4, kElemKindI4, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = InvokeSelRefI4(d, RefAt(src, i));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_ref_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindI8, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = InvokeSelRefI8(d, RefAt(src, i));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_ref_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindD, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = InvokeSelRefD(d, RefAt(src, i));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_ref_f(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    // A float result rides the F-stack carrier: an 8-byte double cell stamped
+    // elemKind F (the same convention as il2cpp_linq_select_i4_f).
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindF, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+            static_cast<double>(InvokeSelRefF(d, RefAt(src, i)));
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// The reference-source INDEX Select with a VALUE result (net48
+// Select<TSource,int,TResult>): the selector receives the element AND its
+// zero-based source index.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_select_idx_ref_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(4, kElemKindI4, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = InvokeSelRefI4Idx(d, RefAt(src, i), i);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_ref_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindI8, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = InvokeSelRefI8Idx(d, RefAt(src, i), i);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_ref_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindD, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = InvokeSelRefDIdx(d, RefAt(src, i), i);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_ref_f(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindF, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+            static_cast<double>(InvokeSelRefFIdx(d, RefAt(src, i), i));
     return out;
 }
 
