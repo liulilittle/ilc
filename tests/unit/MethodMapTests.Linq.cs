@@ -1478,6 +1478,18 @@ public class MethodMapTestsLinq
         Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
     }
 
+    // Select over a DECIMAL source with a REFERENCE result (net48
+    // Select<decimal,string>): the decimal-source reference-result surface.
+    [Fact]
+    public void Resolve_Select_DecimalSource_ReferenceResult_MapsToDecimalKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeSelectDecRef(0x0E));
+
+        Assert.Equal("il2cpp::il2cpp_linq_select_dec_ref", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+    }
+
     // GroupBy over a DECIMAL source with an ELEMENT selector (net48
     // GroupBy<decimal,int,int>): the decimal-source grouping surface with the
     // projected int32 element family.
@@ -2907,6 +2919,47 @@ public class MethodMapTestsLinq
         spec.WriteCompressedInteger(2);
         spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
         spec.WriteByte(tKey);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // Select over a DECIMAL source with a REFERENCE result (net48
+    // Select<decimal,string>): the decimal-source reference-result surface.
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11)
+    private static MemoryStream SynthesizeSelectDecRef(byte tRes)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // return TResult (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0 (TSource)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0
+        sig.WriteByte(tRes);                                            //   TResult
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Select"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
+        spec.WriteByte(tRes);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

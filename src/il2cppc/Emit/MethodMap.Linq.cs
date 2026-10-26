@@ -583,12 +583,30 @@ public static partial class MethodRefResolver
                 // the element crosses as a 16-byte decimal cell BY VALUE.
                 string? vs = LinqValueResultSuffix(genArgs[1]);
                 if (vs is null)
+                {
+                    // p0grp: a REFERENCE result (net48 Select<decimal,TResult> with a
+                    // reference TResult, e.g. x => x.ToString()). The selector
+                    // returns Il2CppObject*; the result is a fresh reference array.
+                    // The (element, index) selector form has no decimal index
+                    // reference-result entry and stays LOUD.
+                    if (IsRefFamilyByte(genArgs[1]))
+                    {
+                        if (selIdx)
+                            throw new NotSupportedException(
+                                "Enumerable.Select over a System.Decimal source with an (element, index) " +
+                                "selector returning a reference is not wired (the runtime has no decimal " +
+                                "index reference-result entry)");
+                        return I("il2cpp::il2cpp_linq_select_dec_ref",
+                            2, true, true, false, TwoArg,
+                            returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
+                    }
                     throw new NotSupportedException(
                         $"Enumerable.Select<System.Decimal,{GenericArgTypeName(genArgs[1])}> " +
                         (selIdx ? "with an (element, index) selector " : "") +
-                        "not wired: the decimal-source select surface covers a System.Decimal result " +
-                        "and the int32/int64/double/float VALUE results " +
-                        "(il2cpp_linq_select[_idx]_dec_dec/_i4/_i8/_d/_f)");
+                        "not wired: the decimal-source select surface covers a System.Decimal result, " +
+                        "the int32/int64/double/float VALUE results and a reference result " +
+                        "(il2cpp_linq_select[_idx]_dec_dec/_i4/_i8/_d/_f/_ref)");
+                }
                 return I($"il2cpp::il2cpp_linq_select{(selIdx ? "_idx" : "")}_dec_{vs}",
                     2, true, true, false, TwoArg, returnTypeName: LinqValueResultArrayName(vs));
             }

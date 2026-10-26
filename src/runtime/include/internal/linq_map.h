@@ -336,6 +336,10 @@ Il2CppArray* il2cpp_linq_select_dec_i4(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dec_i8(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dec_d(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dec_f(Il2CppArray* src, Il2CppObject* sel);
+// p0grp: Select over a DECIMAL source with a REFERENCE result (net48
+// Select<decimal,TResult> with a reference TResult). The selector returns
+// Il2CppObject*; the result is a fresh reference array.
+Il2CppArray* il2cpp_linq_select_dec_ref(Il2CppArray* src, Il2CppObject* sel);
 
 // p0grp: Where over a DECIMAL source (net48 Where<decimal>(source,
 // Func<decimal,bool>)). The predicate takes the decimal BY VALUE; the result is

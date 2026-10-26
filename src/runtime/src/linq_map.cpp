@@ -2900,6 +2900,32 @@ Il2CppArray* il2cpp_linq_select_dec_f(Il2CppArray* src, Il2CppObject* sel)
 }
 
 //------------------------------------------------------------------------------
+// p0grp: Select over a DECIMAL source with a REFERENCE result (net48
+// Select<decimal,TResult> with a reference TResult, e.g. x => x.ToString()).
+// The selector returns Il2CppObject*; the result is a fresh reference array.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_select_dec_ref(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(void*), true, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* r = InvokeSelDecRef(d, *DecAt(src, i));
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(out, i));
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+        *slot = r;
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
 // p0grp: Where over a DECIMAL source (net48 Where<decimal>(source,
 // Func<decimal,bool>)). The predicate takes the decimal BY VALUE; the result is
 // a fresh decimal[] with the matching elements (first-appearance order).
