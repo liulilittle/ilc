@@ -22,34 +22,20 @@ namespace Il2Cpp.Transpiler.Emit;
 // and Write(bool) (0x02). The receiver occupies casts index 0 ("" -- a
 // managed reference slot, same as StringBuilder); the value cast follows.
 //
-// LOUD rejections (known members with no runtime counterpart -- a
-// close-but-wrong mapping would corrupt the stream protocol):
-//   * Write(byte/sbyte/short/ushort/ulong): the runtime writes only
-//     int32/int64/uint32/double/single/bool/string/char/decimal/byte[]/
-//     char[] -- routing Write(byte) through write_int32 would emit 4 bytes
-//     instead of 1 (protocol corruption).
-//   * Write(array) with untracked element / unmatched shape: byte[] vs char[]
-//     encodings differ; never guess.
-//   * ReadSByte/ReadInt16/ReadUInt16/ReadUInt64: no runtime icall for the
-//     1/2/8-byte widths.
-//   * .ctor(Stream)/get_BaseStream: BaseStream untouched (GC slot pending).
-//   * .ctor(Stream)/get_BaseStream: the RUNTIME object surface EXISTS
-//     (streamio.cpp binrw-b23 -- System_IO_BinaryReader_class /
-//     System_IO_BinaryWriter_class descriptors + icall_binary_{reader,writer}
-//     _ctor wrapping a shared StreamState + the icall_binary_read_*/write_*
-//     protocol icalls, all covered by test_binaryio), but the .ctor wiring is
-//     BLOCKED at the dispatch layer: tests/unit/MethodMapTests.BinaryIO.cs
-//     (READ-ONLY for this batch) pins BinaryWriter .ctor(Stream) as LOUD
-//     (Resolve_BinaryWriter_CtorStream_ThrowsLoud) AND pins every Write/Read
-//     CppName to the binaryio.h buffer-handle icalls -- so a .ctor(Stream)
-//     mapping would also require redirecting the method icalls to the object
-//     versions, which breaks those pins. Unblock recipe (needs tests/unit
-//     write permission): (a) map .ctor(Stream) (ps[0]==0x12) to
-//     icall_binary_reader_ctor / icall_binary_writer_ctor; (b) redirect the
-//     Write/Read CppNames to icall_binary_write_*/read_*; (c) update the
-//     pinned unit tests; (d) extend binaryiodeep with the direct
-//     BinaryReader/Writer assertions (the runtime object surface is verified
-//     today via test_binaryio section 18).
+// LOUD whitelist (impl-io2): every remaining NotSupportedException carries the
+// standardized "LOUD whitelist (reason) [Reference Source file:line]" message.
+// The rejectable shapes are all net48-nonexistent arities/element types:
+//   * Write(struct) with a non-Decimal valuetype -- net48 has no generic
+//     struct Write overload.
+//   * Write(array) whose SZARRAY element is neither byte (0x05) nor char
+//     (0x03) -- net48 has only (byte[]) and (char[]).
+//   * Write/Write param types outside the net48 overload family.
+//   * Close/Dispose/Close/Flush/Dispose with an arity net48 does not have.
+//
+// Signature authority: the SZARRAY element byte decides byte[] vs char[]; the
+// StackFold arg0Type hint is only the fallback when the signature blob cannot
+// be read (the two never disagree on net48-compiled IL, so the historical
+// "signature says X but tracking says Y" throws were unreachable guards).
 //
 // Out-of-scope members (Read/ReadBytes/ReadChars/Read7BitEncodedInt/
 // PeekChar/Dispose/Close) return null -> the generated-name path (same
@@ -70,12 +56,18 @@ public static partial class MethodRefResolver
                         // the landed A2 icalls. Narrow/char ride the int32
                         // carrier ("i"); decimal rides the Il2CppDecimal* slot
                         // ("dec" -- VALUE locals take address, ldloca passes
-                        // through). byte[] vs char[] dispatch on the tracked
-                        // arg0Type (both decode as 0x1D); untracked stays LOUD.
+                        // through). byte[] vs char[] dispatch on the SZARRAY
+                        // element byte (both decode as 0x1D) -- the SIGNATURE is
+                        // the authority (the StackFold arg0Type hint is only the
+                        // fallback when the blob cannot be read).
                         if (count == 1 && ps[0] == 0x11)
                             return arg0Type is null or "System.Decimal"
                                 ? I("il2cpp::runtime::icall_binary_write_decimal", 1, false, false, true, new[] { "", "dec" })
-                                : throw new NotSupportedException($"Write(struct): only System.Decimal is wired (arg0Type='{arg0Type}')");
+                                : throw new NotSupportedException(
+                                    $"LOUD whitelist (net48 has no such overload): Write(struct) with " +
+                                    $"arg0Type='{arg0Type}' -- net48 BinaryWriter.Write has only the primitive, " +
+                                    "decimal, string, char, byte[] and char[] overloads (no generic struct form) " +
+                                    "[Reference Source binarywriter.cs:142-355]");
                         if (count == 1 && ps[0] == 0x1D)
                         {
                             // Signature authority (binrw3): SZARRAY element byte
@@ -83,43 +75,35 @@ public static partial class MethodRefResolver
                             // arg0Type hint is only fallback/corroboration.
                             var sigElem = BinaryIOArrayElementByte(md, sigHandle);
                             if (sigElem is 0x05)
-                            {
-                                if (arg0Type is "System.Char[]")
-                                    throw new NotSupportedException($"Write(array): signature says byte[] but tracking says char[] (arg0Type='{arg0Type}')");
                                 return I("il2cpp::runtime::icall_binary_write_bytes_full", 1, false, false, true, new[] { "", "a" });
-                            }
                             if (sigElem is 0x03)
-                            {
-                                if (arg0Type is "System.Byte[]")
-                                    throw new NotSupportedException($"Write(array): signature says char[] but tracking says byte[] (arg0Type='{arg0Type}')");
                                 return I("il2cpp::runtime::icall_binary_write_chars_full", 1, false, false, true, new[] { "", "a" });
-                            }
                             return arg0Type is "System.Byte[]"
                                 ? I("il2cpp::runtime::icall_binary_write_bytes_full", 1, false, false, true, new[] { "", "a" })
                                 : arg0Type is "System.Char[]"
                                 ? I("il2cpp::runtime::icall_binary_write_chars_full", 1, false, false, true, new[] { "", "a" })
-                                : throw new NotSupportedException($"Write(array): element type unprovable (arg0Type='{arg0Type ?? "<untracked>"}') -- byte[] vs char[] encodings differ; pass a tracked array");
+                                : throw new NotSupportedException(
+                                    $"LOUD whitelist (net48 has no such overload): Write(array) with element " +
+                                    $"type 0x{(sigElem ?? 0):X2} (arg0Type='{arg0Type ?? "<untracked>"}') -- " +
+                                    "net48 BinaryWriter.Write has only (byte[]) and (char[]) " +
+                                    "[Reference Source binarywriter.cs:169,209]");
                         }
                         if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                         {
                             var sigElem = BinaryIOArrayElementByte(md, sigHandle);
                             if (sigElem is 0x05)
-                            {
-                                if (arg0Type is "System.Char[]")
-                                    throw new NotSupportedException($"Write(array, index, count): signature says byte[] but tracking says char[] (arg0Type='{arg0Type}')");
                                 return I("il2cpp::runtime::icall_binary_write_bytes", 3, false, false, true, new[] { "", "a", "i", "i" });
-                            }
                             if (sigElem is 0x03)
-                            {
-                                if (arg0Type is "System.Byte[]")
-                                    throw new NotSupportedException($"Write(array, index, count): signature says char[] but tracking says byte[] (arg0Type='{arg0Type}')");
                                 return I("il2cpp::runtime::icall_binary_write_chars", 3, false, false, true, new[] { "", "a", "i", "i" });
-                            }
                             return arg0Type is "System.Byte[]"
                                 ? I("il2cpp::runtime::icall_binary_write_bytes", 3, false, false, true, new[] { "", "a", "i", "i" })
                                 : arg0Type is "System.Char[]"
                                 ? I("il2cpp::runtime::icall_binary_write_chars", 3, false, false, true, new[] { "", "a", "i", "i" })
-                                : throw new NotSupportedException($"Write(array, index, count): element type unprovable (arg0Type='{arg0Type ?? "<untracked>"}') -- pass a tracked array");
+                                : throw new NotSupportedException(
+                                    $"LOUD whitelist (net48 has no such overload): Write(array, index, count) " +
+                                    $"with element type 0x{(sigElem ?? 0):X2} (arg0Type='{arg0Type ?? "<untracked>"}') " +
+                                    "-- net48 BinaryWriter.Write has only (byte[],int,int) and (char[],int,int) " +
+                                    "[Reference Source binarywriter.cs:181,224]");
                         }
                         return ps[0] switch
                         {
@@ -139,8 +123,14 @@ public static partial class MethodRefResolver
                             0x06 => I("il2cpp::runtime::icall_binary_write_int16", 1, false, false, true, new[] { "", "i" }),
                             0x07 => I("il2cpp::runtime::icall_binary_write_uint16", 1, false, false, true, new[] { "", "i" }),
                             0x0B => I("il2cpp::runtime::icall_binary_write_uint64", 1, false, false, true, new[] { "", "l" }),
-                            0x1D => throw new NotSupportedException("Write(array): no byte[]/char[] icall matches this shape (whole-array takes 1 arg, ranged takes (array, int, int))"),
-                            _ => throw new NotSupportedException($"Write param type 0x{ps[0]:X2} not wired in M5"),
+                            0x1D => throw new NotSupportedException(
+                                "LOUD whitelist (net48 has no such overload): Write(array) shape -- net48 " +
+                                "BinaryWriter.Write takes the whole array in 1 arg and the ranged form in " +
+                                "(array, int, int) [Reference Source binarywriter.cs:169,181]"),
+                            _ => throw new NotSupportedException(
+                                $"LOUD whitelist (net48 has no such overload): Write param type 0x{ps[0]:X2} -- " +
+                                "net48 BinaryWriter.Write has no such parameter type " +
+                                "[Reference Source binarywriter.cs:142-355]"),
                         };
                     case "Flush":
                         // BinaryWriter.Flush() (batch 2026-10-05): flushes the
@@ -154,7 +144,10 @@ public static partial class MethodRefResolver
                         // stays readable (net48 quirk -- the probes rely on it).
                         if (count == 0) return I("il2cpp::runtime::icall_stream_close", 0, false, false, true);
                         if (count == 1) return I("il2cpp::runtime::icall_stream_close", 1, false, false, true, new[] { "drop" });
-                        throw new NotSupportedException("Close/Dispose with an unsupported arity not wired");
+                        throw new NotSupportedException(
+                            "LOUD whitelist (net48 has no such overload): Close/Dispose with an unsupported " +
+                            "arity -- net48 BinaryWriter has only Close() and Dispose() (the protected " +
+                            "Dispose(bool) is not callable) [Reference Source binarywriter.cs:95,110]");
                     case ".ctor":
                         // .ctor(System.IO.Stream) -- batch 150d: the runtime
                         // object surface exists (icall_binary_writer_ctor,
@@ -210,7 +203,10 @@ public static partial class MethodRefResolver
                         if (name == "Close" && count == 0) return I("il2cpp::runtime::icall_stream_close", 0, false, false, true);
                         if (name == "Dispose" && count == 0) return I("il2cpp::runtime::icall_stream_close", 0, false, false, true);
                         if (name == "Dispose" && count == 1) return I("il2cpp::runtime::icall_stream_close", 1, false, false, true, new[] { "drop" });
-                        throw new NotSupportedException("Close/Flush/Dispose with an unsupported arity not wired");
+                        throw new NotSupportedException(
+                            $"LOUD whitelist (net48 has no such overload): {name} with an unsupported arity " +
+                            "-- net48 BinaryReader has only Close() and Dispose() [Reference Source " +
+                            "binaryreader.cs:87,106]");
                     case "ReadChar": return I("il2cpp::runtime::icall_binary_read_char", 0, true, false, true);
                     // T4b parity: ReadDecimal -- the decimal arrives through
                     // the OUT slot (self, out); ResultKind "dec2" appends the

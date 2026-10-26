@@ -405,24 +405,14 @@ int32_t MessageNet48FieldOffset(const char* field)
     return -1; // unknown field -- caller raises the net48 ArgumentException
 }
 
-} // namespace
-
-//------------------------------------------------------------------------------
-// Named SizeOf/OffsetOf (the typeof(Type) / typeof(Type),string forms). The
-// ILC Type VALUE is the full-name string; the registry is the layout source.
-//------------------------------------------------------------------------------
-int32_t il2cpp_marshal_size_of_struct_named(Il2CppString* typeName)
+// impl-io2: the net48 SizeOf layout registry, keyed by the type's ASCII full
+// name -- the PRIMITIVE table (default Ansi CharSet: Boolean 4, Char 1),
+// IntPtr/UIntPtr (pointer width), the net48 managed Message size and the
+// registered struct family. Shared by the typeof(Type) string form and the
+// generic SizeOf<T>() form (the transpiler passes T's full name as a C++
+// string literal).
+int32_t MarshalSizeOfNameAscii(const char* name)
 {
-    if (typeName == nullptr)
-    {
-        il2cpp_throw_argument_null_exception("type");
-    }
-    char name[64];
-    if (!Utf16ToAscii(typeName, name, static_cast<int32_t>(sizeof(name))))
-    {
-        il2cpp_throw_argument_exception(
-            "Marshal.SizeOf/OffsetOf: the type name must be a short ASCII full type name");
-    }
     // ipaudit2: the PRIMITIVE typeof(X) names resolve through the same net48
     // table as the object form (default Ansi CharSet: Boolean 4, Char 1).
     static const struct { const char* full; int32_t code; } kPrimitives[] = {
@@ -453,6 +443,42 @@ int32_t il2cpp_marshal_size_of_struct_named(Il2CppString* typeName)
     // raw kind lookup can return -1 and passing it to the registry aborts.
     const int32_t kind = StructKindByAsciiName(name);
     return il2cpp::il2cpp_pinvoke_struct_size(static_cast<Il2CppPinvokeStructKind>(kind));
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------
+// Named SizeOf/OffsetOf (the typeof(Type) / typeof(Type),string forms). The
+// ILC Type VALUE is the full-name string; the registry is the layout source.
+//------------------------------------------------------------------------------
+int32_t il2cpp_marshal_size_of_struct_named(Il2CppString* typeName)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("type");
+    }
+    char name[64];
+    if (!Utf16ToAscii(typeName, name, static_cast<int32_t>(sizeof(name))))
+    {
+        il2cpp_throw_argument_exception(
+            "Marshal.SizeOf/OffsetOf: the type name must be a short ASCII full type name");
+    }
+    return MarshalSizeOfNameAscii(name);
+}
+
+// impl-io2: the generic Marshal.SizeOf<T>() form. The transpiler knows the
+// generic argument at compile time and passes T's full name as a C++ string
+// literal (the same net48 layout registry as the typeof(Type) path above).
+// An unregistered name throws the managed NotSupportedException (net48
+// SizeOf<T> for a blittable struct is computable but this runtime has no
+// layout descriptor for it).
+int32_t icall_marshal_size_of_named_ascii(const char* typeName)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("type");
+    }
+    return MarshalSizeOfNameAscii(typeName);
 }
 
 int32_t il2cpp_marshal_offset_of_struct_named(Il2CppString* typeName, Il2CppString* fieldName)

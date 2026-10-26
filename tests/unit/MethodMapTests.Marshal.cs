@@ -196,12 +196,78 @@ public class MethodMapMarshalTests
         // D-MAR-1 (batch 111): SizeOf<T>() / SizeOf(Type) / SizeOf(object) are
         // wired for the REGISTERED STRUCT FAMILY; a bare parameterless
         // SizeOf with no generic/Type/object argument is still a LOUD
-        // rejection (no type to resolve).
+        // rejection (no type to resolve). impl-io2: the message is now the
+        // standardized LOUD whitelist format with the Reference Source citation.
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", "SizeOf", Sig(Ret(0x08))), "SizeOf"));
 
         Assert.StartsWith("System.Runtime.InteropServices.Marshal::SizeOf: ", ex.Message);
-        Assert.Contains("registered-struct family", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
+        Assert.Contains("marshal.cs", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
+    // impl-io2: the generic Marshal.SizeOf<T>() form for the PRIMITIVE value
+    // types and the pointer-width types (net48 marshal.cs:228). The generic
+    // argument is compile-time known, so the transpiler passes T's full name as
+    // a C++ string literal to the runtime's net48 layout registry. An
+    // unregistered struct name stays LOUD (no runtime layout descriptor).
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("System.Int32")]
+    [InlineData("System.Double")]
+    [InlineData("System.UInt16")]
+    [InlineData("System.IntPtr")]
+    public void Resolve_Marshal_SizeOfGeneric_Primitive_MapsToNamedAsciiIcall(string fullName)
+    {
+        var lastDot = fullName.LastIndexOf('.');
+        var m = ResolveMethodSpec(SynthesizeSizeOfGeneric(
+            fullName.Substring(0, lastDot), fullName.Substring(lastDot + 1)));
+
+        Assert.Equal("il2cpp::runtime::icall_marshal_size_of_named_ascii", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal(0, m.ParamCount);
+        Assert.Equal(new[] { "\"" + fullName + "\"" }, m.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_Marshal_SizeOfGeneric_UnregisteredStruct_ThrowsLoudDescriptor()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMethodSpec(SynthesizeSizeOfGeneric("Cases", "Pt")));
+
+        Assert.Contains("System.Runtime.InteropServices.Marshal::SizeOf", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
+        Assert.Contains("Cases.Pt", ex.Message);
+    }
+
+    // The real C# shape: Roslyn emits the PRIMITIVE element byte (0x08 = int32)
+    // for SizeOf<int>(), NOT valuetype System.Int32 -- the generic-argument
+    // name must come from the raw genArgs byte (GenericArgFullNames has no arm
+    // for the primitive element bytes and returns null).
+    [Fact]
+    public void Resolve_Marshal_SizeOfGeneric_PrimitiveByte_MapsToNamedAsciiIcall()
+    {
+        var m = ResolveMethodSpec(SynthesizeSizeOfGenericPrimitive(0x08));
+
+        Assert.Equal("il2cpp::runtime::icall_marshal_size_of_named_ascii", m.CppName);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal(0, m.ParamCount);
+        Assert.Equal(new[] { "\"System.Int32\"" }, m.AppendLiterals);
+    }
+
+    // IntPtr/UIntPtr ride the native-int element bytes (Roslyn emits 0x18 for
+    // IntPtr); the runtime answers both by pointer width.
+    [Theory]
+    [InlineData(0x17, "System.IntPtr")]
+    [InlineData(0x18, "System.UIntPtr")]
+    public void Resolve_Marshal_SizeOfGeneric_NativeIntByte_MapsToNamedAsciiIcall(byte argByte, string expectedName)
+    {
+        var m = ResolveMethodSpec(SynthesizeSizeOfGenericPrimitive(argByte));
+
+        Assert.Equal("il2cpp::runtime::icall_marshal_size_of_named_ascii", m.CppName);
+        Assert.Equal(new[] { "\"" + expectedName + "\"" }, m.AppendLiterals);
     }
 
     //--------------------------------------------------------------------------
@@ -822,7 +888,9 @@ public class MethodMapMarshalTests
             ResolveMember(Synthesize("System.Runtime.InteropServices", "Marshal", memberName, Sig(Ret(0x11, 0x05), 0x1C)), memberName));
 
         Assert.StartsWith("System.Runtime.InteropServices.Marshal::", ex.Message);
-        Assert.Contains("COM interop is not supported", ex.Message);
+        // impl-io2: the standardized LOUD whitelist message (category +
+        // Reference Source citation) replaced the old free-text wording.
+        Assert.Contains("LOUD whitelist", ex.Message);
         Assert.Contains(memberName, ex.Message);
     }
 
@@ -903,6 +971,46 @@ public class MethodMapMarshalTests
         var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
         var memberRef = mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(memberRefSig));
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSig));
+        return Serialize(mdb);
+    }
+
+    // impl-io2: int SizeOf<T>() -- a GENERIC method MemberRef (0 params) with a
+    // MethodSpec whose single generic argument is a VALUETYPE TypeRef (the
+    // transpiler resolves T's full name from that TypeRef).
+    private static MemoryStream SynthesizeSizeOfGeneric(string argNs, string argName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var argRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(argNs), mdb.GetOrAddString(argName));
+        var marshalRef = mdb.AddTypeReference(asmRef,
+            mdb.GetOrAddString("System.Runtime.InteropServices"), mdb.GetOrAddString("Marshal"));
+        var memberRef = mdb.AddMemberReference(marshalRef, mdb.GetOrAddString("SizeOf"),
+            mdb.GetOrAddBlob(new byte[] { 0x10, 0x01, 0x00, 0x08 })); // GENERIC, 1 gen param, 0 params, int ret
+        var argRow = MetadataTokens.GetRowNumber(argRef);
+        var genericSig = new byte[] { 0x0A, 0x01, 0x11, (byte)((argRow << 2) | 1) }; // GENERICINST, 1, VALUETYPE, TypeRef
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSig));
+        return Serialize(mdb);
+    }
+
+    // int SizeOf<T>() with a PRIMITIVE element-byte generic argument (the real
+    // C# shape for SizeOf<int>() -- no TypeRef/TypeHandle, so the transpiler
+    // must derive the name from the raw genArgs byte).
+    private static MemoryStream SynthesizeSizeOfGenericPrimitive(byte argByte)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var marshalRef = mdb.AddTypeReference(asmRef,
+            mdb.GetOrAddString("System.Runtime.InteropServices"), mdb.GetOrAddString("Marshal"));
+        var memberRef = mdb.AddMemberReference(marshalRef, mdb.GetOrAddString("SizeOf"),
+            mdb.GetOrAddBlob(new byte[] { 0x10, 0x01, 0x00, 0x08 }));
+        mdb.AddMethodSpecification(memberRef,
+            mdb.GetOrAddBlob(new byte[] { 0x0A, 0x01, argByte }));
         return Serialize(mdb);
     }
 

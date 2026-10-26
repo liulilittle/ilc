@@ -48,13 +48,12 @@ namespace Il2Cpp.Transpiler.Emit;
 // wrapped stream's StreamState (refCount++) -- closing the wrapper closes
 // the underlying file once (net48 semantics).
 //
-// Remaining LOUD rejections:
-//   * StreamWriter(string, Encoding) / (Stream, Encoding) -- encoding ctors
-//     need extra icall variants.
-//   * Dispose(bool) -- the runtime has only Close (no disposing flag).
-//   * WriteLine(non-string) -- the icall takes exactly (self, string).
-//   * FileStream(FileShare/bufferSize/FileOptions) forms -- need extra icall
-//     variants.
+// Remaining LOUD whitelist (impl-io2): every NotSupportedException carries the
+// standardized "LOUD whitelist (reason) [Reference Source file:line]" message.
+// The rejectable shapes are all net48-nonexistent arities (category 4) or an
+// OS-handle-wrapping FileStream ctor (category 1, machine state); the
+// StreamReader Encoding ctor family and the FileStream/StreamReader/StreamWriter
+// arity arms are wired above.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -156,7 +155,11 @@ public static partial class MethodRefResolver
                     if (count == 4 && ps[0] == 0x0E && ps[1] is 0x1C or 0x12 && ps[2] is 0x1C or 0x12 && ps[3] is 0x1C or 0x12)
                         return I("il2cpp::runtime::icall_stream_write_line_fmt3", 4, false, false, true);
                 }
-                throw new NotSupportedException($"WriteLine with {count} arg(s) not wired: the runtime icalls take the net48 TextWriter.WriteLine family (string/value/char[]/composite)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): WriteLine with {count} arg(s) -- the runtime " +
+                    "icalls take the net48 TextWriter.WriteLine family (string/value/char[]/composite); net48 has " +
+                    "only WriteLine(), the value overloads, (char[],int,int) and the composite " +
+                    "(string, object...) forms [Reference Source textwriter.cs:360-508]");
             // ---- shared Stream-base members ----------------------------------
             case "Flush": return I("il2cpp::runtime::icall_stream_flush", 0, false, false, true);
             case "Close": return I("il2cpp::runtime::icall_stream_close", 0, false, false, true);
@@ -169,7 +172,10 @@ public static partial class MethodRefResolver
                 // Dispose(bool) (Reference Source mscorlib/system/io/stream.cs:252)
                 // -- any other arity is not a net48 overload (whitelist
                 // category 4), so this guard is unreachable from net48 IL.
-                throw new NotSupportedException("Dispose with an unsupported arity not wired: net48 has only Dispose() and the protected Dispose(bool) (stream.cs:252)");
+                throw new NotSupportedException(
+                    "LOUD whitelist (net48 has no such overload): Dispose with an unsupported arity -- net48 " +
+                    "Stream has only Dispose() and the protected Dispose(bool) " +
+                    "[Reference Source stream.cs:252,264]");
             case "get_Position": return I("il2cpp::runtime::icall_stream_get_position", 0, true, false, true, null, "l");
             case "set_Position": return I("il2cpp::runtime::icall_stream_set_position", 1, false, false, true, new[] { "", "l" });
             case "get_Length": return I("il2cpp::runtime::icall_stream_get_length", 0, true, false, true, null, "l");
@@ -201,7 +207,9 @@ public static partial class MethodRefResolver
                 // net48 has exactly Stream.Seek(long, SeekOrigin) (Reference
                 // Source mscorlib/system/io/stream.cs:735) -- any other shape is
                 // not a net48 overload (whitelist category 4).
-                throw new NotSupportedException($"Seek with {count} arg(s) not wired: net48 has only (long, SeekOrigin) (stream.cs:735)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Seek with {count} arg(s) -- net48 has only " +
+                    "(long, SeekOrigin) [Reference Source stream.cs:735]");
             case "get_CanSeek":
                 return I("il2cpp::runtime::icall_stream_get_can_seek", 0, true, false, true);
             case "SetLength":
@@ -211,7 +219,9 @@ public static partial class MethodRefResolver
                 // net48 has exactly Stream.SetLength(long) (Reference Source
                 // mscorlib/system/io/stream.cs:737) -- any other shape is not a
                 // net48 overload (whitelist category 4).
-                throw new NotSupportedException($"SetLength with {count} arg(s) not wired: net48 has only (long) (stream.cs:737)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): SetLength with {count} arg(s) -- net48 has " +
+                    "only (long) [Reference Source stream.cs:737]");
             case "Read":
                 // TextReader.Read() (batch 2026-10-05, iosymprobe P1): the
                 // 0-arg form consumes the next UTF-16 unit (or -1 at EOF).
@@ -228,7 +238,10 @@ public static partial class MethodRefResolver
                 // TextReader.Read() 0-arg form (Reference Source
                 // mscorlib/system/io/stream.cs:739, textreader.cs) -- any other
                 // shape is not a net48 overload (whitelist category 4).
-                throw new NotSupportedException($"Read with {count} arg(s) not wired: net48 has only (byte[],int,int) and the 0-arg text read (stream.cs:739)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Read with {count} arg(s) -- net48 has only " +
+                    "(byte[],int,int) and the 0-arg TextReader.Read() text read " +
+                    "[Reference Source stream.cs:739, textreader.cs:368]");
             case "Peek":
                 // StreamReader.Peek() (batch 2026-10-05, iosymprobe P1 /
                 // iopairprobe T_case): the next UTF-16 unit WITHOUT consuming
@@ -238,7 +251,9 @@ public static partial class MethodRefResolver
                 // net48 has exactly StreamReader.Peek() (Reference Source
                 // mscorlib/system/io/streamreader.cs) -- any other shape is not a
                 // net48 overload (whitelist category 4).
-                throw new NotSupportedException($"Peek with {count} arg(s) not wired: net48 has only the 0-arg form (streamreader.cs)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Peek with {count} arg(s) -- net48 has only " +
+                    "the 0-arg form [Reference Source streamreader.cs:353]");
             case "get_Capacity":
                 // MemoryStream.Capacity (batch 2026-10-05): the memory buffer
                 // allocation size (int32).
@@ -277,7 +292,9 @@ public static partial class MethodRefResolver
                 // CopyTo(Stream,int) (Reference Source
                 // mscorlib/system/io/stream.cs:181,198) -- any other shape is not
                 // a net48 overload (whitelist category 4).
-                throw new NotSupportedException($"Stream.CopyTo with {count} arg(s) not wired: net48 has only (Stream) and (Stream,int) (stream.cs:181,198)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Stream.CopyTo with {count} arg(s) -- net48 " +
+                    "has only (Stream) and (Stream,int) [Reference Source stream.cs:181,198]");
             case "ReadByte":
                 // D-STP-3 (2026-08-12): ReadByte() -- the runtime gained the
                 // single-byte icall icall_stream_read_byte (streamio.cpp),
@@ -287,7 +304,9 @@ public static partial class MethodRefResolver
                 // net48 has exactly Stream.ReadByte() (Reference Source
                 // mscorlib/system/io/stream.cs:747) -- any other shape is not a
                 // net48 overload (whitelist category 4).
-                throw new NotSupportedException($"ReadByte with {count} arg(s) not wired: net48 has only the 0-arg form (stream.cs:747)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): ReadByte with {count} arg(s) -- net48 has " +
+                    "only the 0-arg form [Reference Source stream.cs:747]");
             case "Write":
                 // WAVE2 + the net48 TextWriter.Write value family: the string
                 // form is UTF-8 text WITHOUT the line terminator (net48 Write
@@ -342,7 +361,12 @@ public static partial class MethodRefResolver
                     && !StreamFirstParamIsCharArray(arg0Type, paramTypes))
                     return I("il2cpp::runtime::icall_stream_write_bytes", 3, false, false, true,
                         new[] { "", "a", "", "" });
-                throw new NotSupportedException($"Write with {count} arg(s) not wired: the runtime icalls take the net48 TextWriter.Write family or Stream.Write(byte[], int32, int32)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Write with {count} arg(s) -- the runtime " +
+                    "icalls take the net48 TextWriter.Write family or Stream.Write(byte[], int32, int32); " +
+                    "net48 has only Write(char), Write(char[]), Write(char[],int,int), the value overloads, " +
+                    "Write(string), Write(object) and the composite (string, object...) forms " +
+                    "[Reference Source textwriter.cs:193-350, stream.cs:759]");
             case "WriteByte":
                 // D-STP-3 (2026-08-12): WriteByte(byte) -- the runtime gained
                 // the single-byte icall icall_stream_write_byte (streamio.cpp).
@@ -353,7 +377,9 @@ public static partial class MethodRefResolver
                 // net48 has exactly Stream.WriteByte(byte) (Reference Source
                 // mscorlib/system/io/stream.cs:766) -- any other shape is not a
                 // net48 overload (whitelist category 4).
-                throw new NotSupportedException($"WriteByte with {count} arg(s) not wired: net48 has only (byte) (stream.cs:766)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): WriteByte with {count} arg(s) -- net48 has " +
+                    "only (byte) [Reference Source stream.cs:766]");
             default: return null;
         }
     }
@@ -428,10 +454,11 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_stream_file_ctor", 6, false, false, true,
                         new[] { "", "", "i", "i", "drop", "drop", "drop" });
                 throw new NotSupportedException(
-                    $"FileStream ctor with {count} arg(s) not wired: the object-typed icalls take the " +
-                    "(string path, FileMode[, FileAccess[, FileShare[, bufferSize[, FileOptions/useAsync]]]]) " +
-                    "family -- the IntPtr/SafeFileHandle/FileSystemRights forms wrap an OS handle (machine state) " +
-                    "and stay LOUD");
+                    $"LOUD whitelist (machine-state/OS-handle): FileStream ctor with {count} arg(s) -- the " +
+                    "object-typed icalls take the (string path, FileMode[, FileAccess[, FileShare[, bufferSize[, " +
+                    "FileOptions/useAsync]]]]) family; the IntPtr/SafeFileHandle/FileSystemRights forms wrap a " +
+                    "real OS file handle (machine state) and are not analyzable " +
+                    "[Reference Source filestream.cs:141-225]");
               case "System.IO.MemoryStream":
                   if (ps.Length == 0)
                       return I("il2cpp::runtime::icall_stream_memory_ctor", 0, false, false, true);
@@ -462,10 +489,12 @@ public static partial class MethodRefResolver
                           new[] { "", "a", "i", "i", "i", "i" });
                    // net48 has exactly MemoryStream(), (int), (byte[]),
                    // (byte[],bool), (byte[],int,int), (byte[],int,int,bool) and
-                   // (byte[],int,int,bool,bool) (Reference Source
-                   // mscorlib/system/io/memorystream.cs:66-108) -- any other
-                   // shape is not a net48 overload (whitelist category 4).
-                   throw new NotSupportedException($"MemoryStream ctor with {count} arg(s) not wired: net48 has only (), (int), (byte[]), (byte[],bool), (byte[],int,int)[,bool[,bool]] (memorystream.cs:66-108)");
+                   // (byte[],int,int,bool,bool) -- any other shape is not a
+                   // net48 overload (whitelist category 4).
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): MemoryStream ctor with {count} arg(s) " +
+                        "-- net48 has only (), (int), (byte[]), (byte[],bool), (byte[],int,int)[,bool[,bool]] " +
+                        "[Reference Source memorystream.cs:66-108]");
               case "System.IO.StreamReader":
                   if (ps.Length == 1 && ps[0] == 0x12)
                       return I("il2cpp::runtime::icall_stream_reader_ctor", 1, false, false, true);
@@ -474,23 +503,57 @@ public static partial class MethodRefResolver
                   if (ps.Length == 1 && ps[0] == 0x0E)
                       return I("il2cpp::runtime::icall_stream_reader_path_ctor", 1, false, false, true,
                           new[] { "", "" });
-                  // binrw3/StreamIO: StreamReader(Stream, bool
-                  // detectEncodingFromByteOrderMarks) / (string, bool) -- the
-                  // flag is dropped (the runtime BOM-detects unconditionally,
-                  // the net48 default).
-                  if (ps.Length == 2 && ps[1] == 0x02)
-                  {
-                      if (ps[0] == 0x12)
-                          return I("il2cpp::runtime::icall_stream_reader_ctor", 2, false, false, true,
-                              new[] { "", "", "drop" });
-                      if (ps[0] == 0x0E)
-                          return I("il2cpp::runtime::icall_stream_reader_path_ctor", 2, false, false, true,
-                              new[] { "", "", "drop" });
-                  }
-                  throw new NotSupportedException(
-                      $"StreamReader ctor with {count} arg(s) not wired: the object-typed icalls take " +
-                      "(Stream[, bool]), (string path[, bool]) -- the Encoding overloads need a runtime " +
-                      "reader ctor that honours an explicit encoding (the BOM-only ctor cannot)");
+                   // binrw3/StreamIO: StreamReader(Stream, bool
+                   // detectEncodingFromByteOrderMarks) / (string, bool) -- the
+                   // flag is dropped (the runtime BOM-detects unconditionally,
+                   // the net48 default).
+                   if (ps.Length == 2 && ps[1] == 0x02)
+                   {
+                       if (ps[0] == 0x12)
+                           return I("il2cpp::runtime::icall_stream_reader_ctor", 2, false, false, true,
+                               new[] { "", "", "drop" });
+                       if (ps[0] == 0x0E)
+                           return I("il2cpp::runtime::icall_stream_reader_path_ctor", 2, false, false, true,
+                               new[] { "", "", "drop" });
+                   }
+                   // impl-io2: the explicit-Encoding ctor family (net48
+                   // streamreader.cs:141-227). The Encoding arg is CLASS 0x12;
+                   // the trailing detectEncodingFromByteOrderMarks / bufferSize /
+                   // leaveOpen args default to 1 / 1024 / 0 (the net48
+                   // DefaultBufferSize / false), appended as literals after the
+                   // IL argument list.
+                   if (ps.Length >= 2 && ps.Length <= 5 && ps[1] == 0x12
+                       && (ps.Length == 2 || ps[2] == 0x02)
+                       && (ps.Length < 4 || ps[3] == 0x08)
+                       && (ps.Length < 5 || ps[4] == 0x02))
+                   {
+                       var cpp = ps[0] == 0x12
+                           ? "il2cpp::runtime::icall_stream_reader_encoding_ctor"
+                           : ps[0] == 0x0E
+                               ? "il2cpp::runtime::icall_stream_reader_path_encoding_ctor"
+                               : null;
+                       if (cpp != null)
+                       {
+                           return ps.Length switch
+                           {
+                               2 => I(cpp, 2, false, false, true, new[] { "", "", "" },
+                                      appendLiterals: new[] { "1", "1024", "0" }),
+                               3 => I(cpp, 3, false, false, true, new[] { "", "", "", "i" },
+                                      appendLiterals: new[] { "1024", "0" }),
+                               4 => I(cpp, 4, false, false, true, new[] { "", "", "", "i", "i" },
+                                      appendLiterals: new[] { "0" }),
+                               _ => I(cpp, 5, false, false, true, new[] { "", "", "", "i", "i", "i" }),
+                           };
+                       }
+                   }
+                   throw new NotSupportedException(
+                       $"LOUD whitelist (net48 has no such overload): StreamReader ctor with {count} arg(s) " +
+                       "-- net48 has only (Stream), (Stream, bool), (Stream, Encoding), " +
+                       "(Stream, Encoding, bool), (Stream, Encoding, bool, int), " +
+                       "(Stream, Encoding, bool, int, bool), (string), (string, bool), " +
+                       "(string, Encoding), (string, Encoding, bool) and " +
+                       "(string, Encoding, bool, int) " +
+                       "[Reference Source streamreader.cs:133-227]");
             case "System.IO.StreamWriter":
                 if (ps.Length == 1 && ps[0] == 0x12)
                     return I("il2cpp::runtime::icall_stream_writer_ctor", 1, false, false, true);
@@ -537,13 +600,13 @@ public static partial class MethodRefResolver
                 // net48 StreamWriter has exactly (Stream), (Stream, Encoding),
                 // (Stream, Encoding, int), (Stream, Encoding, int, bool),
                 // (string), (string, bool), (string, bool, Encoding) and
-                // (string, bool, Encoding, int) (Reference Source
-                // mscorlib/system/io/streamwriter.cs:124-174) -- any other
-                // shape is not a net48 overload (whitelist category 4).
+                // (string, bool, Encoding, int) -- any other shape is not a
+                // net48 overload (whitelist category 4).
                 throw new NotSupportedException(
-                    $"StreamWriter ctor with {count} arg(s) not wired: the object-typed icalls take " +
-                    "(Stream[, Encoding[, int[, bool]]]) and (string[, bool[, Encoding[, int]]]) " +
-                    "(streamwriter.cs:124-174)");
+                    $"LOUD whitelist (net48 has no such overload): StreamWriter ctor with {count} arg(s) " +
+                    "-- net48 has only (Stream), (Stream, Encoding), (Stream, Encoding, int), " +
+                    "(Stream, Encoding, int, bool), (string), (string, bool), (string, bool, Encoding) and " +
+                    "(string, bool, Encoding, int) [Reference Source streamwriter.cs:124-174]");
             default: return null;
         }
     }

@@ -2354,6 +2354,100 @@ void icall_stream_writer_ctor(Il2CppObject* self, Il2CppObject* stream)
     icall_stream_reader_ctor(self, stream); // identical wrap semantics
 }
 
+// impl-io2: the StreamReader(Stream|String, Encoding[, bool[, int[, bool]]])
+// ctor family (Reference Source streamreader.cs:141-227). net48 Init() sets
+// the reader's encoding from the managed Encoding object and, when
+// detectEncodingFromByteOrderMarks is set, runs the BOM detection that may
+// override it for a UTF-16 preamble. The runtime reader has three text
+// encodings (0=UTF-8, 1=UTF-16LE, 2=UTF-16BE); ASCII is 7-bit-compatible with
+// UTF-8 so it maps to 0 (the reader has no single-byte decoder). bufferSize
+// only affects the internal buffer (net48 validates > 0); leaveOpen is
+// dropped (the runtime always shares the wrapped state).
+static void ReaderSetEncoding(StreamState* shared, Il2CppObject* encoding)
+{
+    const int32_t page = reinterpret_cast<Il2CppEncodingObject*>(encoding)->page;
+    if (page == 1200)
+    {
+        shared->textEncoding = 1; // UTF-16LE
+    }
+    else if (page == 1201)
+    {
+        shared->textEncoding = 2; // UTF-16BE
+    }
+    else
+    {
+        shared->textEncoding = 0; // UTF-8 (ASCII included)
+    }
+}
+
+void icall_stream_reader_encoding_ctor(Il2CppObject* self, Il2CppObject* stream,
+                                       Il2CppObject* encoding,
+                                       bool detectEncodingFromByteOrderMarks,
+                                       int32_t bufferSize, bool leaveOpen)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    if (stream == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("stream");
+    }
+    if (encoding == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("encoding");
+    }
+    if (bufferSize <= 0)
+    {
+        il2cpp_throw_new("System.ArgumentOutOfRangeException,System.Exception",
+                         "Positive number required.");
+    }
+    (void)leaveOpen;
+    StreamState* shared = WrapStreamShared(self, stream);
+    ReaderSetEncoding(shared, encoding);
+    if (detectEncodingFromByteOrderMarks)
+    {
+        ReaderBomDetect(shared);
+    }
+    AsStream(self)->handle = StreamHandleAlloc(shared);
+}
+
+// StreamReader(string path, Encoding[, bool[, int[, bool]]]): the same
+// explicit-encoding selection over a freshly opened read-only file ("rb").
+void icall_stream_reader_path_encoding_ctor(Il2CppObject* self, Il2CppObject* path,
+                                            Il2CppObject* encoding,
+                                            bool detectEncodingFromByteOrderMarks,
+                                            int32_t bufferSize, bool leaveOpen)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp::il2cpp_stream_register_classes();
+    if (path == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("path");
+    }
+    if (encoding == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("encoding");
+    }
+    if (bufferSize <= 0)
+    {
+        il2cpp_throw_new("System.ArgumentOutOfRangeException,System.Exception",
+                         "Positive number required.");
+    }
+    (void)leaveOpen;
+    il2cpp_stream_t state = il2cpp_stream_file_open(path, 0); // rb: open existing for read
+    if (state == nullptr)
+    {
+        il2cpp_throw_new(kStreamFileNotFoundChain,
+            "Could not find the file or directory.");
+    }
+    StreamState* shared = static_cast<StreamState*>(state);
+    ReaderSetEncoding(shared, encoding);
+    if (detectEncodingFromByteOrderMarks)
+    {
+        ReaderBomDetect(shared);
+    }
+    AsStream(self)->handle = StreamHandleAlloc(state);
+}
+
 // binrw3/StreamIO: StreamWriter(Stream, Encoding) -- wrap an existing stream and
 // select the text encoder from the managed encoding object (the same page/
 // emitBom mapping as icall_stream_writer_path_encoding_ctor). The wrapped

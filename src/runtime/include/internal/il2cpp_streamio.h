@@ -188,6 +188,29 @@ void icall_stream_reader_ctor(Il2CppObject* self, Il2CppObject* stream);
 // read-only ("rb") and runs the same 3-byte BOM detection as the (Stream) ctor.
 void icall_stream_reader_path_ctor(Il2CppObject* self, Il2CppObject* path);
 
+// impl-io2: the StreamReader(Stream stream, Encoding encoding[, bool
+// detectEncodingFromByteOrderMarks[, int bufferSize[, bool leaveOpen]]]) ctor
+// family (Reference Source streamreader.cs:141-174). The runtime selects the
+// text encoding from the managed Encoding object's code page (UTF-8/UTF-16LE/
+// UTF-16BE; ASCII maps to the UTF-8 reader) and runs the BOM detection when
+// detectEncodingFromByteOrderMarks is set. Null stream/encoding ->
+// ArgumentNullException; bufferSize <= 0 -> ArgumentOutOfRangeException; a
+// non-wrappable stream -> ArgumentException; leaveOpen is dropped (the runtime
+// always shares the wrapped state).
+void icall_stream_reader_encoding_ctor(Il2CppObject* self, Il2CppObject* stream,
+                                       Il2CppObject* encoding,
+                                       bool detectEncodingFromByteOrderMarks,
+                                       int32_t bufferSize, bool leaveOpen);
+
+// StreamReader(string path, Encoding encoding[, bool[, int[, bool]]]): the
+// same explicit-encoding selection over a freshly opened read-only file
+// ("rb"). Errors as icall_stream_reader_encoding_ctor (a missing file ->
+// FileNotFoundException).
+void icall_stream_reader_path_encoding_ctor(Il2CppObject* self, Il2CppObject* path,
+                                            Il2CppObject* encoding,
+                                            bool detectEncodingFromByteOrderMarks,
+                                            int32_t bufferSize, bool leaveOpen);
+
 // StreamWriter(Stream stream): wraps an EXISTING stream object -- the writer
 // SHARES its backend state (refCounted; net48 ownership: closing the writer
 // closes the shared file). Errors as icall_stream_reader_ctor.

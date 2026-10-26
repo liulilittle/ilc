@@ -255,6 +255,100 @@ public class MethodMapStreamIOTests
         Assert.Equal(1, resolved.ParamCount);
     }
 
+    //--------------------------------------------------------------------------
+    // impl-io2: the StreamReader(Stream|String, Encoding[, bool[, int[, bool]]])
+    // ctor family (Reference Source streamreader.cs:141-227). The overload
+    // shapes are compile-time known (the Encoding arg is CLASS 0x12); the
+    // runtime selects the text encoding from the managed encoding object and
+    // runs the BOM detection when detectEncodingFromByteOrderMarks is set. The
+    // trailing detect/bufferSize/leaveOpen args default to 1/1024/0 (the
+    // net48 DefaultBufferSize / false), appended as literals after the IL args.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_StreamReader_Ctor_StreamEncoding_MapsToReaderEncodingCtorIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor",
+            Sig(0x01, 0x12, 0x05, 0x12, 0x05)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_reader_encoding_ctor", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "1", "1024", "0" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_StreamReader_Ctor_StreamEncodingBool_MapsToReaderEncodingCtorIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor",
+            Sig(0x01, 0x12, 0x05, 0x12, 0x05, 0x02)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_reader_encoding_ctor", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "1024", "0" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_StreamReader_Ctor_StreamEncodingBoolInt_MapsToReaderEncodingCtorIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor",
+            Sig(0x01, 0x12, 0x05, 0x12, 0x05, 0x02, 0x08)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_reader_encoding_ctor", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "", "i", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "0" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_StreamReader_Ctor_StreamEncodingBoolIntBool_MapsToReaderEncodingCtorIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor",
+            Sig(0x01, 0x12, 0x05, 0x12, 0x05, 0x02, 0x08, 0x02)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_reader_encoding_ctor", resolved.CppName);
+        Assert.Equal(5, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "", "i", "i", "i" }, resolved.ParamTypeNames);
+        Assert.Null(resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_StreamReader_Ctor_StringEncoding_MapsToReaderPathEncodingCtorIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor",
+            Sig(0x01, 0x0E, 0x12, 0x05)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_reader_path_encoding_ctor", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "1", "1024", "0" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_StreamReader_Ctor_StringEncodingBool_MapsToReaderPathEncodingCtorIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor",
+            Sig(0x01, 0x0E, 0x12, 0x05, 0x02)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_reader_path_encoding_ctor", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "1024", "0" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_StreamReader_Ctor_StringEncodingBoolInt_MapsToReaderPathEncodingCtorIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor",
+            Sig(0x01, 0x0E, 0x12, 0x05, 0x02, 0x08)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_reader_path_encoding_ctor", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "", "i", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "0" }, resolved.AppendLiterals);
+    }
+
     [Fact]
     public void Resolve_StreamWriter_Ctor_Stream_MapsToWriterCtorIcall()
     {

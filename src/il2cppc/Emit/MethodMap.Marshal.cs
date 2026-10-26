@@ -84,8 +84,9 @@ public static partial class MethodRefResolver
         if (kComMarshalMembers.Contains(name))
         {
             throw new NotSupportedException(
-                $"COM interop is not supported in ILC: {name} belongs to the COM interop domain " +
-                "(RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) and ILC has no COM runtime");
+                $"LOUD whitelist (runtime-descriptor/COM): {name} belongs to the COM interop domain " +
+                "(RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conversion) -- ILC has no COM " +
+                "runtime and cannot generate the COM descriptors [Reference Source marshal.cs:2404]");
         }
         switch (name)
         {
@@ -247,16 +248,39 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::il2cpp_marshal_size_of_struct_named", 1, true, false, false, new[] { "s" });
                 if (ps.Length == 1 && ps[0] == 0x1C)
                     return I("il2cpp::runtime::icall_marshal_size_of_object", 1, true, false, false, new[] { "" });
-                if (ps.Length == 0 && genArgNames is { Length: 1 })
+                if (ps.Length == 0 && genArgs is { Length: 1 })
                 {
-                    var sfx = MarshalStructKindSuffix(genArgNames[0]);
-                    if (sfx != null)
-                        return I($"il2cpp::runtime::il2cpp_marshal_size_of_struct_{sfx}", 0, true, false, false);
-                    throw new NotSupportedException($"SizeOf<{genArgNames[0]}> not wired: only the registered struct family (System.Drawing.Rectangle / System.Drawing.Point / System.Windows.Forms.Message) has a layout-registry SizeOf icall");
+                    var genName = MarshalGenericArgFullName(genArgs, genArgNames);
+                    if (genName != null)
+                    {
+                        var sfx = MarshalStructKindSuffix(genName);
+                        if (sfx != null)
+                            return I($"il2cpp::runtime::il2cpp_marshal_size_of_struct_{sfx}", 0, true, false, false);
+                        // impl-io2: the PRIMITIVE value types and the pointer-width
+                        // types are compile-time analyzable (the generic argument is
+                        // known); the runtime's net48 layout registry answers them by
+                        // full name. The transpiler passes the name as a C++ string
+                        // literal (the same registry the typeof(Type) form uses).
+                        if (MarshalSizeOfNameSupported(genName))
+                            return I("il2cpp::runtime::icall_marshal_size_of_named_ascii", 0, true, false, false,
+                                appendLiterals: new[] { "\"" + genName + "\"" });
+                        throw new NotSupportedException(
+                            $"LOUD whitelist (runtime-descriptor): SizeOf<{genName}> needs a runtime layout " +
+                            "descriptor -- only the primitive value types, IntPtr/UIntPtr and the registered " +
+                            "struct family (System.Drawing.Rectangle / System.Drawing.Point / " +
+                            "System.Windows.Forms.Message) have one " +
+                            "[Reference Source marshal.cs:228]");
+                    }
                 }
                 if (ps.Length == 1 && ps[0] == 0x13)
-                    throw new NotSupportedException("SizeOf<T>(T structure) not wired: passing a managed struct VALUE requires a struct-typed slot and the registered BCL structs have no generated C++ type (CodeGenerator TypeCppName extension)");
-                throw new NotSupportedException($"SizeOf with {ps.Length} parameter(s) not wired: the registered-struct family supports SizeOf<T>() (generic), SizeOf(Type) and SizeOf(object)");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (runtime-descriptor): SizeOf<T>(T structure) passes a managed struct " +
+                        "VALUE, which needs a struct-typed slot (CodeGenerator TypeCppName extension) -- the " +
+                        "registered BCL structs have no generated C++ type [Reference Source marshal.cs:208]");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): SizeOf with {ps.Length} parameter(s) -- " +
+                    "net48 has only SizeOf<T>() (generic), SizeOf(Type) and SizeOf(object) " +
+                    "[Reference Source marshal.cs:198-228]");
             // int OffsetOf<T>(string) / OffsetOf(Type, string): D-MAR-1 wires
             // the registered struct family. The field name is matched against
             // the net48 FIELD names (Rectangle: X/Y/Width/Height at 0/4/8/12,
@@ -277,9 +301,16 @@ public static partial class MethodRefResolver
                     var sfx = MarshalStructKindSuffix(genArgNames[0]);
                     if (sfx != null)
                         return I($"il2cpp::runtime::il2cpp_marshal_offset_of_struct_{sfx}", 1, true, false, false, new[] { "s" });
-                    throw new NotSupportedException($"OffsetOf<{genArgNames[0]}> not wired: only the registered struct family has a layout-registry OffsetOf icall");
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (runtime-descriptor): OffsetOf<{genArgNames[0]}> needs a runtime " +
+                        "layout descriptor -- only the registered struct family (System.Drawing.Rectangle / " +
+                        "System.Drawing.Point / System.Windows.Forms.Message) has one " +
+                        "[Reference Source marshal.cs:294]");
                 }
-                throw new NotSupportedException($"OffsetOf with {ps.Length} parameter(s) not wired: the registered-struct family supports OffsetOf<T>(string) and OffsetOf(Type, string)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): OffsetOf with {ps.Length} parameter(s) " +
+                    "-- net48 has only OffsetOf<T>(string) and OffsetOf(Type, string) " +
+                    "[Reference Source marshal.cs:279,294]");
             // void PtrToStructure/StructureToPtr: the byte semantics ARE
             // implemented in the runtime (il2cpp_marshal_struct_*_load/store,
             // marshalext3.cpp -- size-checked blittable memcpy +
@@ -304,9 +335,16 @@ public static partial class MethodRefResolver
                     var sfx = MarshalStructKindSuffix(genArgNames[0]);
                     if (sfx != null)
                         return I($"il2cpp::runtime::il2cpp_marshal_struct_{sfx}_load", 1, true, false, false, new[] { "p" }, sfx);
-                    throw new NotSupportedException($"PtrToStructure<{genArgNames[0]}> not wired: only the registered struct family (System.Drawing.Rectangle / System.Drawing.Point / System.Windows.Forms.Message) has a load icall");
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (runtime-descriptor): PtrToStructure<{genArgNames[0]}> needs a " +
+                        "runtime layout descriptor -- only the registered struct family (System.Drawing." +
+                        "Rectangle / System.Drawing.Point / System.Windows.Forms.Message) has a load icall " +
+                        "[Reference Source marshal.cs:996]");
                 }
-                throw new NotSupportedException($"PtrToStructure with {ps.Length} parameter(s) not wired: only the generic PtrToStructure<T>(IntPtr) form is wired (the (IntPtr, object)/(IntPtr, Type) forms need runtime type dispatch)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (dynamic): PtrToStructure with {ps.Length} parameter(s) -- only the " +
+                    "generic PtrToStructure<T>(IntPtr) form is wired; the (IntPtr, object)/(IntPtr, Type) " +
+                    "forms need runtime type dispatch [Reference Source marshal.cs:955,973]");
             // void StructureToPtr(object, IntPtr, bool): runtime type dispatch
             // selects the per-struct store icall from the object's klass->name
             // (il2cpp_marshal_struct_store -- marshalext3.cpp). pc=3 (object+IntPtr+bool).
@@ -678,5 +716,51 @@ public static partial class MethodRefResolver
         "System.Drawing.Rectangle" => "rect",
         "System.Windows.Forms.Message" => "msg",
         _ => null,
+    };
+
+    // impl-io2: the generic-argument FULL NAME for the SizeOf<T>() form. A
+    // primitive type argument is carried by its ELEMENT_TYPE byte (Roslyn emits
+    // 0x08 for int32, NOT valuetype System.Int32), so the raw genArgs byte is
+    // the authority; a VALUETYPE/CLASS argument needs its TypeHandle, resolved
+    // into genArgNames by GenericArgFullNames. Returns null when the name is not
+    // statically resolvable (a VAR/MVAR parameter or an untracked TypeHandle).
+    private static string? MarshalGenericArgFullName(byte[] genArgs, string[]? genArgNames)
+    {
+        var b = genArgs[0];
+        if (b is >= 0x02 and <= 0x0E)
+        {
+            return b switch
+            {
+                0x02 => "System.Boolean", 0x03 => "System.Char", 0x04 => "System.SByte",
+                0x05 => "System.Byte", 0x06 => "System.Int16", 0x07 => "System.UInt16",
+                0x08 => "System.Int32", 0x09 => "System.UInt32", 0x0A => "System.Int64",
+                0x0B => "System.UInt64", 0x0C => "System.Single", 0x0D => "System.Double",
+                _ => "System.String",
+            };
+        }
+        // IntPtr/UIntPtr ride the native-int element bytes (Roslyn emits 0x18
+        // for IntPtr in a generic argument); both resolve to the pointer width.
+        if (b is 0x17 or 0x18)
+        {
+            return b == 0x17 ? "System.IntPtr" : "System.UIntPtr";
+        }
+        if (b == 0x1C)
+        {
+            return "System.Object";
+        }
+        return genArgNames is { Length: 1 } ? genArgNames[0] : null;
+    }
+
+    // impl-io2: the value-type names the runtime's net48 layout registry can
+    // answer for the generic SizeOf<T>() form (marshalext3.cpp
+    // MarshalSizeOfNameAscii -- the primitive table + IntPtr/UIntPtr). An
+    // unregistered struct name stays LOUD (no runtime layout descriptor).
+    private static bool MarshalSizeOfNameSupported(string managedName) => managedName switch
+    {
+        "System.Boolean" or "System.Char" or "System.SByte" or "System.Byte"
+            or "System.Int16" or "System.UInt16" or "System.Int32" or "System.UInt32"
+            or "System.Int64" or "System.UInt64" or "System.Single" or "System.Double"
+            or "System.Decimal" or "System.IntPtr" or "System.UIntPtr" => true,
+        _ => false,
     };
 }

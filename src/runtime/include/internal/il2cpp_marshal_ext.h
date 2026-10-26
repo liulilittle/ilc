@@ -217,6 +217,15 @@ int32_t il2cpp_marshal_size_of_struct_point();
 int32_t il2cpp_marshal_size_of_struct_rect();
 int32_t il2cpp_marshal_size_of_struct_msg();
 
+// impl-io2: Marshal.SizeOf<T>() for the PRIMITIVE value types and the
+// pointer-width types (IntPtr/UIntPtr). The transpiler knows the generic
+// argument at compile time and passes T's full name as a C++ string literal
+// ("System.Int32" -> 4, "System.Double" -> 8, "System.IntPtr" -> pointer
+// width); an unregistered name throws the managed NotSupportedException (no
+// runtime layout descriptor). The registered struct family keeps its per-struct
+// icalls above (the transpiler selects those first).
+int32_t icall_marshal_size_of_named_ascii(const char* typeName);
+
 // Marshal.OffsetOf<T>(string) generic forms (per registered struct): the
 // field name string only; the kind is baked in.
 int32_t il2cpp_marshal_offset_of_struct_point(Il2CppString* fieldName);
