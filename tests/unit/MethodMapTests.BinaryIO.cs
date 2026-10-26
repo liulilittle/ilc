@@ -260,15 +260,30 @@ public class MethodMapBinaryIOTests
     }
 
     [Fact]
-    public void Resolve_BinaryReader_GetBaseStream_ThrowsLoud()
+    public void Resolve_BinaryReader_GetBaseStream_MapsToBaseStreamIcall()
     {
-        // get_BaseStream(): System.IO.Stream class return -- 0x12 + the
-        // compressed TypeDefOrRef coded index (TypeRef row 1 == 0x05).
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "BinaryReader", "get_BaseStream",
-                new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_BaseStream"));
+        // binrw3: get_BaseStream() -> icall_binary_get_base_stream (the wrapped
+        // stream object stored at Il2CppStreamObject slot 2). System.IO.Stream
+        // class return -- 0x12 + the compressed TypeDefOrRef coded index.
+        var resolved = ResolveMember(Synthesize("System.IO", "BinaryReader", "get_BaseStream",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_BaseStream");
 
-        Assert.Contains("System.IO.BinaryReader::get_BaseStream", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_binary_get_base_stream", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.IO.Stream", resolved.ReturnTypeName);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_BinaryWriter_GetBaseStream_MapsToBaseStreamIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "BinaryWriter", "get_BaseStream",
+            new byte[] { 0x00, 0x00, 0x12, 0x05 }), "get_BaseStream");
+
+        Assert.Equal("il2cpp::runtime::icall_binary_get_base_stream", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.IO.Stream", resolved.ReturnTypeName);
     }
 
     [Fact]

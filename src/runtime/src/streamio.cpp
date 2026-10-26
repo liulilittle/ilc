@@ -35,6 +35,10 @@
 #include "decimal.h"              // Il2CppDecimal (binary decimal protocol)
 #include "il2cpp_encoding.h"      // P2(5) A1: the Encoding object (page/emitBom)
 #include "il2cpp_string.h"
+#include "il2cpp_format.h"        // icall_*_to_string (the value surface)
+#include "decimal_format.h"       // icall_decimal_to_string
+#include "il2cpp_stringbuilder.h" // icall_string_format_* (the composite forms)
+#include "il2cpp_value_semantics.h" // icall_object_to_string (Write(object))
 
 #include <cstdint>
 #include <cstdio>
@@ -3146,6 +3150,335 @@ int32_t icall_stream_write_text(Il2CppObject* self, Il2CppObject* text)
     return il2cpp_stream_write_text(state, text);
 }
 
+//------------------------------------------------------------------------------
+// TextWriter/StreamWriter value surface (net48 TextWriter.Write/WriteLine).
+//
+// Every value overload renders the value's net48 ToString text (the same
+// formatters the Console/StringWriter surface uses) and writes it through the
+// writer's selected encoding; the WriteLine forms append the CRLF terminator.
+// The char[] / char[]-range forms build a managed string from the UTF-16 array
+// slice; the composite forms expand through String.Format (the single
+// composite-format authority) before the write. Result conventions mirror
+// icall_stream_write_{line,text}: 0 on success, -1 for a closed receiver
+// (ObjectDisposedException, net48). Null receiver -> NullReferenceException.
+//------------------------------------------------------------------------------
+
+// WriteLine(): the bare terminator (a null text writes nothing + CRLF).
+int32_t icall_stream_write_line_default(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state, nullptr);
+}
+
+int32_t icall_stream_write_line_c(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_char_to_string(value)));
+}
+
+int32_t icall_stream_write_value_c(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_char_to_string(value)));
+}
+
+// char[] -> the UTF-16 units as a managed string (a null array is a no-op).
+static Il2CppObject* StreamCharsToString(Il2CppArray* chars)
+{
+    if (chars == nullptr) return nullptr;
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(
+        reinterpret_cast<const char16_t*>(chars->data), chars->length));
+}
+
+// char[]-range: net48 argument validation (null buffer -> ArgumentNullException;
+// a bad (index,count) window -> ArgumentOutOfRangeException).
+static Il2CppObject* StreamCharsRangeToString(Il2CppArray* chars, int32_t index, int32_t count)
+{
+    if (chars == nullptr) il2cpp_throw_argument_null_exception("buffer");
+    if (index < 0) il2cpp_throw_argument_out_of_range_exception("index", "Non-negative number required.");
+    if (count < 0) il2cpp_throw_argument_out_of_range_exception("count", "Non-negative number required.");
+    if (index > chars->length - count)
+        il2cpp_throw_argument_out_of_range_exception("index", "Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(
+        reinterpret_cast<const char16_t*>(chars->data) + index, count));
+}
+
+int32_t icall_stream_write_line_cs(Il2CppObject* self, Il2CppArray* chars)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state, StreamCharsToString(chars));
+}
+
+int32_t icall_stream_write_value_cs(Il2CppObject* self, Il2CppArray* chars)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state, StreamCharsToString(chars));
+}
+
+int32_t icall_stream_write_line_cs_range(Il2CppObject* self, Il2CppArray* chars,
+                                         int32_t index, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state, StreamCharsRangeToString(chars, index, count));
+}
+
+int32_t icall_stream_write_value_cs_range(Il2CppObject* self, Il2CppArray* chars,
+                                          int32_t index, int32_t count)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state, StreamCharsRangeToString(chars, index, count));
+}
+
+int32_t icall_stream_write_line_b(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_bool_to_string(value != 0)));
+}
+
+int32_t icall_stream_write_value_b(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_bool_to_string(value != 0)));
+}
+
+int32_t icall_stream_write_line_i(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_int32_to_string(value)));
+}
+
+int32_t icall_stream_write_value_i(Il2CppObject* self, int32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_int32_to_string(value)));
+}
+
+int32_t icall_stream_write_line_u4(Il2CppObject* self, uint32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_uint32_to_string(value)));
+}
+
+int32_t icall_stream_write_value_u4(Il2CppObject* self, uint32_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_uint32_to_string(value)));
+}
+
+int32_t icall_stream_write_line_l(Il2CppObject* self, int64_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_int64_to_string(value)));
+}
+
+int32_t icall_stream_write_value_l(Il2CppObject* self, int64_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_int64_to_string(value)));
+}
+
+int32_t icall_stream_write_line_u8(Il2CppObject* self, uint64_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_uint64_to_string(value)));
+}
+
+int32_t icall_stream_write_value_u8(Il2CppObject* self, uint64_t value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_uint64_to_string(value)));
+}
+
+int32_t icall_stream_write_line_d(Il2CppObject* self, double value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_double_to_string(value)));
+}
+
+int32_t icall_stream_write_value_d(Il2CppObject* self, double value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_double_to_string(value)));
+}
+
+int32_t icall_stream_write_line_f(Il2CppObject* self, double value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_single_to_string(value)));
+}
+
+int32_t icall_stream_write_value_f(Il2CppObject* self, double value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_single_to_string(value)));
+}
+
+int32_t icall_stream_write_line_dec(Il2CppObject* self, const Il2CppDecimal* value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_decimal_to_string(value)));
+}
+
+int32_t icall_stream_write_value_dec(Il2CppObject* self, const Il2CppDecimal* value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_decimal_to_string(value)));
+}
+
+// Write(object): a null value is a no-op (net48). WriteLine(object): a null
+// value writes ONLY the terminator (never a NullReferenceException).
+int32_t icall_stream_write_value_o(Il2CppObject* self, Il2CppObject* value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    if (value == nullptr) return 0;
+    return il2cpp_stream_write_text(state,
+        reinterpret_cast<Il2CppObject*>(icall_object_to_string(value)));
+}
+
+int32_t icall_stream_write_line_o(Il2CppObject* self, Il2CppObject* value)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    if (value == nullptr) return il2cpp_stream_write_line(state, nullptr);
+    return il2cpp_stream_write_line(state,
+        reinterpret_cast<Il2CppObject*>(icall_object_to_string(value)));
+}
+
+// Composite forms: String.Format expansion then the write (the provider-less
+// kernel, matching the Console surface).
+int32_t icall_stream_write_line_fmt1(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state, icall_string_format_1(format, arg0));
+}
+
+int32_t icall_stream_write_value_fmt1(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state, icall_string_format_1(format, arg0));
+}
+
+int32_t icall_stream_write_line_fmt2(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state, icall_string_format_2(format, arg0, arg1));
+}
+
+int32_t icall_stream_write_value_fmt2(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state, icall_string_format_2(format, arg0, arg1));
+}
+
+int32_t icall_stream_write_line_fmt3(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state, icall_string_format_3(format, arg0, arg1, arg2));
+}
+
+int32_t icall_stream_write_value_fmt3(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state, icall_string_format_3(format, arg0, arg1, arg2));
+}
+
+int32_t icall_stream_write_line_fmt_array(Il2CppObject* self, Il2CppObject* format, Il2CppArray* args)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_line(state,
+        icall_string_format(format, reinterpret_cast<Il2CppObject*>(args)));
+}
+
+int32_t icall_stream_write_value_fmt_array(Il2CppObject* self, Il2CppObject* format, Il2CppArray* args)
+{
+    ThrowIfNullReceiver(self);
+    StreamState* state = StreamStateOf(self);
+    if (StreamThrowIfClosed(state)) return -1;
+    return il2cpp_stream_write_text(state,
+        icall_string_format(format, reinterpret_cast<Il2CppObject*>(args)));
+}
+
 // StreamReader.ReadToEnd(): the remainder from the current position to EOF as
 // one UTF-8 managed string ("" at end-of-stream, NOT null -- net48).
 Il2CppObject* icall_stream_read_to_end(Il2CppObject* self)
@@ -3231,12 +3564,23 @@ void icall_binary_reader_ctor(Il2CppObject* self, Il2CppObject* stream)
     // would silently drop up to 3 bytes from the binary read path.
     StreamState* shared = WrapStreamShared(self, stream);
     AsStream(self)->handle = StreamHandleAlloc(shared);
+    AsStream(self)->baseStream = stream; // net48 get_BaseStream
 }
 
 void icall_binary_writer_ctor(Il2CppObject* self, Il2CppObject* stream)
 {
     StreamState* shared = WrapStreamShared(self, stream);
     AsStream(self)->handle = StreamHandleAlloc(shared);
+    AsStream(self)->baseStream = stream; // net48 get_BaseStream
+}
+
+// BinaryReader/Writer.BaseStream (net48): the wrapped stream object. Returns
+// null for a never-ctor'd / non-binary receiver; a null receiver throws
+// NullReferenceException first.
+Il2CppObject* icall_binary_get_base_stream(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return AsStream(self)->baseStream;
 }
 
 void icall_binary_write_int32(Il2CppObject* self, int32_t value)
@@ -3934,22 +4278,23 @@ Il2CppObject* icall_binary_read_string(Il2CppObject* self)
 // share the Il2CppStreamObject layout (header + int32 handle); NO reference
 // fields, so the collector never scans past the header (refFieldBitmap 0).
 //------------------------------------------------------------------------------
-#define STREAM_CLASS(SYM, DOTNAME) \
+#define STREAM_CLASS(SYM, DOTNAME, BITMAP, REFCOUNT) \
     ::il2cpp::Il2CppClass SYM = {   \
         DOTNAME,                                     \
         static_cast<int32_t>(sizeof(::il2cpp::Il2CppStreamObject)), \
-        0u,                                          \
-        0,                                           \
+        BITMAP,                                      \
+        REFCOUNT,                                    \
         &System_Object_class,                        \
         nullptr, 0, nullptr, 0,                      \
     }
 
-STREAM_CLASS(System_IO_FileStream_class, "System.IO.FileStream");
-STREAM_CLASS(System_IO_StreamReader_class, "System.IO.StreamReader");
-STREAM_CLASS(System_IO_StreamWriter_class, "System.IO.StreamWriter");
-STREAM_CLASS(System_IO_MemoryStream_class, "System.IO.MemoryStream");
-STREAM_CLASS(System_IO_BinaryReader_class, "System.IO.BinaryReader");
-STREAM_CLASS(System_IO_BinaryWriter_class, "System.IO.BinaryWriter");
+STREAM_CLASS(System_IO_FileStream_class, "System.IO.FileStream", 0u, 0);
+STREAM_CLASS(System_IO_StreamReader_class, "System.IO.StreamReader", 0u, 0);
+STREAM_CLASS(System_IO_StreamWriter_class, "System.IO.StreamWriter", 0u, 0);
+STREAM_CLASS(System_IO_MemoryStream_class, "System.IO.MemoryStream", 0u, 0);
+// BinaryReader/Writer carry the wrapped stream at slot 2 (refFieldBitmap bit 2).
+STREAM_CLASS(System_IO_BinaryReader_class, "System.IO.BinaryReader", 0b100u, 1);
+STREAM_CLASS(System_IO_BinaryWriter_class, "System.IO.BinaryWriter", 0b100u, 1);
 
 #undef STREAM_CLASS
 

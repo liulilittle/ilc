@@ -79,10 +79,15 @@ namespace il2cpp {
 // header + an int32 handle into the streamio handle registry. The handle is
 // -1 after Close (no live handle); the registry entry lives in non-moving
 // memory so the object's compaction copies never invalidate it.
+//
+// Slot 2 (offset 16) is the BinaryReader/BinaryWriter WRAPPED stream (a GC
+// reference -- refFieldBitmap bit 2): net48 exposes it through get_BaseStream.
+// The other four classes leave it null (zero-initialized by the allocator).
 struct Il2CppStreamObject
 {
-    Il2CppObject obj;   // object header (klass pointer, offset 0)
-    int32_t handle;     // registry index (offset 8)
+    Il2CppObject obj;       // object header (klass pointer, offset 0)
+    int32_t handle;         // registry index (offset 8)
+    Il2CppObject* baseStream; // slot 2: wrapped stream (BinaryReader/Writer only, GC ref)
 };
 
 // Register the four System_IO_*_class descriptors (idempotent --
@@ -365,6 +370,57 @@ int32_t icall_stream_write_line(Il2CppObject* self, Il2CppObject* line);
 // 0 on success; a CLOSED writer -> ObjectDisposedException (net48).
 int32_t icall_stream_write_text(Il2CppObject* self, Il2CppObject* text);
 
+//------------------------------------------------------------------------------
+// TextWriter/StreamWriter value surface (net48 TextWriter.Write/WriteLine).
+//
+// Each value overload renders the value's net48 ToString text (the same
+// formatter the Console/StringWriter surface uses) and writes it through the
+// writer's selected encoding; the WriteLine forms append the CRLF terminator.
+// The char[] / char[]-range forms build a managed string from the UTF-16
+// array slice; the composite forms expand through String.Format (the single
+// composite-format authority) before the write.
+//
+// Result conventions mirror icall_stream_write_{line,text}: 0 on success,
+// -1 for a closed receiver (ObjectDisposedException, net48). Null receiver ->
+// NullReferenceException.
+//------------------------------------------------------------------------------
+int32_t icall_stream_write_line_default(Il2CppObject* self);
+int32_t icall_stream_write_line_c(Il2CppObject* self, int32_t value);
+int32_t icall_stream_write_line_cs(Il2CppObject* self, Il2CppArray* chars);
+int32_t icall_stream_write_line_cs_range(Il2CppObject* self, Il2CppArray* chars,
+                                         int32_t index, int32_t count);
+int32_t icall_stream_write_line_b(Il2CppObject* self, int32_t value);
+int32_t icall_stream_write_line_i(Il2CppObject* self, int32_t value);
+int32_t icall_stream_write_line_u4(Il2CppObject* self, uint32_t value);
+int32_t icall_stream_write_line_l(Il2CppObject* self, int64_t value);
+int32_t icall_stream_write_line_u8(Il2CppObject* self, uint64_t value);
+int32_t icall_stream_write_line_d(Il2CppObject* self, double value);
+int32_t icall_stream_write_line_f(Il2CppObject* self, double value);
+int32_t icall_stream_write_line_dec(Il2CppObject* self, const Il2CppDecimal* value);
+int32_t icall_stream_write_line_o(Il2CppObject* self, Il2CppObject* value);
+int32_t icall_stream_write_line_fmt1(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0);
+int32_t icall_stream_write_line_fmt2(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
+int32_t icall_stream_write_line_fmt3(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
+int32_t icall_stream_write_line_fmt_array(Il2CppObject* self, Il2CppObject* format, Il2CppArray* args);
+
+int32_t icall_stream_write_value_c(Il2CppObject* self, int32_t value);
+int32_t icall_stream_write_value_cs(Il2CppObject* self, Il2CppArray* chars);
+int32_t icall_stream_write_value_cs_range(Il2CppObject* self, Il2CppArray* chars,
+                                          int32_t index, int32_t count);
+int32_t icall_stream_write_value_b(Il2CppObject* self, int32_t value);
+int32_t icall_stream_write_value_i(Il2CppObject* self, int32_t value);
+int32_t icall_stream_write_value_u4(Il2CppObject* self, uint32_t value);
+int32_t icall_stream_write_value_l(Il2CppObject* self, int64_t value);
+int32_t icall_stream_write_value_u8(Il2CppObject* self, uint64_t value);
+int32_t icall_stream_write_value_d(Il2CppObject* self, double value);
+int32_t icall_stream_write_value_f(Il2CppObject* self, double value);
+int32_t icall_stream_write_value_dec(Il2CppObject* self, const Il2CppDecimal* value);
+int32_t icall_stream_write_value_o(Il2CppObject* self, Il2CppObject* value);
+int32_t icall_stream_write_value_fmt1(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0);
+int32_t icall_stream_write_value_fmt2(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
+int32_t icall_stream_write_value_fmt3(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
+int32_t icall_stream_write_value_fmt_array(Il2CppObject* self, Il2CppObject* format, Il2CppArray* args);
+
 // MemoryStream.ToArray(): a managed byte[] COPY of the stream content (bytes
 // written so far, regardless of the current position). WORKS on a closed
 // stream -- the data is retained (net48 oracle 0xDEAD / 0x07000000); nullptr
@@ -414,6 +470,12 @@ int32_t icall_stream_set_write_timeout(Il2CppObject* self, int32_t value);
 // NullReferenceException.
 void icall_binary_reader_ctor(Il2CppObject* self, Il2CppObject* stream);
 void icall_binary_writer_ctor(Il2CppObject* self, Il2CppObject* stream);
+
+// BinaryReader.BaseStream / BinaryWriter.BaseStream (net48): the wrapped
+// stream object passed to the ctor (slot 2 of Il2CppStreamObject, a GC ref).
+// Returns null for a never-ctor'd / non-binary receiver. Null receiver ->
+// NullReferenceException.
+Il2CppObject* icall_binary_get_base_stream(Il2CppObject* self);
 
 // BinaryWriter.Write(...): append the fixed-width little-endian encoding /
 // the 7-bit-length-prefixed string to the wrapped stream at its current

@@ -1806,7 +1806,7 @@ public static partial class MethodRefResolver
                 // re-resolve carries the DeflateStream hint).
                 if (receiverType == "System.IO.Compression.DeflateStream")
                     return TryMapDeflate(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
-                return TryMapStreamIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                return TryMapStreamIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, MethodSignatureCoder.Decode(md, sigHandle).ParamTypes)
                     ?? TryMapProcess(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.IO.Compression.DeflateStream": return TryMapDeflate(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.IDisposable":
@@ -1827,7 +1827,7 @@ public static partial class MethodRefResolver
                     var streamLike = receiverType ?? arg0Type;
                     if (streamLike is "System.IO.FileStream" or "System.IO.MemoryStream"
                             or "System.IO.StreamReader" or "System.IO.StreamWriter")
-                        return TryMapStreamIO("System.IO.Stream", name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                        return TryMapStreamIO("System.IO.Stream", name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
                     // batch 158 (timercase): a `using (Timer t = ...)` block
                     // compiles to a callvirt on the IDisposable INTERFACE
                     // (Dispose()). Route a Timer receiver to the timer dispose
@@ -2033,7 +2033,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 if (receiverType is "System.Diagnostics.Process" or "System.Diagnostics.Process.Stderr" or "System.Diagnostics.Process.Stdin")
                     return TryMapProcess(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
                 if (receiverType is "System.IO.StreamReader" or "System.IO.StreamWriter")
-                    return TryMapStreamIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                    return TryMapStreamIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
                 if (receiverType is "System.IO.StringReader" or "System.IO.StringWriter")
                     return TryMapStringIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
                 // console3 (2026-08-09): Console.Out / Console.Error stream

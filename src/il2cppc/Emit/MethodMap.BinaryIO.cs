@@ -162,7 +162,11 @@ public static partial class MethodRefResolver
                         // temp, the stream argument passes through uncast).
                         return I("il2cpp::runtime::icall_binary_writer_ctor", 1, false, false, true, new[] { "" });
                     case "get_BaseStream":
-                        throw new NotSupportedException("BaseStream: no runtime icall -- the wrapped stream object is not stored on the BinaryReader/Writer (only the shared handle)");
+                        // get_BaseStream() -- binrw3: the runtime object now
+                        // stores the wrapped stream at slot 2 (a GC ref, the
+                        // Il2CppStreamObject.baseStream field) and returns it.
+                        return I("il2cpp::runtime::icall_binary_get_base_stream", 0, true, true, true,
+                            returnTypeName: "System.IO.Stream");
                     default: return null;
                 }
             case "System.IO.BinaryReader":
@@ -214,7 +218,10 @@ public static partial class MethodRefResolver
                     // would put it first -- wrong order here).
                     case "ReadDecimal": return I("il2cpp::runtime::icall_binary_read_decimal", 0, true, false, true, null, "dec2");
                     case "get_BaseStream":
-                        throw new NotSupportedException("BaseStream: no runtime icall -- the wrapped stream object is not stored on the BinaryReader/Writer (only the shared handle)");
+                        // get_BaseStream() -- binrw3 (see the BinaryWriter
+                        // sibling): the wrapped stream is stored at slot 2.
+                        return I("il2cpp::runtime::icall_binary_get_base_stream", 0, true, true, true,
+                            returnTypeName: "System.IO.Stream");
                     default: return null;
                 }
             default: return null;

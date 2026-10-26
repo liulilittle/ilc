@@ -218,6 +218,31 @@ public class MethodMapStreamIOTests
     }
 
     [Fact]
+    public void Resolve_FileStream_Ctor_FiveParams_MapsToFileCtorIcall()
+    {
+        // binrw3/StreamIO: FileStream(string, FileMode, FileAccess, FileShare,
+        // int bufferSize) -- bufferSize is dropped (never changes the bytes).
+        var resolved = ResolveMember(Synthesize("System.IO", "FileStream", ".ctor",
+            Sig(0x01, 0x0E, 0x08, 0x08, 0x08, 0x08)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_file_ctor", resolved.CppName);
+        Assert.Equal(5, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "i", "i", "drop", "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_StreamReader_Ctor_StreamBool_MapsToReaderCtorIcall()
+    {
+        // binrw3/StreamIO: StreamReader(Stream, bool) -- the flag is dropped.
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamReader", ".ctor",
+            Sig(0x01, 0x12, 0x05, 0x02)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_reader_ctor", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
     public void Resolve_StreamReader_Ctor_String_MapsToReaderPathCtorIcall()
     {
         // StreamReader(string path): wired in P2 IO-symmetry (2026-09-19) --
@@ -329,24 +354,99 @@ public class MethodMapStreamIOTests
     }
 
     [Fact]
-    public void Resolve_StreamWriter_WriteLineInt_ThrowsLoud()
+    public void Resolve_StreamWriter_WriteLineInt_MapsToWriteLineIcall()
     {
-        // WriteLine(int) must NOT route through write_line(string).
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "StreamWriter", "WriteLine", Sig(0x01, 0x08)), "WriteLine"));
+        // binrw3/StreamIO: WriteLine(int) -> icall_stream_write_line_i (the
+        // value's net48 decimal text + CRLF; the int rides the "i" carrier).
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", "WriteLine", Sig(0x01, 0x08)), "WriteLine");
 
-        Assert.Contains("System.IO.StreamWriter::WriteLine", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_stream_write_line_i", resolved.CppName);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]
-    public void Resolve_StreamWriter_WriteChar_ThrowsLoud()
+    public void Resolve_StreamWriter_WriteChar_MapsToWriteValueCIcall()
     {
-        // Write(char) (0x03) must NOT route through the WAVE2 Write(string)
-        // arm: the text icall takes exactly the string form (0x0E).
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "StreamWriter", "Write", Sig(0x01, 0x03)), "Write"));
+        // Write(char) (0x03) -> icall_stream_write_value_c (the single UTF-16
+        // unit; the char rides the "i" carrier).
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", "Write", Sig(0x01, 0x03)), "Write");
 
-        Assert.Contains("System.IO.StreamWriter::Write", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_stream_write_value_c", resolved.CppName);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(0x02, "il2cpp::runtime::icall_stream_write_line_b")]
+    [InlineData(0x0A, "il2cpp::runtime::icall_stream_write_line_l")]
+    [InlineData(0x0B, "il2cpp::runtime::icall_stream_write_line_u8")]
+    [InlineData(0x0C, "il2cpp::runtime::icall_stream_write_line_f")]
+    [InlineData(0x0D, "il2cpp::runtime::icall_stream_write_line_d")]
+    [InlineData(0x09, "il2cpp::runtime::icall_stream_write_line_u4")]
+    public void Resolve_StreamWriter_WriteLineValue_MapsToValueIcall(byte paramByte, string icall)
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", "WriteLine", Sig(0x01, paramByte)), "WriteLine");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Theory]
+    [InlineData(0x02, "il2cpp::runtime::icall_stream_write_value_b")]
+    [InlineData(0x0A, "il2cpp::runtime::icall_stream_write_value_l")]
+    [InlineData(0x0B, "il2cpp::runtime::icall_stream_write_value_u8")]
+    [InlineData(0x0C, "il2cpp::runtime::icall_stream_write_value_f")]
+    [InlineData(0x0D, "il2cpp::runtime::icall_stream_write_value_d")]
+    [InlineData(0x09, "il2cpp::runtime::icall_stream_write_value_u4")]
+    public void Resolve_StreamWriter_WriteValue_MapsToValueIcall(byte paramByte, string icall)
+    {
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", "Write", Sig(0x01, paramByte)), "Write");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_WriteLineDefault_MapsToWriteLineDefaultIcall()
+    {
+        // WriteLine() -> icall_stream_write_line_default (the bare terminator).
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", "WriteLine", Sig(0x01)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_write_line_default", resolved.CppName);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_WriteLineObject_MapsToWriteLineObjectIcall()
+    {
+        // WriteLine(object) -> icall_stream_write_line_o (boxed ToString text).
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", "WriteLine", Sig(0x01, 0x1C)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_write_line_o", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_WriteLineComposite_MapsToFmtIcall()
+    {
+        // WriteLine(string, object) -> icall_stream_write_line_fmt1 (String.Format).
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", "WriteLine", Sig(0x01, 0x0E, 0x1C)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_write_line_fmt1", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_StreamWriter_WriteLineCharArray_MapsToCsIcall()
+    {
+        // WriteLine(char[]) -> icall_stream_write_line_cs (the decoded
+        // parameter-type text is the element-type authority).
+        var resolved = ResolveMember(Synthesize("System.IO", "StreamWriter", "WriteLine",
+            Sig(0x01, 0x1D, 0x03)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::icall_stream_write_line_cs", resolved.CppName);
+        Assert.Equal(new[] { "", "a" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

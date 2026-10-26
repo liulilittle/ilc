@@ -59,7 +59,7 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapStreamIO(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? paramTypes = null)
     {
         // nb8 STDIN-WRITE: Process.StandardInput is a PID, not a genuine
         // StreamWriter (its get_StandardInput identity fold tracks the pseudo-type
@@ -111,10 +111,52 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_stream_read_to_end", 0, true, true, true, null, null, returnTypeName: "System.String");
                 return null;
             case "WriteLine":
-                if ((owner == "System.IO.StreamWriter" || receiverType == "System.IO.StreamWriter")
-                    && ps.Length == 1 && ps[0] == 0x0E)
-                    return I("il2cpp::runtime::icall_stream_write_line", 1, false, false, true);
-                throw new NotSupportedException($"WriteLine with {count} arg(s) not wired: the runtime icall takes exactly (string)");
+                // net48 TextWriter.WriteLine overload family. The value forms
+                // render the value's net48 ToString text + CRLF (the runtime
+                // icall_stream_write_line_* surface); the composite forms
+                // expand through String.Format first. The char[] forms are
+                // told apart from byte[] by the decoded parameter-type text
+                // (the raw 0x1D byte carries no element type).
+                if (owner is "System.IO.StreamWriter" or "System.IO.TextWriter"
+                    || receiverType is "System.IO.StreamWriter")
+                {
+                    if (count == 0)
+                        return I("il2cpp::runtime::icall_stream_write_line_default", 0, false, false, true);
+                    if (count == 1)
+                    {
+                        switch (ps[0])
+                        {
+                            case 0x0E: return I("il2cpp::runtime::icall_stream_write_line", 1, false, false, true);
+                            case 0x03: return I("il2cpp::runtime::icall_stream_write_line_c", 1, false, false, true, new[] { "", "i" });
+                            case 0x1D when StreamFirstParamIsCharArray(arg0Type, paramTypes):
+                                return I("il2cpp::runtime::icall_stream_write_line_cs", 1, false, false, true, new[] { "", "a" });
+                            case 0x02: return I("il2cpp::runtime::icall_stream_write_line_b", 1, false, false, true, new[] { "", "i" });
+                            case 0x08: return I("il2cpp::runtime::icall_stream_write_line_i", 1, false, false, true, new[] { "", "i" });
+                            case 0x09: return I("il2cpp::runtime::icall_stream_write_line_u4", 1, false, false, true, new[] { "", "u4" });
+                            case 0x0A: return I("il2cpp::runtime::icall_stream_write_line_l", 1, false, false, true, new[] { "", "l" });
+                            case 0x0B: return I("il2cpp::runtime::icall_stream_write_line_u8", 1, false, false, true, new[] { "", "q" });
+                            case 0x0C: return I("il2cpp::runtime::icall_stream_write_line_f", 1, false, false, true, new[] { "", "d" });
+                            case 0x0D: return I("il2cpp::runtime::icall_stream_write_line_d", 1, false, false, true, new[] { "", "d" });
+                            case 0x11 when StreamFirstParamIsDecimal(paramTypes):
+                                return I("il2cpp::runtime::icall_stream_write_line_dec", 1, false, false, true, new[] { "", "dec" });
+                            case 0x1C: return I("il2cpp::runtime::icall_stream_write_line_o", 1, false, false, true);
+                        }
+                    }
+                    if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
+                        && StreamFirstParamIsCharArray(arg0Type, paramTypes))
+                        return I("il2cpp::runtime::icall_stream_write_line_cs_range", 3, false, false, true,
+                            new[] { "", "a", "i", "i" });
+                    if (count == 2 && ps[0] == 0x0E && ps[1] is 0x1C or 0x12)
+                        return I("il2cpp::runtime::icall_stream_write_line_fmt1", 2, false, false, true);
+                    if (count == 2 && ps[0] == 0x0E && ps[1] == 0x1D)
+                        return I("il2cpp::runtime::icall_stream_write_line_fmt_array", 2, false, false, true,
+                            new[] { "", "", "a" });
+                    if (count == 3 && ps[0] == 0x0E && ps[1] is 0x1C or 0x12 && ps[2] is 0x1C or 0x12)
+                        return I("il2cpp::runtime::icall_stream_write_line_fmt2", 3, false, false, true);
+                    if (count == 4 && ps[0] == 0x0E && ps[1] is 0x1C or 0x12 && ps[2] is 0x1C or 0x12 && ps[3] is 0x1C or 0x12)
+                        return I("il2cpp::runtime::icall_stream_write_line_fmt3", 4, false, false, true);
+                }
+                throw new NotSupportedException($"WriteLine with {count} arg(s) not wired: the runtime icalls take the net48 TextWriter.WriteLine family (string/value/char[]/composite)");
             // ---- shared Stream-base members ----------------------------------
             case "Flush": return I("il2cpp::runtime::icall_stream_flush", 0, false, false, true);
             case "Close": return I("il2cpp::runtime::icall_stream_close", 0, false, false, true);
@@ -123,7 +165,11 @@ public static partial class MethodRefResolver
                 // Dispose(bool) -- batch 150f: the flag is dropped (Close is
                 // idempotent; disposing=false is a no-op either way).
                 if (count == 1) return I("il2cpp::runtime::icall_stream_close", 1, false, false, true, new[] { "drop" });
-                throw new NotSupportedException("Dispose with an unsupported arity not wired");
+                // net48 Stream has exactly Dispose() and the protected
+                // Dispose(bool) (Reference Source mscorlib/system/io/stream.cs:252)
+                // -- any other arity is not a net48 overload (whitelist
+                // category 4), so this guard is unreachable from net48 IL.
+                throw new NotSupportedException("Dispose with an unsupported arity not wired: net48 has only Dispose() and the protected Dispose(bool) (stream.cs:252)");
             case "get_Position": return I("il2cpp::runtime::icall_stream_get_position", 0, true, false, true, null, "l");
             case "set_Position": return I("il2cpp::runtime::icall_stream_set_position", 1, false, false, true, new[] { "", "l" });
             case "get_Length": return I("il2cpp::runtime::icall_stream_get_length", 0, true, false, true, null, "l");
@@ -152,14 +198,20 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0A && ps[1] == 0x11)
                     return I("il2cpp::runtime::icall_stream_seek", 2, true, false, true,
                         new[] { "", "l", "i" }, "l");
-                throw new NotSupportedException($"Seek with {count} arg(s) not wired: the runtime icall takes (long offset, SeekOrigin origin)");
+                // net48 has exactly Stream.Seek(long, SeekOrigin) (Reference
+                // Source mscorlib/system/io/stream.cs:735) -- any other shape is
+                // not a net48 overload (whitelist category 4).
+                throw new NotSupportedException($"Seek with {count} arg(s) not wired: net48 has only (long, SeekOrigin) (stream.cs:735)");
             case "get_CanSeek":
                 return I("il2cpp::runtime::icall_stream_get_can_seek", 0, true, false, true);
             case "SetLength":
                 if (ps.Length == 1 && ps[0] == 0x0A)
                     return I("il2cpp::runtime::icall_stream_set_length", 1, false, false, true,
                         new[] { "", "l" });
-                throw new NotSupportedException($"SetLength with {count} arg(s) not wired: the runtime icall takes (long value)");
+                // net48 has exactly Stream.SetLength(long) (Reference Source
+                // mscorlib/system/io/stream.cs:737) -- any other shape is not a
+                // net48 overload (whitelist category 4).
+                throw new NotSupportedException($"SetLength with {count} arg(s) not wired: net48 has only (long) (stream.cs:737)");
             case "Read":
                 // TextReader.Read() (batch 2026-10-05, iosymprobe P1): the
                 // 0-arg form consumes the next UTF-16 unit (or -1 at EOF).
@@ -172,14 +224,21 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                     return I("il2cpp::runtime::icall_stream_read_bytes", 3, true, false, true,
                         new[] { "", "a", "", "" });
-                throw new NotSupportedException($"Read with {count} arg(s) not wired: the runtime managed-array icall takes (byte[], int32, int32) or the 0-arg text read");
+                // net48 has exactly Stream.Read(byte[],int,int) and the
+                // TextReader.Read() 0-arg form (Reference Source
+                // mscorlib/system/io/stream.cs:739, textreader.cs) -- any other
+                // shape is not a net48 overload (whitelist category 4).
+                throw new NotSupportedException($"Read with {count} arg(s) not wired: net48 has only (byte[],int,int) and the 0-arg text read (stream.cs:739)");
             case "Peek":
                 // StreamReader.Peek() (batch 2026-10-05, iosymprobe P1 /
                 // iopairprobe T_case): the next UTF-16 unit WITHOUT consuming
                 // (-1 at end-of-stream, net48).
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_stream_peek", 0, true, false, true);
-                throw new NotSupportedException($"Peek with {count} arg(s) not wired: the runtime icall takes no arguments");
+                // net48 has exactly StreamReader.Peek() (Reference Source
+                // mscorlib/system/io/streamreader.cs) -- any other shape is not a
+                // net48 overload (whitelist category 4).
+                throw new NotSupportedException($"Peek with {count} arg(s) not wired: net48 has only the 0-arg form (streamreader.cs)");
             case "get_Capacity":
                 // MemoryStream.Capacity (batch 2026-10-05): the memory buffer
                 // allocation size (int32).
@@ -214,31 +273,76 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x08)
                     return I("il2cpp::runtime::icall_stream_copy_to", 2, false, false, true,
                         new[] { "", "", "i" });
-                throw new NotSupportedException($"Stream.CopyTo with {count} arg(s) not wired: the runtime icall takes (Stream destination[, int32 bufferSize])");
+                // net48 has exactly Stream.CopyTo(Stream) and
+                // CopyTo(Stream,int) (Reference Source
+                // mscorlib/system/io/stream.cs:181,198) -- any other shape is not
+                // a net48 overload (whitelist category 4).
+                throw new NotSupportedException($"Stream.CopyTo with {count} arg(s) not wired: net48 has only (Stream) and (Stream,int) (stream.cs:181,198)");
             case "ReadByte":
                 // D-STP-3 (2026-08-12): ReadByte() -- the runtime gained the
                 // single-byte icall icall_stream_read_byte (streamio.cpp),
                 // returning int (0..255) with -1 at end-of-stream (net48).
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_stream_read_byte", 0, true, false, true);
-                throw new NotSupportedException($"ReadByte with {count} arg(s) not wired: the runtime icall takes no arguments");
+                // net48 has exactly Stream.ReadByte() (Reference Source
+                // mscorlib/system/io/stream.cs:747) -- any other shape is not a
+                // net48 overload (whitelist category 4).
+                throw new NotSupportedException($"ReadByte with {count} arg(s) not wired: net48 has only the 0-arg form (stream.cs:747)");
             case "Write":
-                // WAVE2: TextWriter/StreamWriter.Write(string) -- UTF-8 text
-                // WITHOUT the line terminator (net48 Write vs WriteLine). The
-                // MemberRef owner is the TextWriter BASE for both concrete and
-                // base-typed stream-writer receivers; the RawSignature byte
-                // 0x0E separates the string form from the still-LOUD
-                // Write(char)(0x03)/Write(object) overloads. StringWriter
-                // receivers route to StringIO before this arm (receiverType
-                // dispatch in MethodRefResolver).
-                if ((owner is "System.IO.StreamWriter" or "System.IO.TextWriter"
-                        || receiverType is "System.IO.StreamWriter")
-                    && ps.Length == 1 && ps[0] == 0x0E)
-                    return I("il2cpp::runtime::icall_stream_write_text", 1, false, false, true);
-                if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                // WAVE2 + the net48 TextWriter.Write value family: the string
+                // form is UTF-8 text WITHOUT the line terminator (net48 Write
+                // vs WriteLine); the value forms render the value's ToString
+                // text (the icall_stream_write_value_* surface); the composite
+                // forms expand through String.Format. The char[] forms are
+                // told apart from byte[] by the decoded parameter-type text.
+                // StringWriter receivers route to StringIO before this arm
+                // (receiverType dispatch in MethodRefResolver).
+                if (owner is "System.IO.StreamWriter" or "System.IO.TextWriter"
+                    || receiverType is "System.IO.StreamWriter")
+                {
+                    if (count == 1 && ps[0] == 0x0E)
+                        return I("il2cpp::runtime::icall_stream_write_text", 1, false, false, true);
+                    if (count == 1)
+                    {
+                        switch (ps[0])
+                        {
+                            case 0x03: return I("il2cpp::runtime::icall_stream_write_value_c", 1, false, false, true, new[] { "", "i" });
+                            case 0x1D when StreamFirstParamIsCharArray(arg0Type, paramTypes):
+                                return I("il2cpp::runtime::icall_stream_write_value_cs", 1, false, false, true, new[] { "", "a" });
+                            case 0x02: return I("il2cpp::runtime::icall_stream_write_value_b", 1, false, false, true, new[] { "", "i" });
+                            case 0x08: return I("il2cpp::runtime::icall_stream_write_value_i", 1, false, false, true, new[] { "", "i" });
+                            case 0x09: return I("il2cpp::runtime::icall_stream_write_value_u4", 1, false, false, true, new[] { "", "u4" });
+                            case 0x0A: return I("il2cpp::runtime::icall_stream_write_value_l", 1, false, false, true, new[] { "", "l" });
+                            case 0x0B: return I("il2cpp::runtime::icall_stream_write_value_u8", 1, false, false, true, new[] { "", "q" });
+                            case 0x0C: return I("il2cpp::runtime::icall_stream_write_value_f", 1, false, false, true, new[] { "", "d" });
+                            case 0x0D: return I("il2cpp::runtime::icall_stream_write_value_d", 1, false, false, true, new[] { "", "d" });
+                            case 0x11 when StreamFirstParamIsDecimal(paramTypes):
+                                return I("il2cpp::runtime::icall_stream_write_value_dec", 1, false, false, true, new[] { "", "dec" });
+                            case 0x1C: return I("il2cpp::runtime::icall_stream_write_value_o", 1, false, false, true);
+                        }
+                    }
+                    if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
+                        && StreamFirstParamIsCharArray(arg0Type, paramTypes))
+                        return I("il2cpp::runtime::icall_stream_write_value_cs_range", 3, false, false, true,
+                            new[] { "", "a", "i", "i" });
+                    if (count == 2 && ps[0] == 0x0E && ps[1] is 0x1C or 0x12)
+                        return I("il2cpp::runtime::icall_stream_write_value_fmt1", 2, false, false, true);
+                    if (count == 2 && ps[0] == 0x0E && ps[1] == 0x1D)
+                        return I("il2cpp::runtime::icall_stream_write_value_fmt_array", 2, false, false, true,
+                            new[] { "", "", "a" });
+                    if (count == 3 && ps[0] == 0x0E && ps[1] is 0x1C or 0x12 && ps[2] is 0x1C or 0x12)
+                        return I("il2cpp::runtime::icall_stream_write_value_fmt2", 3, false, false, true);
+                    if (count == 4 && ps[0] == 0x0E && ps[1] is 0x1C or 0x12 && ps[2] is 0x1C or 0x12 && ps[3] is 0x1C or 0x12)
+                        return I("il2cpp::runtime::icall_stream_write_value_fmt3", 4, false, false, true);
+                }
+                // Stream.Write(byte[], int, int) -- the managed-array byte
+                // write (the Stream base form; any stream receiver). A char[]
+                // first argument is the TextWriter form handled above.
+                if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
+                    && !StreamFirstParamIsCharArray(arg0Type, paramTypes))
                     return I("il2cpp::runtime::icall_stream_write_bytes", 3, false, false, true,
                         new[] { "", "a", "", "" });
-                throw new NotSupportedException($"Write with {count} arg(s) not wired: the runtime managed-array icall takes (byte[], int32, int32)");
+                throw new NotSupportedException($"Write with {count} arg(s) not wired: the runtime icalls take the net48 TextWriter.Write family or Stream.Write(byte[], int32, int32)");
             case "WriteByte":
                 // D-STP-3 (2026-08-12): WriteByte(byte) -- the runtime gained
                 // the single-byte icall icall_stream_write_byte (streamio.cpp).
@@ -246,9 +350,33 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x05)
                     return I("il2cpp::runtime::icall_stream_write_byte", 1, false, false, true,
                         new[] { "", "i" });
-                throw new NotSupportedException($"WriteByte with {count} arg(s) not wired: the runtime icall takes (byte value)");
+                // net48 has exactly Stream.WriteByte(byte) (Reference Source
+                // mscorlib/system/io/stream.cs:766) -- any other shape is not a
+                // net48 overload (whitelist category 4).
+                throw new NotSupportedException($"WriteByte with {count} arg(s) not wired: net48 has only (byte) (stream.cs:766)");
             default: return null;
         }
+    }
+
+    // The SZARRAY element type is not carried by the raw signature byte (0x1D
+    // for both byte[] and char[]); the decoded parameter-type text is the
+    // authority. char[] encodes as "r:c[]" (element byte 0x03), byte[] as
+    // "r:u1[]". The tracked arg0Type hint is the fallback for a hint-less
+    // signature.
+    private static bool StreamFirstParamIsCharArray(string? arg0Type, string? paramTypes)
+    {
+        if (arg0Type == "System.Char[]") return true;
+        if (paramTypes == null) return false;
+        var first = paramTypes.Split(',')[0].Trim();
+        return first is "r:c[]" or "r:System.Char[]";
+    }
+
+    // VALUETYPE first parameter: only System.Decimal has a Write/WriteLine
+    // overload in the net48 TextWriter family.
+    private static bool StreamFirstParamIsDecimal(string? paramTypes)
+    {
+        if (paramTypes == null) return false;
+        return paramTypes.Split(',')[0].Trim() is "V:System.Decimal" or "r:System.Decimal";
     }
 
     // Object-typed ctor icalls: each stores the factory's handle into the
@@ -284,10 +412,26 @@ public static partial class MethodRefResolver
                     && ps[2] is 0x08 or 0x11 && ps[3] is 0x08 or 0x11)
                     return I("il2cpp::runtime::icall_stream_file_ctor", 4, false, false, true,
                         new[] { "", "", "i", "i", "drop" });
+                // binrw3/StreamIO: FileStream(string, FileMode, FileAccess,
+                // FileShare, int bufferSize) -- the bufferSize only affects the
+                // internal buffer, never the bytes / open mode -> dropped.
+                if (ps.Length == 5 && ps[0] == 0x0E && ps[1] is 0x08 or 0x11
+                    && ps[2] is 0x08 or 0x11 && ps[3] is 0x08 or 0x11 && ps[4] == 0x08)
+                    return I("il2cpp::runtime::icall_stream_file_ctor", 5, false, false, true,
+                        new[] { "", "", "i", "i", "drop", "drop" });
+                // FileStream(string, FileMode, FileAccess, FileShare, int,
+                // FileOptions) and (..., bool useAsync): the 6th arg does not
+                // change the bytes / open mode -> dropped.
+                if (ps.Length == 6 && ps[0] == 0x0E && ps[1] is 0x08 or 0x11
+                    && ps[2] is 0x08 or 0x11 && ps[3] is 0x08 or 0x11 && ps[4] == 0x08
+                    && ps[5] is 0x08 or 0x11 or 0x02)
+                    return I("il2cpp::runtime::icall_stream_file_ctor", 6, false, false, true,
+                        new[] { "", "", "i", "i", "drop", "drop", "drop" });
                 throw new NotSupportedException(
-                    $"FileStream ctor with {count} arg(s) not wired: the object-typed icalls take exactly " +
-                    "(string path, int32 FileMode) or (string path, int32 FileMode, int32 FileAccess) -- " +
-                    "the other overloads (FileShare/bufferSize/FileOptions forms) need extra icall variants");
+                    $"FileStream ctor with {count} arg(s) not wired: the object-typed icalls take the " +
+                    "(string path, FileMode[, FileAccess[, FileShare[, bufferSize[, FileOptions/useAsync]]]]) " +
+                    "family -- the IntPtr/SafeFileHandle/FileSystemRights forms wrap an OS handle (machine state) " +
+                    "and stay LOUD");
               case "System.IO.MemoryStream":
                   if (ps.Length == 0)
                       return I("il2cpp::runtime::icall_stream_memory_ctor", 0, false, false, true);
@@ -316,7 +460,12 @@ public static partial class MethodRefResolver
                   if (ps.Length == 5 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] == 0x02 && ps[4] == 0x02)
                       return I("il2cpp::runtime::icall_stream_memory_ctor_window_writable_public", 5, false, false, true,
                           new[] { "", "a", "i", "i", "i", "i" });
-                  throw new NotSupportedException($"MemoryStream ctor with {count} arg(s) not wired (wired: (), (byte[]), (int), (byte[],bool), (byte[],int,int)[,bool[,bool]])");
+                   // net48 has exactly MemoryStream(), (int), (byte[]),
+                   // (byte[],bool), (byte[],int,int), (byte[],int,int,bool) and
+                   // (byte[],int,int,bool,bool) (Reference Source
+                   // mscorlib/system/io/memorystream.cs:66-108) -- any other
+                   // shape is not a net48 overload (whitelist category 4).
+                   throw new NotSupportedException($"MemoryStream ctor with {count} arg(s) not wired: net48 has only (), (int), (byte[]), (byte[],bool), (byte[],int,int)[,bool[,bool]] (memorystream.cs:66-108)");
               case "System.IO.StreamReader":
                   if (ps.Length == 1 && ps[0] == 0x12)
                       return I("il2cpp::runtime::icall_stream_reader_ctor", 1, false, false, true);
@@ -325,9 +474,23 @@ public static partial class MethodRefResolver
                   if (ps.Length == 1 && ps[0] == 0x0E)
                       return I("il2cpp::runtime::icall_stream_reader_path_ctor", 1, false, false, true,
                           new[] { "", "" });
+                  // binrw3/StreamIO: StreamReader(Stream, bool
+                  // detectEncodingFromByteOrderMarks) / (string, bool) -- the
+                  // flag is dropped (the runtime BOM-detects unconditionally,
+                  // the net48 default).
+                  if (ps.Length == 2 && ps[1] == 0x02)
+                  {
+                      if (ps[0] == 0x12)
+                          return I("il2cpp::runtime::icall_stream_reader_ctor", 2, false, false, true,
+                              new[] { "", "", "drop" });
+                      if (ps[0] == 0x0E)
+                          return I("il2cpp::runtime::icall_stream_reader_path_ctor", 2, false, false, true,
+                              new[] { "", "", "drop" });
+                  }
                   throw new NotSupportedException(
-                      $"StreamReader ctor with {count} arg(s) not wired: the object-typed icalls take exactly (Stream) or (string path) -- " +
-                      "the encoding overloads need extra icall variants");
+                      $"StreamReader ctor with {count} arg(s) not wired: the object-typed icalls take " +
+                      "(Stream[, bool]), (string path[, bool]) -- the Encoding overloads need a runtime " +
+                      "reader ctor that honours an explicit encoding (the BOM-only ctor cannot)");
             case "System.IO.StreamWriter":
                 if (ps.Length == 1 && ps[0] == 0x12)
                     return I("il2cpp::runtime::icall_stream_writer_ctor", 1, false, false, true);

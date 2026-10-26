@@ -54,11 +54,19 @@ public static partial class MethodRefResolver
                             return I("il2cpp::runtime::icall_file_copy", 2, false, false, false);
                         if (ps.Length == 3)
                             return I("il2cpp::runtime::icall_file_copy_overwrite", 3, false, false, false);
-                        throw new NotSupportedException($"File.Copy with {ps.Length} param(s) not wired (expected (string, string) or (string, string, bool))");
+                        // net48 has exactly File.Copy(string,string) and
+                        // File.Copy(string,string,bool) (Reference Source
+                        // mscorlib/system/io/file.cs:85,110) -- any other arity
+                        // is not a net48 overload (whitelist category 4), so this
+                        // guard is unreachable from net48-compiled IL.
+                        throw new NotSupportedException($"File.Copy with {ps.Length} param(s) not wired: net48 has only (string,string) and (string,string,bool) (file.cs:85,110)");
                     case "Move":
                         if (ps.Length == 2)
                             return I("il2cpp::runtime::icall_file_move", 2, false, false, false);
-                        throw new NotSupportedException($"File.Move with {ps.Length} param(s) not wired (expected (string, string))");
+                        // net48 has exactly File.Move(string,string) (Reference
+                        // Source mscorlib/system/io/file.cs:1222) -- any other
+                        // arity is not a net48 overload (whitelist category 4).
+                        throw new NotSupportedException($"File.Move with {ps.Length} param(s) not wired: net48 has only (string,string) (file.cs:1222)");
                     case "GetAttributes":
                         return I("il2cpp::runtime::icall_file_get_attributes", 1, true, false, false);
                     case "SetAttributes":
@@ -95,7 +103,11 @@ public static partial class MethodRefResolver
                         if (count == 2)
                             return I("il2cpp::runtime::icall_directory_delete_recursive", 2, false, false, false,
                                 new[] { "s", "" });
-                        throw new NotSupportedException($"Directory.Delete with {count} param(s) not wired (expected (string) or (string, bool))");
+                        // net48 has exactly Directory.Delete(string) and
+                        // Delete(string,bool) (Reference Source
+                        // mscorlib/system/io/directory.cs:1281,1290) -- any other
+                        // arity is not a net48 overload (whitelist category 4).
+                        throw new NotSupportedException($"Directory.Delete with {count} param(s) not wired: net48 has only (string) and (string,bool) (directory.cs:1281,1290)");
                     // nb2 DIR-FILES: Directory.GetFiles / GetDirectories /
                     // GetCurrentDirectory -- all four arms were missing
                     // (phantom symbols, nb2 red probe). GetFiles/GetDirectories
@@ -116,7 +128,12 @@ public static partial class MethodRefResolver
                         if (count == 3)
                             return I("il2cpp::runtime::icall_directory_get_files", 3, true, true, false,
                                 new[] { "", "", "i" }, returnTypeName: "System.String[]");
-                        throw new NotSupportedException($"Directory.GetFiles with {count} param(s) not wired (expected (string), (string, string) or (string, string, SearchOption))");
+                        // net48 has exactly GetFiles(string), (string,string) and
+                        // (string,string,SearchOption) (Reference Source
+                        // mscorlib/system/io/directory.cs:594,608,624) -- any
+                        // other arity is not a net48 overload (whitelist
+                        // category 4).
+                        throw new NotSupportedException($"Directory.GetFiles with {count} param(s) not wired: net48 has only (string), (string,string) and (string,string,SearchOption) (directory.cs:594,608,624)");
                     case "GetDirectories":
                         if (count == 1)
                             return I("il2cpp::runtime::icall_directory_get_directories", 1, true, true, false,
@@ -127,7 +144,12 @@ public static partial class MethodRefResolver
                         if (count == 3)
                             return I("il2cpp::runtime::icall_directory_get_directories", 3, true, true, false,
                                 new[] { "", "", "i" }, returnTypeName: "System.String[]");
-                        throw new NotSupportedException($"Directory.GetDirectories with {count} param(s) not wired (expected (string), (string, string) or (string, string, SearchOption))");
+                        // net48 has exactly GetDirectories(string),
+                        // (string,string) and (string,string,SearchOption)
+                        // (Reference Source mscorlib/system/io/directory.cs:666,
+                        // 680,696) -- any other arity is not a net48 overload
+                        // (whitelist category 4).
+                        throw new NotSupportedException($"Directory.GetDirectories with {count} param(s) not wired: net48 has only (string), (string,string) and (string,string,SearchOption) (directory.cs:666,680,696)");
                     default: return null;
                 }
             case "System.IO.Path":
@@ -153,7 +175,13 @@ public static partial class MethodRefResolver
                         if (ps.Length >= 3)
                             return new ResolvedMethod(ResolvedMethod.NestedCombineMarker, ps.Length, false, true, true,
                                 new bool[ps.Length], false, ReturnTypeName: "System.String");
-                        throw new NotSupportedException($"Path.Combine with {ps.Length} arg(s) not wired: the runtime icall takes exactly (string, string); the 2-arg form, the 3/4-arg fold and the params-array form are wired");
+                        // net48 has exactly Combine(string,string),
+                        // (string,string,string), (string,string,string,string) and
+                        // the params-array form (Reference Source
+                        // mscorlib/system/io/path.cs:1197,1207,1218,1230) -- any
+                        // other arity is not a net48 overload (whitelist
+                        // category 4).
+                        throw new NotSupportedException($"Path.Combine with {ps.Length} arg(s) not wired: net48 has only the 2/3/4-arg and params-array forms (path.cs:1197,1207,1218,1230)");
                     case "GetFileName": return I("il2cpp::runtime::icall_path_get_file_name", 1, true, true, false);
                     case "GetExtension": return I("il2cpp::runtime::icall_path_get_extension", 1, true, true, false);
                     case "ChangeExtension": return I("il2cpp::runtime::icall_path_change_extension", 2, true, true, false);
@@ -184,7 +212,10 @@ public static partial class MethodRefResolver
                         // GC-ref slot (receiver-first call shape, like StringIO).
                         if (count == 1 && ps[0] == 0x0E)
                             return I("il2cpp::runtime::icall_fileinfo_ctor", 1, false, false, true);
-                        throw new NotSupportedException($"FileInfo ctor with {count} param(s) not wired (expected exactly (string))");
+                        // net48 has exactly FileInfo(string) (Reference Source
+                        // mscorlib/system/io/fileinfo.cs:69) -- any other arity is
+                        // not a net48 overload (whitelist category 4).
+                        throw new NotSupportedException($"FileInfo ctor with {count} param(s) not wired: net48 has only (string) (fileinfo.cs:69)");
                     case "get_Length":
                         // FileInfo.Length (instance long): stat the stored path at
                         // call time; 0 when it cannot be stat'ed (M3 result
