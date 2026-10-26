@@ -592,6 +592,21 @@ public static partial class MethodRefResolver
                 return I($"il2cpp::il2cpp_linq_select{(selIdx ? "_idx" : "")}_dec_{vs}",
                     2, true, true, false, TwoArg, returnTypeName: LinqValueResultArrayName(vs));
             }
+            // p0grp: Where over a DECIMAL source (net48 Where<decimal>(source,
+            // Func<decimal,bool>)). The predicate takes the decimal BY VALUE; the
+            // result is a fresh decimal[].
+            if (name == "Where")
+            {
+                if (genArgs is not { Length: >= 1 })
+                    return null;
+                bool predIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
+                if (predIdx)
+                    throw new NotSupportedException(
+                        "Enumerable.Where over a System.Decimal source with an (element, index) predicate " +
+                        "is not wired (the runtime has no decimal index-predicate entry)");
+                return I("il2cpp::il2cpp_linq_where_dec", 2, true, true, false, TwoArg,
+                    returnTypeName: "System.Decimal[]");
+            }
             // p0grp: GroupBy over a DateTime[] SOURCE (net48
             // GroupBy<TSource,TKey> with TSource = System.DateTime). The
             // DateTime element crosses as the 8-byte runtime value struct BY

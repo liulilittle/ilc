@@ -1402,6 +1402,22 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "5", "0", "0", "3" }, resolved.AppendLiterals);
     }
 
+    // Where over a DECIMAL source (net48 Where<decimal>): the decimal-source
+    // predicate surface (il2cpp_linq_where_dec).
+    [Fact]
+    public void Resolve_Where_DecimalSource_MapsToWhereDec()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericSelector("Where",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x11 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_where_dec", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
     // GroupBy over a DECIMAL source with an ELEMENT selector (net48
     // GroupBy<decimal,int,int>): the decimal-source grouping surface with the
     // projected int32 element family.

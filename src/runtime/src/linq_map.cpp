@@ -517,6 +517,17 @@ Il2CppObject* InvokeSelDecRef(Il2CppDelegate* d, const runtime::Il2CppDecimal& v
         : reinterpret_cast<SelDecRefFn>(d->methodPtr)(v);
 }
 
+// p0grp: the decimal-source predicate ABI (Func<System.Decimal,bool>).
+typedef bool (*SelDecBoolFn)(runtime::Il2CppDecimal);
+typedef bool (*SelDecBoolThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+
+bool InvokeSelDecBool(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecBoolThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecBoolFn>(d->methodPtr)(v);
+}
+
 // BATCH4: the wide-key selector ABIs over a DECIMAL source element (the
 // Func<System.Decimal,TKey> shape, TKey wider than the int32 slot). The key
 // returns BY VALUE in its own family slot (the same by-value convention as the
@@ -2811,9 +2822,57 @@ Il2CppArray* il2cpp_linq_select_dec_f(Il2CppArray* src, Il2CppObject* sel)
     roots.Add(reinterpret_cast<void**>(&src));
     Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindF, src->length);
     roots.Add(reinterpret_cast<void**>(&out));
-    for (int32_t i = 0; i < src->length; ++i)
+            for (int32_t i = 0; i < src->length; ++i)
         *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
             static_cast<double>(InvokeSelDecF(d, *DecAt(src, i)));
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// p0grp: Where over a DECIMAL source (net48 Where<decimal>(source,
+// Func<decimal,bool>)). The predicate takes the decimal BY VALUE; the result is
+// a fresh decimal[] with the matching elements (first-appearance order).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_where_dec(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireDecimalFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    // SINGLE predicate pass: fill a src-length scratch, then materialize the
+    // exact-size result (net48 Where is lazy but the runtime materializes).
+    Il2CppArray* scratch = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, src->length);
+    roots.Add(reinterpret_cast<void**>(&scratch));
+    int32_t w = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        if (InvokeSelDecBool(d, v))
+        {
+            *reinterpret_cast<runtime::Il2CppDecimal*>(
+                il2cpp_array_get_elem_ptr(scratch, w)) = v;
+            ++w;
+        }
+    }
+    if (w == src->length)
+    {
+        return scratch; // already exact
+    }
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+    {
+        *reinterpret_cast<runtime::Il2CppDecimal*>(
+            il2cpp_array_get_elem_ptr(out, i)) =
+            *reinterpret_cast<runtime::Il2CppDecimal*>(
+                il2cpp_array_get_elem_ptr(scratch, i));
+    }
     return out;
 }
 

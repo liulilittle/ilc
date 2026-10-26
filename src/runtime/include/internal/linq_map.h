@@ -337,6 +337,11 @@ Il2CppArray* il2cpp_linq_select_dec_i8(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dec_d(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dec_f(Il2CppArray* src, Il2CppObject* sel);
 
+// p0grp: Where over a DECIMAL source (net48 Where<decimal>(source,
+// Func<decimal,bool>)). The predicate takes the decimal BY VALUE; the result is
+// a fresh decimal[] with the matching elements.
+Il2CppArray* il2cpp_linq_where_dec(Il2CppArray* src, Il2CppObject* pred);
+
 // p0linq4 (D3) follow-up: the INT32-source Select with a DateTime / TimeSpan /
 // Guid result (net48 Select<int,TResult>). The selector returns the struct BY
 // VALUE and the output cell carries the raw struct image.
