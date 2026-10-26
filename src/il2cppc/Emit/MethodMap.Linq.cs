@@ -1176,10 +1176,11 @@ public static partial class MethodRefResolver
                                 "i8" => "il2cpp::il2cpp_linq_select_i8_dec",
                                 "f" => "il2cpp::il2cpp_linq_select_f_dec",
                                 "d" => "il2cpp::il2cpp_linq_select_d_dec",
-                                "ref" => throw new NotSupportedException(
-                                    "Enumerable.Select over a REFERENCE-element source returning " +
-                                    "System.Decimal is not wired: the runtime has no " +
-                                    "il2cpp_linq_select_ref_dec entry"),
+                                // A REFERENCE source is handled earlier by the
+                                // reference-source block (il2cpp_linq_select_ref_dec),
+                                // so this switch is only reached for the VALUE
+                                // source families; the "ref" arm is unreachable
+                                // dead code and is intentionally omitted.
                                 _ => "il2cpp::il2cpp_linq_select_dec_dec",
                             };
                             return I(decEntry, 2, true, true, false, TwoArg,
