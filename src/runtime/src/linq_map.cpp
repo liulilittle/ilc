@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // linq_map.cpp -- System.Linq filtering / mapping icalls (LINQ T2 card).
 //
 // See linq_map.h for the domain contract. Implementation summary:
@@ -5716,6 +5716,94 @@ void il2cpp_linq_grouping_average_dec(runtime::Il2CppDecimal* result, Il2CppObje
 {
     ThrowIfNullReceiver(grouping);
     il2cpp_linq_average_dec(result, RequireDecGroupElements(grouping));
+}
+
+//------------------------------------------------------------------------------
+// P0LINQ1 follow-up: the decimal-bucket SELECTOR aggregates (net48
+// Sum/Min/Max/Average<decimal>(bucket, Func<decimal,decimal>)). The bucket's
+// 16-byte decimal cells feed the selector (the SelectDecDecKey ABI -- the
+// decimal parameter crosses by value, the projection returns by value) and the
+// fold runs over the projected values. GC SAFETY: the delegate and the bucket
+// snapshot are rooted across every callback.
+//------------------------------------------------------------------------------
+void il2cpp_linq_grouping_sum_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping,
+                                      Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = RequireDecGroupElements(grouping);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&elems));
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < elems->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelDecDecKey(d, *DecAt(elems, i));
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+}
+
+void il2cpp_linq_grouping_min_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping,
+                                      Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = RequireDecGroupElements(grouping);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&elems));
+    if (elems->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best = InvokeSelDecDecKey(d, *DecAt(elems, 0));
+    for (int32_t i = 1; i < elems->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelDecDecKey(d, *DecAt(elems, i));
+        if (runtime::icall_decimal_compare(&elem, &best) < 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_grouping_max_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping,
+                                      Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = RequireDecGroupElements(grouping);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&elems));
+    if (elems->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best = InvokeSelDecDecKey(d, *DecAt(elems, 0));
+    for (int32_t i = 1; i < elems->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelDecDecKey(d, *DecAt(elems, i));
+        if (runtime::icall_decimal_compare(&elem, &best) > 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_grouping_average_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping,
+                                          Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = RequireDecGroupElements(grouping);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&elems));
+    if (elems->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < elems->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelDecDecKey(d, *DecAt(elems, i));
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+    runtime::Il2CppDecimal count;
+    std::memset(&count, 0, sizeof(runtime::Il2CppDecimal));
+    runtime::icall_decimal_ctor_int32(&count, elems->length);
+    runtime::icall_decimal_div(result, result, &count);
 }
 
 bool il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDecimal value)

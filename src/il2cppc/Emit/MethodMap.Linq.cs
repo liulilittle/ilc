@@ -144,11 +144,35 @@ public static partial class MethodRefResolver
                         if (decEntry != null)
                             return I(decEntry, 1, true, false, false, new[] { "" }, resultKind: "dec");
                     }
+                    else
+                    {
+                        // The SELECTOR forms (net48 Sum/Min/Max/Average<decimal>
+                        // (bucket, Func<decimal,decimal>)): the bucket's decimal
+                        // cells feed the selector and the fold runs over the
+                        // projected values. The projection MUST be decimal (the
+                        // net48 Sum<decimal> selector returns decimal); anything
+                        // else has no decimal bucket kernel.
+                        var decProj = LinqSelectorProjectionType(md, sigHandle);
+                        if (decProj is "System.Decimal" or "V:System.Decimal")
+                        {
+                            var decSelEntry = name switch
+                            {
+                                "Sum" => "il2cpp::il2cpp_linq_grouping_sum_dec_sel",
+                                "Min" => "il2cpp::il2cpp_linq_grouping_min_dec_sel",
+                                "Max" => "il2cpp::il2cpp_linq_grouping_max_dec_sel",
+                                "Average" => "il2cpp::il2cpp_linq_grouping_average_dec_sel",
+                                _ => null,
+                            };
+                            if (decSelEntry != null)
+                                return I(decSelEntry, 2, true, false, false,
+                                    new[] { "", "" }, resultKind: "dec");
+                        }
+                    }
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a System.Decimal-element GroupBy bucket is not wired: " +
-                        "the decimal bucket surface covers Sum()/Min()/Max()/Average() (the decimal " +
-                        "kernels); the int32 predicate/selector operators have no decimal bucket kernel " +
-                        "(see docs/audit/b5-gaps.md)");
+                        "the decimal bucket surface covers Sum()/Min()/Max()/Average() and their decimal " +
+                        "selector forms (the decimal kernels); the int32 predicate/selector operators have " +
+                        "no decimal bucket kernel (see docs/audit/b5-gaps.md)");
                 }
                 if (name == "Sum")
                 {

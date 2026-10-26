@@ -1215,6 +1215,22 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "a", "dec", "" }, resolved.ParamTypeNames);
     }
 
+    // The decimal-bucket GroupBy SELECTOR aggregate (net48
+    // Sum<decimal>(IGrouping<,decimal>, Func<decimal,decimal>)): the 16-byte
+    // result rides an explicit result slot and the bucket's decimal cells feed
+    // the selector.
+    [Fact]
+    public void Resolve_GroupingDecimalSelectorAggregate_MapsToDecimalBucketKernel()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGenericGroupingDecSel("Sum"),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_sum_dec_sel", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
     //--------------------------------------------------------------------------
     // The INDEX overloads over a List<T> (net48 Func<TSource,int,bool> /
     // Func<TSource,int,TResult>): the callback receives the element AND its
@@ -2364,6 +2380,48 @@ public class MethodMapTestsLinq
         spec.WriteCompressedInteger(2);
         spec.WriteByte(0x08);                                           // TSource = int32
         spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TAccumulate = System.Decimal
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // Decimal-bucket GroupBy selector aggregate (net48
+    // Sum<decimal>(IGrouping<,decimal>, Func<decimal,decimal>)): genCount 1,
+    // paramCount 2, TSource is the named System.Decimal VALUETYPE TypeRef and
+    // the Func`2 carries (decimal, decimal).
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11)
+    private static MemoryStream SynthesizeGenericGroupingDecSel(string methodName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x01);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x08);                                        // return int32
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);  // IEnumerable<decimal>
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);  // Func<decimal, ...> arg1
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);  // arg2 (the value type)
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(1);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);  // TSource = System.Decimal
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

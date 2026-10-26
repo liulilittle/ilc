@@ -751,6 +751,13 @@ void          il2cpp_linq_grouping_sum_dec(runtime::Il2CppDecimal* result, Il2Cp
 void          il2cpp_linq_grouping_min_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
 void          il2cpp_linq_grouping_max_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
 void          il2cpp_linq_grouping_average_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+// P0LINQ1 follow-up: the decimal-bucket SELECTOR aggregates (net48
+// Sum/Min/Max/Average<decimal>(bucket, Func<decimal,decimal>)). The selector
+// returns the decimal BY VALUE; the fold runs over the projected values.
+void          il2cpp_linq_grouping_sum_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* sel);
+void          il2cpp_linq_grouping_min_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* sel);
+void          il2cpp_linq_grouping_max_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* sel);
+void          il2cpp_linq_grouping_average_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* sel);
 bool          il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDecimal value);
 Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result);
 
