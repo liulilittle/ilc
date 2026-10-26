@@ -94,7 +94,7 @@ public class MethodMapTestsDateTimeFileTime
         Assert.Equal("il2cpp::runtime::il2cpp_datetime_subtract_ticks", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.Equal(1, resolved.ParamCount);
-        Assert.Equal(new[] { "deref:dt", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "deref:dt", "ts_ticks" }, resolved.ParamTypeNames);
         Assert.Equal("dt", resolved.ResultKind);
     }
 
@@ -127,7 +127,7 @@ public class MethodMapTestsDateTimeFileTime
             SynthesizeWithDateTimeRef("System", "DateTime", "ToLocalTime",
                 new byte[] { 0x00, 0x00, 0x11, 0x05 }), "ToLocalTime");
 
-        Assert.Equal("il2cpp::runtime::il2cpp_datetime_to_local", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_datetime_to_local_kind", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.Equal(0, resolved.ParamCount);
         Assert.Equal(new[] { "deref:dt" }, resolved.ParamTypeNames);
@@ -141,7 +141,7 @@ public class MethodMapTestsDateTimeFileTime
             SynthesizeWithDateTimeRef("System", "DateTime", "ToUniversalTime",
                 new byte[] { 0x00, 0x00, 0x11, 0x05 }), "ToUniversalTime");
 
-        Assert.Equal("il2cpp::runtime::il2cpp_datetime_from_local", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_datetime_from_local_kind", resolved.CppName);
         Assert.True(resolved.IsInstance);
         Assert.Equal(0, resolved.ParamCount);
         Assert.Equal(new[] { "deref:dt" }, resolved.ParamTypeNames);

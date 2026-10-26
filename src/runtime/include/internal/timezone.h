@@ -111,6 +111,16 @@ Il2CppDateTime il2cpp_datetime_to_local(Il2CppDateTime utc);
 // to [DateTime.MinValue, DateTime.MaxValue] like to_local.
 Il2CppDateTime il2cpp_datetime_from_local(Il2CppDateTime local);
 
+// DateTime.ToLocalTime() -- the KIND-AWARE instance converter (net48
+// semantics): a Kind=Local input is the identity; a Kind=Utc or
+// Kind=Unspecified input is converted from UTC (to_local).
+Il2CppDateTime il2cpp_datetime_to_local_kind(Il2CppDateTime dt);
+
+// DateTime.ToUniversalTime() -- the KIND-AWARE instance converter (net48
+// semantics): a Kind=Utc input is the identity; a Kind=Local or
+// Kind=Unspecified input is converted from local (from_local).
+Il2CppDateTime il2cpp_datetime_from_local_kind(Il2CppDateTime dt);
+
 // 1 if daylight saving time is in effect at the CURRENT instant, else 0.
 // Windows: TIME_ZONE_ID_DAYLIGHT; on registry failure (TIME_ZONE_ID_INVALID)
 // the CRT's tm_isdst answers instead -- symmetric with the offset function's

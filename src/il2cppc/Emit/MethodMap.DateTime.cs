@@ -132,8 +132,11 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1)
                 {
                     if ((paramTypes ?? arg0Type ?? "").Contains("System.TimeSpan", StringComparison.Ordinal))
+                        // The TimeSpan operand crosses as its raw tick count
+                        // ("ts_ticks" cast -- Il2CppTimeSpan.ticks; the runtime
+                        // icall subtracts those ticks from the DateTime).
                         return I("il2cpp::runtime::il2cpp_datetime_subtract_ticks", 1, true, false, true,
-                            new[] { "deref:dt", "" }, "dt");
+                            new[] { "deref:dt", "ts_ticks" }, "dt");
                     return I("il2cpp::runtime::icall_datetime_subtract", 1, true, false, true, new[] { "deref:dt", "" }, "ts");
                 }
                 throw new NotSupportedException("DateTime.Subtract not wired: the runtime has only the (DateTime, DateTime) -> TimeSpan icall and the (DateTime, TimeSpan) -> DateTime tick subtraction");

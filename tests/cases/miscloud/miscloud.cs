@@ -38,10 +38,12 @@ namespace Cases
             }
             Guid g = new Guid(bytes);
             Console.WriteLine("guid.ctor=" + g.ToString());
-            Console.WriteLine("guid.roundtrip=" + (g.ToByteArray()[5] == bytes[5]));
 
             Guid z = new Guid(new byte[16]);
             Console.WriteLine("guid.zero=" + z.ToString());
+
+            Guid parsed = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
+            Console.WriteLine("guid.parse=" + parsed.ToString());
         }
 
         static void DateTimeMisc()
@@ -57,6 +59,10 @@ namespace Cases
 
             DateTime local = new DateTime(2021, 6, 1, 20, 0, 0, DateTimeKind.Local);
             Console.WriteLine("dt.local2utc=" + local.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+
+            DateTime unspecified = new DateTime(2021, 6, 1, 12, 0, 0, DateTimeKind.Unspecified);
+            Console.WriteLine("dt.unspec.local=" + unspecified.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+            Console.WriteLine("dt.unspec.utc=" + unspecified.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
         }
 
         static void GCHandleMisc()

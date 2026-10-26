@@ -153,6 +153,28 @@ Il2CppDateTime il2cpp_datetime_from_local(Il2CppDateTime local)
     return Il2CppDateTime(ticks);
 }
 
+Il2CppDateTime il2cpp_datetime_to_local_kind(Il2CppDateTime dt)
+{
+    // net48 ToLocalTime(): a Kind=Local input is the identity; Utc and
+    // Unspecified are converted from UTC.
+    if (dt.kind == 2)
+    {
+        return dt;
+    }
+    return il2cpp_datetime_to_local(dt);
+}
+
+Il2CppDateTime il2cpp_datetime_from_local_kind(Il2CppDateTime dt)
+{
+    // net48 ToUniversalTime(): a Kind=Utc input is the identity; Local and
+    // Unspecified are converted from local.
+    if (dt.kind == 1)
+    {
+        return dt;
+    }
+    return il2cpp_datetime_from_local(dt);
+}
+
 int32_t il2cpp_timezone_get_is_daylight_saving()
 {
 #if defined(_WIN32)
