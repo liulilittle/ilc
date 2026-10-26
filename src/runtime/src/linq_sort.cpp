@@ -127,6 +127,8 @@ using KeyI8SrcI4Fn = int32_t (*)(int64_t value);
 using KeyI8SrcI4ThisFn = int32_t (*)(Il2CppObject* self, int64_t value);
 using KeyI8SrcI8Fn = int64_t (*)(int64_t value);
 using KeyI8SrcI8ThisFn = int64_t (*)(Il2CppObject* self, int64_t value);
+using KeyI8SrcDFn = double (*)(int64_t value);
+using KeyI8SrcDThisFn = double (*)(Il2CppObject* self, int64_t value);
 
 // Per-binding dispatch for the int64-source key selectors (target in the
 // `this` slot for an instance-bound leaf -- the linqib mode).
@@ -142,6 +144,35 @@ int64_t InvokeKeyI8SrcI8(Il2CppDelegate* d, int64_t value)
     return d->target != nullptr
         ? reinterpret_cast<KeyI8SrcI8ThisFn>(d->methodPtr)(d->target, value)
         : reinterpret_cast<KeyI8SrcI8Fn>(d->methodPtr)(value);
+}
+
+double InvokeKeyI8SrcD(Il2CppDelegate* d, int64_t value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyI8SrcDThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyI8SrcDFn>(d->methodPtr)(value);
+}
+
+// Key-selector callback shapes for an INT32 value SOURCE element with a WIDE
+// key (the Func<int,long> / Func<int,double> ABI): the element crosses in the
+// int32 slot, the key returns in the int64 / F-stack slot.
+using KeyI4I8Fn = int64_t (*)(int32_t value);
+using KeyI4I8ThisFn = int64_t (*)(Il2CppObject* self, int32_t value);
+using KeyI4DFn = double (*)(int32_t value);
+using KeyI4DThisFn = double (*)(Il2CppObject* self, int32_t value);
+
+int64_t InvokeKeyI4I8(Il2CppDelegate* d, int32_t value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyI4I8ThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyI4I8Fn>(d->methodPtr)(value);
+}
+
+double InvokeKeyI4D(Il2CppDelegate* d, int32_t value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyI4DThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyI4DFn>(d->methodPtr)(value);
 }
 
 // Per-binding dispatch. The target is re-read through the ROOTED delegate
@@ -460,7 +491,17 @@ Il2CppArray* SortRefsCopy(Il2CppArray* src, CompareRefFn cmp)
 // allocation separates its creation from the payload writes, so it cannot be
 // moved between creation and fill.
 //------------------------------------------------------------------------------
-Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc = false)
+// Three-way key comparison (net48 Comparer<T>.Default for the numeric key
+// families): negative / zero / positive. Shared by every keyed sort entry.
+template <typename T>
+int32_t CmpKeyValue(T a, T b)
+{
+    return (a > b) ? 1 : ((a < b) ? -1 : 0);
+}
+
+template <typename TKey, typename InvokeKey, typename Cmp>
+Il2CppArray* SortInt32KeyCopyT(Il2CppArray* src, Il2CppDelegate* keySel, bool desc,
+                               InvokeKey invokeKey, Cmp cmp)
 {
     const int32_t n = src->length;
 
@@ -470,6 +511,7 @@ Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool des
     // house pattern).
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
 
     if (n > 0)
     {
@@ -478,7 +520,7 @@ Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool des
         std::vector<int32_t> elems(static_cast<size_t>(n));
         std::memcpy(elems.data(), src->data,
                     static_cast<size_t>(n) * sizeof(int32_t));
-        std::vector<int32_t> keys(static_cast<size_t>(n));
+        std::vector<TKey> keys(static_cast<size_t>(n));
         std::vector<int32_t> order(static_cast<size_t>(n));
         for (int32_t i = 0; i < n; ++i)
         {
@@ -488,7 +530,7 @@ Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool des
         // a side-effecting selector is never re-invoked.
         for (int32_t i = 0; i < n; ++i)
         {
-            keys[i] = InvokeKeyI4(keySel, elems[i]);
+            keys[i] = invokeKey(keySel, elems[i]);
         }
         std::vector<int32_t> scratch(static_cast<size_t>(n));
         // Order INDICES by the cached keys; the merge keeps the LEFT run on
@@ -496,7 +538,7 @@ Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool des
         // keys keep their original index order -- the stable contract.
         MergeSortStable(order.data(), scratch.data(), 0, n,
                         [&](int32_t a, int32_t b) -> int32_t {
-                            const int32_t c = (keys[a] > keys[b]) - (keys[a] < keys[b]);
+                            const int32_t c = cmp(keys[a], keys[b]);
                             return desc ? -c : c;
                         });
         // Materialize from the native snapshot by index. Last selector call
@@ -510,6 +552,12 @@ Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool des
         return result;
     }
     return il2cpp_array_new(nullptr, sizeof(int32_t), false, 0);
+}
+
+Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc = false)
+{
+    return SortInt32KeyCopyT<int32_t>(src, keySel, desc, InvokeKeyI4,
+                                      CmpKeyValue<int32_t>);
 }
 
 //------------------------------------------------------------------------------
@@ -527,8 +575,10 @@ Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool des
 // are GC references re-read on every dispatch). The result array is
 // allocated only after the last selector call.
 //------------------------------------------------------------------------------
-Il2CppArray* SortInt32TwoKeysCopy(Il2CppArray* src, Il2CppDelegate* k1Sel,
-                                  Il2CppDelegate* k2Sel, bool k2Desc)
+template <typename TKey, typename InvokeKey, typename Cmp>
+Il2CppArray* SortInt32TwoKeysCopyT(Il2CppArray* src, Il2CppDelegate* k1Sel,
+                                   Il2CppDelegate* k2Sel, bool k2Desc,
+                                   InvokeKey invokeKey, Cmp cmp)
 {
     const int32_t n = src->length;
 
@@ -544,8 +594,8 @@ Il2CppArray* SortInt32TwoKeysCopy(Il2CppArray* src, Il2CppDelegate* k1Sel,
         std::vector<int32_t> elems(static_cast<size_t>(n));
         std::memcpy(elems.data(), src->data,
                     static_cast<size_t>(n) * sizeof(int32_t));
-        std::vector<int32_t> k1(static_cast<size_t>(n));
-        std::vector<int32_t> k2(static_cast<size_t>(n));
+        std::vector<TKey> k1(static_cast<size_t>(n));
+        std::vector<TKey> k2(static_cast<size_t>(n));
         std::vector<int32_t> order(static_cast<size_t>(n));
         for (int32_t i = 0; i < n; ++i)
         {
@@ -555,11 +605,11 @@ Il2CppArray* SortInt32TwoKeysCopy(Il2CppArray* src, Il2CppDelegate* k1Sel,
         // (net48 EnumerableSorter chain: no selector is ever re-invoked).
         for (int32_t i = 0; i < n; ++i)
         {
-            k1[i] = InvokeKeyI4(k1Sel, elems[i]);
+            k1[i] = invokeKey(k1Sel, elems[i]);
         }
         for (int32_t i = 0; i < n; ++i)
         {
-            k2[i] = InvokeKeyI4(k2Sel, elems[i]);
+            k2[i] = invokeKey(k2Sel, elems[i]);
         }
         std::vector<int32_t> scratch(static_cast<size_t>(n));
         // Order INDICES by the (k1, k2) tuple; the merge keeps the LEFT run
@@ -568,12 +618,12 @@ Il2CppArray* SortInt32TwoKeysCopy(Il2CppArray* src, Il2CppDelegate* k1Sel,
         // contract. ThenByDescending flips ONLY the secondary comparison.
         MergeSortStable(order.data(), scratch.data(), 0, n,
                         [&](int32_t a, int32_t b) -> int32_t {
-                            const int32_t c1 = (k1[a] > k1[b]) - (k1[a] < k1[b]);
+                            const int32_t c1 = cmp(k1[a], k1[b]);
                             if (c1 != 0)
                             {
                                 return c1;
                             }
-                            const int32_t c2 = (k2[a] > k2[b]) - (k2[a] < k2[b]);
+                            const int32_t c2 = cmp(k2[a], k2[b]);
                             return k2Desc ? -c2 : c2;
                         });
         // Materialize from the native snapshot by index. Last selector call
@@ -587,6 +637,13 @@ Il2CppArray* SortInt32TwoKeysCopy(Il2CppArray* src, Il2CppDelegate* k1Sel,
         return result;
     }
     return il2cpp_array_new(nullptr, sizeof(int32_t), false, 0);
+}
+
+Il2CppArray* SortInt32TwoKeysCopy(Il2CppArray* src, Il2CppDelegate* k1Sel,
+                                  Il2CppDelegate* k2Sel, bool k2Desc)
+{
+    return SortInt32TwoKeysCopyT<int32_t>(src, k1Sel, k2Sel, k2Desc, InvokeKeyI4,
+                                          CmpKeyValue<int32_t>);
 }
 
 //------------------------------------------------------------------------------
@@ -821,6 +878,94 @@ Il2CppArray* il2cpp_linq_then_by_key_desc_i4(Il2CppArray* src, Il2CppObject* k1S
 }
 
 //------------------------------------------------------------------------------
+// Enumerable.OrderBy / OrderByDescending over an INT32 source with a WIDE key
+// family (int64 / double). The int32-source int32-key entries read the key from
+// the int32 slot; a long/double key crosses in the int64 / F-stack slot, so it
+// needs its own entry. The contract is otherwise identical (cached-once keys,
+// stable merge sort, source never written, fresh int32[] result).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_order_by_key_i4_i8(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt32KeyCopyT<int64_t>(s, d, false, InvokeKeyI4I8, CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4_i8(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt32KeyCopyT<int64_t>(s, d, true, InvokeKeyI4I8, CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_i4_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt32KeyCopyT<double>(s, d, false, InvokeKeyI4D, CmpKeyValue<double>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt32KeyCopyT<double>(s, d, true, InvokeKeyI4D, CmpKeyValue<double>);
+}
+
+//------------------------------------------------------------------------------
+// Enumerable.ThenBy / ThenByDescending over an INT32 source with a WIDE
+// secondary key (int64 / double) -- the fused (k1, k2) composite sort with the
+// same single-cache contract as il2cpp_linq_then_by_key_i4.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_then_by_key_i4_i8(Il2CppArray* src, Il2CppObject* k1Sel,
+                                           Il2CppObject* k2Sel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    return SortInt32TwoKeysCopyT<int64_t>(s, d1, d2, false, InvokeKeyI4I8,
+                                          CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* il2cpp_linq_then_by_key_desc_i4_i8(Il2CppArray* src, Il2CppObject* k1Sel,
+                                                Il2CppObject* k2Sel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    return SortInt32TwoKeysCopyT<int64_t>(s, d1, d2, true, InvokeKeyI4I8,
+                                          CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* il2cpp_linq_then_by_key_i4_d(Il2CppArray* src, Il2CppObject* k1Sel,
+                                          Il2CppObject* k2Sel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    return SortInt32TwoKeysCopyT<double>(s, d1, d2, false, InvokeKeyI4D,
+                                         CmpKeyValue<double>);
+}
+
+Il2CppArray* il2cpp_linq_then_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* k1Sel,
+                                               Il2CppObject* k2Sel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    return SortInt32TwoKeysCopyT<double>(s, d1, d2, true, InvokeKeyI4D,
+                                         CmpKeyValue<double>);
+}
+
+//------------------------------------------------------------------------------
 // OrderBy over a REFERENCE source with a KEY SELECTOR (see linq_sort.h).
 //
 // SortRefsKeyCopy<TKey> caches each element's key EXACTLY ONCE (net48
@@ -914,15 +1059,8 @@ int32_t CompareRefKeys(Il2CppObject* a, Il2CppObject* b)
     return il2cpp_icomparable_compare_to(a, b);
 }
 
-template <typename T>
-int32_t CmpKeyValue(T a, T b)
-{
-    return (a > b) ? 1 : ((a < b) ? -1 : 0);
-}
-
 Il2CppArray* il2cpp_linq_order_by_key_ref_i4(Il2CppArray* src, Il2CppObject* keySel,
-                                             int32_t desc)
-{
+                                             int32_t desc){
     Il2CppArray* s = RequireLinqArray(src);
     RequireRefLinqArray(s);
     Il2CppDelegate* d = RequireKeySelector(keySel);
@@ -1003,6 +1141,28 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject*
 }
 
 //------------------------------------------------------------------------------
+// The int64-source float/double-key counterparts: the key crosses in the
+// F-stack slot. Same cached-once / stable / fresh int64[] result contract.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_order_by_key_i8_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt64KeyCopy<double>(s, d, false, InvokeKeyI8SrcD,
+        CmpKeyValue<double>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt64KeyCopy<double>(s, d, true, InvokeKeyI8SrcD,
+        CmpKeyValue<double>);
+}
+
+//------------------------------------------------------------------------------
 // p0linq4 (D4): ThenBy / ThenByDescending over an INT64 value SOURCE (see
 // linq_sort.h). The fused (k1, k2) composite sort; the key family is fixed by
 // the entry (int32 or int64 keys, each cached once per element).
@@ -1049,6 +1209,32 @@ Il2CppArray* il2cpp_linq_then_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject* 
     Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
     return SortInt64TwoKeysCopy<int64_t>(s, d1, d2, true, InvokeKeyI8SrcI8,
         CmpKeyValue<int64_t>);
+}
+
+//------------------------------------------------------------------------------
+// The int64-source float/double-key ThenBy counterparts: the secondary key
+// crosses in the F-stack slot. Same fused composite contract.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_then_by_key_i8_d(Il2CppArray* src, Il2CppObject* k1Sel,
+                                          Il2CppObject* k2Sel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    return SortInt64TwoKeysCopy<double>(s, d1, d2, false, InvokeKeyI8SrcD,
+        CmpKeyValue<double>);
+}
+
+Il2CppArray* il2cpp_linq_then_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* k1Sel,
+                                               Il2CppObject* k2Sel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    return SortInt64TwoKeysCopy<double>(s, d1, d2, true, InvokeKeyI8SrcD,
+        CmpKeyValue<double>);
 }
 
 } // namespace il2cpp

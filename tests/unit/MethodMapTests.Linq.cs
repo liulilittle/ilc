@@ -575,7 +575,7 @@ public class MethodMapTestsLinq
             genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x0E })));
 
         Assert.Contains("System.Linq.Enumerable::OrderBy", ex.Message);
-        Assert.Contains("int32 (0x08)", ex.Message);
+        Assert.Contains("int32/int64/double/float keys", ex.Message);
     }
 
     //--------------------------------------------------------------------------
@@ -743,7 +743,7 @@ public class MethodMapTestsLinq
             genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x0E })));
 
         Assert.Contains("System.Linq.Enumerable::OrderByDescending", ex.Message);
-        Assert.Contains("int32 (0x08)", ex.Message);
+        Assert.Contains("int32/int64/double/float keys", ex.Message);
     }
 
     //--------------------------------------------------------------------------
@@ -1244,8 +1244,10 @@ public class MethodMapTestsLinq
     [Theory]
     [InlineData("OrderBy", 0x08, "il2cpp::il2cpp_linq_order_by_key_i8_i4")]
     [InlineData("OrderBy", 0x0A, "il2cpp::il2cpp_linq_order_by_key_i8_i8")]
+    [InlineData("OrderBy", 0x0D, "il2cpp::il2cpp_linq_order_by_key_i8_d")]
     [InlineData("OrderByDescending", 0x08, "il2cpp::il2cpp_linq_order_by_key_desc_i8_i4")]
     [InlineData("OrderByDescending", 0x0A, "il2cpp::il2cpp_linq_order_by_key_desc_i8_i8")]
+    [InlineData("OrderByDescending", 0x0D, "il2cpp::il2cpp_linq_order_by_key_desc_i8_d")]
     public void Resolve_OrderBy_LongSource_MapsToI8KeyIcall(
         string name, byte keyByte, string icall)
     {
@@ -1266,10 +1268,10 @@ public class MethodMapTestsLinq
 
     //--------------------------------------------------------------------------
     // p0conv2 (D3): an int64-source OrderBy with an unsupported KEY family
-    // (float/double/reference) stays LOUD -- no i8-source kernel exists.
+    // (reference) stays LOUD -- no i8-source kernel exists. The float/double key
+    // family is wired now (il2cpp_linq_order_by_key[_desc]_i8_d).
     //--------------------------------------------------------------------------
     [Theory]
-    [InlineData(0x0D)]
     [InlineData(0x0E)]
     [InlineData(0x12)]
     public void Resolve_OrderBy_LongSource_UnsupportedKeyFamily_ThrowsLoud(byte keyByte)
@@ -1320,19 +1322,46 @@ public class MethodMapTestsLinq
         Assert.Equal("System.Int64[]", resolved.ReturnTypeName);
     }
 
-    // p0linq4 (D4): an int32 source with an INT64 key has no fused kernel
-    // (there is no then_by_key_i4_i8 entry) -- LOUD, never a silent i4 sort.
-    [Fact]
-    public void Resolve_ThenBy_Int32SourceInt64Key_ThrowsLoud()
+    // p0linq4 (D4) extension: an int32 source with an INT64 / DOUBLE key now has
+    // a fused kernel (il2cpp_linq_then_by_key[_desc]_i4_i8 / _i4_d) -- the marker
+    // is returned, never a silent int32 sort.
+    [Theory]
+    [InlineData(0x0A, ResolvedMethod.ThenByCombineMarker)]
+    [InlineData(0x0D, ResolvedMethod.ThenByCombineMarker)]
+    public void Resolve_ThenBy_Int32SourceWideKey_MapsToCompositeMarker(byte keyByte, string marker)
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric("ThenBy",
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("ThenBy",
             memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
-            genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x0A })));
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, keyByte }));
 
-        Assert.Contains("then-by surface", ex.Message);
+        Assert.Equal(marker, resolved.CppName);
+        Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
+    }
+
+    // The int32-source OrderBy with an int64 / double key maps to the wide-key
+    // entry (il2cpp_linq_order_by_key[_desc]_i4_i8 / _i4_d).
+    [Theory]
+    [InlineData("OrderBy", 0x0A, "il2cpp::il2cpp_linq_order_by_key_i4_i8")]
+    [InlineData("OrderBy", 0x0D, "il2cpp::il2cpp_linq_order_by_key_i4_d")]
+    [InlineData("OrderByDescending", 0x0A, "il2cpp::il2cpp_linq_order_by_key_desc_i4_i8")]
+    [InlineData("OrderByDescending", 0x0D, "il2cpp::il2cpp_linq_order_by_key_desc_i4_d")]
+    public void Resolve_OrderBy_Int32SourceWideKey_MapsToWideKeyIcall(
+        string name, byte keyByte, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, keyByte }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
     }
 
     //==========================================================================

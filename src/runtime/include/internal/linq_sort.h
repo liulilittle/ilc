@@ -118,6 +118,40 @@ Il2CppArray* il2cpp_linq_then_by_key_i4(Il2CppArray* src, Il2CppObject* k1Sel,
 Il2CppArray* il2cpp_linq_then_by_key_desc_i4(Il2CppArray* src, Il2CppObject* k1Sel,
                                              Il2CppObject* k2Sel);
 
+//------------------------------------------------------------------------------
+// Enumerable.OrderBy / OrderByDescending over an INT32 source with a WIDE key
+// family (int64 / double). The int32-source entries above read the key from the
+// int32 slot; a long/double key needs its own entry because the selector's
+// return crosses in the int64 / F-stack slot respectively. The contract is
+// otherwise identical to il2cpp_linq_order_by_key_i4: each element's key is
+// cached EXACTLY ONCE (net48 EnumerableSorter), the merge sort is STABLE, the
+// source is never written and the result is a NEW int32 array.
+//   _i4_i8  TKey is int64/uint64;
+//   _i4_d   TKey is float/double (the F-stack carrier).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_order_by_key_i4_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_i4_d(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* keySel);
+
+//------------------------------------------------------------------------------
+// Enumerable.ThenBy / ThenByDescending over an INT32 source with a WIDE
+// secondary key family (int64 / double) -- the fused (k1, k2) composite sort
+// with the same single-cache contract as il2cpp_linq_then_by_key_i4. The
+// primary key is the int32 key of the preceding OrderBy entry; the secondary
+// key crosses in the int64 / F-stack slot.
+//   _i4_i8  TKey is int64/uint64;
+//   _i4_d   TKey is float/double.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_then_by_key_i4_i8(Il2CppArray* src, Il2CppObject* k1Sel,
+                                           Il2CppObject* k2Sel);
+Il2CppArray* il2cpp_linq_then_by_key_desc_i4_i8(Il2CppArray* src, Il2CppObject* k1Sel,
+                                                Il2CppObject* k2Sel);
+Il2CppArray* il2cpp_linq_then_by_key_i4_d(Il2CppArray* src, Il2CppObject* k1Sel,
+                                          Il2CppObject* k2Sel);
+Il2CppArray* il2cpp_linq_then_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* k1Sel,
+                                               Il2CppObject* k2Sel);
+
 // Enumerable.OrderBy / OrderByDescending over a REFERENCE-element array with a
 // KEY SELECTOR (Func<TSource,TKey>) -- the reference-source counterpart of
 // il2cpp_linq_order_by_key_i4. Enumerable.OrderBy passes a 1-arg selector, so
@@ -166,6 +200,12 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i4(Il2CppArray* src, Il2CppObject*
 Il2CppArray* il2cpp_linq_order_by_key_i8_i8(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject* keySel);
 
+// The int64-source float/double-key counterparts (p0conv2 D3 extension): the
+// key crosses in the F-stack slot. Same cached-once / stable / fresh int64[]
+// result contract as the int32-key entries above.
+Il2CppArray* il2cpp_linq_order_by_key_i8_d(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* keySel);
+
 //------------------------------------------------------------------------------
 // p0linq4 (D4): Enumerable.ThenBy / ThenByDescending over an INT64 (long[] /
 // ulong[]) SOURCE -- the int64-source counterparts of il2cpp_linq_then_by_key_
@@ -182,5 +222,13 @@ Il2CppArray* il2cpp_linq_then_by_key_i8_i8(Il2CppArray* src, Il2CppObject* k1Sel
                                            Il2CppObject* k2Sel);
 Il2CppArray* il2cpp_linq_then_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject* k1Sel,
                                                 Il2CppObject* k2Sel);
+
+// The int64-source float/double-key counterparts (p0conv2 D3 extension): the
+// secondary key crosses in the F-stack slot. Same fused composite contract as
+// the int32-key entries above.
+Il2CppArray* il2cpp_linq_then_by_key_i8_d(Il2CppArray* src, Il2CppObject* k1Sel,
+                                          Il2CppObject* k2Sel);
+Il2CppArray* il2cpp_linq_then_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* k1Sel,
+                                               Il2CppObject* k2Sel);
 
 } // namespace il2cpp

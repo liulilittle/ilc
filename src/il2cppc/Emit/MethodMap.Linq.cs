@@ -1208,44 +1208,20 @@ public static partial class MethodRefResolver
                         returnTypeName: "System.Int32[]");
                 }
             case "OrderBy":
-                // OrderBy(source, keySelector) -> il2cpp_linq_order_by_key_i4
-                // (the D-LINQ-1 ABI bridge, linq_sort.h): the runtime caches
-                // each element's key EXACTLY ONCE (net48 EnumerableSorter
-                // semantics) and runs a stable sort on the cached keys. The
-                // result is a fresh int32[] tracked for downstream operators.
-                // Requires int32 keys (TKey == 0x08); a non-int32 key family
-                // has no stage-1 key icall.
-                if (genArgs is not { Length: >= 2 } || genArgs[1] != 0x08)
-                {
-                    string elemArgType = genArgs is { Length: >= 1 }
-                        ? GenericArgTypeName(genArgs[0]) : "?";
-                    string keyArgType = genArgs is { Length: >= 2 }
-                        ? GenericArgTypeName(genArgs[1]) : "?";
-                    throw new NotSupportedException(
-                        $"Enumerable.OrderBy<{elemArgType},{keyArgType}> not wired: " +
-                        "the stage-1 runtime key-selector surface (il2cpp_linq_order_by_key_i4) is int32 (0x08) " +
-                        "elements AND int32 (0x08) keys only -- the runtime caches int32 keys for the stable sort");
-                }
-                return I("il2cpp::il2cpp_linq_order_by_key_i4", 2, true, true, false, TwoArg,
-                    returnTypeName: "System.Int32[]");
+                // OrderBy(source, keySelector) -> the D-LINQ-1 ABI bridge
+                // (linq_sort.h): the runtime caches each element's key EXACTLY
+                // ONCE (net48 EnumerableSorter semantics) and runs a stable sort
+                // on the cached keys. The result is a fresh int32[] tracked for
+                // downstream operators. The KEY family is int32 (the 0x08-slot
+                // primitives), int64 (long/ulong) or double/float (the F-stack
+                // carrier); anything else has no int32-source key icall.
+                return LinqOrderByKeyEntry(genArgs, desc: false);
             case "OrderByDescending":
                 // OrderByDescending(source, keySelector) ->
-                // il2cpp_linq_order_by_key_desc_i4 (the D-LINQ-1 DESCENDING
-                // bridge): identical to OrderBy but with DESCENDING key order.
-                // Requires int32 keys (TKey == 0x08).
-                if (genArgs is not { Length: >= 2 } || genArgs[1] != 0x08)
-                {
-                    string elemArgType = genArgs is { Length: >= 1 }
-                        ? GenericArgTypeName(genArgs[0]) : "?";
-                    string keyArgType = genArgs is { Length: >= 2 }
-                        ? GenericArgTypeName(genArgs[1]) : "?";
-                    throw new NotSupportedException(
-                        $"Enumerable.OrderByDescending<{elemArgType},{keyArgType}> not wired: " +
-                        "the stage-1 runtime key-selector surface (il2cpp_linq_order_by_key_desc_i4) is int32 (0x08) " +
-                        "elements AND int32 (0x08) keys only -- the runtime caches int32 keys for the stable sort");
-                }
-                return I("il2cpp::il2cpp_linq_order_by_key_desc_i4", 2, true, true, false, TwoArg,
-                    returnTypeName: "System.Int32[]");
+                // il2cpp_linq_order_by_key[_desc]_* (the DESCENDING bridge):
+                // identical to OrderBy but with DESCENDING key order. The same
+                // key families as OrderBy.
+                return LinqOrderByKeyEntry(genArgs, desc: true);
             case "ThenBy":
             case "ThenByDescending":
                 // D-LO2-1 (linqorder2): Enumerable.ThenBy / ThenByDescending
@@ -2101,15 +2077,61 @@ public static partial class MethodRefResolver
     // p0linq4 (D4): the runtime entry suffix of the fused composite sort for a
     // (TSource, TKey) byte pair, or null when no kernel exists:
     //   int32  source + int32  key -> "i4"
+    //   int32  source + int64  key -> "i4_i8"
+    //   int32  source + double key -> "i4_d"
     //   int64  source + int32  key -> "i8_i4"
     //   int64  source + int64  key -> "i8_i8"
+    //   int64  source + double key -> "i8_d"
     private static string? ThenByKernelSuffix(byte elemByte, byte keyByte)
     {
         bool keyI4 = keyByte is 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09;
         bool keyI8 = keyByte is 0x0A or 0x0B;
-        if (elemByte == 0x08) return keyI4 ? "i4" : null;
-        if (elemByte is 0x0A or 0x0B) return keyI4 ? "i8_i4" : keyI8 ? "i8_i8" : null;
+        bool keyD = keyByte is 0x0C or 0x0D;
+        if (elemByte == 0x08) return keyI4 ? "i4" : keyI8 ? "i4_i8" : keyD ? "i4_d" : null;
+        if (elemByte is 0x0A or 0x0B) return keyI4 ? "i8_i4" : keyI8 ? "i8_i8" : keyD ? "i8_d" : null;
         return null;
+    }
+
+    //--------------------------------------------------------------------------
+    // LinqOrderByKeyEntry -- the int32-source OrderBy / OrderByDescending entry
+    // for a WIDE key family (int64 / double). The int32-key entries read the
+    // key from the int32 slot; a long/double key crosses in the int64 / F-stack
+    // slot, so it needs its own runtime entry (linq_sort.h). The key families
+    // are exactly the ones the runtime ships; anything else (a reference key --
+    // string is culture-aware -- or a value-type key) stays LOUD.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod LinqOrderByKeyEntry(byte[]? genArgs, bool desc)
+    {
+        string member = desc ? "OrderByDescending" : "OrderBy";
+        if (genArgs is not { Length: >= 2 })
+        {
+            string elemArgType = genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?";
+            throw new NotSupportedException(
+                $"Enumerable.{member}<{elemArgType},?> not wired: the runtime int32-source " +
+                "key-selector surface covers int32/int64/double/float keys only " +
+                "(il2cpp_linq_order_by_key[_desc]_i4 / _i4_i8 / _i4_d)");
+        }
+        string entry = genArgs[1] switch
+        {
+            0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09
+                => desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4"
+                         : "il2cpp::il2cpp_linq_order_by_key_i4",
+            0x0A or 0x0B
+                => desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4_i8"
+                         : "il2cpp::il2cpp_linq_order_by_key_i4_i8",
+            0x0C or 0x0D
+                => desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4_d"
+                         : "il2cpp::il2cpp_linq_order_by_key_i4_d",
+            _ => "",
+        };
+        if (entry.Length == 0)
+        {
+            throw new NotSupportedException(
+                $"Enumerable.{member}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
+                "not wired: the runtime int32-source key-selector surface covers int32/int64/" +
+                "double/float keys only (il2cpp_linq_order_by_key[_desc]_i4 / _i4_i8 / _i4_d)");
+        }
+        return I(entry, 2, true, true, false, new[] { "a", "" }, returnTypeName: "System.Int32[]");
     }
 
     private static string? LinqNarrowCode(byte b) => b switch
@@ -2775,6 +2797,7 @@ public static partial class MethodRefResolver
                 {
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
                     0x0A or 0x0B => "i8",
+                    0x0C or 0x0D => "d",
                     _ => null,
                 };
                 if (keyFam == null)
@@ -2782,8 +2805,8 @@ public static partial class MethodRefResolver
                     string elemName = genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?";
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{elemName},{GenericArgTypeName(keyByte)}> " +
-                        "not wired: the int64-source key-selector surface covers int32 and int64 keys only " +
-                        "(a float/double/reference key has no int64-source kernel)");
+                        "not wired: the int64-source key-selector surface covers int32, int64 and " +
+                        "double/float keys only (a reference key has no int64-source kernel)");
                 }
                 return I($"il2cpp::il2cpp_linq_order_by_key{(name == "OrderBy" ? "" : "_desc")}_i8_{keyFam}",
                     2, true, true, false, TwoArg, returnTypeName: "System.Int64[]");

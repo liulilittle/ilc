@@ -4571,10 +4571,16 @@ public static class StackFold
             {
                 "il2cpp::il2cpp_linq_order_by_key_i4"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i4" => "_i4",
+                "il2cpp::il2cpp_linq_order_by_key_i4_i8"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_i4_i8" => "_i4_i8",
+                "il2cpp::il2cpp_linq_order_by_key_i4_d"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_i4_d" => "_i4_d",
                 "il2cpp::il2cpp_linq_order_by_key_i8_i4"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i8_i4" => "_i8_i4",
                 "il2cpp::il2cpp_linq_order_by_key_i8_i8"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i8_i8" => "_i8_i8",
+                "il2cpp::il2cpp_linq_order_by_key_i8_d"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_i8_d" => "_i8_d",
                 _ => null,
             };
             // D-LO2-1 (linqorder2): Enumerable.ThenBy / ThenByDescending --
