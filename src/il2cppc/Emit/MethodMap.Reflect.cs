@@ -378,6 +378,17 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x02)
                     return I("il2cpp::il2cpp_activator_create_instance", 2, true, true, false,
                         new[] { "", "drop" });
+                // REFL-ARITY: Activator.CreateInstance(Type, BindingFlags,
+                // Binder, object[], CultureInfo[, object[] activationAttributes])
+                // -- net48's 5/6-param forms. The BindingFlags/Binder/
+                // CultureInfo (and the activation attributes) are dropped (no
+                // binder model); the ctor args keep their slot.
+                if (ps.Length == 5 && ps[0] == 0x12 && ps[1] == 0x11 && ps[2] == 0x12 && ps[3] == 0x1D && ps[4] == 0x12)
+                    return I("il2cpp::il2cpp_activator_create_instance_args", 5, true, true, false,
+                        new[] { "", "a" }, argOrder: new[] { 0, 3 });
+                if (ps.Length == 6 && ps[0] == 0x12 && ps[1] == 0x11 && ps[2] == 0x12 && ps[3] == 0x1D && ps[4] == 0x12 && ps[5] == 0x1D)
+                    return I("il2cpp::il2cpp_activator_create_instance_args_attrs", 6, true, true, false,
+                        new[] { "", "a", "a" }, argOrder: new[] { 0, 3, 5 });
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     throw new NotSupportedException(
                         "CreateInstance(string) does not exist in .NET Framework 4.8 (mscorlib v4.0.30319 reflection dump) -- the net48 string overloads are CreateInstance(string assemblyName, string typeName), CreateInstance(string, string, params object[]) and CreateInstance(string, string, bool, BindingFlags, Binder, object[], CultureInfo, object[]); the single-arg string form is .NET Core-only (removed in Core 2.0) and cannot be expressed by any net48 assembly -- only CreateInstance(Type) maps to il2cpp_activator_create_instance");

@@ -238,6 +238,41 @@ public class MethodMapTestsReflect
     }
 
     //--------------------------------------------------------------------------
+    // REFL-ARITY -- Activator.CreateInstance(Type, BindingFlags, Binder,
+    // object[], CultureInfo[, object[] activationAttributes]): net48's 5/6-param
+    // forms. The BindingFlags/Binder/CultureInfo (and the activation attributes)
+    // are dropped (this AOT build models no binder -- the same doctrine the
+    // Type.GetMethod binder-arity arms use); the ctor args keep their slot.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Activator_CreateInstanceBinderArity_MapsToArgsIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Activator", "CreateInstance",
+            new byte[] { 0x00, 0x05, 0x12, 0x05, 0x12, 0x05, 0x11, 0x05, 0x12, 0x05, 0x1D, 0x1C, 0x12, 0x05 }),
+            "CreateInstance"); // (Type, BindingFlags, Binder, object[], CultureInfo)
+
+        Assert.Equal("il2cpp::il2cpp_activator_create_instance_args", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.False(resolved.IsInstance);
+        Assert.Equal(5, resolved.ParamCount);
+        Assert.Equal(new[] { 0, 3 }, resolved.ArgOrder);
+    }
+
+    [Fact]
+    public void Resolve_Activator_CreateInstanceBinderArityAttrs_MapsToArgsAttrsIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Activator", "CreateInstance",
+            new byte[] { 0x00, 0x06, 0x12, 0x05, 0x12, 0x05, 0x11, 0x05, 0x12, 0x05, 0x1D, 0x1C, 0x12, 0x05, 0x1D, 0x1C }),
+            "CreateInstance"); // (Type, BindingFlags, Binder, object[], CultureInfo, object[])
+
+        Assert.Equal("il2cpp::il2cpp_activator_create_instance_args_attrs", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.False(resolved.IsInstance);
+        Assert.Equal(6, resolved.ParamCount);
+        Assert.Equal(new[] { 0, 3, 5 }, resolved.ArgOrder);
+    }
+
+    //--------------------------------------------------------------------------
     // Harness -- same synthetic-PE pipeline as MethodMapTests.Type.cs.
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)

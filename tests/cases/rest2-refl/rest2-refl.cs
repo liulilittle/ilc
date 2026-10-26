@@ -98,6 +98,12 @@ namespace Cases
             target.MDirect();
             mi.Invoke(target, BindingFlags.InvokeMethod, null, null, null);
             Console.WriteLine("[minv.ok]=done");
+
+            // ---- Activator.CreateInstance binder arity (5/6-param) ----
+            var c1 = Activator.CreateInstance(typeof(R2), BindingFlags.CreateInstance, null, null, null);
+            Console.WriteLine("[aci.args]=" + (c1 != null));
+            var c2 = Activator.CreateInstance(typeof(R2), BindingFlags.CreateInstance, null, null, null, null);
+            Console.WriteLine("[aci.attrs]=" + (c2 != null));
         }
     }
 }
