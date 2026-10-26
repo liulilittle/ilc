@@ -322,6 +322,37 @@ int32_t InvokeSelRefI4(Il2CppDelegate* d, Il2CppObject* o)
         : reinterpret_cast<SelRefI4Fn>(d->methodPtr)(o);
 }
 
+// The reference-source WIDE-RESULT selector ABIs (Func<string,long> /
+// Func<string,double> / Func<string,float>): the selector returns in the
+// int64 / F-stack slot. Same per-binding dispatch contract as InvokeSelRefI4.
+typedef int64_t       (*SelRefI8Fn)(Il2CppObject*);
+typedef int64_t       (*SelRefI8ThisFn)(Il2CppObject*, Il2CppObject*);
+typedef double        (*SelRefDFn)(Il2CppObject*);
+typedef double        (*SelRefDThisFn)(Il2CppObject*, Il2CppObject*);
+typedef float         (*SelRefFFn)(Il2CppObject*);
+typedef float         (*SelRefFThisFn)(Il2CppObject*, Il2CppObject*);
+
+int64_t InvokeSelRefI8(Il2CppDelegate* d, Il2CppObject* o)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefI8ThisFn>(d->methodPtr)(d->target, o)
+        : reinterpret_cast<SelRefI8Fn>(d->methodPtr)(o);
+}
+
+double InvokeSelRefD(Il2CppDelegate* d, Il2CppObject* o)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefDThisFn>(d->methodPtr)(d->target, o)
+        : reinterpret_cast<SelRefDFn>(d->methodPtr)(o);
+}
+
+float InvokeSelRefF(Il2CppDelegate* d, Il2CppObject* o)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefFThisFn>(d->methodPtr)(d->target, o)
+        : reinterpret_cast<SelRefFFn>(d->methodPtr)(o);
+}
+
 // p0grp: the DECIMAL-source KEY-SELECTOR ABI (Func<System.Decimal,int32>).
 // The generated leaf takes the decimal struct BY VALUE and returns int32:
 //   int32_t (*)(il2cpp::runtime::Il2CppDecimal)                    (static)
@@ -3850,6 +3881,284 @@ int32_t il2cpp_linq_min_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel)
         if (v < best) best = v;
     }
     return best;
+}
+
+//------------------------------------------------------------------------------
+// The reference-source selector-aggregate family (net48
+// Sum/Min/Max/Average<TSource>(Func<TSource,TResult>)). The source is a
+// REFERENCE array; the selector's result crosses in the int32 / int64 /
+// F-stack slot. Min/Max on an EMPTY sequence throw InvalidOperationException
+// (net48); Sum returns the identity and Average throws on empty (net48).
+// The delegate is rooted across the projection loop (it may allocate).
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_sum_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += InvokeSelRefI4(d, RefAt(src, i));
+    }
+    return sum;
+}
+
+double il2cpp_linq_average_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += InvokeSelRefI4(d, RefAt(src, i));
+    }
+    return static_cast<double>(sum) / static_cast<double>(src->length);
+}
+
+int64_t il2cpp_linq_sum_sel_ref_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int64_t sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += InvokeSelRefI8(d, RefAt(src, i));
+    }
+    return sum;
+}
+
+int64_t il2cpp_linq_min_sel_ref_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t best = InvokeSelRefI8(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t v = InvokeSelRefI8(d, RefAt(src, i));
+        if (v < best) best = v;
+    }
+    return best;
+}
+
+int64_t il2cpp_linq_max_sel_ref_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t best = InvokeSelRefI8(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t v = InvokeSelRefI8(d, RefAt(src, i));
+        if (v > best) best = v;
+    }
+    return best;
+}
+
+double il2cpp_linq_average_sel_ref_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += InvokeSelRefI8(d, RefAt(src, i));
+    }
+    return static_cast<double>(sum) / static_cast<double>(src->length);
+}
+
+double il2cpp_linq_sum_sel_ref_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += InvokeSelRefD(d, RefAt(src, i));
+    }
+    return sum;
+}
+
+double il2cpp_linq_min_sel_ref_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double best = InvokeSelRefD(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const double v = InvokeSelRefD(d, RefAt(src, i));
+        if (v < best) best = v;
+    }
+    return best;
+}
+
+double il2cpp_linq_max_sel_ref_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double best = InvokeSelRefD(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const double v = InvokeSelRefD(d, RefAt(src, i));
+        if (v > best) best = v;
+    }
+    return best;
+}
+
+double il2cpp_linq_average_sel_ref_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += InvokeSelRefD(d, RefAt(src, i));
+    }
+    return sum / static_cast<double>(src->length);
+}
+
+float il2cpp_linq_sum_sel_ref_f(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    float sum = 0.0f;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += InvokeSelRefF(d, RefAt(src, i));
+    }
+    return sum;
+}
+
+float il2cpp_linq_min_sel_ref_f(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    float best = InvokeSelRefF(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const float v = InvokeSelRefF(d, RefAt(src, i));
+        if (v < best) best = v;
+    }
+    return best;
+}
+
+float il2cpp_linq_max_sel_ref_f(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    float best = InvokeSelRefF(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const float v = InvokeSelRefF(d, RefAt(src, i));
+        if (v > best) best = v;
+    }
+    return best;
+}
+
+double il2cpp_linq_average_sel_ref_f(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += static_cast<double>(InvokeSelRefF(d, RefAt(src, i)));
+    }
+    return sum / static_cast<double>(src->length);
 }
 
 double il2cpp_linq_average_sel_i4(Il2CppArray* src, Il2CppObject* sel)

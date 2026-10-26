@@ -192,23 +192,39 @@ public static partial class MethodRefResolver
             // and takes the ordinal max/min (Comparer<char/int32>.Default).
             if (genArgs is { Length: >= 1 } && IsRefFamilyByte(genArgs[0]))
             {
+                // The reference-source selector-aggregate family (net48
+                // Sum/Min/Max/Average<TSource>(Func<TSource,TResult>)). The
+                // projection's RESULT slot picks the kernel: the int32-slot
+                // primitives (char/int32) ride _i4, long/ulong _i8, and
+                // float/double the F-stack carrier _d / _f. net48 has every one
+                // of these overloads, so none may stay LOUD.
                 var refProj = LinqSelectorProjectionType(md, sigHandle);
-                if (refProj is "i" or "c")
+                string suffix = refProj switch
                 {
-                    return name switch
-                    {
-                        "Min" => I("il2cpp::il2cpp_linq_min_sel_ref_i4", 2, true, false, false, TwoArg),
-                        "Max" => I("il2cpp::il2cpp_linq_max_sel_ref_i4", 2, true, false, false, TwoArg),
-                        _ => throw new NotSupportedException(
-                            $"Enumerable.{name} over a reference-element source with a selector is not wired: " +
-                            "the reference selector-aggregate surface covers Min/Max with an int32-slot " +
-                            "projection (char/int32) only"),
-                    };
+                    "i" or "c" => "i4",
+                    "l" => "i8",
+                    "d" => "d",
+                    "f" => "f",
+                    _ => "",
+                };
+                if (suffix.Length == 0)
+                {
+                    throw new NotSupportedException(
+                        $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},...> with a selector is not wired: " +
+                        "the reference selector-aggregate surface covers an int32-slot (char/int32), int64, " +
+                        "double or float projection only");
                 }
-                throw new NotSupportedException(
-                    $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},...> with a selector is not wired: " +
-                    "the reference selector-aggregate surface covers Min/Max with an int32-slot projection " +
-                    "(char/int32) only");
+                string entry = name switch
+                {
+                    "Sum" => $"il2cpp::il2cpp_linq_sum_sel_ref_{suffix}",
+                    "Min" => $"il2cpp::il2cpp_linq_min_sel_ref_{suffix}",
+                    "Max" => $"il2cpp::il2cpp_linq_max_sel_ref_{suffix}",
+                    _ => $"il2cpp::il2cpp_linq_average_sel_ref_{suffix}",
+                };
+                string? rk = name == "Average" ? "d"
+                    : suffix == "i8" ? "l"
+                    : suffix is "f" or "d" ? "d" : null;
+                return I(entry, 2, true, false, false, TwoArg, resultKind: rk);
             }
             if (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08)
             {

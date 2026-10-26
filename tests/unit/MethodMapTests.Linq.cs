@@ -1419,6 +1419,42 @@ public class MethodMapTestsLinq
     }
 
     //==========================================================================
+    // The reference-source selector-aggregate family (net48
+    // Sum/Min/Max/Average<TSource>(Func<TSource,TResult>)): the projection's
+    // RESULT slot picks the kernel. Before this change only Min/Max with an
+    // int32-slot projection were wired; Sum/Average and the int64/double/float
+    // projections LOUD-rejected.
+    //==========================================================================
+    [Theory]
+    [InlineData("Sum", 0x08, "il2cpp::il2cpp_linq_sum_sel_ref_i4", null)]
+    [InlineData("Average", 0x08, "il2cpp::il2cpp_linq_average_sel_ref_i4", "d")]
+    [InlineData("Min", 0x08, "il2cpp::il2cpp_linq_min_sel_ref_i4", null)]
+    [InlineData("Max", 0x08, "il2cpp::il2cpp_linq_max_sel_ref_i4", null)]
+    [InlineData("Sum", 0x0A, "il2cpp::il2cpp_linq_sum_sel_ref_i8", "l")]
+    [InlineData("Min", 0x0A, "il2cpp::il2cpp_linq_min_sel_ref_i8", "l")]
+    [InlineData("Max", 0x0A, "il2cpp::il2cpp_linq_max_sel_ref_i8", "l")]
+    [InlineData("Average", 0x0A, "il2cpp::il2cpp_linq_average_sel_ref_i8", "d")]
+    [InlineData("Sum", 0x0D, "il2cpp::il2cpp_linq_sum_sel_ref_d", "d")]
+    [InlineData("Min", 0x0D, "il2cpp::il2cpp_linq_min_sel_ref_d", "d")]
+    [InlineData("Max", 0x0D, "il2cpp::il2cpp_linq_max_sel_ref_d", "d")]
+    [InlineData("Average", 0x0D, "il2cpp::il2cpp_linq_average_sel_ref_d", "d")]
+    [InlineData("Sum", 0x0C, "il2cpp::il2cpp_linq_sum_sel_ref_f", "d")]
+    [InlineData("Average", 0x0C, "il2cpp::il2cpp_linq_average_sel_ref_f", "d")]
+    public void Resolve_RefSelectorAggregate_MapsToRefSelectorKernel(
+        string name, byte proj, string icall, string? rk)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericSelector(name,
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, proj },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(rk, resolved.ResultKind);
+    }
+
+    //==========================================================================
     // D-LINQ-FAM (loud-linq-fam): the FAMILY-GENERIC element operators over the
     // int64/float/double/narrow array families. The runtime ships ONE kernel per
     // operator (linq_family.h) with the cell code as the trailing literal; the
@@ -1836,13 +1872,39 @@ public class MethodMapTestsLinq
         return Serialize(mdb);
     }
 
+    // Selector-form helper: like SynthesizeGeneric but the PE also carries the
+    // IEnumerable`1 and Func`2 TypeRefs, so the MethodSignatureCoder.Decode path
+    // (LinqSelectorProjectionType) can RESOLVE their names -- the plain
+    // SynthesizeGeneric PE has only the Enumerable TypeRef and the Decode path
+    // would read an out-of-range TypeRef handle.
+    //   row 1: System.Linq.Enumerable          (coded 0x05)
+    //   row 2: System.Collections.Generic.IEnumerable`1 (coded 0x09)
+    //   row 3: System.Func`2                   (coded 0x0D)
+    private static MemoryStream SynthesizeGenericSelector(string methodName, byte[] memberRefSignature,
+        byte[] genericSignature)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(memberRefSignature));
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
+        return Serialize(mdb);
+    }
+
     // p0linq4 (D1): a ONE-argument MethodSpec whose generic argument is a
     // VALUETYPE TypeRef (0x11 + TypeDefOrRef coded index) -- the shape the
     // decoded generic-argument FULL NAME table needs to tell System.Decimal
     // from the other 0x11 value types.
     private static MemoryStream SynthesizeGenericNamedArg(string methodName, byte[] memberRefSignature,
-        string ns, string typeName)
-    {
+        string ns, string typeName)    {
         var mdb = new MetadataBuilder();
         mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
             default(GuidHandle), default(GuidHandle));

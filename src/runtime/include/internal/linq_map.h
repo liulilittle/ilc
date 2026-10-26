@@ -525,6 +525,25 @@ int32_t il2cpp_linq_max_sel_i4(Il2CppArray* src, Il2CppObject* sel);
 int32_t il2cpp_linq_min_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel);
 int32_t il2cpp_linq_max_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel);
 double  il2cpp_linq_average_sel_i4(Il2CppArray* src, Il2CppObject* sel);
+// The reference-source selector-aggregate family with a WIDE result slot:
+// Sum/Average over Func<string,int32> and Sum/Min/Max/Average over
+// Func<string,long> / Func<string,double> / Func<string,float>. net48 has
+// every one of these overloads (Sum/Average return the projected type, Min/Max
+// throw on an empty source).
+int32_t il2cpp_linq_sum_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_ref_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_sum_sel_ref_i8(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_min_sel_ref_i8(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_max_sel_ref_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_ref_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_sum_sel_ref_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_min_sel_ref_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_max_sel_ref_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_ref_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_sum_sel_ref_f(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_min_sel_ref_f(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_max_sel_ref_f(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_ref_f(Il2CppArray* src, Il2CppObject* sel);
 
 // The same selector forms for the int64 / double projection families
 // (Func<TSource,long> / Func<TSource,double>). net48 has these overloads, so
