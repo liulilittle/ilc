@@ -153,4 +153,34 @@ void il2cpp_array_set_value(Il2CppArray* arr, Il2CppObject* value, int32_t index
 Il2CppObject* il2cpp_array_get_value_long(Il2CppArray* arr, int64_t index);
 void il2cpp_array_set_value_long(Il2CppArray* arr, Il2CppObject* value, int64_t index);
 
+//------------------------------------------------------------------------------
+// Multi-dimensional GetValue/SetValue (net48 Array surface).
+//
+// net48 overloads (Reference Source mscorlib/system/array.cs):
+//   GetValue(int,int)          :388   SetValue(object,int,int)          :505
+//   GetValue(int,int,int)      :399   SetValue(object,int,int,int)      :516
+//   GetValue(params int[])     :353   SetValue(object,params int[])     :482
+//   GetValue(long,long)        :423   SetValue(object,long,long)        :542
+//   GetValue(long,long,long)   :435   SetValue(object,long,long,long)   :554
+//   GetValue(params long[])    :449   SetValue(object,params long[])    :568
+//
+// The rank is checked FIRST (ArgumentException on a rank mismatch), then each
+// index against its dimension (IndexOutOfRangeException), then the element is
+// read/written through the 1-D boxed-element core at the ROW-MAJOR flat
+// offset. The long forms validate every index against the int32 range
+// (ArgumentOutOfRangeException) before forwarding.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_array_get_value_2d(Il2CppArray* arr, int32_t index1, int32_t index2);
+void il2cpp_array_set_value_2d(Il2CppArray* arr, Il2CppObject* value, int32_t index1, int32_t index2);
+Il2CppObject* il2cpp_array_get_value_3d(Il2CppArray* arr, int32_t index1, int32_t index2, int32_t index3);
+void il2cpp_array_set_value_3d(Il2CppArray* arr, Il2CppObject* value, int32_t index1, int32_t index2, int32_t index3);
+Il2CppObject* il2cpp_array_get_value_indices(Il2CppArray* arr, Il2CppArray* indices);
+void il2cpp_array_set_value_indices(Il2CppArray* arr, Il2CppObject* value, Il2CppArray* indices);
+Il2CppObject* il2cpp_array_get_value_2d_long(Il2CppArray* arr, int64_t index1, int64_t index2);
+void il2cpp_array_set_value_2d_long(Il2CppArray* arr, Il2CppObject* value, int64_t index1, int64_t index2);
+Il2CppObject* il2cpp_array_get_value_3d_long(Il2CppArray* arr, int64_t index1, int64_t index2, int64_t index3);
+void il2cpp_array_set_value_3d_long(Il2CppArray* arr, Il2CppObject* value, int64_t index1, int64_t index2, int64_t index3);
+Il2CppObject* il2cpp_array_get_value_indices_long(Il2CppArray* arr, Il2CppArray* indices);
+void il2cpp_array_set_value_indices_long(Il2CppArray* arr, Il2CppObject* value, Il2CppArray* indices);
+
 } // namespace il2cpp

@@ -108,5 +108,13 @@ void il2cpp_buffer_memory_copy_sized(void* dst, const void* src,
                                      int64_t destinationSizeInBytes,
                                      int64_t sourceBytesToCopy);
 
+// Buffer.MemoryCopy (net48 ulong sized form, buffer.cs:518): the same
+// ArgumentOutOfRange check on sourceBytesToCopy > destinationSizeInBytes, with
+// NO negative-value check (the values are unsigned); on a 32-bit target a
+// value beyond SIZE_MAX raises OverflowException (net48's checked (uint)).
+void il2cpp_buffer_memory_copy_sized_u64(void* dst, const void* src,
+                                         uint64_t destinationSizeInBytes,
+                                         uint64_t sourceBytesToCopy);
+
 } // namespace runtime
 } // namespace il2cpp

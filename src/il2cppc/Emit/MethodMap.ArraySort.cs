@@ -62,8 +62,24 @@ public static partial class MethodRefResolver
                         // arrgen1b: uint64 (0x0B) rides the int64 direct-call
                         // sort (the 8-byte cell; the bits are identical).
                         0x0B => I("il2cpp::il2cpp_array_sort_int64", 1, false, false, false, new[] { "a" }),
+                        // Narrow integrals: the kind literal selects the cell
+                        // width (arraysort.cpp).
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 =>
+                            I("il2cpp::il2cpp_array_sort_narrow", 1, false, false, false, new[] { "a" },
+                                appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                        // IntPtr / UIntPtr / DateTime / TimeSpan / reference
+                        // generic instantiations: the element-kind / native
+                        // width sorters.
+                        0x18 => I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
+                        0x19 => I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
+                        0x13 or 0x1D or 0x14 or 0x1B or 0x12 or 0x1C =>
+                            I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
+                        _ when IsInt64CellValueType(genArgs, genArgNames) =>
+                            I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
                         _ => throw new NotSupportedException(
-                            $"Array.Sort<T> generic argument 0x{genArgs[0]:X2} has no direct-call sort (only int32/uint32/int64/float/double/string/uint64 arrays)"),
+                            $"LOUD whitelist (unmaterialized value-type array descriptor): Array.Sort<T> generic " +
+                            $"argument 0x{genArgs[0]:X2} -- a BCL value type with no materialized array element " +
+                            "kind/box descriptor [Reference Source mscorlib/system/array.cs:1779]"),
                     };
                 }
                 if (count == 2)
@@ -78,7 +94,11 @@ public static partial class MethodRefResolver
                     // know, and a silent fall-through would emit a bogus
                     // generated-name call.
                     throw new NotSupportedException(
-                        "Array.Sort<T> with 2 args reached the ArraySort direct-call domain: the icall layer (MethodMap.Array.cs) claims every wired Comparison<T>/IComparer<T> family; this shape is unwired");
+                        "LOUD whitelist (unreachable defensive guard / unmaterialized value-type comparer " +
+                        "descriptor): Array.Sort<T> with 2 args reached the ArraySort direct-call domain -- the " +
+                        "icall layer (MethodMap.Array.cs) claims every wired Comparison<T>/IComparer<T> family, so " +
+                        "only an unmaterialized value-type comparer ABI can reach this arm " +
+                        "[Reference Source mscorlib/system/array.cs:1805-1889]");
                 }
                 return null;
             case "CopyTo":
@@ -109,6 +129,8 @@ public static partial class MethodRefResolver
                     {
                         if (count == 2)
                             return I("il2cpp::il2cpp_array_index_of_datetime", 2, true, false, false, new[] { "a", "" });
+                        if (count == 3)
+                            return I("il2cpp::il2cpp_array_index_of_datetime_start", 3, true, false, false, new[] { "a", "", "i" });
                         if (count == 4)
                             return I("il2cpp::il2cpp_array_index_of_datetime_range", 4, true, false, false, new[] { "a", "", "i", "i" });
                     }
@@ -116,6 +138,8 @@ public static partial class MethodRefResolver
                     {
                         if (count == 2)
                             return I("il2cpp::il2cpp_array_index_of_timespan", 2, true, false, false, new[] { "a", "" });
+                        if (count == 3)
+                            return I("il2cpp::il2cpp_array_index_of_timespan_start", 3, true, false, false, new[] { "a", "", "i" });
                         if (count == 4)
                             return I("il2cpp::il2cpp_array_index_of_timespan_range", 4, true, false, false, new[] { "a", "", "i", "i" });
                     }
@@ -148,14 +172,55 @@ public static partial class MethodRefResolver
                     0x0E when count == 2 => I("il2cpp::il2cpp_array_index_of_string", 2, true, false, false, new[] { "a", "" }),
                     0x0E when count == 3 => I("il2cpp::il2cpp_array_index_of_string_start", 3, true, false, false, new[] { "a", "", "i" }),
                     0x0E when count == 4 => I("il2cpp::il2cpp_array_index_of_string_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
-                    0x12 or 0x1C when count == 2 => I("il2cpp::il2cpp_array_index_of_object_start", 2, true, false, false, new[] { "a", "" }, appendZero: true),
-                    0x12 or 0x1C when count == 3 => I("il2cpp::il2cpp_array_index_of_object_start", 3, true, false, false, new[] { "a", "", "i" }),
-                    0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_index_of_object_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 2 => I("il2cpp::il2cpp_array_index_of_object_start", 2, true, false, false, new[] { "a", "" }, appendZero: true),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 3 => I("il2cpp::il2cpp_array_index_of_object_start", 3, true, false, false, new[] { "a", "", "i" }),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 4 => I("il2cpp::il2cpp_array_index_of_object_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
+                    // Narrow integrals (kind literal selects the cell width).
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 2 =>
+                        I("il2cpp::il2cpp_array_index_of_narrow", 2, true, false, false, new[] { "a", "i" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 3 =>
+                        I("il2cpp::il2cpp_array_index_of_narrow_start", 3, true, false, false, new[] { "a", "i", "i" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 4 =>
+                        I("il2cpp::il2cpp_array_index_of_narrow_range", 4, true, false, false, new[] { "a", "i", "i", "i" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    // IntPtr/UIntPtr: equality is bitwise, so the int64 scan is
+                    // exact for both.
+                    0x18 or 0x19 when count == 2 => I("il2cpp::il2cpp_array_index_of_int64", 2, true, false, false, new[] { "a", "l" }),
+                    0x18 or 0x19 when count == 3 => I("il2cpp::il2cpp_array_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
+                    0x18 or 0x19 when count == 4 => I("il2cpp::il2cpp_array_index_of_int64_range", 4, true, false, false, new[] { "a", "l", "i", "i" }),
                     _ => throw new NotSupportedException(
-                        $"Array.IndexOf<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call (the wired families are int32/uint32/int64/float/double/string/object/uint64)"),
+                        "LOUD whitelist (unmaterialized value-type array descriptor): Array.IndexOf<T> generic " +
+                        $"argument 0x{genArgs[0]:X2} with {count} arg(s) -- a BCL value type with no materialized " +
+                        "array element kind/box descriptor [Reference Source mscorlib/system/array.cs:1370-1391]"),
                 };
             case "LastIndexOf":
                 if (genArgs == null) return null;
+                // DateTime/TimeSpan: ticks-only equality (Kind ignored), same
+                // genArgNames authority as IndexOf.
+                if (genArgs.Length == 1 && genArgs[0] == 0x11
+                    && genArgNames is { Length: >= 1 })
+                {
+                    if (genArgNames[0] == "System.DateTime")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_last_index_of_datetime", 2, true, false, false, new[] { "a", "" });
+                        if (count == 3)
+                            return I("il2cpp::il2cpp_array_last_index_of_datetime_start", 3, true, false, false, new[] { "a", "", "i" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_last_index_of_datetime_range", 4, true, false, false, new[] { "a", "", "i", "i" });
+                    }
+                    if (genArgNames[0] == "System.TimeSpan")
+                    {
+                        if (count == 2)
+                            return I("il2cpp::il2cpp_array_last_index_of_timespan", 2, true, false, false, new[] { "a", "" });
+                        if (count == 3)
+                            return I("il2cpp::il2cpp_array_last_index_of_timespan_start", 3, true, false, false, new[] { "a", "", "i" });
+                        if (count == 4)
+                            return I("il2cpp::il2cpp_array_last_index_of_timespan_range", 4, true, false, false, new[] { "a", "", "i", "i" });
+                    }
+                }
                 return genArgs[0] switch
                 {
                     0x08 when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int32_start", 3, true, false, false, new[] { "a", "i", "i" }),
@@ -179,11 +244,25 @@ public static partial class MethodRefResolver
                     0x0E when count == 2 => I("il2cpp::il2cpp_array_last_index_of_string", 2, true, false, false, new[] { "a", "" }),
                     0x0E when count == 3 => I("il2cpp::il2cpp_array_last_index_of_string_start", 3, true, false, false, new[] { "a", "", "i" }),
                     0x0E when count == 4 => I("il2cpp::il2cpp_array_last_index_of_string_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
-                    0x12 or 0x1C when count == 2 => I("il2cpp::il2cpp_array_last_index_of_any", 2, true, false, false, new[] { "a", "" }),
-                    0x12 or 0x1C when count == 3 => I("il2cpp::il2cpp_array_last_index_of_object_start", 3, true, false, false, new[] { "a", "", "i" }),
-                    0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_last_index_of_object_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 2 => I("il2cpp::il2cpp_array_last_index_of_any", 2, true, false, false, new[] { "a", "" }),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 3 => I("il2cpp::il2cpp_array_last_index_of_object_start", 3, true, false, false, new[] { "a", "", "i" }),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 4 => I("il2cpp::il2cpp_array_last_index_of_object_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 2 =>
+                        I("il2cpp::il2cpp_array_last_index_of_narrow", 2, true, false, false, new[] { "a", "i" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 3 =>
+                        I("il2cpp::il2cpp_array_last_index_of_narrow_start", 3, true, false, false, new[] { "a", "i", "i" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 4 =>
+                        I("il2cpp::il2cpp_array_last_index_of_narrow_range", 4, true, false, false, new[] { "a", "i", "i", "i" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    0x18 or 0x19 when count == 2 => I("il2cpp::il2cpp_array_last_index_of_long", 2, true, false, false, new[] { "a", "l" }),
+                    0x18 or 0x19 when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
+                    0x18 or 0x19 when count == 4 => I("il2cpp::il2cpp_array_last_index_of_int64_range", 4, true, false, false, new[] { "a", "l", "i", "i" }),
                     _ => throw new NotSupportedException(
-                        $"Array.LastIndexOf<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call (the wired families are int32/uint32/int64/float/double/string/object/uint64)"),
+                        "LOUD whitelist (unmaterialized value-type array descriptor): Array.LastIndexOf<T> generic " +
+                        $"argument 0x{genArgs[0]:X2} with {count} arg(s) -- a BCL value type with no materialized " +
+                        "array element kind/box descriptor [Reference Source mscorlib/system/array.cs:1509-1529]"),
                 };
             case "BinarySearch":
                 if (genArgs == null) return null;
@@ -235,10 +314,42 @@ public static partial class MethodRefResolver
                     0x0D when count == 5 => I("il2cpp::il2cpp_array_binary_search_icomparer_double_range", 5, true, false, false, new[] { "a", "i", "i", "d", "" }),
                     0x0E when count == 2 => I("il2cpp::il2cpp_array_binary_search_string", 2, true, false, false, new[] { "a", "" }),
                     0x0E when count == 4 => I("il2cpp::il2cpp_array_binary_search_string_range", 4, true, false, false, new[] { "a", "i", "i", "" }),
-                    0x12 or 0x1C when count == 2 => I("il2cpp::il2cpp_array_binary_search_object", 2, true, false, false, new[] { "a", "" }),
-                    0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_binary_search_object_range", 4, true, false, false, new[] { "a", "i", "i", "" }),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 2 => I("il2cpp::il2cpp_array_binary_search_object", 2, true, false, false, new[] { "a", "" }),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 4 => I("il2cpp::il2cpp_array_binary_search_object_range", 4, true, false, false, new[] { "a", "i", "i", "" }),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_ref", 3, true, false, false, new[] { "a", "", "" }),
+                    0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B when count == 5 => I("il2cpp::il2cpp_array_binary_search_icomparer_ref_range", 5, true, false, false, new[] { "a", "i", "i", "", "" }),
+                    // Narrow integrals (kind literal selects the cell width).
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 2 =>
+                        I("il2cpp::il2cpp_array_binary_search_narrow", 2, true, false, false, new[] { "a", "i" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 3 =>
+                        I("il2cpp::il2cpp_array_binary_search_narrow_icomparer", 3, true, false, false, new[] { "a", "i", "" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 4 =>
+                        I("il2cpp::il2cpp_array_binary_search_narrow_range", 4, true, false, false, new[] { "a", "i", "i", "i" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 5 =>
+                        I("il2cpp::il2cpp_array_binary_search_narrow_icomparer_range", 5, true, false, false, new[] { "a", "i", "i", "i", "" },
+                            appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                    // IntPtr (signed) rides the int64 searches; UIntPtr's
+                    // comparer-free search rides the unsigned uint64 twin.
+                    0x18 or 0x19 when count == 2 => I("il2cpp::il2cpp_array_binary_search_incomparable", 2, true, false, false, new[] { "a", "l" }),
+                    0x18 when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_int64", 3, true, false, false, new[] { "a", "l", "" }),
+                    0x18 or 0x19 when count == 4 => I("il2cpp::il2cpp_array_binary_search_incomparable_range", 4, true, false, false, new[] { "a", "i", "i", "l" }),
+                    0x18 when count == 5 => I("il2cpp::il2cpp_array_binary_search_icomparer_int64_range", 5, true, false, false, new[] { "a", "i", "i", "l", "" }),
+                    
+                    
+                    _ when count == 3 || count == 5 =>
+                        throw new NotSupportedException(
+                            "LOUD whitelist (unmaterialized value-type comparer descriptor): Array.BinarySearch<T> " +
+                            $"generic argument 0x{genArgs[0]:X2} with {count} args -- the comparer-driven search for " +
+                            "this value type has no materialized comparer/box ABI " +
+                            "[Reference Source mscorlib/system/array.cs:987-1011]"),
                     _ => throw new NotSupportedException(
-                        $"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call (the wired families are int32/uint32/int64/float/double/string/object/uint64)"),
+                        "LOUD whitelist (unmaterialized value-type array descriptor): Array.BinarySearch<T> " +
+                        $"generic argument 0x{genArgs[0]:X2} with {count} arg(s) -- a BCL value type with no " +
+                        "materialized array element kind/box descriptor " +
+                        "[Reference Source mscorlib/system/array.cs:987-1011]"),
                 };
             default: return null;
         }

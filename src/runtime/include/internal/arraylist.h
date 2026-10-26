@@ -85,6 +85,15 @@ Il2CppObject* il2cpp_arraylist_create();
 // 'list' is GC-rooted and re-read before the publication store.
 void il2cpp_arraylist_create_capacity(Il2CppObject* self, int32_t capacity);
 
+// ArrayList(ICollection c) [net48 arraylist.cs:86]: copy every element of 'c'
+// into the receiver list. The elements are enumerated through the NON-generic
+// IEnumerator surface (GetEnumerator/MoveNext/get_Current) in two passes: the
+// first counts them (the items array is allocated with EXACTLY that capacity,
+// matching net48's `_items = new Object[c.Count]`), the second fills it. A
+// null 'c' raises ArgumentNullException("c"). The receiver and the collection
+// are GC-rooted across both enumerations and the allocation.
+void il2cpp_arraylist_create_from_collection(Il2CppObject* self, Il2CppObject* collection);
+
 // Add(value) -- append at the end. Null is legal. Grows (doubles the items
 // array, min 4) when the list is full.
 void il2cpp_arraylist_add(Il2CppObject* self, Il2CppObject* value);

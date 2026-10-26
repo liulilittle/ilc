@@ -1,4 +1,4 @@
-namespace Il2Cpp.Transpiler.Emit;
+﻿namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.ArrayList -- System.Collections.ArrayList icall mappings
@@ -17,8 +17,11 @@ namespace Il2Cpp.Transpiler.Emit;
 //
 // .ctor: the runtime create icall takes NO self and RETURNS the new object
 // (Queue/Stack convention). The newobj temp is passed as the call's first
-// argument by the fold, so it must be DROPPED ("drop"). Capacity ctors have
-// no runtime icall -> LOUD.
+// argument by the fold, so it must be DROPPED ("drop"). The two 1-arg net48
+// ctors are (int capacity) and (ICollection): the int form rides the
+// instance-style create_capacity icall, the ICollection form the
+// create_from_collection icall (arraylist.h). Any other arity is a LOUD
+// whitelist (class 4: net48 has no such overload).
 //
 // Add: .NET Add(object) returns the int32 insertion index, but the runtime
 // il2cpp_arraylist_add returns void -- the managed return is DROPPED
@@ -56,7 +59,18 @@ public static partial class MethodRefResolver
                 if (count == 1 && ps.Length >= 1 && ps[0] == 0x08)
                     return I("il2cpp::il2cpp_arraylist_create_capacity", 1, false, false, true,
                         new[] { "", "i" });
-                throw new NotSupportedException($"ArrayList ctor with {count} arg(s) not wired (the runtime exposes only the parameterless and int-capacity create icalls)");
+                // ArrayList(ICollection c) [Reference Source
+                // collections/arraylist.cs:86]: the instance-style create
+                // copies every element of 'c' (two-pass enumeration, exact
+                // capacity == Count) into the new list's reference array.
+                if (count == 1 && ps.Length >= 1 && ps[0] == 0x12)
+                    return I("il2cpp::il2cpp_arraylist_create_from_collection", 1, false, false, true,
+                        new[] { "", "" });
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): {owner}::{name} arity {count} / parameter " +
+                    $"byte 0x{(ps is { Length: >= 1 } p0 ? p0[0] : 0):X2} -- net48 has ArrayList(), ArrayList(int) " +
+                    "and ArrayList(ICollection) only " +
+                    "[Reference Source mscorlib/system/collections/arraylist.cs:64, :72, :86]");
             case "Add": return I("il2cpp::il2cpp_arraylist_add", 1, false, false, true);
             case "get_Item": return I("il2cpp::il2cpp_arraylist_get_item", 1, true, true, true, new[] { "", "i" });
             case "set_Item": return I("il2cpp::il2cpp_arraylist_set_item", 2, false, false, true, new[] { "", "i", "" });

@@ -262,6 +262,42 @@ void icall_array_copy_3(Il2CppObject* src, Il2CppObject* dst, int32_t length)
 }
 
 //------------------------------------------------------------------------------
+// icall_array_copy_long / icall_array_copy_3_long -- the net48 long-index
+// Array.Copy overloads (array.cs:320 and :329). The long arguments are
+// validated against the int32 range BEFORE any array/null check (the net48
+// Reference Source order), then the int32 core performs the full validation
+// and copy.
+//------------------------------------------------------------------------------
+namespace {
+
+void RequireCopyLongRange(int64_t value, const char* name)
+{
+    if (value < INT32_MIN || value > INT32_MAX)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            name, "Arrays larger than 2GB are not supported.");
+    }
+}
+
+} // namespace
+
+void icall_array_copy_long(Il2CppObject* src, int64_t srcIndex, Il2CppObject* dst,
+                           int64_t dstIndex, int64_t length)
+{
+    RequireCopyLongRange(srcIndex, "sourceIndex");
+    RequireCopyLongRange(dstIndex, "destinationIndex");
+    RequireCopyLongRange(length, "length");
+    icall_array_copy(src, static_cast<int32_t>(srcIndex), dst,
+                     static_cast<int32_t>(dstIndex), static_cast<int32_t>(length));
+}
+
+void icall_array_copy_3_long(Il2CppObject* src, Il2CppObject* dst, int64_t length)
+{
+    RequireCopyLongRange(length, "length");
+    icall_array_copy(src, 0, dst, 0, static_cast<int32_t>(length));
+}
+
+//------------------------------------------------------------------------------
 // icall_array_sort -- Array.Sort (int32 ascending; see the header contract).
 //------------------------------------------------------------------------------
 void icall_array_sort(Il2CppObject* arr)

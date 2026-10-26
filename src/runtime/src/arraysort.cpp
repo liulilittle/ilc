@@ -2055,6 +2055,12 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
         {
             case kComparerFamilyI4:
             case kComparerFamilyU4:
+            case kComparerFamilyBool:
+            case kComparerFamilyChar:
+            case kComparerFamilyI1:
+            case kComparerFamilyU1:
+            case kComparerFamilyI2:
+            case kComparerFamilyU2:
                 // B8-1: a Comparer<uint>.Create wrapper is created through the
                 // int32 carrier (same raw-bit ABI); the wrapped delegate owns
                 // the unsigned order, so the two families share this arm.
@@ -2093,6 +2099,12 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
         switch (family)
         {
             case kComparerFamilyI4:
+            case kComparerFamilyBool:
+            case kComparerFamilyChar:
+            case kComparerFamilyI1:
+            case kComparerFamilyU1:
+            case kComparerFamilyI2:
+            case kComparerFamilyU2:
             {
                 const int32_t x = *static_cast<const int32_t*>(a);
                 const int32_t y = *static_cast<const int32_t*>(b);
@@ -2138,6 +2150,12 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
         : family == kComparerFamilyI8 ? "(l,l)"
         : family == kComparerFamilyD ? "(d,d)"
         : family == kComparerFamilyF ? "(f,f)"
+        : family == kComparerFamilyBool ? "(b,b)"
+        : family == kComparerFamilyChar ? "(c,c)"
+        : family == kComparerFamilyI1 ? "(i1,i1)"
+        : family == kComparerFamilyU1 ? "(u1,u1)"
+        : family == kComparerFamilyI2 ? "(i2,i2)"
+        : family == kComparerFamilyU2 ? "(u2,u2)"
         : "(r:";
     const int32_t slot =
         FindVirtualSlotByNameAndSignature(comparer, "Compare", fragment);
@@ -2149,6 +2167,12 @@ int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
         {
             case kComparerFamilyI4:
             case kComparerFamilyU4:
+            case kComparerFamilyBool:
+            case kComparerFamilyChar:
+            case kComparerFamilyI1:
+            case kComparerFamilyU1:
+            case kComparerFamilyI2:
+            case kComparerFamilyU2:
                 // B8-1: the user Compare(uint,uint) slot receives the raw bits
                 // through the same int32 ABI as I4.
                 return reinterpret_cast<IComparerI4Fn>(fn)(
@@ -3686,6 +3710,104 @@ int32_t il2cpp_array_binary_search_timespan_range(Il2CppArray* arr, int32_t inde
     return ~lo;
 }
 
+//------------------------------------------------------------------------------
+// DateTime/TimeSpan start / LastIndexOf forms (ticks-only comparison).
+//------------------------------------------------------------------------------
+int32_t il2cpp_array_index_of_datetime_start(Il2CppArray* arr, runtime::Il2CppDateTime value,
+                                             int32_t startIndex)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateIndexOfStartIndex(a, startIndex);
+    return il2cpp_array_index_of_datetime_range(arr, value, startIndex, a->length - startIndex);
+}
+
+int32_t il2cpp_array_index_of_timespan_start(Il2CppArray* arr, runtime::Il2CppTimeSpan value,
+                                             int32_t startIndex)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateIndexOfStartIndex(a, startIndex);
+    return il2cpp_array_index_of_timespan_range(arr, value, startIndex, a->length - startIndex);
+}
+
+namespace {
+
+int32_t LastIndexOfDateTimeCore(Il2CppArray* a, runtime::Il2CppDateTime value,
+                                int32_t startIndex, int32_t count)
+{
+    const int64_t needle =
+        static_cast<int64_t>(static_cast<uint64_t>(runtime::il2cpp_datetime_to_array_bits(value)) &
+                             static_cast<uint64_t>(runtime::kDateTimeArrayTickMask));
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    const int32_t lo = startIndex - count + 1;
+    for (int32_t i = startIndex; i >= lo; --i)
+    {
+        if (static_cast<int64_t>(static_cast<uint64_t>(d[i]) &
+                                 static_cast<uint64_t>(runtime::kDateTimeArrayTickMask)) == needle)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t LastIndexOfTimeSpanCore(Il2CppArray* a, runtime::Il2CppTimeSpan value,
+                                int32_t startIndex, int32_t count)
+{
+    const int64_t* d = reinterpret_cast<const int64_t*>(a->data);
+    const int32_t lo = startIndex - count + 1;
+    for (int32_t i = startIndex; i >= lo; --i)
+    {
+        if (d[i] == value.ticks) return i;
+    }
+    return -1;
+}
+
+} // namespace
+
+int32_t il2cpp_array_last_index_of_datetime(Il2CppArray* arr, runtime::Il2CppDateTime value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    return LastIndexOfDateTimeCore(a, value, a->length - 1, a->length);
+}
+
+int32_t il2cpp_array_last_index_of_timespan(Il2CppArray* arr, runtime::Il2CppTimeSpan value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    return LastIndexOfTimeSpanCore(a, value, a->length - 1, a->length);
+}
+
+int32_t il2cpp_array_last_index_of_datetime_start(Il2CppArray* arr, runtime::Il2CppDateTime value,
+                                                  int32_t startIndex)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateLastIndexOfStartIndex(a, startIndex);
+    return LastIndexOfDateTimeCore(a, value, startIndex, startIndex + 1);
+}
+
+int32_t il2cpp_array_last_index_of_timespan_start(Il2CppArray* arr, runtime::Il2CppTimeSpan value,
+                                                  int32_t startIndex)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateLastIndexOfStartIndex(a, startIndex);
+    return LastIndexOfTimeSpanCore(a, value, startIndex, startIndex + 1);
+}
+
+int32_t il2cpp_array_last_index_of_datetime_range(Il2CppArray* arr, runtime::Il2CppDateTime value,
+                                                  int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateLastIndexOfRange(a, startIndex, count);
+    return LastIndexOfDateTimeCore(a, value, startIndex, count);
+}
+
+int32_t il2cpp_array_last_index_of_timespan_range(Il2CppArray* arr, runtime::Il2CppTimeSpan value,
+                                                  int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateLastIndexOfRange(a, startIndex, count);
+    return LastIndexOfTimeSpanCore(a, value, startIndex, count);
+}
+
 int32_t il2cpp_array_last_index_of_any(Il2CppArray* arr, Il2CppObject* value)
 {
     Il2CppArray* a = RequireArraySort(arr);
@@ -5043,6 +5165,399 @@ void il2cpp_ienum_dispose(Il2CppObject* receiver)
     }
     reinterpret_cast<IEnumFnVoid>(
         RequireIEnumVtableSlot(receiver, slot, "Dispose"))(receiver);
+}
+
+//------------------------------------------------------------------------------
+// NARROW-INTEGRAL generic families (bool/char/sbyte/byte/short/ushort/uint).
+// The kind literal selects the real cell width; every cell widens to int32
+// (the transpiler's narrow value slot), so the comparer/Comparison ABI is the
+// existing I4 one.
+//------------------------------------------------------------------------------
+namespace {
+
+template <typename T>
+int32_t NarrowIndexOfCore(Il2CppArray* a, int32_t value, int32_t start, int32_t count)
+{
+    const T* d = reinterpret_cast<const T*>(a->data);
+    const int32_t end = start + count;
+    for (int32_t i = start; i < end; ++i)
+    {
+        if (static_cast<int32_t>(d[i]) == value) return i;
+    }
+    return -1;
+}
+
+template <typename T>
+int32_t NarrowLastIndexOfCore(Il2CppArray* a, int32_t value, int32_t start, int32_t count)
+{
+    const T* d = reinterpret_cast<const T*>(a->data);
+    const int32_t lo = start - count + 1;
+    for (int32_t i = start; i >= lo; --i)
+    {
+        if (static_cast<int32_t>(d[i]) == value) return i;
+    }
+    return -1;
+}
+
+template <typename T>
+int32_t NarrowBinarySearchCore(Il2CppArray* a, int32_t value, int32_t index, int32_t length)
+{
+    const T* d = reinterpret_cast<const T*>(a->data);
+    return Net48BinarySearchValues(d, index, index + length - 1, static_cast<T>(value));
+}
+
+template <typename T>
+int32_t NarrowBinarySearchComparerCore(Il2CppArray* a, int32_t value, int32_t index,
+                                       int32_t length, Il2CppObject** comparerSlot,
+                                       int32_t family)
+{
+    const T* d = reinterpret_cast<const T*>(a->data);
+    int32_t lo = index;
+    int32_t hi = index + length - 1;
+    while (lo <= hi)
+    {
+        const int32_t mid = lo + (hi - lo) / 2;
+        const int32_t elem = static_cast<int32_t>(d[mid]);
+        const int32_t c = *comparerSlot == nullptr
+            ? (elem < value ? -1 : (elem > value ? 1 : 0))
+            : il2cpp_icomparer_compare_family(*comparerSlot, family, &elem, &value);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return ~lo;
+}
+
+template <typename T>
+struct NarrowComparerCompare
+{
+    Il2CppObject** slot;
+    int32_t family;
+    int32_t operator()(T x, T y) const
+    {
+        int32_t a = static_cast<int32_t>(x);
+        int32_t b = static_cast<int32_t>(y);
+        if (*slot == nullptr) return a < b ? -1 : (a > b ? 1 : 0);
+        return il2cpp_icomparer_compare_family(*slot, family, &a, &b);
+    }
+};
+
+template <typename T>
+struct NarrowComparisonCompare
+{
+    Il2CppObject** slot;
+    int32_t operator()(T x, T y) const
+    {
+        const int32_t a = static_cast<int32_t>(x);
+        const int32_t b = static_cast<int32_t>(y);
+        I4ComparisonCompare cmp(slot);
+        return cmp(a, b);
+    }
+};
+
+} // namespace
+
+inline int32_t NarrowFamily(int32_t kind)
+{
+    switch (kind)
+    {
+        case 8: return kComparerFamilyBool;
+        case 9: return kComparerFamilyChar;
+        case 10: return kComparerFamilyI1;
+        case 11: return kComparerFamilyU1;
+        case 12: return kComparerFamilyI2;
+        case 13: return kComparerFamilyU2;
+        default: return kComparerFamilyI4;
+    }
+}
+
+#define IL2CPP_NARROW_FOR_EACH_KIND(...)                                        \
+    switch (kind)                                                               \
+    {                                                                           \
+        case 8:  { using T = bool;     __VA_ARGS__; break; }                     \
+        case 9:  { using T = uint16_t; __VA_ARGS__; break; }                     \
+        case 10: { using T = int8_t;   __VA_ARGS__; break; }                     \
+        case 11: { using T = uint8_t;  __VA_ARGS__; break; }                     \
+        case 12: { using T = int16_t;  __VA_ARGS__; break; }                     \
+        case 13: { using T = uint16_t; __VA_ARGS__; break; }                     \
+        default:                                                                \
+            il2cpp_throw_not_supported_exception(                               \
+                "narrow Array kernel: unknown element kind");                   \
+    }
+
+void il2cpp_array_sort_narrow(Il2CppArray* arr, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        QuickSortValues<T>(reinterpret_cast<T*>(a->data), 0, a->length - 1);
+    )
+}
+
+void il2cpp_array_sort_narrow_range(Il2CppArray* arr, int32_t index, int32_t length, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRangeSort(a, index, length);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        QuickSortValues<T>(reinterpret_cast<T*>(a->data), index, index + length - 1);
+    )
+}
+
+void il2cpp_array_sort_narrow_icomparer(Il2CppArray* arr, Il2CppObject* comparer, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        if (a->length > 1)
+        {
+            try
+            {
+                NarrowComparerCompare<T> cmp{&comparer, NarrowFamily(kind)};
+                QuickSortValArray<T>(&a, 0, a->length - 1, cmp);
+            }
+            catch (const DotNetException&)
+            {
+                il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+            }
+        }
+    )
+}
+
+void il2cpp_array_sort_narrow_icomparer_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                              Il2CppObject* comparer, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRangeSort(a, index, length);
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        if (length > 1)
+        {
+            try
+            {
+                NarrowComparerCompare<T> cmp{&comparer, NarrowFamily(kind)};
+                QuickSortValArray<T>(&a, index, index + length - 1, cmp);
+            }
+            catch (const DotNetException&)
+            {
+                il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+            }
+        }
+    )
+}
+
+void il2cpp_array_sort_narrow_comparison(Il2CppArray* arr, Il2CppObject* comparison, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    if (comparison == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("comparison");
+    }
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparison));
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        if (a->length > 1)
+        {
+            try
+            {
+                NarrowComparisonCompare<T> cmp{&comparison};
+                QuickSortValArray<T>(&a, 0, a->length - 1, cmp);
+            }
+            catch (const DotNetException&)
+            {
+                il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+            }
+        }
+    )
+}
+
+int32_t il2cpp_array_index_of_narrow(Il2CppArray* arr, int32_t value, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowIndexOfCore<T>(a, value, 0, a->length);
+    )
+    return -1;
+}
+
+int32_t il2cpp_array_index_of_narrow_start(Il2CppArray* arr, int32_t value, int32_t startIndex, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateIndexOfStartIndex(a, startIndex);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowIndexOfCore<T>(a, value, startIndex, a->length - startIndex);
+    )
+    return -1;
+}
+
+int32_t il2cpp_array_index_of_narrow_range(Il2CppArray* arr, int32_t value, int32_t startIndex,
+                                           int32_t count, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateIndexOfRange(a, startIndex, count);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowIndexOfCore<T>(a, value, startIndex, count);
+    )
+    return -1;
+}
+
+int32_t il2cpp_array_last_index_of_narrow(Il2CppArray* arr, int32_t value, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowLastIndexOfCore<T>(a, value, a->length - 1, a->length);
+    )
+    return -1;
+}
+
+int32_t il2cpp_array_last_index_of_narrow_start(Il2CppArray* arr, int32_t value, int32_t startIndex, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateLastIndexOfStartIndex(a, startIndex);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowLastIndexOfCore<T>(a, value, startIndex, startIndex + 1);
+    )
+    return -1;
+}
+
+int32_t il2cpp_array_last_index_of_narrow_range(Il2CppArray* arr, int32_t value, int32_t startIndex,
+                                                int32_t count, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    ValidateLastIndexOfRange(a, startIndex, count);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowLastIndexOfCore<T>(a, value, startIndex, count);
+    )
+    return -1;
+}
+
+int32_t il2cpp_array_binary_search_narrow(Il2CppArray* arr, int32_t value, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowBinarySearchCore<T>(a, value, 0, a->length);
+    )
+    return -1;
+}
+
+int32_t il2cpp_array_binary_search_narrow_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                int32_t value, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRangeSort(a, index, length);
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowBinarySearchCore<T>(a, value, index, length);
+    )
+    return -1;
+}
+
+int32_t il2cpp_array_binary_search_narrow_icomparer(Il2CppArray* arr, int32_t value,
+                                                    Il2CppObject* comparer, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowBinarySearchComparerCore<T>(a, value, 0, a->length, &comparer, NarrowFamily(kind));
+    )
+    return -1;
+}
+
+int32_t il2cpp_array_binary_search_narrow_icomparer_range(Il2CppArray* arr, int32_t index,
+                                                          int32_t length, int32_t value,
+                                                          Il2CppObject* comparer, int32_t kind)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRangeSort(a, index, length);
+    RootScopeSort roots;
+    roots.Add(reinterpret_cast<void**>(&a));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    IL2CPP_NARROW_FOR_EACH_KIND(
+        RequireValueArraySort(a, static_cast<int32_t>(sizeof(T)));
+        return NarrowBinarySearchComparerCore<T>(a, value, index, length, &comparer, NarrowFamily(kind));
+    )
+    return -1;
+}
+
+#undef IL2CPP_NARROW_FOR_EACH_KIND
+
+//------------------------------------------------------------------------------
+// UIntPtr 64-bit unsigned twins.
+//------------------------------------------------------------------------------
+void il2cpp_array_sort_uint64(Il2CppArray* arr)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(uint64_t));
+    QuickSortValues<uint64_t>(reinterpret_cast<uint64_t*>(a->data), 0, a->length - 1);
+}
+
+void il2cpp_array_sort_uint64_range(Il2CppArray* arr, int32_t index, int32_t length)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(uint64_t));
+    RequireRangeSort(a, index, length);
+    QuickSortValues<uint64_t>(reinterpret_cast<uint64_t*>(a->data), index, index + length - 1);
+}
+
+int32_t il2cpp_array_binary_search_uint64(Il2CppArray* arr, int64_t value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(uint64_t));
+    const uint64_t* data = reinterpret_cast<const uint64_t*>(a->data);
+    return Net48BinarySearchValues(data, 0, a->length - 1, static_cast<uint64_t>(value));
+}
+
+int32_t il2cpp_array_binary_search_uint64_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                int64_t value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireValueArraySort(a, sizeof(uint64_t));
+    RequireRangeSort(a, index, length);
+    const uint64_t* data = reinterpret_cast<const uint64_t*>(a->data);
+    return Net48BinarySearchValues(data, index, index + length - 1, static_cast<uint64_t>(value));
+}
+
+//------------------------------------------------------------------------------
+// IntPtr/UIntPtr on net48 do NOT implement IComparable, so
+// Comparer<T>.Default.Compare raises InvalidOperationException. An empty
+// search range never invokes the comparer and returns -1 (net48 parity).
+//------------------------------------------------------------------------------
+int32_t il2cpp_array_binary_search_incomparable(Il2CppArray* arr, int64_t value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    (void)value;
+    if (a->length == 0) return -1;
+    il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+    return 0;
+}
+
+int32_t il2cpp_array_binary_search_incomparable_range(Il2CppArray* arr, int32_t index,
+                                                      int32_t length, int64_t value)
+{
+    Il2CppArray* a = RequireArraySort(arr);
+    RequireRangeSort(a, index, length);
+    (void)value;
+    if (length == 0) return ~index;
+    il2cpp_throw_invalid_operation_exception(kComparerFailedMessage);
+    return 0;
 }
 
 } // namespace il2cpp

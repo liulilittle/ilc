@@ -37,6 +37,10 @@
 #include "il2cpp_gcroot.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_value_semantics.h" // runtime::icall_object_equals
+#include "arraysort.h" // il2cpp_ienum_* (ArrayList(ICollection) enumeration)
+#include "arrayextra.h" // il2cpp_array_get_value (array-element boxing)
+#include "listi4.h" // il2cpp_list_i4_* (List<int> source)
+#include "listobj.h" // il2cpp_list_obj_* (reference List<T> source)
 
 #include <cstddef>
 #include <cstdint>
@@ -269,6 +273,201 @@ void il2cpp_arraylist_create_capacity(Il2CppObject* self, int32_t capacity)
         // matching the parameterless ctor arm above.
         list->items = nullptr;
     }
+}
+
+//------------------------------------------------------------------------------
+// ArrayList(ICollection c) -- net48 arraylist.cs:86. Two-pass enumeration:
+// the first pass counts the elements (exact capacity), the second fills the
+// freshly allocated items array. The receiver, the collection and the items
+// array are GC-rooted across the (possibly allocating) enumerator calls.
+//------------------------------------------------------------------------------
+void il2cpp_arraylist_create_from_collection(Il2CppObject* self, Il2CppObject* collection)
+{
+    ThrowIfNullReceiver(self);
+    if (collection == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("c");
+    }
+    GcRoot<Il2CppObject*> rootSelf(self, "icall_arraylist_create_from_collection_self");
+    GcRoot<Il2CppObject*> rootCollection(collection, "icall_arraylist_create_from_collection_c");
+
+    // ARRAY source: a raw array is NOT a reference-slot sequence (an int[] cell
+    // is not an Il2CppObject*), so the generic snapshot enumerator cannot be
+    // used. Copy the elements directly, boxing value cells through the
+    // arrayextra element core (byte/int32/int64 stride; net48 boxes the exact
+    // primitive type -- the same helper contract as Array.GetValue).
+    {
+        Il2CppObject* c = rootCollection.Get();
+        if (c->klass != nullptr && c->klass->name != nullptr && c->klass->name[0] == '[')
+        {
+            Il2CppArray* src = reinterpret_cast<Il2CppArray*>(c);
+            const int32_t count = src->length;
+            Il2CppArrayList* list0 = AsList(rootSelf.Get());
+            if (count == 0)
+            {
+                list0->items = nullptr;
+                list0->count = 0;
+                return;
+            }
+            Il2CppArray* arr = AllocItems(count);
+            GcRoot<Il2CppArray*> rootItems(arr, "icall_arraylist_create_from_collection_arr");
+            int32_t filled = 0;
+            for (int32_t i = 0; i < count; ++i)
+            {
+                Il2CppObject* item;
+                src = reinterpret_cast<Il2CppArray*>(rootCollection.Get());
+                if (src->isRefElem)
+                {
+                    item = reinterpret_cast<Il2CppObject**>(src->data)[i];
+                }
+                else
+                {
+                    item = il2cpp_array_get_value(src, i);
+                }
+                Il2CppArray* live = rootItems.Get();
+                Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(live->data);
+                dst[i] = item;
+                il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), item);
+                ++filled;
+            }
+            list0 = AsList(rootSelf.Get());
+            arr = rootItems.Get();
+            list0->items = arr;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&list0->items),
+                                 reinterpret_cast<Il2CppObject*>(list0->items));
+            list0->count = filled;
+            return;
+        }
+    }
+
+    // ArrayList source: copy the reference slots directly.
+    {
+        Il2CppObject* c = rootCollection.Get();
+        if (c->klass == il2cpp_arraylist_class())
+        {
+            Il2CppArrayList* src = AsList(c);
+            const int32_t count = src->count;
+            Il2CppArrayList* list0 = AsList(rootSelf.Get());
+            if (count == 0)
+            {
+                list0->items = nullptr;
+                list0->count = 0;
+                return;
+            }
+            Il2CppArray* arr = AllocItems(count);
+            GcRoot<Il2CppArray*> rootItems(arr, "icall_arraylist_create_from_collection_al");
+            Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(arr->data);
+            Il2CppObject** srcSlots = src->items != nullptr
+                ? reinterpret_cast<Il2CppObject**>(src->items->data)
+                : nullptr;
+            for (int32_t i = 0; i < count; ++i)
+            {
+                Il2CppObject* item = srcSlots != nullptr ? srcSlots[i] : nullptr;
+                Il2CppArray* live = rootItems.Get();
+                dst = reinterpret_cast<Il2CppObject**>(live->data);
+                dst[i] = item;
+                il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), item);
+            }
+            list0 = AsList(rootSelf.Get());
+            arr = rootItems.Get();
+            list0->items = arr;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&list0->items),
+                                 reinterpret_cast<Il2CppObject*>(list0->items));
+            list0->count = count;
+            return;
+        }
+    }
+
+    // List<int> source: the listi4 domain exposes Count/get_Item; box each
+    // int32 element into the reference-slot store.
+    {
+        Il2CppObject* c = rootCollection.Get();
+        if (c->klass == il2cpp_list_i4_class())
+        {
+            const int32_t count = il2cpp_list_i4_get_count(c);
+            Il2CppArrayList* list0 = AsList(rootSelf.Get());
+            if (count == 0)
+            {
+                list0->items = nullptr;
+                list0->count = 0;
+                return;
+            }
+            Il2CppArray* arr = AllocItems(count);
+            GcRoot<Il2CppArray*> rootItems(arr, "icall_arraylist_create_from_collection_l4");
+            for (int32_t i = 0; i < count; ++i)
+            {
+                c = rootCollection.Get();
+                Il2CppObject* item = il2cpp_box_int32(nullptr, il2cpp_list_i4_get_item(c, i));
+                Il2CppArray* live = rootItems.Get();
+                Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(live->data);
+                dst[i] = item;
+                il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), item);
+            }
+            list0 = AsList(rootSelf.Get());
+            arr = rootItems.Get();
+            list0->items = arr;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&list0->items),
+                                 reinterpret_cast<Il2CppObject*>(list0->items));
+            list0->count = count;
+            return;
+        }
+    }
+
+    // Pass 1: count the elements.
+    int32_t count = 0;
+    {
+        Il2CppObject* en = il2cpp_ienum_get_enumerator_nongeneric(rootCollection.Get());
+        GcRoot<Il2CppObject*> rootEnum(en, "icall_arraylist_create_from_collection_enum1");
+        while (il2cpp_ienum_move_next(en))
+        {
+            if (count == INT32_MAX)
+            {
+                il2cpp_throw_argument_out_of_range_exception(
+                    "c", "The collection is too large.");
+            }
+            ++count;
+            en = rootEnum.Get();
+        }
+        il2cpp_ienum_dispose(en);
+    }
+
+    Il2CppArrayList* list = AsList(rootSelf.Get());
+    if (count == 0)
+    {
+        // net48 keeps the empty array: Capacity 0, Count 0.
+        list->items = nullptr;
+        list->count = 0;
+        return;
+    }
+
+    Il2CppArray* arr = AllocItems(count);
+    GcRoot<Il2CppArray*> rootItems(arr, "icall_arraylist_create_from_collection_items");
+    Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(arr->data);
+
+    // Pass 2: fill (a fresh enumerator; the collection is rooted).
+    int32_t filled = 0;
+    {
+        Il2CppObject* en = il2cpp_ienum_get_enumerator_nongeneric(rootCollection.Get());
+        GcRoot<Il2CppObject*> rootEnum(en, "icall_arraylist_create_from_collection_enum2");
+        while (filled < count && il2cpp_ienum_move_next(en))
+        {
+            Il2CppObject* item = il2cpp_ienum_get_current_obj(en);
+            Il2CppArray* live = rootItems.Get();
+            dst = reinterpret_cast<Il2CppObject**>(live->data);
+            dst[filled] = item;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&dst[filled]), item);
+            ++filled;
+            en = rootEnum.Get();
+        }
+        il2cpp_ienum_dispose(en);
+    }
+
+    list = AsList(rootSelf.Get());
+    arr = rootItems.Get();
+    list->items = arr;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
+                         reinterpret_cast<Il2CppObject*>(list->items));
+    list->count = filled;
 }
 
 void il2cpp_arraylist_add(Il2CppObject* self, Il2CppObject* value)

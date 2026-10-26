@@ -1626,7 +1626,7 @@ public static partial class MethodRefResolver
                 return name == "Invoke" ? I("System.Delegate_Invoke", 0, ret != 0x01, false, true) : null;
             case "System.Linq.Expressions.Expression":
             case "System.Linq.Expressions.LambdaExpression": return TryMapExprTree(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
-            case "System.Array": return TryMapArray(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, arrayParamTypes)
+            case "System.Array": return TryMapArray(owner, name, ps, count, genArgs, genArgNames, receiverType, receiverIsAddress, arg0Type, arg1Type, arrayParamTypes)
                 ?? TryMapArraySort(owner, name, ps, count, genArgs, genArgNames, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.DateTime": return TryMapDateTime(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, dtParamTypes)
                 ?? TryMapTimeExt2(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)

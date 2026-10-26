@@ -484,4 +484,222 @@ void il2cpp_array_set_value_long(Il2CppArray* arr, Il2CppObject* value, int64_t 
     il2cpp_array_set_value(arr, value, static_cast<int32_t>(index));
 }
 
+//------------------------------------------------------------------------------
+// Multi-dimensional GetValue/SetValue (see the header contract).
+//------------------------------------------------------------------------------
+namespace {
+
+void RequireRankExtra(const Il2CppArray* a, int32_t rank)
+{
+    if (a->rank != rank)
+    {
+        il2cpp_throw_argument_exception(
+            "Only arrays of the requested rank are supported for this operation.");
+    }
+}
+
+void RequireDimIndexExtra(const Il2CppArray* a, int32_t dim, int32_t index)
+{
+    if (index < 0 || index >= a->dims[dim])
+    {
+        il2cpp_throw_index_out_of_range_exception(nullptr);
+    }
+}
+
+int32_t FlatIndex2(const Il2CppArray* a, int32_t i0, int32_t i1)
+{
+    RequireDimIndexExtra(a, 0, i0);
+    RequireDimIndexExtra(a, 1, i1);
+    return i0 * a->dims[1] + i1;
+}
+
+int32_t FlatIndex3(const Il2CppArray* a, int32_t i0, int32_t i1, int32_t i2)
+{
+    RequireDimIndexExtra(a, 0, i0);
+    RequireDimIndexExtra(a, 1, i1);
+    RequireDimIndexExtra(a, 2, i2);
+    return (i0 * a->dims[1] + i1) * a->dims[2] + i2;
+}
+
+void RequireInt32Range(int64_t value, const char* name)
+{
+    if (value < INT32_MIN || value > INT32_MAX)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            name, "Arrays larger than 2GB are not supported.");
+    }
+}
+
+// Row-major flat offset for a params index array. The index array's rank
+// must equal the target array's rank (net48 Arg_RankIndices).
+int32_t FlatIndexFromIndices(const Il2CppArray* a, const Il2CppArray* indices)
+{
+    if (indices->length != a->rank)
+    {
+        il2cpp_throw_argument_exception(
+            "Number of indices does not match the array rank.");
+    }
+    int32_t flat = 0;
+    for (int32_t d = 0; d < a->rank; ++d)
+    {
+        const int32_t idx = *reinterpret_cast<const int32_t*>(
+            indices->data + static_cast<size_t>(d) * sizeof(int32_t));
+        RequireDimIndexExtra(a, d, idx);
+        flat = flat * a->dims[d] + idx;
+    }
+    return flat;
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_array_get_value_2d(Il2CppArray* arr, int32_t index1, int32_t index2)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireRankExtra(a, 2);
+    return il2cpp_array_get_value(a, FlatIndex2(a, index1, index2));
+}
+
+void il2cpp_array_set_value_2d(Il2CppArray* arr, Il2CppObject* value, int32_t index1, int32_t index2)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireRankExtra(a, 2);
+    il2cpp_array_set_value(a, value, FlatIndex2(a, index1, index2));
+}
+
+Il2CppObject* il2cpp_array_get_value_3d(Il2CppArray* arr, int32_t index1, int32_t index2, int32_t index3)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireRankExtra(a, 3);
+    return il2cpp_array_get_value(a, FlatIndex3(a, index1, index2, index3));
+}
+
+void il2cpp_array_set_value_3d(Il2CppArray* arr, Il2CppObject* value, int32_t index1, int32_t index2, int32_t index3)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    RequireRankExtra(a, 3);
+    il2cpp_array_set_value(a, value, FlatIndex3(a, index1, index2, index3));
+}
+
+Il2CppObject* il2cpp_array_get_value_indices(Il2CppArray* arr, Il2CppArray* indices)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    if (indices == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("indices");
+    }
+    Il2CppArray* idx = RequireArrayExtra(indices);
+    if (idx->isRefElem || idx->elemSize != sizeof(int32_t))
+    {
+        il2cpp_throw_argument_exception("indices must be an int32 array.");
+    }
+    return il2cpp_array_get_value(a, FlatIndexFromIndices(a, idx));
+}
+
+void il2cpp_array_set_value_indices(Il2CppArray* arr, Il2CppObject* value, Il2CppArray* indices)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    if (indices == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("indices");
+    }
+    Il2CppArray* idx = RequireArrayExtra(indices);
+    if (idx->isRefElem || idx->elemSize != sizeof(int32_t))
+    {
+        il2cpp_throw_argument_exception("indices must be an int32 array.");
+    }
+    il2cpp_array_set_value(a, value, FlatIndexFromIndices(a, idx));
+}
+
+Il2CppObject* il2cpp_array_get_value_2d_long(Il2CppArray* arr, int64_t index1, int64_t index2)
+{
+    RequireInt32Range(index1, "index1");
+    RequireInt32Range(index2, "index2");
+    return il2cpp_array_get_value_2d(arr, static_cast<int32_t>(index1), static_cast<int32_t>(index2));
+}
+
+void il2cpp_array_set_value_2d_long(Il2CppArray* arr, Il2CppObject* value, int64_t index1, int64_t index2)
+{
+    RequireInt32Range(index1, "index1");
+    RequireInt32Range(index2, "index2");
+    il2cpp_array_set_value_2d(arr, value, static_cast<int32_t>(index1), static_cast<int32_t>(index2));
+}
+
+Il2CppObject* il2cpp_array_get_value_3d_long(Il2CppArray* arr, int64_t index1, int64_t index2, int64_t index3)
+{
+    RequireInt32Range(index1, "index1");
+    RequireInt32Range(index2, "index2");
+    RequireInt32Range(index3, "index3");
+    return il2cpp_array_get_value_3d(arr, static_cast<int32_t>(index1), static_cast<int32_t>(index2),
+                                     static_cast<int32_t>(index3));
+}
+
+void il2cpp_array_set_value_3d_long(Il2CppArray* arr, Il2CppObject* value, int64_t index1, int64_t index2, int64_t index3)
+{
+    RequireInt32Range(index1, "index1");
+    RequireInt32Range(index2, "index2");
+    RequireInt32Range(index3, "index3");
+    il2cpp_array_set_value_3d(arr, value, static_cast<int32_t>(index1), static_cast<int32_t>(index2),
+                              static_cast<int32_t>(index3));
+}
+
+Il2CppObject* il2cpp_array_get_value_indices_long(Il2CppArray* arr, Il2CppArray* indices)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    if (indices == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("indices");
+    }
+    Il2CppArray* idx = RequireArrayExtra(indices);
+    if (idx->isRefElem || idx->elemSize != sizeof(int64_t))
+    {
+        il2cpp_throw_argument_exception("indices must be an int64 array.");
+    }
+    if (idx->length != a->rank)
+    {
+        il2cpp_throw_argument_exception(
+            "Number of indices does not match the array rank.");
+    }
+    int32_t flat = 0;
+    for (int32_t d = 0; d < a->rank; ++d)
+    {
+        const int64_t raw = *reinterpret_cast<const int64_t*>(
+            idx->data + static_cast<size_t>(d) * sizeof(int64_t));
+        RequireInt32Range(raw, "index");
+        const int32_t v = static_cast<int32_t>(raw);
+        RequireDimIndexExtra(a, d, v);
+        flat = flat * a->dims[d] + v;
+    }
+    return il2cpp_array_get_value(a, flat);
+}
+
+void il2cpp_array_set_value_indices_long(Il2CppArray* arr, Il2CppObject* value, Il2CppArray* indices)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    if (indices == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("indices");
+    }
+    Il2CppArray* idx = RequireArrayExtra(indices);
+    if (idx->isRefElem || idx->elemSize != sizeof(int64_t))
+    {
+        il2cpp_throw_argument_exception("indices must be an int64 array.");
+    }
+    if (idx->length != a->rank)
+    {
+        il2cpp_throw_argument_exception(
+            "Number of indices does not match the array rank.");
+    }
+    int32_t flat = 0;
+    for (int32_t d = 0; d < a->rank; ++d)
+    {
+        const int64_t raw = *reinterpret_cast<const int64_t*>(
+            idx->data + static_cast<size_t>(d) * sizeof(int64_t));
+        RequireInt32Range(raw, "index");
+        const int32_t v = static_cast<int32_t>(raw);
+        RequireDimIndexExtra(a, d, v);
+        flat = flat * a->dims[d] + v;
+    }
+    il2cpp_array_set_value(a, value, flat);
+}
+
 } // namespace il2cpp

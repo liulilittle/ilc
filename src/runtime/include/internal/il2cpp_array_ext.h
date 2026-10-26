@@ -64,6 +64,15 @@ void icall_array_copy(Il2CppObject* src, int32_t srcIndex, Il2CppObject* dst,
 // same validation+copy with both indices zero (the net48 3-arg contract).
 void icall_array_copy_3(Il2CppObject* src, Il2CppObject* dst, int32_t length);
 
+// Array.Copy(Array, long, Array, long, long) and Copy(Array, Array, long)
+// (net48 array.cs:320/:329). The long arguments are validated against the
+// int32 range FIRST (ArgumentOutOfRangeException "length"/"sourceIndex"/
+// "destinationIndex", net48 ArgumentOutOfRange_HugeArrayNotSupported), then
+// the int32 core runs (its null/range/element-kind checks).
+void icall_array_copy_long(Il2CppObject* src, int64_t srcIndex, Il2CppObject* dst,
+                           int64_t dstIndex, int64_t length);
+void icall_array_copy_3_long(Il2CppObject* src, Il2CppObject* dst, int64_t length);
+
 // Array.Sort: ascending in-place quicksort of an int32 array.
 //   Non-int32 arrays throw System.NotSupportedException (domain contract).
 void icall_array_sort(Il2CppObject* arr);

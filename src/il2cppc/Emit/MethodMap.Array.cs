@@ -1,4 +1,4 @@
-﻿namespace Il2Cpp.Transpiler.Emit;
+namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.Array -- System.Array icall mappings (il2cpp_array.h + the
@@ -41,7 +41,11 @@ public static partial class MethodRefResolver
             0x0D => "d",
             // arrgen1b: the float converter family (the double-slot source ABI).
             0x0C => "f",
-            0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "str",
+            // Reference-element families (0x15 GENERICINST is NOT included:
+            // the blob does not say whether the instantiation is a value or a
+            // reference type -- the dynamic fallback / class-3 whitelist owns
+            // it).
+            0x0E or 0x12 or 0x13 or 0x1C or 0x1D or 0x1E or 0x14 or 0x1B => "str",
             _ => null,
         };
         static string? OutSuffix(byte b) => b switch
@@ -50,7 +54,7 @@ public static partial class MethodRefResolver
             0x0A or 0x0B => "i8",
             0x0D => "d",
             0x0C => "f",
-            0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "str",
+            0x0E or 0x12 or 0x13 or 0x1C or 0x1D or 0x1E or 0x14 or 0x1B => "str",
             _ => null,
         };
         var i = InSuffix(ti);
@@ -74,8 +78,66 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
+    // Element-family classification for the generic Array surface. A reference
+    // family element is an Il2CppObject* slot (string/object/class/array or a
+    // closed reference generic instantiation); a narrow integral rides the
+    // int32 IL slot with a 1/2-byte array cell; IntPtr/UIntPtr ride the native
+    // 8-byte cell. 0x15 (GENERICINST) is deliberately NOT a reference family:
+    // the MethodSpec blob does not say whether the instantiation is a value or
+    // a reference type, so those shapes stay LOUD (class 2/3).
+    private static bool IsRefElemFamily(byte b) =>
+        b is 0x0E or 0x12 or 0x1C or 0x13 or 0x1E or 0x1D or 0x14 or 0x1B;
+
+    private static bool IsNarrowElemFamily(byte b) =>
+        b is 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07;
+
+    // The narrow kind literal consumed by the arraysort.cpp kernels:
+    // 8 bool, 9 char, 10 sbyte, 11 byte, 12 short, 13 ushort.
+    private static string? NarrowKindLiteral(byte b) => b switch
+    {
+        0x02 => "8",
+        0x03 => "9",
+        0x04 => "10",
+        0x05 => "11",
+        0x06 => "12",
+        0x07 => "13",
+        _ => null,
+    };
+
+    // ConvertAll dynamic-kernel kind literal (arrayext2.cpp
+    // icall_array_convert_all_dyn): 0 ref, 1 i4, 2 i8, 3 f, 4 d, 8..13 the
+    // narrow integrals. null = no materialized converter cell.
+    private static string? ConvKindLiteral(byte b)
+    {
+        if (b is 0x0E or 0x12 or 0x1C or 0x13 or 0x1D or 0x1E or 0x14 or 0x1B) return "0";
+        if (b == 0x08) return "1";
+        if (b is 0x0A or 0x0B) return "2";
+        if (b == 0x0C) return "3";
+        if (b == 0x0D) return "4";
+        return NarrowKindLiteral(b);
+    }
+
+    // 0x11 value types whose array cell the runtime already models as an
+    // int64 tick/word (DateTime/TimeSpan) or as the native pointer cell
+    // (IntPtr/UIntPtr) can ride the int64/uint64 kernels. Every OTHER 0x11
+    // value type has no materialized array element kind/descriptor and stays
+    // LOUD (class 3).
+    private static bool IsInt64CellValueType(byte[]? genArgs, string[]? genArgNames) =>
+        genArgs is { Length: >= 1 } && genArgs[0] == 0x11
+        && genArgNames is { Length: >= 1 }
+        && genArgNames[0] is "System.DateTime" or "System.TimeSpan";
+
+    private static bool IsUInt64CellValueType(byte[]? genArgs, string[]? genArgNames) =>
+        genArgs is { Length: >= 1 } && genArgs[0] == 0x19
+        && genArgNames is { Length: >= 1 }
+        && genArgNames[0] == "System.UIntPtr";
+
+    private static bool IsInt64Cell(byte[]? genArgs, string[]? genArgNames) =>
+        genArgs is { Length: >= 1 }
+        && (genArgs[0] == 0x18 || IsInt64CellValueType(genArgs, genArgNames));
+
     private static ResolvedMethod? TryMapArray(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
+        string[]? genArgNames, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
         string? paramTypes = null)
     {
         switch (name)
@@ -103,7 +165,10 @@ public static partial class MethodRefResolver
                             return I("il2cpp::il2cpp_array_sort_keys_items_range", 5, false, false, false,
                                 new[] { "a", "a", "i", "i", "" });
                         throw new NotSupportedException(
-                            $"Array.Sort<TKey,TValue> with {count} arg(s) is not a net48 overload");
+                            $"LOUD whitelist (net48 has no such overload): Array.Sort<TKey,TValue> arity {count} -- " +
+                            "net48 has (keys, items), (keys, items, IComparer), (keys, items, int, int) and " +
+                            "(keys, items, int, int, IComparer) only " +
+                            "[Reference Source mscorlib/system/array.cs:1787, :1800, :1813, :1855]");
                     }
                     // nb9 H-B3: Array.Sort<T>(T[], IComparer<T>) and
                     // Array.Sort<T>(T[], Comparison<T>) share the same
@@ -169,7 +234,7 @@ public static partial class MethodRefResolver
                         0x0C when count == 2 && !secondIsIComparer => I("il2cpp::il2cpp_array_sort_float_comparison", 2, false, false, false, new[] { "a", "" }),
                         0x0D when count == 2 && !secondIsIComparer => I("il2cpp::il2cpp_array_sort_double_comparison", 2, false, false, false, new[] { "a", "" }),
                         // a5reds (strsort_ordinal): the SAME generic Sort<T>
-                        0x0E or 0x1C or 0x12 when count == 2 =>
+                        0x0E or 0x1C or 0x12 or 0x13 or 0x1D or 0x14 or 0x1B when count == 2 =>
                             secondIsIComparer
                                 || arg0Type is "System.StringComparer.Ordinal" or "System.StringComparer.OrdinalIgnoreCase"
                                 // The second argument is an IComparer<T>
@@ -215,10 +280,71 @@ public static partial class MethodRefResolver
                             I("il2cpp::il2cpp_array_sort_icomparer_float_range", 4, false, false, false, new[] { "a", "i", "i", "" }),
                         0x0D when count == 4 && fourthIsIComparer =>
                             I("il2cpp::il2cpp_array_sort_icomparer_double_range", 4, false, false, false, new[] { "a", "i", "i", "" }),
-                        0x08 or 0x0E or 0x1C or 0x12 when count == 4 && fourthIsIComparer =>
+                        0x08 or 0x0E or 0x1C or 0x12 or 0x13 or 0x1D or 0x14 or 0x1B when count == 4 && fourthIsIComparer =>
                             I("il2cpp::il2cpp_array_sort_icomparer_range", 4, false, false, false,
                                 new[] { "a", "i", "i", "" }),
-                        _ => throw new NotSupportedException($"Array.Sort<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) not wired: the wired families are int32/uint32/int64/float/double/string/object/class (0x08/0x09/0x0A/0x0C/0x0D/0x0E/0x12/0x1C) and uint64 (0x0B); this shape is an arity/family with no runtime sort entry"),
+                        // Narrow-integral families: the kind literal selects
+                        // the real cell width (arraysort.cpp).
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 1 =>
+                            I("il2cpp::il2cpp_array_sort_narrow", 1, false, false, false, new[] { "a" },
+                                appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 2 =>
+                            secondIsIComparer
+                                ? I("il2cpp::il2cpp_array_sort_narrow_icomparer", 2, false, false, false,
+                                    new[] { "a", "" }, appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! })
+                                : I("il2cpp::il2cpp_array_sort_narrow_comparison", 2, false, false, false,
+                                    new[] { "a", "" }, appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 3 =>
+                            I("il2cpp::il2cpp_array_sort_narrow_range", 3, false, false, false,
+                                new[] { "a", "i", "i" }, appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 when count == 4 && fourthIsIComparer =>
+                            I("il2cpp::il2cpp_array_sort_narrow_icomparer_range", 4, false, false, false,
+                                new[] { "a", "i", "i", "" }, appendLiterals: new[] { NarrowKindLiteral(genArgs[0])! }),
+                        // IntPtr (0x18) rides the signed int64 kernels;
+                        // UIntPtr (0x19) the unsigned uint64 kernels.
+                        0x18 when count == 1 => I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
+                        0x18 when count == 2 =>
+                            secondIsIComparer
+                                ? I("il2cpp::il2cpp_array_sort_icomparer_int64", 2, false, false, false, new[] { "a", "" })
+                                : I("il2cpp::il2cpp_array_sort_int64_comparison", 2, false, false, false, new[] { "a", "" }),
+                        0x18 when count == 3 => I("il2cpp::il2cpp_array_sort_any_range", 3, false, false, false, new[] { "a", "i", "i" }),
+                        0x18 when count == 4 && fourthIsIComparer =>
+                            I("il2cpp::il2cpp_array_sort_icomparer_int64_range", 4, false, false, false, new[] { "a", "i", "i", "" }),
+                        0x19 when count == 1 => I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
+                        0x19 when count == 3 => I("il2cpp::il2cpp_array_sort_any_range", 3, false, false, false, new[] { "a", "i", "i" }),
+                        // Closed reference generic instantiations / arrays of
+                        // arrays / function pointers are reference slots.
+                        0x13 or 0x1D or 0x14 or 0x1B when count == 1 =>
+                            I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
+                        0x13 or 0x1D or 0x14 or 0x1B when count == 3 =>
+                            I("il2cpp::il2cpp_array_sort_any_range", 3, false, false, false, new[] { "a", "i", "i" }),
+                        // DateTime/TimeSpan are 8-byte tick cells; the
+                        // element-kind sorter orders them by ticks.
+                        _ when count == 1 && IsInt64CellValueType(genArgs, genArgNames) =>
+                            I("il2cpp::il2cpp_array_sort_any", 1, false, false, false, new[] { "a" }),
+                        _ when count == 3 && IsInt64CellValueType(genArgs, genArgNames) =>
+                            I("il2cpp::il2cpp_array_sort_any_range", 3, false, false, false, new[] { "a", "i", "i" }),
+                        _ when count == 4 && !fourthIsIComparer =>
+                            throw new NotSupportedException(
+                                $"LOUD whitelist (net48 has no such overload): Array.Sort<T> arity 4 whose fourth " +
+                                "parameter is not IComparer<T> -- net48 has no (T[], int, int, Comparison<T>) " +
+                                "overload [Reference Source mscorlib/system/array.cs:1822]"),
+                        _ when count == 5 =>
+                            throw new NotSupportedException(
+                                $"LOUD whitelist (net48 has no such overload): Array.Sort<T> arity {count} -- the " +
+                                "single-array generic overloads take at most 4 parameters " +
+                                "[Reference Source mscorlib/system/array.cs:1779-1903]"),
+                        0x15 =>
+                            throw new NotSupportedException(
+                                $"LOUD whitelist (runtime generic-instantiation kind unknown): Array.Sort<0x15> with " +
+                                $"{count} arg(s) -- the MethodSpec blob does not say whether the closed generic " +
+                                "instantiation is a value or a reference type, so no element family can be selected " +
+                                "[Reference Source mscorlib/system/array.cs:1779-1903]"),
+                        _ => throw new NotSupportedException(
+                            $"LOUD whitelist (unmaterialized value-type array descriptor): Array.Sort<T> generic " +
+                            $"argument 0x{genArgs[0]:X2} with {count} arg(s) -- the value array carries no element " +
+                            "kind/descriptor, so no comparer/box path can be built for this value type " +
+                            "[Reference Source mscorlib/system/array.cs:1779-1903]"),
                     };
                 }
                 // Non-generic Array.Sort(Array[, IComparer]).
@@ -244,7 +370,10 @@ public static partial class MethodRefResolver
                         I("il2cpp::il2cpp_array_sort_keys_items_default_range", 4, false, false, false, new[] { "a", "a", "i", "i" }),
                     4 => I("il2cpp::il2cpp_array_sort_any_range_icomparer", 4, false, false, false, new[] { "a", "i", "i", "" }),
                     5 => I("il2cpp::il2cpp_array_sort_keys_items_range", 5, false, false, false, new[] { "a", "a", "i", "i", "" }),
-                    _ => throw new NotSupportedException($"Array.Sort(Array, ...) with {count} arg(s) not wired in M5"),
+                    _ => throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Array.Sort(Array, ...) arity {count} -- " +
+                        "net48 has arities 1..5 only " +
+                        "[Reference Source mscorlib/system/array.cs:1643-1735]"),
                 };
             case "BinarySearch":
                 if (genArgs != null)
@@ -291,7 +420,10 @@ public static partial class MethodRefResolver
                     3 => I("il2cpp::il2cpp_array_binary_search_any_icomparer", 3, true, false, false, new[] { "a", "", "" }),
                     4 => I("il2cpp::il2cpp_array_binary_search_any_range", 4, true, false, false, new[] { "a", "i", "i", "" }),
                     5 => I("il2cpp::il2cpp_array_binary_search_any_icomparer_range", 5, true, false, false, new[] { "a", "i", "i", "", "" }),
-                    _ => throw new NotSupportedException($"Array.BinarySearch(Array, object, ...) with {count} arg(s) not wired in M5"),
+                    _ => throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Array.BinarySearch(Array, object, ...) " +
+                        $"arity {count} -- net48 has arities 2..5 only " +
+                        "[Reference Source mscorlib/system/array.cs:841-911]"),
                 };
             case "IndexOf":
                 if (genArgs != null)
@@ -312,7 +444,7 @@ public static partial class MethodRefResolver
                 if (count == 2) return I("il2cpp::il2cpp_array_index_of_any_start", 2, true, false, false, new[] { "a", "" }, appendZero: true);
                 if (count == 3) return I("il2cpp::il2cpp_array_index_of_any_start", 3, true, false, false, new[] { "a", "", "i" });
                 if (count == 4) return I("il2cpp::il2cpp_array_index_of_any_range", 4, true, false, false, new[] { "a", "", "i", "i" });
-                throw new NotSupportedException($"Array.IndexOf(Array, object, ...) with {count} arg(s) not wired in M5");
+                throw new NotSupportedException($"LOUD whitelist (net48 has no such overload): Array.IndexOf(Array, object, ...) arity {count} -- net48 has arities 2..4 only [Reference Source mscorlib/system/array.cs:1282-1315]");
             case "LastIndexOf":
                 if (genArgs != null)
                 {
@@ -331,7 +463,7 @@ public static partial class MethodRefResolver
                 if (count == 2) return I("il2cpp::il2cpp_array_last_index_of_any", 2, true, false, false, new[] { "a", "" });
                 if (count == 3) return I("il2cpp::il2cpp_array_last_index_of_any_start", 3, true, false, false, new[] { "a", "", "i" });
                 if (count == 4) return I("il2cpp::il2cpp_array_last_index_of_any_range", 4, true, false, false, new[] { "a", "", "i", "i" });
-                throw new NotSupportedException($"Array.LastIndexOf(Array, object, ...) with {count} arg(s) not wired in M5");
+                throw new NotSupportedException($"LOUD whitelist (net48 has no such overload): Array.LastIndexOf(Array, object, ...) arity {count} -- net48 has arities 2..4 only [Reference Source mscorlib/system/array.cs:1422-1454]");
             case "Empty":
                 // Array.Empty<T>() -- generic static method (MethodSpec
                 // genArgs = [T]; Roslyn lowers no-arg TrimStart()/TrimEnd()
@@ -370,10 +502,26 @@ public static partial class MethodRefResolver
                         // W7 (T2): the uint64 zero-length factory (the one
                         // primitive element family without a dedicated factory).
                         0x0B => I("il2cpp::runtime::icall_array_empty_uint64", 0, true, true, false),
-                        _ => throw new NotSupportedException($"Array.Empty<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
+                        // Closed reference generic instantiations / arrays of
+                        // arrays / function pointers are reference slots.
+                        0x13 or 0x1D or 0x14 or 0x1B =>
+                            I("il2cpp::runtime::icall_array_empty_object", 0, true, true, false),
+                        // IntPtr/UIntPtr are native-width value cells.
+                        0x18 => I("il2cpp::runtime::icall_array_empty_long", 0, true, true, false),
+                        0x19 => I("il2cpp::runtime::icall_array_empty_uint64", 0, true, true, false),
+                        // DateTime/TimeSpan are 8-byte tick cells.
+                        _ when IsInt64CellValueType(genArgs, genArgNames) =>
+                            I("il2cpp::runtime::icall_array_empty_long", 0, true, true, false),
+                        _ => throw new NotSupportedException(
+                            $"LOUD whitelist (unmaterialized value-type array descriptor): Array.Empty<T> generic " +
+                            $"argument 0x{genArgs[0]:X2} -- a BCL value type whose {{T}}_class / array element " +
+                            "kind was never materialized, so the zero-length array cannot be built " +
+                            "[Reference Source mscorlib/system/array.cs:1080]"),
                     };
                 }
-                throw new NotSupportedException("Array.Empty non-generic not wired in M5");
+                throw new NotSupportedException(
+                    "LOUD whitelist (net48 has no such overload): Array.Empty is generic only " +
+                    "(Array.Empty<T>()) [Reference Source mscorlib/system/array.cs:1080]");
             case "Clear":
                 return I("il2cpp::runtime::icall_array_clear_int32", 3, false, false, false);
             case "Reverse":
@@ -408,7 +556,18 @@ public static partial class MethodRefResolver
                             0x09 => I("il2cpp::il2cpp_array_reverse_uint", 1, false, false, false, new[] { "a" }),
                             // W7 (T2): the uint64 reverser (8-byte slot twin).
                             0x0B => I("il2cpp::il2cpp_array_reverse_uint64", 1, false, false, false, new[] { "a" }),
-                            _ => throw new NotSupportedException($"Array.Reverse<T> generic argument 0x{genArgs[0]:X2} not wired in M5"),
+                            // Closed reference generic instantiations / arrays
+                            // of arrays / function pointers: reference slots.
+                            0x13 or 0x1D or 0x14 or 0x1B =>
+                                I("il2cpp::il2cpp_array_reverse_object", 1, false, false, false, new[] { "a" }),
+                            0x18 => I("il2cpp::il2cpp_array_reverse_int64", 1, false, false, false, new[] { "a" }),
+                            0x19 => I("il2cpp::il2cpp_array_reverse_uint64", 1, false, false, false, new[] { "a" }),
+                            _ when IsInt64CellValueType(genArgs, genArgNames) =>
+                                I("il2cpp::il2cpp_array_reverse_int64", 1, false, false, false, new[] { "a" }),
+                            _ => throw new NotSupportedException(
+                                $"LOUD whitelist (unmaterialized value-type array descriptor): Array.Reverse<T> " +
+                                $"generic argument 0x{genArgs[0]:X2} -- a BCL value type with no materialized " +
+                                "array element kind/descriptor [Reference Source mscorlib/system/array.cs:1579]"),
                         };
                     }
                     // Non-generic Reverse(Array): genArgs is null (the
@@ -436,6 +595,11 @@ public static partial class MethodRefResolver
                         "System.UInt32[]" => I("il2cpp::il2cpp_array_reverse_uint", 1, false, false, false, new[] { "a" }),
                         // W7 (T2): the uint64 reverser (8-byte slot twin).
                         "System.UInt64[]" => I("il2cpp::il2cpp_array_reverse_uint64", 1, false, false, false, new[] { "a" }),
+                        // 8-byte value cells with a known tick/word layout.
+                        "System.DateTime[]" => I("il2cpp::il2cpp_array_reverse_int64", 1, false, false, false, new[] { "a" }),
+                        "System.TimeSpan[]" => I("il2cpp::il2cpp_array_reverse_int64", 1, false, false, false, new[] { "a" }),
+                        "System.IntPtr[]" => I("il2cpp::il2cpp_array_reverse_int64", 1, false, false, false, new[] { "a" }),
+                        "System.UIntPtr[]" => I("il2cpp::il2cpp_array_reverse_uint64", 1, false, false, false, new[] { "a" }),
                         _ => I("il2cpp::runtime::icall_array_reverse", 1, false, false, false),
                     };
                 }
@@ -448,11 +612,23 @@ public static partial class MethodRefResolver
                 // `bool reliable` -- a memory-model hint the simplified GC
                 // does not need: dropped ("drop" cast), same arity-pop
                 // discipline as GC.Collect(int).
+                // net48 long-index overloads (array.cs:320/:329): the long
+                // arguments are validated against the int32 range by the
+                // runtime wrapper, then the int32 core runs.
+                if (count == 5 && ps is { Length: >= 5 } && ps[1] == 0x0A && ps[3] == 0x0A)
+                    return I("il2cpp::runtime::icall_array_copy_long", 5, false, false, false,
+                        new[] { "", "l", "", "l", "l" });
+                if (count == 3 && ps is { Length: >= 3 } && ps[2] == 0x0A)
+                    return I("il2cpp::runtime::icall_array_copy_3_long", 3, false, false, false,
+                        new[] { "", "", "l" });
                 if (count == 5) return I("il2cpp::runtime::icall_array_copy", 5, false, false, false);
                 if (count == 3) return I("il2cpp::runtime::icall_array_copy_3", 3, false, false, false);
                 if (count == 6) return I("il2cpp::runtime::icall_array_copy", 6, false, false, false,
                     new[] { "", "i", "", "i", "i", "drop" });
-                throw new NotSupportedException($"Array.Copy with {count} arg(s) not wired: the runtime icalls need (src, srcIndex, dst, dstIndex, length) or (src, dst, length)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Array.Copy arity {count} -- net48 has " +
+                    "(Array, Array, int), (Array, Array, long), (Array, int, Array, int, int) and " +
+                    "(Array, long, Array, long, long) [Reference Source mscorlib/system/array.cs:270, :292, :320, :329]");
             case "ConstrainedCopy":
                 // CONSTRAINED (2026-08-22): Array.ConstrainedCopy(Array, int,
                 // Array, int, int) -- net48 has ONLY this 5-arg form. The
@@ -462,7 +638,10 @@ public static partial class MethodRefResolver
                 // element-kind ArrayTypeMismatch all throw BEFORE the
                 // memmove), so the entry is the SAME icall as Copy above.
                 if (count == 5) return I("il2cpp::runtime::icall_array_copy", 5, false, false, false);
-                throw new NotSupportedException($"Array.ConstrainedCopy with {count} arg(s) not wired: only the (Array, int, Array, int, int) shape exists in net48");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Array.ConstrainedCopy arity {count} -- " +
+                    "net48 has only the 5-arg (Array, int, Array, int, int) form " +
+                    "[Reference Source mscorlib/system/array.cs:314]");
             case "FindIndex":
                 // arrayext2 (2026-08-09, rtfind-b23): the DELEGATE form is
                 // now wired -- icall_array_find_index (il2cpp_array_ext2.h:145)
@@ -496,9 +675,17 @@ public static partial class MethodRefResolver
                         0x08 => "",
                         0x0A => "_i8",
                         0x0E => "_str",
+                        // Reference-element generic instantiations / arrays of
+                        // arrays / function pointers ride the reference-slot
+                        // predicate ABI.
+                        0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B => "_str",
+                        // IntPtr / DateTime / TimeSpan are 8-byte value cells;
+                        // the predicate ABI is the int64 one.
+                        0x18 => "_i8",
                         0x0D => "_d",
                         0x0C => "_f",
                         0x0B => "_u8",
+                        _ when IsInt64CellValueType(genArgs, genArgNames) => "_i8",
                         _ => NarrowSuffix(genArgs[0]),
                     };
                     if (suffix != null)
@@ -516,7 +703,7 @@ public static partial class MethodRefResolver
                     }
                 }
                 throw new NotSupportedException(
-                    $"Array.FindIndex<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A) and string (0x0E) have the delegate icalls icall_array_find_index[_i8/_str] (il2cpp_array_ext2.h)");
+                    "LOUD whitelist (unmaterialized value-type array descriptor): Array.FindIndex<T> generic argument " + $"0x{(genArgs?[0] ?? 0):X2} -- a BCL value type with no materialized array element kind/box descriptor [Reference Source mscorlib/system/array.cs:1130-1150]");
             // ARRFUNCS (2026-08-09, wir9-b23): the five remaining arrayext2
             // delegate/resize icalls (il2cpp_array_ext2.h:154-191) -- the
             // arrfuncs e2e surface. ALL are 2-arg static shapes whose IL push
@@ -559,8 +746,14 @@ public static partial class MethodRefResolver
                 if (genArgs != null && NarrowSuffix(genArgs[0]) is { } ns1)
                     return I($"il2cpp::runtime::icall_array_find{ns1}", 2, true, false, false,
                         new[] { "a", "" });
+                if (genArgs != null && IsRefElemFamily(genArgs[0]))
+                    return I("il2cpp::runtime::icall_array_find_str", 2, true, true, false, new[] { "a", "" });
+                if (genArgs != null && (genArgs[0] == 0x18 || IsInt64CellValueType(genArgs, genArgNames)))
+                    return I("il2cpp::runtime::icall_array_find_i8", 2, true, false, false, new[] { "a", "" }, "l");
                 throw new NotSupportedException(
-                    $"Array.Find<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: the wired families are int32/int64/string/double/float/uint64 and the narrow integrals (bool/char/sbyte/byte/short/ushort/uint) (il2cpp_array_ext2.h)");
+                    "LOUD whitelist (unmaterialized value-type array descriptor): Array.Find<T> generic argument " +
+                    $"0x{(genArgs?[0] ?? 0):X2} -- a BCL value type with no materialized array element kind/box " +
+                    "descriptor [Reference Source mscorlib/system/array.cs:1093]");
             case "FindLast":
                 // arrayc1: int Array.FindLast<int>(int32[], Predicate<int>) --
                 // the VALUE of the LAST matching element, or default(int)=0
@@ -597,8 +790,14 @@ public static partial class MethodRefResolver
                 if (genArgs != null && NarrowSuffix(genArgs[0]) is { } ns2)
                     return I($"il2cpp::runtime::icall_array_find_last{ns2}", 2, true, false, false,
                         new[] { "a", "" });
+                if (genArgs != null && IsRefElemFamily(genArgs[0]))
+                    return I("il2cpp::runtime::icall_array_find_last_str", 2, true, true, false, new[] { "a", "" });
+                if (genArgs != null && (genArgs[0] == 0x18 || IsInt64CellValueType(genArgs, genArgNames)))
+                    return I("il2cpp::runtime::icall_array_find_last_i8", 2, true, false, false, new[] { "a", "" }, "l");
                 throw new NotSupportedException(
-                    $"Array.FindLast<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: the wired families are int32/int64/double/string/float/uint64 and the narrow integrals (il2cpp_array_ext2.h)");
+                    "LOUD whitelist (unmaterialized value-type array descriptor): Array.FindLast<T> generic argument " +
+                    $"0x{(genArgs?[0] ?? 0):X2} -- a BCL value type with no materialized array element kind/box " +
+                    "descriptor [Reference Source mscorlib/system/array.cs:1176]");
             case "FindLastIndex":
                 // arrayc1: int Array.FindLastIndex<int>(int32[], Predicate<int>)
                 // and its range overloads -- the index of the LAST match in
@@ -618,9 +817,16 @@ public static partial class MethodRefResolver
                         0x08 => "",
                         0x0A => "_i8",
                         0x0E => "_str",
+                        // Reference-element generic instantiations / arrays of
+                        // arrays / function pointers ride the reference-slot
+                        // predicate ABI.
+                        0x12 or 0x1C or 0x13 or 0x1D or 0x14 or 0x1B => "_str",
+                        // IntPtr / DateTime / TimeSpan are 8-byte value cells.
+                        0x18 => "_i8",
                         0x0D => "_d",
                         0x0C => "_f",
                         0x0B => "_u8",
+                        _ when IsInt64CellValueType(genArgs, genArgNames) => "_i8",
                         _ => NarrowSuffix(genArgs[0]),
                     };
                     if (suffix != null)
@@ -636,7 +842,7 @@ public static partial class MethodRefResolver
                     }
                 }
                 throw new NotSupportedException(
-                    $"Array.FindLastIndex<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: only int32 (0x08), int64 (0x0A), string (0x0E), double (0x0D), float (0x0C) and uint64 (0x0B) have the predicate icalls icall_array_find_last_index[_2/_3] (il2cpp_array_ext2.h)");
+                    "LOUD whitelist (unmaterialized value-type array descriptor): Array.FindLastIndex<T> generic argument " + $"0x{(genArgs?[0] ?? 0):X2} -- a BCL value type with no materialized array element kind/box descriptor [Reference Source mscorlib/system/array.cs:1194-1212]");
             case "ForEach":
                 // arrayc1: void Array.ForEach<int>(int32[], Action<int>) --
                 // invoke the action once per element in source order; the source
@@ -668,8 +874,14 @@ public static partial class MethodRefResolver
                 if (genArgs != null && NarrowSuffix(genArgs[0]) is { } ns3)
                     return I($"il2cpp::runtime::icall_array_for_each{ns3}", 2, false, false, false,
                         new[] { "a", "" });
+                if (genArgs != null && IsRefElemFamily(genArgs[0]))
+                    return I("il2cpp::runtime::icall_array_for_each_str", 2, false, false, false, new[] { "a", "" });
+                if (genArgs != null && (genArgs[0] == 0x18 || IsInt64CellValueType(genArgs, genArgNames)))
+                    return I("il2cpp::runtime::icall_array_for_each_i8", 2, false, false, false, new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.ForEach<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: the wired families are int32/int64/double/string/float/uint64 and the narrow integrals (il2cpp_array_ext2.h)");
+                    "LOUD whitelist (unmaterialized value-type array descriptor): Array.ForEach<T> generic argument " +
+                    $"0x{(genArgs?[0] ?? 0):X2} -- a BCL value type with no materialized array element kind/box " +
+                    "descriptor [Reference Source mscorlib/system/array.cs:1249]");
             case "FindAll":
                 // int32[] Array.FindAll<int>(int32[], Predicate<int>): a NEW
                 // int32[] holding EVERY element whose predicate returns true,
@@ -705,8 +917,14 @@ public static partial class MethodRefResolver
                 if (genArgs != null && NarrowSuffix(genArgs[0]) is { } ns4)
                     return I($"il2cpp::runtime::icall_array_find_all{ns4}", 2, true, true, false,
                         new[] { "a", "" });
+                if (genArgs != null && IsRefElemFamily(genArgs[0]))
+                    return I("il2cpp::runtime::icall_array_find_all_str", 2, true, true, false, new[] { "a", "" });
+                if (genArgs != null && (genArgs[0] == 0x18 || IsInt64CellValueType(genArgs, genArgNames)))
+                    return I("il2cpp::runtime::icall_array_find_all_i8", 2, true, true, false, new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.FindAll<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: the wired families are int32/int64/double/string/float/uint64 and the narrow integrals (il2cpp_array_ext2.h)");
+                    "LOUD whitelist (unmaterialized value-type array descriptor): Array.FindAll<T> generic argument " +
+                    $"0x{(genArgs?[0] ?? 0):X2} -- a BCL value type with no materialized array element kind/box " +
+                    "descriptor [Reference Source mscorlib/system/array.cs:1111]");
             case "Exists":
                 // bool Array.Exists<int>(int32[], Predicate<int>): 1 when any
                 // element matches, 0 otherwise. The int32 result rides the bool
@@ -739,8 +957,14 @@ public static partial class MethodRefResolver
                 if (genArgs != null && NarrowSuffix(genArgs[0]) is { } ns5)
                     return I($"il2cpp::runtime::icall_array_exists{ns5}", 2, true, false, false,
                         new[] { "a", "" });
+                if (genArgs != null && IsRefElemFamily(genArgs[0]))
+                    return I("il2cpp::runtime::icall_array_exists_str", 2, true, false, false, new[] { "a", "" });
+                if (genArgs != null && (genArgs[0] == 0x18 || IsInt64CellValueType(genArgs, genArgNames)))
+                    return I("il2cpp::runtime::icall_array_exists_i8", 2, true, false, false, new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.Exists<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: the wired families are int32/int64/string/double/float/uint64 and the narrow integrals (il2cpp_array_ext2.h)");
+                    "LOUD whitelist (unmaterialized value-type array descriptor): Array.Exists<T> generic argument " +
+                    $"0x{(genArgs?[0] ?? 0):X2} -- a BCL value type with no materialized array element kind/box " +
+                    "descriptor [Reference Source mscorlib/system/array.cs:1089]");
             case "TrueForAll":
                 // bool Array.TrueForAll<int>(int32[], Predicate<int>): 1 when
                 // EVERY element matches (empty vacuously true).
@@ -772,8 +996,14 @@ public static partial class MethodRefResolver
                 if (genArgs != null && NarrowSuffix(genArgs[0]) is { } ns6)
                     return I($"il2cpp::runtime::icall_array_true_for_all{ns6}", 2, true, false, false,
                         new[] { "a", "" });
+                if (genArgs != null && IsRefElemFamily(genArgs[0]))
+                    return I("il2cpp::runtime::icall_array_true_for_all_str", 2, true, false, false, new[] { "a", "" });
+                if (genArgs != null && (genArgs[0] == 0x18 || IsInt64CellValueType(genArgs, genArgNames)))
+                    return I("il2cpp::runtime::icall_array_true_for_all_i8", 2, true, false, false, new[] { "a", "" });
                 throw new NotSupportedException(
-                    $"Array.TrueForAll<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: the wired families are int32/int64/string/double/float/uint64 and the narrow integrals (il2cpp_array_ext2.h)");
+                    "LOUD whitelist (unmaterialized value-type array descriptor): Array.TrueForAll<T> generic " +
+                    $"argument 0x{(genArgs?[0] ?? 0):X2} -- a BCL value type with no materialized array element " +
+                    "kind/box descriptor [Reference Source mscorlib/system/array.cs:1903]");
             case "ConvertAll":
             {
                 // BATCH4: the general ConvertAll<TInput,TOutput> surface over the
@@ -785,12 +1015,21 @@ public static partial class MethodRefResolver
                 byte ti = genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08;
                 byte to = genArgs is { Length: >= 2 } ? genArgs[1] : ti;
                 string? entry = ConvertAllEntry(ti, to);
-                if (entry == null)
-                    throw new NotSupportedException(
-                        $"Array.ConvertAll<TInput,TOutput> generic arguments 0x{ti:X2},0x{to:X2} not wired: " +
-                        "the converter surface covers int32/int64/double/float and the reference families " +
-                        "(a BCL valuetype or the narrow integrals have no converter icall)");
-                return I(entry, 2, true, true, false, new[] { "a", "" });
+                if (entry != null)
+                    return I(entry, 2, true, true, false, new[] { "a", "" });
+                // The narrow-integral families (and their mixed pairs with the
+                // typed families) ride the kind-parameterized dynamic kernel.
+                string? inKind = ConvKindLiteral(ti);
+                string? outKind = ConvKindLiteral(to);
+                if (inKind != null && outKind != null)
+                    return I("il2cpp::runtime::icall_array_convert_all_dyn", 2, true, true, false,
+                        new[] { "a", "" }, appendLiterals: new[] { inKind, outKind });
+                throw new NotSupportedException(
+                    "LOUD whitelist (unmaterialized value-type converter descriptor): " +
+                    $"Array.ConvertAll<TInput,TOutput> generic arguments 0x{ti:X2},0x{to:X2} -- a BCL value " +
+                    "type (or a closed GENERICINST whose value/reference nature is not in the MethodSpec blob) " +
+                    "has no materialized converter cell/box descriptor " +
+                    "[Reference Source mscorlib/system/array.cs:1031]");
             }
             case "Resize":
                 // void Array.Resize<int>(ref int32[] array, int newSize): the
@@ -828,8 +1067,19 @@ public static partial class MethodRefResolver
                 if (genArgs != null && NarrowSuffix(genArgs[0]) is { } ns7)
                     return I($"il2cpp::runtime::icall_array_resize{ns7}", 2, false, false, false,
                         new[] { "addr:a", "i" });
+                if (genArgs != null && IsRefElemFamily(genArgs[0]))
+                    return I("il2cpp::runtime::icall_array_resize_str", 2, false, false, false,
+                        new[] { "addr:a", "i" });
+                if (genArgs != null && (genArgs[0] == 0x18 || IsInt64CellValueType(genArgs, genArgNames)))
+                    return I("il2cpp::runtime::icall_array_resize_i8", 2, false, false, false,
+                        new[] { "addr:a", "i" });
+                if (genArgs != null && genArgs[0] == 0x19)
+                    return I("il2cpp::runtime::icall_array_resize_u8", 2, false, false, false,
+                        new[] { "addr:a", "i" });
                 throw new NotSupportedException(
-                    $"Array.Resize<T> generic argument 0x{(genArgs?[0] ?? 0):X2} not wired: the wired families are int32/int64/double/string/float/uint64 and the narrow integrals (il2cpp_array_ext2.h)");
+                    "LOUD whitelist (unmaterialized value-type array descriptor): Array.Resize<T> generic argument " +
+                    $"0x{(genArgs?[0] ?? 0):X2} -- a BCL value type with no materialized array element kind/box " +
+                    "descriptor [Reference Source mscorlib/system/array.cs:50]");
             case "GetLength":
                 return I("il2cpp::runtime::icall_array_get_length", 1, true, false, true, new[] { "", "i" });
             case "GetUpperBound":
@@ -877,37 +1127,63 @@ public static partial class MethodRefResolver
             // slot itself, byte/int32/int64 value arrays box/unbox through the
             // shared boxing.cpp layout.
             case "GetValue":
-                // object GetValue(int index): reference arrays return the slot
-                // (may be null); byte/int32/int64 box as System.Byte/Int32/
-                // Int64; any other stride throws NotSupportedException. The
-                // 1-D scope wires ONLY the (int index) overload -- ps[0] must
-                // be I4 (0x08); the long-index / MD / params-int[] overloads
-                // stay LOUD (no int64-index entry exists in any runtime
-                // domain, and a blind static_cast<int32_t> would truncate).
+                // net48 GetValue overloads (array.cs:353/:368/:388/:399/:413/
+                // :423/:435/:449). The 1-D and the multi-dimensional index
+                // shapes all box through the arrayextra element core; the
+                // params int[]/long[] forms take the index array.
                 if (count == 1 && ps is { Length: >= 1 } && ps[0] == 0x08)
                     return I("il2cpp::il2cpp_array_get_value", 1, true, true, true, new[] { "a", "i" });
-                // arrgen1b: the long-index 1-D form (the index is validated
-                // against the int32 range, then the int-index core runs).
                 if (count == 1 && ps is { Length: >= 1 } && ps[0] == 0x0A)
                     return I("il2cpp::il2cpp_array_get_value_long", 1, true, true, true, new[] { "a", "l" });
+                if (count == 1 && ps is { Length: >= 1 } && ps[0] == 0x1D)
+                {
+                    var idxDef = SortedSetParamDefName(paramTypes, 0);
+                    if (idxDef == "l[]")
+                        return I("il2cpp::il2cpp_array_get_value_indices_long", 1, true, true, true, new[] { "a", "a" });
+                    return I("il2cpp::il2cpp_array_get_value_indices", 1, true, true, true, new[] { "a", "a" });
+                }
+                if (count == 2 && ps is { Length: >= 2 } && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_array_get_value_2d", 2, true, true, true, new[] { "a", "i", "i" });
+                if (count == 2 && ps is { Length: >= 2 } && ps[0] == 0x0A && ps[1] == 0x0A)
+                    return I("il2cpp::il2cpp_array_get_value_2d_long", 2, true, true, true, new[] { "a", "l", "l" });
+                if (count == 3 && ps is { Length: >= 3 } && ps[0] == 0x08 && ps[1] == 0x08 && ps[2] == 0x08)
+                    return I("il2cpp::il2cpp_array_get_value_3d", 3, true, true, true, new[] { "a", "i", "i", "i" });
+                if (count == 3 && ps is { Length: >= 3 } && ps[0] == 0x0A && ps[1] == 0x0A && ps[2] == 0x0A)
+                    return I("il2cpp::il2cpp_array_get_value_3d_long", 3, true, true, true, new[] { "a", "l", "l", "l" });
                 throw new NotSupportedException(
-                    $"Array.GetValue with {count} arg(s)/index type 0x{(ps is { Length: >= 1 } gp ? gp[0] : 0):X2} not wired: the 1-D GetValue(int)/GetValue(long) shapes are wired (arrayextra.h); the multi-dimensional index shapes need the multi-dim element kernels");
+                    $"LOUD whitelist (net48 has no such overload): Array.GetValue arity {count} / index bytes " +
+                    $"0x{(ps is { Length: >= 1 } gp ? gp[0] : 0):X2} -- net48 has (int), (long), (int,int), " +
+                    "(int,int,int), (long,long), (long,long,long), (params int[]) and (params long[]) only " +
+                    "[Reference Source mscorlib/system/array.cs:353-449]");
             case "SetValue":
-                // void SetValue(object value, int index): reference arrays
-                // store the reference (null legal, write barrier always run);
-                // byte/int32/int64 unbox through the array's primitive type
-                // (wrong boxed type -> InvalidCastException, null on a value
-                // array -> ArgumentNullException). The index must be I4
-                // (ps[1] == 0x08) -- the long-index overload stays LOUD for
-                // the same truncation reason as GetValue above.
+                // net48 SetValue overloads (array.cs:482/:494/:505/:516/:532/
+                // :542/:554/:568). The value slot is the object reference; the
+                // indices select the 1-D / multi-dimensional / params forms.
                 if (count == 2 && ps is { Length: >= 2 } && ps[1] == 0x08)
                     return I("il2cpp::il2cpp_array_set_value", 2, false, false, true, new[] { "a", "", "i" });
-                // arrgen1b: the long-index 1-D form (the index is validated
-                // against the int32 range, then the int-index core runs).
                 if (count == 2 && ps is { Length: >= 2 } && ps[1] == 0x0A)
                     return I("il2cpp::il2cpp_array_set_value_long", 2, false, false, true, new[] { "a", "", "l" });
+                if (count == 2 && ps is { Length: >= 2 } && ps[1] == 0x1D)
+                {
+                    var idxDef = SortedSetParamDefName(paramTypes, 1);
+                    if (idxDef == "l[]")
+                        return I("il2cpp::il2cpp_array_set_value_indices_long", 2, false, false, true, new[] { "a", "", "a" });
+                    return I("il2cpp::il2cpp_array_set_value_indices", 2, false, false, true, new[] { "a", "", "a" });
+                }
+                if (count == 3 && ps is { Length: >= 3 } && ps[1] == 0x08 && ps[2] == 0x08)
+                    return I("il2cpp::il2cpp_array_set_value_2d", 3, false, false, true, new[] { "a", "", "i", "i" });
+                if (count == 3 && ps is { Length: >= 3 } && ps[1] == 0x0A && ps[2] == 0x0A)
+                    return I("il2cpp::il2cpp_array_set_value_2d_long", 3, false, false, true, new[] { "a", "", "l", "l" });
+                if (count == 4 && ps is { Length: >= 4 } && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] == 0x08)
+                    return I("il2cpp::il2cpp_array_set_value_3d", 4, false, false, true, new[] { "a", "", "i", "i", "i" });
+                if (count == 4 && ps is { Length: >= 4 } && ps[1] == 0x0A && ps[2] == 0x0A && ps[3] == 0x0A)
+                    return I("il2cpp::il2cpp_array_set_value_3d_long", 4, false, false, true, new[] { "a", "", "l", "l", "l" });
                 throw new NotSupportedException(
-                    $"Array.SetValue with {count} arg(s)/index type 0x{(ps is { Length: >= 2 } sp ? sp[1] : 0):X2} not wired: the 1-D SetValue(object, int)/SetValue(object, long) shapes are wired (arrayextra.h); the multi-dimensional index shapes need the multi-dim element kernels");
+                    $"LOUD whitelist (net48 has no such overload): Array.SetValue arity {count} / index bytes " +
+                    $"0x{(ps is { Length: >= 2 } sp ? sp[1] : 0):X2} -- net48 has (object,int), (object,long), " +
+                    "(object,int,int), (object,int,int,int), (object,long,long), (object,long,long,long), " +
+                    "(object,params int[]) and (object,params long[]) only " +
+                    "[Reference Source mscorlib/system/array.cs:482-568]");
             // P6: Array.GetCorElementTypeOfElementType -- returns the CorElementType
             // of the array's element type (stub: returns 4 = ELEMENT_TYPE_I4).
             case "GetCorElementTypeOfElementType": return I("il2cpp::runtime::icall_array_get_cor_element_type_of_element_type", 1, true, false, false);

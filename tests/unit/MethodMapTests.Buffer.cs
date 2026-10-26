@@ -141,6 +141,28 @@ public class MethodMapBufferTests
         Assert.Contains("System.Buffer::SetByte", ex.Message);
     }
 
+    [Fact]
+    public void Resolve_Buffer_MemoryCopyULong_MapsToU64Icall()
+    {
+        var (_, arr) = Synthesize("MemoryCopy", new byte[] { 0x00, 0x04, 0x01, 0x18, 0x18, 0x0B, 0x0B });
+
+        var resolved = ResolveBuffer("MemoryCopy",
+            new byte[] { 0x00, 0x04, 0x01, 0x18, 0x18, 0x0B, 0x0B });
+
+        Assert.Equal("il2cpp::runtime::il2cpp_buffer_memory_copy_sized_u64", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Buffer_BlockCopyBadArity_ThrowsWhitelist()
+    {
+        var (_, arr) = Synthesize("BlockCopy", new byte[] { 0x00, 0x01, 0x01, 0x12, 0x09 });
+
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveBuffer("BlockCopy", new byte[] { 0x00, 0x01, 0x01, 0x12, arr }));
+
+        Assert.Contains("LOUD whitelist (net48 has no such overload)", ex.Message);
+    }
     //--------------------------------------------------------------------------
     // Unknown member -- dispatch miss falls back to the generated-name path
     // (the manual's "unwired members return null" contract).

@@ -61,6 +61,18 @@ public class MethodMapArrayListTests
     }
 
     [Fact]
+    public void Resolve_ArrayList_CtorCollection_MapsToCreateFromCollectionIcall()
+    {
+        var (pe, _) = SynthesizeCollectionCtor();
+        var resolved = ResolveMember(pe, ".ctor");
+
+        Assert.Equal("il2cpp::il2cpp_arraylist_create_from_collection", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+    [Fact]
     public void Resolve_ArrayList_CtorNonInt32Capacity_ThrowsLoud()
     {
         // Only the int-capacity ctor is wired; an object/long capacity keeps
@@ -316,6 +328,29 @@ public class MethodMapArrayListTests
         return bytes;
     }
 
+    // A .ctor PE whose ICollection parameter carries a REAL TypeRef coded
+    // index (the plain Sig helper cannot express the 0x12 trailing token).
+    private static (MemoryStream Pe, byte CollectionCoded) SynthesizeCollectionCtor()
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var alRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections"), mdb.GetOrAddString("ArrayList"));
+        var collRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections"), mdb.GetOrAddString("ICollection"));
+        var coded = (byte)((MetadataTokens.GetRowNumber(collRef) << 2) | 1);
+        var sig = new byte[] { 0x00, 0x01, 0x01, 0x12, coded };
+        mdb.AddMemberReference(alRef, mdb.GetOrAddString(".ctor"), mdb.GetOrAddBlob(sig));
+        var root = new MetadataRootBuilder(mdb, "v4.0.30319");
+        var peBuilder = new ManagedPEBuilder(new PEHeaderBuilder(
+                machine: Machine.I386,
+                imageCharacteristics: Characteristics.ExecutableImage | Characteristics.Dll),
+            root, new BlobBuilder());
+        var blob = new BlobBuilder();
+        peBuilder.Serialize(blob);
+        return (new MemoryStream(blob.ToArray()), coded);
+    }
     private static MemoryStream Synthesize(string ns, string typeName, string memberName, byte[] signature)
     {
         var mdb = new MetadataBuilder();

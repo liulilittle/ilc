@@ -302,6 +302,16 @@ Il2CppArray* icall_array_convert_all_d_f(Il2CppArray* arr, Il2CppObject* convert
 Il2CppArray* icall_array_convert_all_str_f(Il2CppArray* arr, Il2CppObject* converter);
 Il2CppArray* icall_array_convert_all_f_f(Il2CppArray* arr, Il2CppObject* converter);
 
+// The KIND-parameterized ConvertAll fallback for the narrow-integral families
+// and their mixed pairs with the typed families. Kind encoding:
+//   0 reference | 1 int32 | 2 int64 | 3 single | 4 double
+//   8 bool | 9 char | 10 sbyte | 11 byte | 12 short | 13 ushort
+// The delegate ABI is selected from the kind CATEGORY (ref / int32 / int64 /
+// double); narrow cells widen to the int32 slot (the transpiler's narrow value
+// model). Same validation order and GC rooting as ConvertAllFamily.
+Il2CppArray* icall_array_convert_all_dyn(Il2CppArray* arr, Il2CppObject* converter,
+                                         int32_t inKind, int32_t outKind);
+
 // Array.Resize<long>(ref long[], int) / Array.Resize<string>(ref string[],
 // int): the int64 / reference-element twins of icall_array_resize_i4 (the same
 // net48 contract: newSize < 0 -> ArgumentOutOfRangeException; a null array is

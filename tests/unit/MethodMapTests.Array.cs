@@ -571,6 +571,88 @@ public class MethodMapArrayTests
     }
 
     //--------------------------------------------------------------------------
+    // arrgen2: the residual analyzable shapes (long Copy, MD GetValue/SetValue,
+    // narrow Sort/ConvertAll, params-index forms) + the class-4 whitelists.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Array_CopyLong3_MapsToLongIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Array", "Copy", Sig(0x01, 0x1C, 0x1C, 0x0A)), "Copy");
+
+        Assert.Equal("il2cpp::runtime::icall_array_copy_3_long", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "l" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_CopyLong5_MapsToLongIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Array", "Copy",
+            Sig(0x01, 0x1C, 0x0A, 0x1C, 0x0A, 0x0A)), "Copy");
+
+        Assert.Equal("il2cpp::runtime::icall_array_copy_long", resolved.CppName);
+        Assert.Equal(5, resolved.ParamCount);
+        Assert.Equal(new[] { "", "l", "", "l", "l" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_CopyBadArity_ThrowsWhitelist()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System", "Array", "Copy", Sig(0x01, 0x1C, 0x1C)), "Copy"));
+
+        Assert.Contains("LOUD whitelist (net48 has no such overload)", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_Array_GetValue2D_MapsToIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Array", "GetValue", Sig(0x1C, 0x08, 0x08)), "GetValue");
+
+        Assert.Equal("il2cpp::il2cpp_array_get_value_2d", resolved.CppName);
+        Assert.Equal(new[] { "a", "i", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_SetValue3D_MapsToIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Array", "SetValue",
+            Sig(0x01, 0x1C, 0x08, 0x08, 0x08)), "SetValue");
+
+        Assert.Equal("il2cpp::il2cpp_array_set_value_3d", resolved.CppName);
+        Assert.Equal(new[] { "a", "", "i", "i", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_GetValueIndices_MapsToIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Array", "GetValue", new byte[] { 0x00, 0x01, 0x1C, 0x1D, 0x08 }), "GetValue");
+
+        Assert.Equal("il2cpp::il2cpp_array_get_value_indices", resolved.CppName);
+        Assert.Equal(new[] { "a", "a" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_SortByte_MapsToNarrowSort()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Sort",
+            new byte[] { 0x00, 0x01, 0x01, 0x1D, 0x05 }, new byte[] { 0x0A, 0x01, 0x05 }));
+
+        Assert.Equal("il2cpp::il2cpp_array_sort_narrow", resolved.CppName);
+        Assert.Equal(new[] { "11" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_Array_ConvertAllByteInt_MapsToDynamicKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "ConvertAll",
+            new byte[] { 0x00, 0x02, 0x1D, 0x08, 0x1D, 0x05, 0x1C },
+            new byte[] { 0x0A, 0x02, 0x05, 0x08 }));
+
+        Assert.Equal("il2cpp::runtime::icall_array_convert_all_dyn", resolved.CppName);
+        Assert.Equal(new[] { "11", "1" }, resolved.AppendLiterals);
+    }
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (the MethodRefResolverDispatchTests
     // pipeline: one MemberReference, resolved via the public Resolve entry).
     //--------------------------------------------------------------------------

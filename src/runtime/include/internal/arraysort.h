@@ -307,6 +307,16 @@ enum ComparerValueFamily : int32_t
     // B8-1: uint32 elements -- the "(i,i)" slot + raw-int32 ABI of I4 with an
     // UNSIGNED default order (see the contract above).
     kComparerFamilyU4 = 5,
+    // Narrow-integral families: the reflected Compare slot carries the REAL
+    // narrow signature ("(b,b)" etc.) while the C++ ABI widens the cell to
+    // int32 (the transpiler narrow value slot). The DEFAULT order is the
+    // widened int32 order (sign/zero extension makes it exact for every kind).
+    kComparerFamilyBool = 6,  // "(b,b)"
+    kComparerFamilyChar = 7,  // "(c,c)"
+    kComparerFamilyI1 = 8,    // "(i1,i1)"
+    kComparerFamilyU1 = 9,    // "(u1,u1)"
+    kComparerFamilyI2 = 10,   // "(i2,i2)"
+    kComparerFamilyU2 = 11,   // "(u2,u2)"
 };
 
 int32_t il2cpp_icomparer_compare_family(Il2CppObject* comparer, int32_t family,
@@ -454,6 +464,22 @@ int32_t il2cpp_array_index_of_timespan_range(Il2CppArray* arr, runtime::Il2CppTi
                                              int32_t startIndex, int32_t count);
 int32_t il2cpp_array_binary_search_timespan_range(Il2CppArray* arr, int32_t index, int32_t length,
                                                   runtime::Il2CppTimeSpan value);
+// The start / LastIndexOf forms (net48 IndexOf<T>(T[],T,int) and
+// LastIndexOf<T>(T[],T[,int[,int]])). Ticks-only comparison as above.
+int32_t il2cpp_array_index_of_datetime_start(Il2CppArray* arr, runtime::Il2CppDateTime value,
+                                             int32_t startIndex);
+int32_t il2cpp_array_index_of_timespan_start(Il2CppArray* arr, runtime::Il2CppTimeSpan value,
+                                             int32_t startIndex);
+int32_t il2cpp_array_last_index_of_datetime(Il2CppArray* arr, runtime::Il2CppDateTime value);
+int32_t il2cpp_array_last_index_of_timespan(Il2CppArray* arr, runtime::Il2CppTimeSpan value);
+int32_t il2cpp_array_last_index_of_datetime_start(Il2CppArray* arr, runtime::Il2CppDateTime value,
+                                                  int32_t startIndex);
+int32_t il2cpp_array_last_index_of_timespan_start(Il2CppArray* arr, runtime::Il2CppTimeSpan value,
+                                                  int32_t startIndex);
+int32_t il2cpp_array_last_index_of_datetime_range(Il2CppArray* arr, runtime::Il2CppDateTime value,
+                                                  int32_t startIndex, int32_t count);
+int32_t il2cpp_array_last_index_of_timespan_range(Il2CppArray* arr, runtime::Il2CppTimeSpan value,
+                                                  int32_t startIndex, int32_t count);
 
 // Array.BinarySearch<T>(T[], int, int, T) -- the range search (no comparer).
 int32_t il2cpp_array_binary_search_int32_range(Il2CppArray* arr, int32_t index, int32_t length, int32_t value);
@@ -598,5 +624,53 @@ int32_t FindVirtualSlotByName(Il2CppObject* obj, const char* name);
 // (different-ABI) slot. Returns -1 when no reflected method matches.
 int32_t FindVirtualSlotByNameAndSignature(Il2CppObject* obj, const char* name,
                                           const char* signatureFragment);
+
+//------------------------------------------------------------------------------
+// NARROW-INTEGRAL generic families (bool/char/sbyte/byte/short/ushort/uint).
+// The transpiler passes a KIND literal (8 bool, 9 char, 10 sbyte, 11 byte,
+// 12 short, 13 ushort) because all narrow cells share the int32 IL slot; the
+// kernel selects the real storage width from it. The comparer / Comparison<T>
+// ABI widens the cell to int32 (the transpiler's narrow value slot), so the
+// existing I4 comparer/Comparison machinery is reused.
+//------------------------------------------------------------------------------
+void il2cpp_array_sort_narrow(Il2CppArray* arr, int32_t kind);
+void il2cpp_array_sort_narrow_range(Il2CppArray* arr, int32_t index, int32_t length, int32_t kind);
+void il2cpp_array_sort_narrow_icomparer(Il2CppArray* arr, Il2CppObject* comparer, int32_t kind);
+void il2cpp_array_sort_narrow_icomparer_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                              Il2CppObject* comparer, int32_t kind);
+void il2cpp_array_sort_narrow_comparison(Il2CppArray* arr, Il2CppObject* comparison, int32_t kind);
+
+int32_t il2cpp_array_index_of_narrow(Il2CppArray* arr, int32_t value, int32_t kind);
+int32_t il2cpp_array_index_of_narrow_start(Il2CppArray* arr, int32_t value, int32_t startIndex, int32_t kind);
+int32_t il2cpp_array_index_of_narrow_range(Il2CppArray* arr, int32_t value, int32_t startIndex,
+                                           int32_t count, int32_t kind);
+int32_t il2cpp_array_last_index_of_narrow(Il2CppArray* arr, int32_t value, int32_t kind);
+int32_t il2cpp_array_last_index_of_narrow_start(Il2CppArray* arr, int32_t value, int32_t startIndex, int32_t kind);
+int32_t il2cpp_array_last_index_of_narrow_range(Il2CppArray* arr, int32_t value, int32_t startIndex,
+                                                int32_t count, int32_t kind);
+int32_t il2cpp_array_binary_search_narrow(Il2CppArray* arr, int32_t value, int32_t kind);
+int32_t il2cpp_array_binary_search_narrow_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                int32_t value, int32_t kind);
+int32_t il2cpp_array_binary_search_narrow_icomparer(Il2CppArray* arr, int32_t value,
+                                                    Il2CppObject* comparer, int32_t kind);
+int32_t il2cpp_array_binary_search_narrow_icomparer_range(Il2CppArray* arr, int32_t index,
+                                                          int32_t length, int32_t value,
+                                                          Il2CppObject* comparer, int32_t kind);
+
+// Array.Sort<UIntPtr>/BinarySearch<UIntPtr>: the unsigned 64-bit twins of the
+// int64 kernels (the transpiler carries the UIntPtr bits in an int64 slot).
+void il2cpp_array_sort_uint64(Il2CppArray* arr);
+void il2cpp_array_sort_uint64_range(Il2CppArray* arr, int32_t index, int32_t length);
+int32_t il2cpp_array_binary_search_uint64(Il2CppArray* arr, int64_t value);
+int32_t il2cpp_array_binary_search_uint64_range(Il2CppArray* arr, int32_t index, int32_t length,
+                                                int64_t value);
+
+// net48 parity for a type that does NOT implement IComparable (IntPtr/UIntPtr
+// on .NET Framework): Comparer<T>.Default raises InvalidOperationException
+// ("Failed to compare two elements in the array."). An EMPTY search range
+// returns -1 without invoking the comparer, exactly like net48.
+int32_t il2cpp_array_binary_search_incomparable(Il2CppArray* arr, int64_t value);
+int32_t il2cpp_array_binary_search_incomparable_range(Il2CppArray* arr, int32_t index,
+                                                      int32_t length, int64_t value);
 
 } // namespace il2cpp

@@ -243,5 +243,31 @@ void il2cpp_buffer_memory_copy_sized(void* dst, const void* src,
                               static_cast<size_t>(sourceBytesToCopy));
 }
 
+//------------------------------------------------------------------------------
+// il2cpp_buffer_memory_copy_sized_u64 -- Buffer.MemoryCopy (net48 ulong form,
+//   buffer.cs:518). Only the destination-size bound is checked; a negative
+//   value cannot exist in the unsigned domain. On a 32-bit target a value
+//   beyond SIZE_MAX raises OverflowException (the net48 checked (uint) cast).
+//------------------------------------------------------------------------------
+void il2cpp_buffer_memory_copy_sized_u64(void* dst, const void* src,
+                                         uint64_t destinationSizeInBytes,
+                                         uint64_t sourceBytesToCopy)
+{
+    if (sourceBytesToCopy > destinationSizeInBytes)
+    {
+        il2cpp_throw_new(kArgOutOfRangeChain,
+                         "sourceBytesToCopy exceeds the destination buffer size.");
+    }
+#if SIZE_MAX < UINT64_MAX
+    if (sourceBytesToCopy > static_cast<uint64_t>(SIZE_MAX))
+    {
+        il2cpp_throw_new(kOverflowChain,
+                         "sourceBytesToCopy is too large for this platform.");
+    }
+#endif
+    il2cpp_buffer_memory_copy(dst, src,
+                              static_cast<size_t>(sourceBytesToCopy));
+}
+
 } // namespace runtime
 } // namespace il2cpp

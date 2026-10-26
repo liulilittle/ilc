@@ -1469,6 +1469,254 @@ Il2CppArray* icall_array_convert_all_f_f(Il2CppArray* arr, Il2CppObject* convert
 }
 
 //------------------------------------------------------------------------------
+// icall_array_convert_all_dyn -- the KIND-parameterized ConvertAll fallback for
+// the narrow-integral families (and their mixed pairs with the typed
+// families). The transpiler passes two kind literals:
+//   0 reference | 1 int32 | 2 int64 | 3 single | 4 double
+//   8 bool | 9 char | 10 sbyte | 11 byte | 12 short | 13 ushort
+// The delegate ABI is selected from the kind CATEGORY (ref / int32 / int64 /
+// double); narrow cells widen to the int32 slot, matching the transpiler's
+// narrow value model. Same validation order / rooting as ConvertAllFamily.
+//------------------------------------------------------------------------------
+namespace {
+
+enum : int32_t
+{
+    kConvRef = 0,
+    kConvI4 = 1,
+    kConvI8 = 2,
+    kConvF = 3,
+    kConvD = 4,
+    kConvBool = 8,
+    kConvChar = 9,
+    kConvI1 = 10,
+    kConvU1 = 11,
+    kConvI2 = 12,
+    kConvU2 = 13
+};
+
+int32_t ConvKindSize(int32_t kind)
+{
+    switch (kind)
+    {
+        case kConvRef: return static_cast<int32_t>(sizeof(void*));
+        case kConvI4: return 4;
+        case kConvI8: return 8;
+        case kConvF: return 4;
+        case kConvD: return 8;
+        case kConvBool: case kConvI1: case kConvU1: return 1;
+        case kConvChar: case kConvI2: case kConvU2: return 2;
+        default:
+            il2cpp_throw_not_supported_exception("ConvertAll: unknown element kind.");
+            return 0;
+    }
+}
+
+int32_t ConvKindAbi(int32_t kind)
+{
+    if (kind == kConvRef) return 0;
+    if (kind == kConvI8) return 2;
+    if (kind == kConvF || kind == kConvD) return 3;
+    return 1; // int32 / narrow
+}
+
+int32_t ConvKindElemKind(int32_t kind)
+{
+    if (kind == kConvI4) return 1;
+    if (kind == kConvI8) return 2;
+    if (kind == kConvF) return 3;
+    if (kind == kConvD) return 4;
+    return kind; // narrow kinds are already 8..13
+}
+
+struct ConvValue
+{
+    int32_t i;
+    int64_t l;
+    double d;
+    Il2CppObject* r;
+};
+
+ConvValue ConvReadElem(Il2CppArray* a, int32_t idx, int32_t kind)
+{
+    ConvValue v{};
+    const char* p = a->data + static_cast<size_t>(idx) * static_cast<size_t>(ConvKindSize(kind));
+    switch (kind)
+    {
+        case kConvRef:
+            v.r = *reinterpret_cast<Il2CppObject**>(const_cast<char*>(p));
+            break;
+        case kConvI4:
+            v.i = *reinterpret_cast<const int32_t*>(p);
+            break;
+        case kConvI8:
+            v.l = *reinterpret_cast<const int64_t*>(p);
+            break;
+        case kConvF:
+            v.d = static_cast<double>(*reinterpret_cast<const float*>(p));
+            break;
+        case kConvD:
+            v.d = *reinterpret_cast<const double*>(p);
+            break;
+        case kConvBool:
+            v.i = *reinterpret_cast<const uint8_t*>(p) != 0 ? 1 : 0;
+            break;
+        case kConvChar:
+        case kConvU2:
+            v.i = static_cast<int32_t>(*reinterpret_cast<const uint16_t*>(p));
+            break;
+        case kConvI1:
+            v.i = static_cast<int32_t>(*reinterpret_cast<const int8_t*>(p));
+            break;
+        case kConvU1:
+            v.i = static_cast<int32_t>(*reinterpret_cast<const uint8_t*>(p));
+            break;
+        case kConvI2:
+            v.i = static_cast<int32_t>(*reinterpret_cast<const int16_t*>(p));
+            break;
+        default:
+            break;
+    }
+    return v;
+}
+
+void ConvWriteElem(Il2CppArray* out, int32_t idx, int32_t kind, ConvValue v)
+{
+    char* p = out->data + static_cast<size_t>(idx) * static_cast<size_t>(ConvKindSize(kind));
+    switch (kind)
+    {
+        case kConvRef:
+        {
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(p);
+            *slot = v.r;
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), v.r);
+            break;
+        }
+        case kConvI4:
+            *reinterpret_cast<int32_t*>(p) = v.i;
+            break;
+        case kConvI8:
+            *reinterpret_cast<int64_t*>(p) = v.l;
+            break;
+        case kConvF:
+            *reinterpret_cast<float*>(p) = static_cast<float>(v.d);
+            break;
+        case kConvD:
+            *reinterpret_cast<double*>(p) = v.d;
+            break;
+        case kConvBool:
+            *reinterpret_cast<uint8_t*>(p) = v.i != 0 ? 1 : 0;
+            break;
+        case kConvChar:
+        case kConvU2:
+            *reinterpret_cast<uint16_t*>(p) = static_cast<uint16_t>(v.i);
+            break;
+        case kConvI1:
+            *reinterpret_cast<int8_t*>(p) = static_cast<int8_t>(v.i);
+            break;
+        case kConvU1:
+            *reinterpret_cast<uint8_t*>(p) = static_cast<uint8_t>(v.i);
+            break;
+        case kConvI2:
+            *reinterpret_cast<int16_t*>(p) = static_cast<int16_t>(v.i);
+            break;
+        default:
+            break;
+    }
+}
+
+#define CONV_INVOKE(ARG, RES, ARGFIELD, RESFIELD)                               \
+    do                                                                          \
+    {                                                                           \
+        if (d->target != nullptr)                                               \
+            r.RESFIELD = reinterpret_cast<RES (*)(Il2CppObject*, ARG)>(         \
+                d->methodPtr)(d->target, v.ARGFIELD);                           \
+        else                                                                    \
+            r.RESFIELD = reinterpret_cast<RES (*)(ARG)>(d->methodPtr)(v.ARGFIELD); \
+    } while (0)
+
+ConvValue ConvInvoke(Il2CppDelegate* d, int32_t inKind, int32_t outKind, ConvValue v)
+{
+    ConvValue r{};
+    const int32_t inCat = ConvKindAbi(inKind);
+    const int32_t outCat = ConvKindAbi(outKind);
+    switch (inCat)
+    {
+        case 0: // reference source
+            switch (outCat)
+            {
+                case 0: CONV_INVOKE(Il2CppObject*, Il2CppObject*, r, r); break;
+                case 1: CONV_INVOKE(Il2CppObject*, int32_t, r, i); break;
+                case 2: CONV_INVOKE(Il2CppObject*, int64_t, r, l); break;
+                default: CONV_INVOKE(Il2CppObject*, double, r, d); break;
+            }
+            break;
+        case 1: // int32 / narrow source
+            switch (outCat)
+            {
+                case 0: CONV_INVOKE(int32_t, Il2CppObject*, i, r); break;
+                case 1: CONV_INVOKE(int32_t, int32_t, i, i); break;
+                case 2: CONV_INVOKE(int32_t, int64_t, i, l); break;
+                default: CONV_INVOKE(int32_t, double, i, d); break;
+            }
+            break;
+        case 2: // int64 source
+            switch (outCat)
+            {
+                case 0: CONV_INVOKE(int64_t, Il2CppObject*, l, r); break;
+                case 1: CONV_INVOKE(int64_t, int32_t, l, i); break;
+                case 2: CONV_INVOKE(int64_t, int64_t, l, l); break;
+                default: CONV_INVOKE(int64_t, double, l, d); break;
+            }
+            break;
+        default: // double / float source
+            switch (outCat)
+            {
+                case 0: CONV_INVOKE(double, Il2CppObject*, d, r); break;
+                case 1: CONV_INVOKE(double, int32_t, d, i); break;
+                case 2: CONV_INVOKE(double, int64_t, d, l); break;
+                default: CONV_INVOKE(double, double, d, d); break;
+            }
+            break;
+    }
+    return r;
+}
+
+#undef CONV_INVOKE
+
+} // namespace
+
+Il2CppArray* icall_array_convert_all_dyn(Il2CppArray* arr, Il2CppObject* converter,
+                                         int32_t inKind, int32_t outKind)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem != (inKind == kConvRef) ||
+        a->elemSize != ConvKindSize(inKind))
+    {
+        il2cpp_throw_not_supported_exception(
+            "ConvertAll: source array element kind mismatch.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(converter, "converter");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    Il2CppArray* out = outKind == kConvRef
+        ? il2cpp_array_new(nullptr, sizeof(void*), true, a->length)
+        : il2cpp_array_new_typed(ConvKindSize(outKind), ConvKindElemKind(outKind), a->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const ConvValue v = ConvReadElem(a, i, inKind);
+        const ConvValue r = ConvInvoke(d, inKind, outKind, v);
+        ConvWriteElem(out, i, outKind, r);
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
 // icall_array_resize_i8 / _str -- Array.Resize<long>(ref long[], int) /
 // Array.Resize<string>(ref string[], int) (see header). The same net48 contract
 // as icall_array_resize_i4 (newSize < 0 -> ArgumentOutOfRangeException; a null

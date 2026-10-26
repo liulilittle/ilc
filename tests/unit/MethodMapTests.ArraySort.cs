@@ -1,4 +1,4 @@
-﻿using System.Reflection.Metadata;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Il2Cpp.Transpiler.Emit;
@@ -481,6 +481,42 @@ public class MethodMapArraySortTests
         Assert.Equal(ps, resolved.ParamCount);
     }
 
+    //--------------------------------------------------------------------------
+    // arrgen2: the narrow-integral scans (kind literal + real cell width).
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData(2, "il2cpp::il2cpp_array_index_of_narrow")]
+    [InlineData(3, "il2cpp::il2cpp_array_index_of_narrow_start")]
+    [InlineData(4, "il2cpp::il2cpp_array_index_of_narrow_range")]
+    public void Resolve_Array_IndexOfByte_MethodSpec_MapsToNarrowScan(int ps, string expectedCpp)
+    {
+        var sig = new byte[4 + ps];
+        sig[0] = 0x00; sig[1] = (byte)ps; sig[2] = 0x08; sig[3] = 0x1D; sig[4] = 0x05;
+        for (var i = 5; i < sig.Length; ++i) sig[i] = 0x08;
+
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "IndexOf", sig,
+            new byte[] { 0x0A, 0x01, 0x05 }));
+
+        Assert.Equal(expectedCpp, resolved.CppName);
+        Assert.Equal(new[] { "11" }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData(2, "il2cpp::il2cpp_array_last_index_of_narrow")]
+    [InlineData(3, "il2cpp::il2cpp_array_last_index_of_narrow_start")]
+    [InlineData(4, "il2cpp::il2cpp_array_last_index_of_narrow_range")]
+    public void Resolve_Array_LastIndexOfByte_MethodSpec_MapsToNarrowScan(int ps, string expectedCpp)
+    {
+        var sig = new byte[4 + ps];
+        sig[0] = 0x00; sig[1] = (byte)ps; sig[2] = 0x08; sig[3] = 0x1D; sig[4] = 0x05;
+        for (var i = 5; i < sig.Length; ++i) sig[i] = 0x08;
+
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "LastIndexOf", sig,
+            new byte[] { 0x0A, 0x01, 0x05 }));
+
+        Assert.Equal(expectedCpp, resolved.CppName);
+        Assert.Equal(new[] { "11" }, resolved.AppendLiterals);
+    }
     //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as the transpiler).
     //--------------------------------------------------------------------------
