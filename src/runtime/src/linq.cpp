@@ -39,6 +39,7 @@
 #include "il2cpp_time.h"  // P0LINQ1: runtime::Il2CppDateTime / Il2CppTimeSpan
 #include "guid.h"         // P0LINQ1: Il2CppGuid (the zip value result)
 
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -2528,9 +2529,10 @@ int32_t il2cpp_linq_last_or_default_narrow(Il2CppArray* src, int32_t elemKind)
 //------------------------------------------------------------------------------
 int32_t ZipSideWidthCode(int32_t side)
 {
-    // 0 = int32 slot, 1 = int64, 2 = double carrier.
+    // 0 = int32 slot, 1 = int64, 2 = double carrier, 3 = 16-byte decimal.
     return side == IL2CPP_LINQ_ZIP_I8 ? 1
-         : (side == IL2CPP_LINQ_ZIP_F || side == IL2CPP_LINQ_ZIP_D) ? 2 : 0;
+         : (side == IL2CPP_LINQ_ZIP_F || side == IL2CPP_LINQ_ZIP_D) ? 2
+         : side == IL2CPP_LINQ_ZIP_DEC ? 3 : 0;
 }
 
 // Read element `i` as the int32 slot. The narrow codes (0..6) disambiguate the
@@ -2612,6 +2614,13 @@ inline double ZipReadAs<double>(Il2CppArray* arr, int32_t i, int32_t side)
     return ZipReadD(arr, i, side);
 }
 
+template <>
+inline runtime::Il2CppDecimal ZipReadAs<runtime::Il2CppDecimal>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    (void)side;
+    return *reinterpret_cast<runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(arr, i));
+}
+
 // Call the selector through the C signature of its declared parameter types
 // (T1, T2) and the result carrier R.
 template <typename T1, typename T2, typename R>
@@ -2631,7 +2640,17 @@ void ZipFill(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
     {
         const T1 a = ZipReadAs<T1>(first, i, firstSide);
         const T2 b = ZipReadAs<T2>(second, i, secondSide);
-        if (resKind == 2)
+        if (resKind == 6)
+        {
+            // A reference TResult: the selector returns Il2CppObject* (a
+            // reference cell, write-barriered).
+            Il2CppObject* r = ZipCall<T1, T2, Il2CppObject*>(d, a, b);
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(out, i));
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+            *slot = r;
+        }
+        else if (resKind == 2)
             *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
                 ZipCall<T1, T2, int64_t>(d, a, b);
         else if (resKind == 3 || resKind == 4)
@@ -2774,12 +2793,14 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
     int32_t resSize = 4;
     int32_t resElemKind = 1;
     bool valResult = false; // a 16/8-byte VALUE cell (decimal / DateTime / Guid)
+    bool refResult = false;
     switch (resKind)
     {
         case 2: resSize = 8; resElemKind = 2; break;
         case 3: resSize = 8; resElemKind = 3; break; // float -> double carrier
         case 4: resSize = 8; resElemKind = 4; break;
         case 5: resSize = 4; resElemKind = 5; break; // uint32
+        case 6: refResult = true; resSize = 8; resElemKind = 0; break;
         // 13 System.Decimal (16-byte) / 14 DateTime|TimeSpan (8-byte) /
         // 15 Guid (16-byte): the selector returns the struct by value.
         case 13: valResult = true; resSize = 16; resElemKind = 0; break;
@@ -2787,9 +2808,10 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
         case 15: valResult = true; resSize = 16; resElemKind = 0; break;
         default: resSize = 4; resElemKind = 1; break;
     }
-    Il2CppArray* out = valResult
-        ? il2cpp_array_new(nullptr, resSize, false, n)
-        : il2cpp_array_new_typed(resSize, resElemKind, n);
+    Il2CppArray* out = refResult
+        ? il2cpp_array_new(nullptr, resSize, true, n)
+        : (valResult ? il2cpp_array_new(nullptr, resSize, false, n)
+                     : il2cpp_array_new_typed(resSize, resElemKind, n));
     roots.Add(reinterpret_cast<void**>(&out));
 
     const int32_t c1 = ZipSideWidthCode(firstSide);
@@ -2800,6 +2822,8 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
             ZipFill<int32_t, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
         else if (c2 == 1)
             ZipFill<int32_t, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 3)
+            ZipFill<int32_t, runtime::Il2CppDecimal>(first, second, d, firstSide, secondSide, resKind, out, n);
         else
             ZipFill<int32_t, double>(first, second, d, firstSide, secondSide, resKind, out, n);
     }
@@ -2809,8 +2833,21 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
             ZipFill<int64_t, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
         else if (c2 == 1)
             ZipFill<int64_t, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 3)
+            ZipFill<int64_t, runtime::Il2CppDecimal>(first, second, d, firstSide, secondSide, resKind, out, n);
         else
             ZipFill<int64_t, double>(first, second, d, firstSide, secondSide, resKind, out, n);
+    }
+    else if (c1 == 3)
+    {
+        if (c2 == 0)
+            ZipFill<runtime::Il2CppDecimal, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 1)
+            ZipFill<runtime::Il2CppDecimal, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 3)
+            ZipFill<runtime::Il2CppDecimal, runtime::Il2CppDecimal>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else
+            ZipFill<runtime::Il2CppDecimal, double>(first, second, d, firstSide, secondSide, resKind, out, n);
     }
     else
     {
@@ -2818,6 +2855,8 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
             ZipFill<double, int32_t>(first, second, d, firstSide, secondSide, resKind, out, n);
         else if (c2 == 1)
             ZipFill<double, int64_t>(first, second, d, firstSide, secondSide, resKind, out, n);
+        else if (c2 == 3)
+            ZipFill<double, runtime::Il2CppDecimal>(first, second, d, firstSide, secondSide, resKind, out, n);
         else
             ZipFill<double, double>(first, second, d, firstSide, secondSide, resKind, out, n);
     }
@@ -2886,12 +2925,14 @@ Il2CppArray* il2cpp_linq_zip_mixed(Il2CppArray* first, Il2CppArray* second,
     {
         if (c2 == 0)      ZipFillMixed<Il2CppObject*, int32_t>(first, second, d, s1, s2, resKind, out, n);
         else if (c2 == 1) ZipFillMixed<Il2CppObject*, int64_t>(first, second, d, s1, s2, resKind, out, n);
+        else if (c2 == 3) ZipFillMixed<Il2CppObject*, runtime::Il2CppDecimal>(first, second, d, s1, s2, resKind, out, n);
         else              ZipFillMixed<Il2CppObject*, double>(first, second, d, s1, s2, resKind, out, n);
     }
     else if (bRef)
     {
         if (c1 == 0)      ZipFillMixed<int32_t, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
         else if (c1 == 1) ZipFillMixed<int64_t, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
+        else if (c1 == 3) ZipFillMixed<runtime::Il2CppDecimal, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
         else              ZipFillMixed<double, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
     }
     else

@@ -1570,8 +1570,8 @@ public static partial class MethodRefResolver
                 byte ztFirst = genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08;
                 byte ztSecond = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
                 byte ztRes = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
-                string zFirstKind = IsRefFamilyByte(ztFirst) ? "1" : LinqListKindOfElemByte(ztFirst) ?? "";
-                string zSecondKind = IsRefFamilyByte(ztSecond) ? "1" : LinqListKindOfElemByte(ztSecond) ?? "";
+                string zFirstKind = IsRefFamilyByte(ztFirst) ? "1" : LinqListKindOfElemByte(ztFirst, genArgNames, 0) ?? "";
+                string zSecondKind = IsRefFamilyByte(ztSecond) ? "1" : LinqListKindOfElemByte(ztSecond, genArgNames, 1) ?? "";
                 if (zFirstKind.Length == 0 || zSecondKind.Length == 0)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(ztFirst)},{GenericArgTypeName(ztSecond)},...> " +
@@ -2377,6 +2377,19 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
+    // The List<T> element-kind literal, name-resolved for the 0x11 value types:
+    // only System.Decimal has a Zip cell ABI (IL2CPP_LIST_KIND_DEC = 12);
+    // DateTime/TimeSpan/Guid stay LOUD (the Zip element surface covers the
+    // decimal value type only).
+    private static string? LinqListKindOfElemByte(byte b, string[]? genArgNames, int index)
+    {
+        if (b != 0x11 || genArgNames is not { Length: > 0 } || index >= genArgNames.Length)
+            return LinqListKindOfElemByte(b);
+        var n = genArgNames[index];
+        if (n.StartsWith("V:", StringComparison.Ordinal)) n = n[2..];
+        return n == "System.Decimal" ? "12" : null;
+    }
+
     // D-LINQ-FAM: the IL2CPP_LINQ_CELL_* code of an element TYPE byte
     // (linq_family.h), the FAMILY-GENERIC kernel trailing literal. This is a
     // DIFFERENT enumeration from LinqListKindOfElemByte (IL2CPP_LIST_KIND_*):
@@ -2722,7 +2735,7 @@ public static partial class MethodRefResolver
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
                         $"{GenericArgTypeName(tRes)}> over a List not wired: no result cell ABI for " +
                         "this TResult (see docs/audit/b5-gaps.md)");
-                string? secondKind = IsRefFamilyByte(tSecond) ? "1" : LinqListKindOfElemByte(tSecond);
+                string? secondKind = IsRefFamilyByte(tSecond) ? "1" : LinqListKindOfElemByte(tSecond, genArgNames, 1);
                 if (secondKind == null)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)},...> " +
@@ -3125,8 +3138,8 @@ public static partial class MethodRefResolver
                 byte tFirst = genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08;
                 byte tSecond = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
                 byte tRes = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
-                string firstKind = IsRefFamilyByte(tFirst) ? "1" : LinqListKindOfElemByte(tFirst) ?? "";
-                string secondKind = IsRefFamilyByte(tSecond) ? "1" : LinqListKindOfElemByte(tSecond) ?? "";
+                string firstKind = IsRefFamilyByte(tFirst) ? "1" : LinqListKindOfElemByte(tFirst, genArgNames, 0) ?? "";
+                string secondKind = IsRefFamilyByte(tSecond) ? "1" : LinqListKindOfElemByte(tSecond, genArgNames, 1) ?? "";
                 if (firstKind.Length == 0 || secondKind.Length == 0)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)},...> " +

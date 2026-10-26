@@ -142,6 +142,10 @@ constexpr int32_t IL2CPP_LINQ_ZIP_I4 = 7;
 constexpr int32_t IL2CPP_LINQ_ZIP_I8 = 8;
 constexpr int32_t IL2CPP_LINQ_ZIP_F  = 9;
 constexpr int32_t IL2CPP_LINQ_ZIP_D  = 10;
+// P0LINQ1: a System.Decimal source side. The element crosses as the 16-byte
+// runtime value struct BY VALUE (the decimal T3 contract), so the selector's
+// declared parameter type is il2cpp::runtime::Il2CppDecimal.
+constexpr int32_t IL2CPP_LINQ_ZIP_DEC = 11;
 //------------------------------------------------------------------------------
 // nb15 B5 FIX -- the same WIDE / NARROW families for Where / First /
 // FirstOrDefault / Last / LastOrDefault. Each keeps the source element family

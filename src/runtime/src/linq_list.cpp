@@ -120,6 +120,8 @@ Il2CppArray* SnapshotOf(Il2CppObject* list, int32_t kind)
             return reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_char(list));
         case IL2CPP_LIST_KIND_UINT:
             return reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_uint(list));
+        case IL2CPP_LIST_KIND_DEC:
+            return reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_dec(list));
         default:
             il2cpp_throw_not_supported_exception("Unsupported List element kind for a LINQ operator.");
             return nullptr;
@@ -2427,6 +2429,7 @@ int32_t ZipSideOfListKind(int32_t kind)
         case IL2CPP_LIST_KIND_USHORT: return IL2CPP_LINQ_NARROW_USHORT;
         case IL2CPP_LIST_KIND_CHAR:   return IL2CPP_LINQ_NARROW_CHAR;
         case IL2CPP_LIST_KIND_UINT:   return IL2CPP_LINQ_NARROW_UINT;
+        case IL2CPP_LIST_KIND_DEC:    return IL2CPP_LINQ_ZIP_DEC;
         default:
             il2cpp_throw_not_supported_exception(
                 "Unsupported List element kind for Zip (IL2CPP_LIST_KIND_REF is handled "

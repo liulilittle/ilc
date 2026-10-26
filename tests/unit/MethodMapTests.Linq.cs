@@ -933,6 +933,17 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "0", "0", resKind }, resolved.AppendLiterals);
     }
 
+    // Zip with a System.Decimal ELEMENT source: the first side maps to
+    // IL2CPP_LIST_KIND_DEC (12) so the runtime reads the 16-byte decimal cell.
+    [Fact]
+    public void Resolve_Zip_DecimalElementSource_MapsDecimalListKind()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeZipDecFirst(0x08, 0x11));
+
+        Assert.Equal("il2cpp::il2cpp_linq_zip_family", resolved.CppName);
+        Assert.Equal(new[] { "12", "0", "13" }, resolved.AppendLiterals);
+    }
+
     // Zip<TSource,TSecond,TResult>(IEnumerable<TSource>, IEnumerable<TSecond>,
     // Func<TSource,TSecond,TResult>): the signature the Zip branch reads.
     private static MemoryStream SynthesizeZip(byte tFirst, byte tSecond, byte tRes)
@@ -1031,6 +1042,58 @@ public class MethodMapTestsLinq
         spec.WriteByte(tSecond);
         spec.WriteByte(0x11);
         spec.WriteCompressedInteger(resCoded);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // Zip with a System.Decimal ELEMENT source (the first generic argument is a
+    // named VALUETYPE TypeRef): the transpiler maps it to IL2CPP_LIST_KIND_DEC
+    // (12) so the runtime reads the 16-byte decimal cell.
+    private static MemoryStream SynthesizeZipDecFirst(byte tSecond, byte tRes)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        var iEnum = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        var func3 = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"),
+            mdb.GetOrAddString("Func`3"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var bb = new BlobBuilder();
+        bb.WriteByte(0x10);
+        bb.WriteCompressedInteger(3);
+        bb.WriteCompressedInteger(3);
+        WriteGenericInstArg(bb, iEnum, 1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(2);
+        WriteGenericInstArg(bb, iEnum, 1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(0);
+        WriteGenericInstArg(bb, iEnum, 1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(1);
+        WriteGenericInstArg(bb, func3, 3);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(0);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(2);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Zip"),
+            mdb.GetOrAddBlob(bb.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(3);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger(decCoded);
+        spec.WriteByte(tSecond);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger(decCoded);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

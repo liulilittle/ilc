@@ -49,6 +49,9 @@ constexpr int32_t IL2CPP_LIST_KIND_SHORT = 8;
 constexpr int32_t IL2CPP_LIST_KIND_USHORT = 9;
 constexpr int32_t IL2CPP_LIST_KIND_CHAR = 10;
 constexpr int32_t IL2CPP_LIST_KIND_UINT = 11;
+// P0LINQ1: a System.Decimal element (16-byte value cell). Only the decimal
+// value type has a Zip cell ABI; DateTime/TimeSpan/Guid stay LOUD.
+constexpr int32_t IL2CPP_LIST_KIND_DEC = 12;
 
 // The exact-size element snapshot of a list (an independent array; the list is
 // never modified). Null list -> ArgumentNullException.
