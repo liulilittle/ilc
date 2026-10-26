@@ -77,6 +77,23 @@ public class MethodMapDebugTests
         Assert.Equal(new[] { "b", "s", "drop" }, resolved.ParamTypeNames);
     }
 
+    [Fact]
+    public void Resolve_Debug_AssertBoolStringStringArgs_MapsToAssertIcallDroppingAll()
+    {
+        // Debug.Assert(bool, string, string, object[]): the detail message +
+        // format-args overload. The runtime stub takes (condition, message)
+        // only -- both the detail message and the args array are dropped.
+        // The object[] param is an SZARRAY (0x1D) + element byte (0x05) --
+        // hand-built blob.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Debug", "Assert",
+                new byte[] { 0x00, 0x04, 0x01, 0x02, 0x0E, 0x0E, 0x1D, 0x05 }), "Assert");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_assert", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "b", "s", "drop", "drop" }, resolved.ParamTypeNames);
+    }
+
     //--------------------------------------------------------------------------
     // Debug.WriteLine(string) -> write_line entry (static, void, "s" cast)
     //--------------------------------------------------------------------------

@@ -69,6 +69,13 @@ public static partial class MethodRefResolver
                         // dropping it is observable-exact).
                         if (ps.Length == 3 && ps[0] == 0x02 && ps[1] == 0x0E && ps[2] == 0x0E)
                             return I("il2cpp::runtime::il2cpp_debug_assert", 3, false, false, false, new[] { "b", "s", "drop" });
+                        // Debug.Assert(bool, string, string, object[]): the
+                        // detail-message + format-args overload. The runtime
+                        // stub takes (condition, message) only -- both the
+                        // detail message and the args array are dropped (the
+                        // stub never renders them).
+                        if (ps.Length == 4 && ps[0] == 0x02 && ps[1] == 0x0E && ps[2] == 0x0E && ps[3] == 0x1D)
+                            return I("il2cpp::runtime::il2cpp_debug_assert", 4, false, false, false, new[] { "b", "s", "drop", "drop" });
                         return null;
                     case "WriteLine":
                         if (ps.Length == 1 && ps[0] == 0x0E)
