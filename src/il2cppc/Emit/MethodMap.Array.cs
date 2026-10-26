@@ -1183,7 +1183,7 @@ public static partial class MethodRefResolver
                     $"0x{(ps is { Length: >= 2 } sp ? sp[1] : 0):X2} -- net48 has (object,int), (object,long), " +
                     "(object,int,int), (object,int,int,int), (object,long,long), (object,long,long,long), " +
                     "(object,params int[]) and (object,params long[]) only " +
-                    "[Reference Source mscorlib/system/array.cs:482-568]");
+                     "[Reference Source mscorlib/system/array.cs:472-568]");
             // P6: Array.GetCorElementTypeOfElementType -- returns the CorElementType
             // of the array's element type (stub: returns 4 = ELEMENT_TYPE_I4).
             case "GetCorElementTypeOfElementType": return I("il2cpp::runtime::icall_array_get_cor_element_type_of_element_type", 1, true, false, false);
