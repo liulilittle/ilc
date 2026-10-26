@@ -1172,6 +1172,50 @@ Il2CppObject* il2cpp_typeinfo_get_method_types(Il2CppObject* typeName, Il2CppObj
     return found != nullptr ? memberName : nullptr;
 }
 
+// REFL-ARITY -- Type.GetMethod(string, BindingFlags, Binder, Type[],
+// ParameterModifier[]). Same exact-signature match as the 3-param form, but
+// the explicit BindingFlags DOES filter (the binder/modifiers are ignored by
+// net48's match -- default binder, by-ref modifiers only, W7). The scan skips a
+// visibility/static-mismatched hit and continues the base chain (a public base
+// same-name method is still found), matching net48.
+Il2CppObject* il2cpp_typeinfo_get_method_types_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                                     Il2CppArray* types, int32_t bindingAttr)
+{
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    if (memberName == nullptr) ThrowNullMemberName("name");
+    char typeBuf[kNameBufferSize];
+    char memberBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf) ||
+        !AsciiFromManagedString(memberName, memberBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr) return nullptr;
+    const int32_t wantArity = (types != nullptr && types->length > 0) ? types->length : 0;
+    if (wantArity > 4) return nullptr; // the exact-match table binds 4 max
+    char typeNames[4][kNameBufferSize];
+    if (!ReadTypeElements(types, typeNames, wantArity)) return nullptr;
+    const Il2CppMethodInfo* found = nullptr;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name == nullptr || std::strcmp(m.name, memberBuf) != 0) continue;
+            if (!MemberMatchesVis(m.flags, bindingAttr, false)) continue;
+            if (MethodTypesMatch(&m, typeNames, wantArity))
+            {
+                found = &m;
+                break;
+            }
+        }
+        if (found != nullptr) break; // own-table win, .NET shadowing
+    }
+    return found != nullptr ? memberName : nullptr;
+}
+
 Il2CppObject* il2cpp_typeinfo_get_property_types(Il2CppObject* typeName, Il2CppObject* memberName,
                                                  Il2CppArray* types)
 {
@@ -1941,6 +1985,51 @@ Il2CppArray* il2cpp_typeinfo_get_nested_types(Il2CppObject* typeName)
     return result;
 }
 
+// REFL-ARITY -- the GetNestedTypes(BindingFlags) visibility filter for one
+// nested row (a shared helper for the flags and default paths).
+bool NestedTypeVisMatches(const Il2CppTypeInfo* info, int32_t i,
+                          bool wantPublic, bool wantNonPublic)
+{
+    const bool isPublic = info->nestedVis != nullptr
+        ? (info->nestedVis[i] & 0x7) == 0x2
+        : true; // defensive pass-through (no vis column)
+    if (wantPublic && wantNonPublic) return true;
+    if (wantPublic) return isPublic;
+    if (wantNonPublic) return !isPublic;
+    return isPublic; // net48 default public-only
+}
+
+// REFL-ARITY -- Type.GetNestedTypes(BindingFlags). Same nested sub-table as the
+// () overload but with an explicit visibility filter: Public(16) admits a
+// NestedPublic entry (nestedVis & 0x7 == 0x2), NonPublic(32) admits every
+// non-public entry, BOTH admits all, NEITHER falls to the net48 default
+// (Public-only). A null nestedVis (nested-free / defensive) admits all entries
+// (pass-through -- the pre-refl6b behaviour).
+Il2CppArray* il2cpp_typeinfo_get_nested_types_flags(Il2CppObject* typeName, int32_t bindingAttr)
+{
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    const bool wantPublic = (bindingAttr & 16) != 0;
+    const bool wantNonPublic = (bindingAttr & 32) != 0;
+    int32_t total = 0;
+    for (int32_t i = 0; i < info->nestedCount; ++i)
+    {
+        if (NestedTypeVisMatches(info, i, wantPublic, wantNonPublic)) ++total;
+    }
+    Il2CppArray* result = BuildNameArray(total);
+    int32_t dst = 0;
+    for (int32_t i = 0; i < info->nestedCount; ++i)
+    {
+        if (NestedTypeVisMatches(info, i, wantPublic, wantNonPublic))
+        {
+            StoreName(result, dst++, info->nestedNames != nullptr ? info->nestedNames[i] : nullptr);
+        }
+    }
+    return result;
+}
+
 //------------------------------------------------------------------------------
 // REFL6B (item A) -- Type.GetNestedType(string[, BindingFlags]). Matches the
 // nested sub-table by SIMPLE name (the segment after the LAST '+'), applies
@@ -2259,6 +2348,44 @@ Il2CppArray* il2cpp_typeinfo_get_events_flags(Il2CppObject* typeName, int32_t bi
     if (info == nullptr) return EmptyStringArray();
     return EnumerateMembersBinding(info, &Il2CppTypeInfo::events, &Il2CppTypeInfo::eventCount,
                                    BindingEvent, bindingAttr);
+}
+
+// REFL-ARITY -- Type.GetEvent(string, BindingFlags): the flags-aware sibling of
+// il2cpp_typeinfo_get_event (the (string) overload binds Public|Instance|Static).
+// The event's visibility/static derive from its add/remove accessors (the
+// AggregateAccessorFlags helper); a mismatched hit is skipped and the base chain
+// continues. Returns the event-NAME string on a hit, nullptr otherwise.
+Il2CppObject* il2cpp_typeinfo_get_event_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                              int32_t bindingAttr)
+{
+    if (memberName == nullptr) ThrowNullMemberName("name");
+    if (typeName == nullptr) ThrowNullTypeReceiver();
+    char typeBuf[kNameBufferSize];
+    char memberBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf) ||
+        !AsciiFromManagedString(memberName, memberBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr) return nullptr;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->events == nullptr) continue;
+        for (int32_t i = 0; i < scan->eventCount; ++i)
+        {
+            const Il2CppEventInfo& e = scan->events[i];
+            if (e.name == nullptr || std::strcmp(e.name, memberBuf) != 0) continue;
+            int32_t flags = 0;
+            if (AggregateAccessorFlags(scan, e.addName, e.removeName, flags)
+                && !MemberMatchesVis(flags, bindingAttr, true))
+            {
+                continue;
+            }
+            return memberName;
+        }
+    }
+    return nullptr;
 }
 
 Il2CppArray* il2cpp_typeinfo_get_constructors_flags(Il2CppObject* typeName, int32_t bindingAttr)
@@ -3579,6 +3706,57 @@ Il2CppObject* il2cpp_typeinfo_get_constructor(Il2CppObject* typeName, Il2CppArra
         return nullptr;
     }
     // Disambiguated member value: "<declaringTypeFullName>::.ctor".
+    const char* declName = info->name != nullptr ? info->name : "";
+    char valueBuf[kNameBufferSize * 2 + 4];
+    std::snprintf(valueBuf, sizeof(valueBuf), "%s%s%s", declName, kCtorSeparator, kCtorName);
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(valueBuf));
+}
+
+// REFL-ARITY -- Type.GetConstructor(BindingFlags, Binder, Type[],
+// ParameterModifier[]). Same ctor match as the (Type[]) form, but the explicit
+// BindingFlags DOES filter (the binder/modifiers are ignored by net48's match --
+// default binder, by-ref modifiers only, W7). The (Type[]) form hardcodes
+// public+ctor; this applies the caller's visibility/static filter instead.
+Il2CppObject* il2cpp_typeinfo_get_constructor_flags(Il2CppObject* typeName, Il2CppArray* types,
+                                                    int32_t bindingAttr)
+{
+    if (typeName == nullptr)
+    {
+        ThrowNullTypeReceiver(); // ((Type)null).GetConstructor(...) -> NRE
+    }
+    char typeBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, typeBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(typeBuf);
+    if (info == nullptr)
+    {
+        return nullptr;
+    }
+    const int32_t wantArity = types != nullptr ? types->length : 0;
+    const Il2CppMethodInfo* match = nullptr;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (scan->methods == nullptr) continue;
+        for (int32_t i = 0; i < scan->methodCount; ++i)
+        {
+            const Il2CppMethodInfo& m = scan->methods[i];
+            if (m.name != nullptr && std::strcmp(m.name, kCtorName) == 0
+                && (m.flags & 4) != 0
+                && MemberMatchesVis(m.flags, bindingAttr, false)
+                && m.paramCount == wantArity)
+            {
+                match = &m;
+                break;
+            }
+        }
+        if (match != nullptr) break; // own-table ctor wins over a base
+    }
+    if (match == nullptr)
+    {
+        return nullptr;
+    }
     const char* declName = info->name != nullptr ? info->name : "";
     char valueBuf[kNameBufferSize * 2 + 4];
     std::snprintf(valueBuf, sizeof(valueBuf), "%s%s%s", declName, kCtorSeparator, kCtorName);
@@ -5102,6 +5280,32 @@ Il2CppObject* il2cpp_assemblyinfo_get_type(Il2CppObject* asmName, Il2CppObject* 
     // assembly is not returned by Assembly.GetType).
     if (!NamesEqual(asmName, inputAsmName)) return nullptr;
     return il2cpp_type_get_type(typeName);
+}
+
+// REFL-ARITY -- Assembly.GetType(string, bool throwOnError). Same scoping as
+// il2cpp_assemblyinfo_get_type; the extra flag raises TypeLoadException (net48)
+// on a well-formed but unregistered name.
+Il2CppObject* il2cpp_assemblyinfo_get_type_ex(Il2CppObject* asmName, Il2CppObject* typeName,
+                                              int32_t throwOnError, Il2CppObject* inputAsmName)
+{
+    if (typeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("name");
+    }
+    if (!NamesEqual(asmName, inputAsmName)) return nullptr;
+    Il2CppObject* found = il2cpp_type_get_type(typeName);
+    if (found == nullptr && throwOnError != 0)
+    {
+        char nameBuf[kNameBufferSize];
+        if (AsciiFromManagedString(typeName, nameBuf))
+        {
+            il2cpp_throw_new("System.TypeLoadException,System.TypeLoadException,System.SystemException,System.Exception",
+                             nameBuf);
+        }
+        il2cpp_throw_new("System.TypeLoadException,System.TypeLoadException,System.SystemException,System.Exception",
+                         "Could not load type.");
+    }
+    return found;
 }
 
 Il2CppArray* il2cpp_assemblyinfo_get_types(Il2CppObject* asmName, Il2CppObject* inputAsmName)

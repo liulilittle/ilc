@@ -160,7 +160,15 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x12 && ps[2] == 0x1D)
                     return I("il2cpp::il2cpp_typeinfo_get_property_types_ret", 3, true, true, true,
                         new[] { "", "", "", "a" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5/refl5 -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type) / (string, Type, Type[]) overloads map to il2cpp_typeinfo_get_property(_flags/_types/_return_type/_types_ret)");
+                // REFL-ARITY: Type.GetProperty(string, Type returnType, Type[]
+                // types, ParameterModifier[] modifiers) -- the 4-param form
+                // net48 HAS (the modifier array only encodes by-ref modifiers,
+                // which the match ignores -- W7). Drop the modifier slot and
+                // reuse the exact-signature primitive unchanged.
+                if (ps.Length == 4 && ps[0] == 0x0E && ps[1] == 0x12 && ps[2] == 0x1D && ps[3] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_get_property_types_ret", 4, true, true, true,
+                        new[] { "", "", "", "a", "drop" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5/refl5/refl-arity -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type) / (string, Type, Type[]) / (string, Type, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_property(_flags/_types/_return_type/_types_ret)");
             case "GetMethod":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_method", 1, true, true, true,
@@ -183,7 +191,20 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x1D && ps[2] == 0x1D)
                     return I("il2cpp::il2cpp_typeinfo_get_method_types", 3, true, true, true,
                         new[] { "", "", "a", "drop" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5/refl5 -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_method(_flags/_types)");
+                // REFL-ARITY: Type.GetMethod(string, BindingFlags, Binder,
+                // Type[], ParameterModifier[]) -- the 5-param form net48 HAS.
+                // The binder and modifiers are ignored by the match (default
+                // binder; modifiers encode by-ref only -- W7), but the
+                // BindingFlags DOES filter, so this routes to the flags-aware
+                // exact-signature kernel. The icall slots are
+                // (typeName, memberName, types, bindingAttr); the IL order is
+                // [receiver, name, flags, binder, types, modifiers], so
+                // argOrder maps slot2 (types) <- IL4 and slot3 (flags) <- IL2.
+                if (ps.Length == 5 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x12 && ps[3] == 0x1D && ps[4] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_get_method_types_flags", 5, true, true, true,
+                        new[] { "", "", "a", "i" }, returnTypeName: "System.String",
+                        argOrder: new[] { 0, 1, 4, 2 });
+                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5/refl5/refl-arity -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type[], ParameterModifier[]) / (string, BindingFlags, Binder, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_method(_flags/_types/_types_flags)");
             case "GetField":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_field", 1, true, true, true,
@@ -249,7 +270,19 @@ public static partial class MethodRefResolver
                         new[] { "", "a" }, returnTypeName: "System.Reflection.ConstructorInfo");
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     throw new NotSupportedException("Type.GetConstructor(string) does not exist in net48 (the ctor name overload is .NET Core-only)");
-                throw new NotSupportedException($"Type.GetConstructor with {ps.Length} parameter(s) not wired in GAP-5 -- only the (Type[]) overload maps to il2cpp_typeinfo_get_constructor");
+                // REFL-ARITY: Type.GetConstructor(BindingFlags, Binder, Type[],
+                // ParameterModifier[]) -- the 4-param form net48 HAS. The binder
+                // and modifiers are ignored by the match (default binder; by-ref
+                // modifiers only -- W7); the BindingFlags DOES filter, so this
+                // routes to the flags-aware ctor kernel. The icall slots are
+                // (typeName, types, bindingAttr); the IL order is
+                // [receiver, flags, binder, types, modifiers], so argOrder maps
+                // slot1 (types) <- IL3 and slot2 (flags) <- IL1.
+                if (ps.Length == 4 && ps[0] == 0x11 && ps[1] == 0x12 && ps[2] == 0x1D && ps[3] == 0x1D)
+                    return I("il2cpp::il2cpp_typeinfo_get_constructor_flags", 4, true, true, true,
+                        new[] { "", "a", "i" }, returnTypeName: "System.Reflection.ConstructorInfo",
+                        argOrder: new[] { 0, 3, 1 });
+                throw new NotSupportedException($"Type.GetConstructor with {ps.Length} parameter(s) not wired in GAP-5/refl-arity -- only the (Type[]) and (BindingFlags, Binder, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_constructor(_flags)");
             case "GetInterfaces":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_interfaces", 0, true, true, true,
@@ -282,7 +315,16 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_nested_types", 0, true, true, true,
                         returnTypeName: "System.Type[]");
-                throw new NotSupportedException($"Type.GetNestedTypes with {ps.Length} parameter(s) not wired in RF-N5 -- only the () overload maps to il2cpp_typeinfo_get_nested_types");
+                // REFL-ARITY: Type.GetNestedTypes(BindingFlags) -- the arity-1
+                // filtered enumeration (net48 HAS it; the default () overload is
+                // Public-only). The BindingFlags enum rides as the int32 slot
+                // ("i") -- the runtime filters the nested sub-table by
+                // visibility (Public(16) admits NestedPublic; NonPublic(32)
+                // admits every non-public entry).
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_nested_types_flags", 1, true, true, true,
+                        new[] { "", "i" }, returnTypeName: "System.Type[]");
+                throw new NotSupportedException($"Type.GetNestedTypes with {ps.Length} parameter(s) not wired in RF-N5/refl-arity -- the () overload maps to il2cpp_typeinfo_get_nested_types; the (BindingFlags) overload to il2cpp_typeinfo_get_nested_types_flags");
             // REFL6B (item A): Type.GetNestedType(string) / (string,
             // BindingFlags) -- ONE runtime filter icall over the nested
             // sub-table (il2cpp_typeinfo_get_nested_type: simple-name match on
@@ -379,7 +421,15 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_event", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetEvent with {ps.Length} parameter(s) not wired in C3-1 -- only the (string) overload maps to il2cpp_typeinfo_get_event");
+                // REFL-ARITY: Type.GetEvent(string, BindingFlags) -- the 2-param
+                // flags-aware query net48 HAS (the (string) overload binds
+                // Public|Instance|Static). The BindingFlags enum rides the
+                // int32 slot ("i"); the runtime filters the event by its add
+                // accessor's visibility/static (the events_flags precedent).
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_event_flags", 2, true, true, true,
+                        new[] { "", "", "i" }, returnTypeName: "System.String");
+                throw new NotSupportedException($"Type.GetEvent with {ps.Length} parameter(s) not wired in C3-1/refl-arity -- the (string) overload maps to il2cpp_typeinfo_get_event; the (string, BindingFlags) overload to il2cpp_typeinfo_get_event_flags");
             // Type.op_Equality(Type, Type) -- the C# == operator (csc emits
             // `call`, never callvirt; the resolver's default op_* heuristic
             // classifies it INSTANCE and the call path would throw "pops this
@@ -759,8 +809,15 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_assemblyinfo_get_type", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.Type",
                         appendLiterals: new[] { $"il2cpp::il2cpp_string_intern_literal(\"{asmName}\")" });
+                // REFL-ARITY: Assembly.GetType(string, bool throwOnError) --
+                // net48's 2-param form. The bool rides the int32 slot ("i"); the
+                // input-assembly-name literal stays the appended last argument.
+                if (count == 2 && ps[0] == 0x0E && ps[1] == 0x02)
+                    return I("il2cpp::il2cpp_assemblyinfo_get_type_ex", 2, true, true, true,
+                        new[] { "", "", "i" }, returnTypeName: "System.Type",
+                        appendLiterals: new[] { $"il2cpp::il2cpp_string_intern_literal(\"{asmName}\")" });
                 throw new NotSupportedException(
-                    $"Assembly::GetType with {count} parameter(s) not wired in p-refl2-gapmatrix -- only the (string) overload maps to il2cpp_assemblyinfo_get_type");
+                    $"Assembly::GetType with {count} parameter(s) not wired in p-refl2-gapmatrix/refl-arity -- the (string) overload maps to il2cpp_assemblyinfo_get_type; the (string, bool throwOnError) overload to il2cpp_assemblyinfo_get_type_ex");
             case "GetTypes":
                 if (count == 0)
                     return I("il2cpp::il2cpp_assemblyinfo_get_types", 0, true, true, true,

@@ -794,6 +794,124 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
+    // REFL-ARITY (impl-type-reflect) -- the remaining reachable net48 overloads
+    // whose parameter shape is compile-time known (arity + element/enum family)
+    // but had no mapping arm, so the catch-all throw fired. Each maps to a
+    // runtime icall (three reuse the existing exact-signature primitives; the
+    // BindingFlags forms add a small flags-aware runtime kernel).
+    //
+    //   GetNestedTypes(BindingFlags)                 -> get_nested_types_flags
+    //   GetEvent(string, BindingFlags)              -> get_event_flags
+    //   GetMethod(string, Flags, Binder, Type[], mods) -> get_method_types_flags
+    //   GetConstructor(Flags, Binder, Type[], mods)  -> get_constructor_flags
+    //   GetProperty(string, Type, Type[], mods)      -> get_property_types_ret
+    //      (the modifiers are ignored by net48's match -- W7; the 3-param form
+    //      already reuses the exact-signature primitive, so the 4-param form
+    //      drops the modifier slot and reuses it unchanged)
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_GetNestedTypesFlags_MapsToNestedFlagsIcall()
+    {
+        // Type.GetNestedTypes(BindingFlags) -- the arity-1 filtered enumeration
+        // (the BindingFlags ENUM rides as a VALUETYPE 0x11 + TypeDefOrRef).
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetNestedTypes",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x11, 0x05 }), "GetNestedTypes"); // (BindingFlags)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_nested_types_flags", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type[]", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetEventFlags_MapsToEventFlagsIcall()
+    {
+        // Type.GetEvent(string, BindingFlags) -- the flags-aware single-event
+        // query (the event table's add-accessor visibility/static filter).
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetEvent",
+            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x11, 0x05 }), "GetEvent"); // (string, BindingFlags)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_event_flags", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetMethodFlagsBinderTypesMods_MapsToTypesFlagsIcall()
+    {
+        // Type.GetMethod(string, BindingFlags, Binder, Type[], ParameterModifier[])
+        // -- net48's binder/modifiers are ignored by the match (the default
+        // binder; modifiers encode by-ref only -- W7), so the runtime binds by
+        // the explicit BindingFlags + the Type[] arity/signature.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetMethod",
+            new byte[] { 0x00, 0x05, 0x12, 0x05, 0x0E, 0x11, 0x05, 0x12, 0x05, 0x1D, 0x12, 0x05, 0x1D, 0x12, 0x05 }),
+            "GetMethod"); // (string, BindingFlags, Binder, Type[], ParameterModifier[])
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_method_types_flags", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(5, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetConstructorFlagsBinderTypesMods_MapsToCtorFlagsIcall()
+    {
+        // Type.GetConstructor(BindingFlags, Binder, Type[], ParameterModifier[])
+        // -- same binder/modifier drop; the runtime binds the ctor by the
+        // explicit BindingFlags + the Type[] arity.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetConstructor",
+            new byte[] { 0x00, 0x04, 0x12, 0x05, 0x11, 0x05, 0x12, 0x05, 0x1D, 0x12, 0x05, 0x1D, 0x12, 0x05 }),
+            "GetConstructor"); // (BindingFlags, Binder, Type[], ParameterModifier[])
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_constructor_flags", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Reflection.ConstructorInfo", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(4, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetPropertyReturnTypeTypesMods_MapsToTypesRetIcall()
+    {
+        // Type.GetProperty(string, Type returnType, Type[], ParameterModifier[])
+        // -- net48 ignores the ParameterModifier[] (by-ref only -- W7); the
+        // existing exact-signature primitive serves the 3-param form and this
+        // 4-param form drops the modifier slot onto it.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetProperty",
+            new byte[] { 0x00, 0x04, 0x12, 0x05, 0x0E, 0x12, 0x05, 0x1D, 0x12, 0x05, 0x1D, 0x12, 0x05 }),
+            "GetProperty"); // (string, Type, Type[], ParameterModifier[])
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_property_types_ret", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(4, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // REFL-ARITY -- Assembly.GetType(string, bool throwOnError): net48's 2-param
+    // form (the (string) overload binds throwOnError=false). The bool rides the
+    // int32 slot ("i"); the input-assembly-name literal stays the appended last
+    // argument so the runtime can raise TypeLoadException on a miss.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Assembly_GetTypeThrowOnError_MapsToAssemblyTypeExIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "Assembly", "GetType",
+            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x02 }), "GetType"); // (string, bool)
+
+        Assert.Equal("il2cpp::il2cpp_assemblyinfo_get_type_ex", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(2, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
     // Harness -- same synthetic-PE pipeline as MethodRefResolverDispatchTests.
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName, string? arg0Type = null, string? receiverType = null)
@@ -808,6 +926,9 @@ public class MethodMapTestsType
     private static MemoryStream Synthesize(string ns, string typeName, string memberName, byte[] signature)
     {
         var mdb = new MetadataBuilder();
+        mdb.AddAssembly(mdb.GetOrAddString("synthetic"), new Version(1, 0, 0, 0),
+            default(StringHandle), default(BlobHandle),
+            (System.Reflection.AssemblyFlags)0, System.Reflection.AssemblyHashAlgorithm.None);
         mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
             default(GuidHandle), default(GuidHandle));
         var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),

@@ -325,6 +325,14 @@ Il2CppObject* il2cpp_typeinfo_get_property(Il2CppObject* typeName, Il2CppObject*
 Il2CppObject* il2cpp_typeinfo_get_method(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_field(Il2CppObject* typeName, Il2CppObject* memberName);
 Il2CppObject* il2cpp_typeinfo_get_event(Il2CppObject* typeName, Il2CppObject* memberName);
+// REFL-ARITY: Type.GetEvent(string, BindingFlags) -- the flags-aware single-
+// event query (the (string) overload binds Public|Instance|Static). bindingAttr
+// is the net48 System.Reflection.BindingFlags value; the event is filtered by
+// its ADD accessor's visibility/static (the events_flags precedent). Returns the
+// event-NAME string on a hit, nullptr otherwise. Null typeName/memberName keep
+// the NRE/ArgumentNullException doctrine.
+Il2CppObject* il2cpp_typeinfo_get_event_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                              int32_t bindingAttr);
 // GAP-1 (P0): the BindingFlags-carrying managed-string variants (the
 // Type.Get*Method/GetProperty/GetField(string, BindingFlags) overloads). The
 // bindingAttr slot is the raw net48 System.Reflection.BindingFlags int32; the
@@ -347,6 +355,15 @@ Il2CppObject* il2cpp_typeinfo_get_field_flags(Il2CppObject* typeName, Il2CppObje
 // null-name contract (NRE / ArgumentNullException).
 Il2CppObject* il2cpp_typeinfo_get_method_types(Il2CppObject* typeName, Il2CppObject* memberName,
                                                Il2CppArray* types);
+// REFL-ARITY: Type.GetMethod(string, BindingFlags, Binder, Type[],
+// ParameterModifier[]) -- the 5-param form. The binder and modifiers are
+// ignored by net48's match (default binder; by-ref modifiers only -- W7), but
+// bindingAttr DOES filter, so this is the flags-aware sibling of
+// il2cpp_typeinfo_get_method_types. Same exact-signature match + result
+// contract (the member-NAME string on a hit, nullptr otherwise; NRE /
+// ArgumentNullException doctrine).
+Il2CppObject* il2cpp_typeinfo_get_method_types_flags(Il2CppObject* typeName, Il2CppObject* memberName,
+                                                     Il2CppArray* types, int32_t bindingAttr);
 Il2CppObject* il2cpp_typeinfo_get_property_types(Il2CppObject* typeName, Il2CppObject* memberName,
                                                  Il2CppArray* types);
 // D (audit A3/observation 3): Type.BaseType on a Type VALUE (full-name
@@ -511,6 +528,14 @@ Il2CppArray* il2cpp_typeinfo_get_events(Il2CppObject* typeName);
 // returns an empty array, never null).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_typeinfo_get_nested_types(Il2CppObject* typeName);
+// REFL-ARITY: Type.GetNestedTypes(BindingFlags) -- the arity-1 filtered
+// enumeration (the () overload is Public-only by default). bindingAttr is the
+// net48 System.Reflection.BindingFlags value: Public(16) admits a NestedPublic
+// entry (nestedVis & 0x7 == 0x2), NonPublic(32) admits every non-public entry,
+// NEITHER -> Public-only (the same nested-type filter GetNestedType applies).
+// A null / malformed / unregistered typeName -> an EMPTY array (net48 never
+// returns null).
+Il2CppArray* il2cpp_typeinfo_get_nested_types_flags(Il2CppObject* typeName, int32_t bindingAttr);
 //------------------------------------------------------------------------------
 // REFL6B (item A) -- Type.GetNestedType(string) / (string, BindingFlags) +
 // the GetNestedTypes() public-only default.
@@ -619,6 +644,14 @@ Il2CppObject* il2cpp_typeinfo_property_get_accessor(Il2CppObject* propertyName, 
 //     dispatches). The result is the constructed object.
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_typeinfo_get_constructor(Il2CppObject* typeName, Il2CppArray* types);
+// REFL-ARITY: Type.GetConstructor(BindingFlags, Binder, Type[],
+// ParameterModifier[]) -- the 4-param form. The binder and modifiers are
+// ignored by net48's match (default binder; by-ref modifiers only -- W7), but
+// bindingAttr DOES filter, so this is the flags-aware sibling of
+// il2cpp_typeinfo_get_constructor. Same ctor match + disambiguated
+// "<FullName>::.ctor" result contract (nullptr on a miss; NRE doctrine).
+Il2CppObject* il2cpp_typeinfo_get_constructor_flags(Il2CppObject* typeName, Il2CppArray* types,
+                                                    int32_t bindingAttr);
 Il2CppObject* il2cpp_constructorinfo_invoke(Il2CppObject* memberName, Il2CppArray* args);
 
 //------------------------------------------------------------------------------
@@ -1009,6 +1042,12 @@ intptr_t il2cpp_fieldinfo_get_field_handle(Il2CppObject* memberName);
 Il2CppObject* il2cpp_assemblyname_get_full_name(Il2CppObject* name);
 Il2CppObject* il2cpp_assemblyinfo_get_type(Il2CppObject* asmName, Il2CppObject* typeName,
                                            Il2CppObject* inputAsmName);
+// REFL-ARITY: Assembly.GetType(string, bool throwOnError) -- the 2-param form.
+// Same input-assembly scoping as il2cpp_assemblyinfo_get_type; on a well-formed
+// but unregistered name with throwOnError != 0 the runtime throws
+// TypeLoadException (net48), otherwise nullptr (net48's not-found -> null).
+Il2CppObject* il2cpp_assemblyinfo_get_type_ex(Il2CppObject* asmName, Il2CppObject* typeName,
+                                              int32_t throwOnError, Il2CppObject* inputAsmName);
 Il2CppArray* il2cpp_assemblyinfo_get_types(Il2CppObject* asmName, Il2CppObject* inputAsmName);
 
 //------------------------------------------------------------------------------
