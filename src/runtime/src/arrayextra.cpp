@@ -372,6 +372,33 @@ Il2CppObject* il2cpp_array_get_value(Il2CppArray* arr, int32_t index)
         Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
         return slots[index];
     }
+    // Box by the recorded element kind so float/double/uint arrays keep their
+    // exact box type (net48 Array.GetValue contract). DateTime/TimeSpan have
+    // no runtime box helper and fall back to the 8-byte Int64 box (documented
+    // deviation); an unrecorded kind falls back to the stride.
+    switch (a->elemKind)
+    {
+        case kElemKindI4:
+            return il2cpp_box_int32(nullptr, *reinterpret_cast<const int32_t*>(
+                a->data + static_cast<size_t>(index) * sizeof(int32_t)));
+        case kElemKindU4:
+            return runtime::icall_box_uint(*reinterpret_cast<const int32_t*>(
+                a->data + static_cast<size_t>(index) * sizeof(int32_t)));
+        case kElemKindF:
+            return runtime::icall_box_float(static_cast<double>(
+                *reinterpret_cast<const float*>(
+                    a->data + static_cast<size_t>(index) * sizeof(float))));
+        case kElemKindD:
+            return runtime::icall_box_double(*reinterpret_cast<const double*>(
+                a->data + static_cast<size_t>(index) * sizeof(double)));
+        case kElemKindI8:
+        case kElemKindDateTime:
+        case kElemKindTimeSpan:
+            return runtime::icall_box_long(*reinterpret_cast<const int64_t*>(
+                a->data + static_cast<size_t>(index) * sizeof(int64_t)));
+        default:
+            break;
+    }
     switch (a->elemSize)
     {
         case 1:
@@ -393,7 +420,7 @@ Il2CppObject* il2cpp_array_get_value(Il2CppArray* arr, int32_t index)
         }
         default:
             il2cpp_throw_not_supported_exception(
-                "GetValue supports only byte, int32 and int64 one-dimensional arrays.");
+                "GetValue supports only byte, int32, uint32, single, double and int64 arrays.");
             return nullptr;
     }
 }
@@ -420,15 +447,48 @@ void il2cpp_array_set_value(Il2CppArray* arr, Il2CppObject* value, int32_t index
     // Domain-contract validation BEFORE value semantics: an unsupported
     // element stride is a caller bug and outranks the value's null/type
     // checks (matching the tests' NotSupportedException expectation).
-    if (a->elemSize != 1 && a->elemSize != sizeof(int32_t) &&
+    if (a->elemKind == kElemKindNone &&
+        a->elemSize != 1 && a->elemSize != sizeof(int32_t) &&
         a->elemSize != sizeof(int64_t))
     {
         il2cpp_throw_not_supported_exception(
-            "SetValue supports only byte, int32 and int64 one-dimensional arrays.");
+            "SetValue supports only byte, int32, uint32, single, double and int64 arrays.");
     }
     if (value == nullptr)
     {
         il2cpp_throw_argument_null_exception("value");
+    }
+    switch (a->elemKind)
+    {
+        case kElemKindI4:
+            *reinterpret_cast<int32_t*>(
+                a->data + static_cast<size_t>(index) * sizeof(int32_t)) =
+                runtime::icall_unbox_int32(value);
+            return;
+        case kElemKindU4:
+            *reinterpret_cast<int32_t*>(
+                a->data + static_cast<size_t>(index) * sizeof(int32_t)) =
+                runtime::icall_unbox_uint(value);
+            return;
+        case kElemKindF:
+            *reinterpret_cast<float*>(
+                a->data + static_cast<size_t>(index) * sizeof(float)) =
+                static_cast<float>(runtime::icall_unbox_float(value));
+            return;
+        case kElemKindD:
+            *reinterpret_cast<double*>(
+                a->data + static_cast<size_t>(index) * sizeof(double)) =
+                runtime::icall_unbox_double(value);
+            return;
+        case kElemKindI8:
+        case kElemKindDateTime:
+        case kElemKindTimeSpan:
+            *reinterpret_cast<int64_t*>(
+                a->data + static_cast<size_t>(index) * sizeof(int64_t)) =
+                runtime::icall_unbox_long(value);
+            return;
+        default:
+            break;
     }
     switch (a->elemSize)
     {
@@ -454,7 +514,7 @@ void il2cpp_array_set_value(Il2CppArray* arr, Il2CppObject* value, int32_t index
         }
         default:
             il2cpp_throw_not_supported_exception(
-                "SetValue supports only byte, int32 and int64 one-dimensional arrays.");
+                "SetValue supports only byte, int32, uint32, single, double and int64 arrays.");
     }
 }
 

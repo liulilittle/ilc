@@ -48,6 +48,21 @@ class Prog
         Console.WriteLine("al_list=" + al2.Count + "," + al2.Capacity + "," + (int)al2[0]);
         ArrayList al3 = new ArrayList(new int[0]);
         Console.WriteLine("al_empty=" + al3.Count + "," + al3.Capacity);
+        float[] fa2 = { 1.5f, 2.5f };
+        ArrayList alf = new ArrayList(fa2);
+        Console.WriteLine("al_float=" + alf.Count + "," + ((float)alf[1] == 2.5f));
+        double[] da2 = { 3.5, 4.5 };
+        ArrayList ald = new ArrayList(da2);
+        Console.WriteLine("al_double=" + ((double)ald[0] == 3.5));
+        uint[] ua2 = { 7u, 8u };
+        ArrayList alu = new ArrayList(ua2);
+        Console.WriteLine("al_uint=" + ((uint)alu[1] == 8u));
+        Array faArr = fa2;
+        Console.WriteLine("gv_float=" + ((float)faArr.GetValue(0) == 1.5f));
+        Array daArr = da2;
+        Console.WriteLine("gv_double=" + ((double)daArr.GetValue(1) == 4.5));
+        Array uaArr = ua2;
+        Console.WriteLine("gv_uint=" + ((uint)uaArr.GetValue(0) == 7u));
         bool alNull = false;
         try { new ArrayList((ICollection)null); }
         catch (ArgumentNullException) { alNull = true; }
