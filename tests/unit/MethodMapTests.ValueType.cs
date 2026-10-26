@@ -134,6 +134,22 @@ public class MethodMapValueTypeTests
     }
 
     //--------------------------------------------------------------------------
+    // VAR first field (a GENERIC struct's T field, e.g. GBox<T>.Value): the
+    // open TypeDef metadata cannot name the closed argument, so M-scope applies
+    // the same low-4-bytes value-hash simplification as the 0x11/0x15 arms.
+    // The classifier must not throw on the generic-struct shape.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ValueType_GetHashCode_VarFirstField_UsesInt32HashDeref()
+    {
+        var resolved = ResolveStructGetHashCode("Calc", "GBox",
+            new[] { FieldSigVar(0x13, 0x00), FieldSig(0x08) }); // T value, int tag
+
+        Assert.Equal("il2cpp::runtime::icall_int32_get_hash_code", resolved.CppName);
+        Assert.Equal(new[] { "deref:i" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
     // No instance fields -> the type-hash arm: the existing 3-arg icall with
     // BOTH prepend markers injects (0, 0) before the receiver address, so the
     // runtime's fieldKind 0 path returns typeHash 0 (the per-type constant is
@@ -318,6 +334,12 @@ public class MethodMapValueTypeTests
     private static (byte[] Sig, bool IsStatic) FieldSigClass(byte elem, byte codedIndex)
     {
         return (new[] { (byte)0x06, elem, codedIndex }, false);
+    }
+
+    // A VAR/MVAR field signature: FIELD marker + 0x13/0x1E + the generic index.
+    private static (byte[] Sig, bool IsStatic) FieldSigVar(byte elem, byte index)
+    {
+        return (new[] { (byte)0x06, elem, index }, false);
     }
 
     private static MemoryStream SynthesizeStruct(string structNs, string structName,

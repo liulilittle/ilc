@@ -27,11 +27,41 @@ public class MethodMapTestsTaskDotted
     [Fact]
     public void Resolve_Task_GetResult_DottedStructReceiver_StaysLoud()
     {
-        // Task<System.DateTime> is a value carrier without a built domain --
-        // LOUD, never silently riding the reference carrier.
+        // Task<System.DateTime> has no box helper -- LOUD, never silently
+        // riding the reference carrier.
         Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Threading.Tasks", "Task`1", "get_Result", Blob(0x20, 0x00, 0x13, 0x00)),
                 "get_Result", receiverType: "System.Threading.Tasks.Task`1_System.DateTime"));
+    }
+
+    //--------------------------------------------------------------------------
+    // batch VT: Task<decimal> rides the 16-byte decimal box carrier (the
+    // dotted BCL struct suffix identifies it; the other value structs stay
+    // LOUD above). The read path uses the decimal T3 contract (resultKind
+    // "dec" -- the result slot is the icall's FIRST parameter).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Task_GetResult_DottedDecimalReceiver_MapsToDecimalCarrier()
+    {
+        var resolved = ResolveMember(Synthesize("System.Threading.Tasks", "Task`1", "get_Result", Blob(0x20, 0x00, 0x13, 0x00)),
+            "get_Result", receiverType: "System.Threading.Tasks.Task`1_System.Decimal");
+
+        Assert.Equal("il2cpp::runtime::icall_task_get_result_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.False(resolved.ReturnsRef);
+    }
+
+    [Fact]
+    public void Resolve_Task_SetResult_DottedDecimalReceiver_MapsToDecimalCarrier()
+    {
+        // AsyncTaskMethodBuilder<decimal>.SetResult(decimal): instance void,
+        // the value rides the "dec" cast (address-of).
+        var resolved = ResolveMember(Synthesize("System.Runtime.CompilerServices", "AsyncTaskMethodBuilder`1", "SetResult",
+            Blob(0x20, 0x01, 0x01, 0x13, 0x00)),
+            "SetResult", receiverType: "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1_System.Decimal");
+
+        Assert.Equal("il2cpp::runtime::icall_async_builder_set_result_dec", resolved.CppName);
+        Assert.Equal(new[] { "", "dec" }, resolved.ParamTypeNames);
     }
 
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName, string? receiverType = null)

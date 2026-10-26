@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // MethodMap.Task -- System.Threading.Tasks minimal synchronous surface
 // (batch 155d + 156c): completed Task<T> (Task.FromResult) + the async
 // state-machine surface. The async state machine <F>d__1 is a nested struct
@@ -95,6 +95,15 @@ namespace Il2Cpp.Transpiler.Emit
                 // below (which would silently truncate the struct value --
                 // the hazard this gate exists for).
                 || (DottedSuffix(instName ?? receiverType) is string ds && IsKnownValueTypeName(ds));
+            // batch VT: Task<decimal> rides the 16-byte decimal box carrier
+            // (icall_box_decimal / icall_unbox_decimal). The closed argument
+            // is identified by the decoded MethodSpec generic-arg full name
+            // (GenericArgFullNames) or the dotted BCL struct suffix on an
+            // instance call. The OTHER BCL value structs (Guid/DateTime/
+            // TimeSpan/DateTimeOffset) have no box helper and stay LOUD.
+            var isDecimal = isValuetype
+                && (DottedSuffix(instName ?? receiverType) == "System.Decimal"
+                    || (genArgNames is { Length: 1 } && genArgNames[0] == "System.Decimal"));
             // batch 165: the ref-return carriers (string, object, class and
             // array all ride the "s" icalls -- the result slot IS the object).
             var isRef = isString || isObject || isClass || isArray;
@@ -104,16 +113,22 @@ namespace Il2Cpp.Transpiler.Emit
             // slot; "l"/"d" kinds type the consumer temp; "" = int32.
             (string Suffix, string Kind) Carrier()
             {
-                // batch 165b: VALUETYPE result carriers (Task<decimal> /
-                // Task<DateTime> / Task<Guid> -- the 16-byte struct boxes
-                // are NOT built): LOUD reject here (Carrier() is only
-                // reached by the RESULT-bearing ops -- SetResult/GetResult/
-                // get_Result/FromResult -- never by Start<TStateMachine>,
-                // whose TStateMachine genArg is itself a VALUETYPE struct).
+                // batch VT: the decimal carrier. The result slot is a boxed
+                // System.Decimal (icall_box_decimal); the read path uses the
+                // decimal T3 contract (the result slot is the icall's FIRST
+                // parameter -- resultKind "dec").
+                if (isDecimal)
+                    return ("_dec", "dec");
+                // batch 165b: the OTHER VALUETYPE result carriers (Guid /
+                // DateTime / TimeSpan / DateTimeOffset -- no box helper) stay
+                // LOUD here (Carrier() is only reached by the RESULT-bearing
+                // ops -- SetResult/GetResult/get_Result/FromResult -- never by
+                // Start<TStateMachine>, whose TStateMachine genArg is itself a
+                // VALUETYPE struct).
                 if (isValuetype)
                     throw new NotSupportedException(
-                        $"Task<T> carrier for VALUETYPE T (instName '{instName}') is not built in M3 -- " +
-                        "the 16-byte struct carriers (decimal/DateTime/Guid) are out of scope; only the " +
+                        $"Task<T> carrier for VALUETYPE T (instName '{instName ?? ""}', receiver '{receiverType ?? ""}') " +
+                        "has no box helper in M3 -- only the decimal 16-byte carrier is built; the " +
                         "primitive/ref carriers (int/long/double/float/string/object/ulong/bool/char/class/array) exist");
                 return isRef ? ("_s", "")
                     : isFloat ? ("_f", "d")
@@ -168,7 +183,7 @@ namespace Il2Cpp.Transpiler.Emit
                             // cast -- the value is already double); ulong
                             // rides the bit-preserving int64 slot ("l");
                             // string/object ride the ref slot (no cast).
-                            var valueCast = isRef ? "" : isDouble || isFloat ? "d" : isInt64 || isUlong ? "l" : "";
+                            var valueCast = isRef ? "" : isDecimal ? "dec" : isDouble || isFloat ? "d" : isInt64 || isUlong ? "l" : "";
                             return I($"il2cpp::runtime::icall_async_builder_set_result{suffix}", 1, false, false, true,
                                 new[] { receiverIsAddress ? "deref:r" : "", valueCast });
                         }
@@ -324,7 +339,7 @@ namespace Il2Cpp.Transpiler.Emit
                         // batch 165: string/object ride the ref slot (no
                         // cast); float the double slot ("d"); ulong the
                         // int64 slot ("l").
-                        var valueCast = isRef ? "" : isDouble || isFloat ? "d" : isInt64 || isUlong ? "l" : "";
+                        var valueCast = isRef ? "" : isDecimal ? "dec" : isDouble || isFloat ? "d" : isInt64 || isUlong ? "l" : "";
                         return I($"il2cpp::runtime::icall_task_from_result{suffix}", 1, true, true, false,
                             new[] { valueCast, "" }, returnTypeName: owner);
                     }
@@ -396,3 +411,4 @@ namespace Il2Cpp.Transpiler.Emit
         }
     }
 }
+

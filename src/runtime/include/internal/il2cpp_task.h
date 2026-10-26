@@ -2,6 +2,7 @@
 #define IL2CPP_TASK_H
 
 #include "il2cpp_object.h"
+#include "decimal.h" // Il2CppDecimal (the Task<decimal> 16-byte carrier)
 
 //------------------------------------------------------------------------------
 // il2cpp_task.h -- System.Threading.Tasks minimal synchronous surface
@@ -51,6 +52,10 @@ Il2CppObject* icall_task_from_result_f(double value);
 // is the bit-preserving slot read (the same int64 slot convention as ulong
 // values everywhere in the model).
 Il2CppObject* icall_task_from_result_u(int64_t value);
+// batch VT (ValueType carrier): Task<decimal>.FromResult -- the 16-byte
+// decimal box carrier. The value arrives pointer-shaped (const Il2CppDecimal*,
+// the icall_box_decimal convention) and is boxed into the task's result slot.
+Il2CppObject* icall_task_from_result_dec(const Il2CppDecimal* value);
 // Task<T>.Result / .IsCompleted.
 int32_t icall_task_get_result(Il2CppObject* self);
 // batch 162: TaskAwaiter<T>.GetResult() -- rethrows the ORIGINAL stored
@@ -77,6 +82,12 @@ double icall_task_get_result_original_f(Il2CppObject* self);
 // bit-preserving int64_t slot (the model's ulong slot convention).
 int64_t icall_task_get_result_u(Il2CppObject* self);
 int64_t icall_task_get_result_original_u(Il2CppObject* self);
+// batch VT: Task<decimal>.Result -- the decimal T3 contract (the result slot
+// is the FIRST parameter, a 16-byte Il2CppDecimal out slot, then the task
+// receiver); the boxed decimal payload is copied into it. The awaiter variant
+// rethrows the stored exception.
+void icall_task_get_result_dec(Il2CppDecimal* out, Il2CppObject* self);
+void icall_task_get_result_original_dec(Il2CppDecimal* out, Il2CppObject* self);
 int32_t icall_task_get_is_completed(Il2CppObject* self);
 // GetAwaiter() -- batch 156c: returns the task ITSELF as the awaiter (the
 // minimal synchronous awaiter; the state machine's TaskAwaiter local holds
@@ -106,6 +117,9 @@ void icall_async_builder_set_result_s(Il2CppObject* self, Il2CppObject* value);
 void icall_async_builder_set_result_f(Il2CppObject* self, double value);
 // batch 165: AsyncTaskMethodBuilder<ulong>.SetResult -- UInt64 box carrier.
 void icall_async_builder_set_result_u(Il2CppObject* self, int64_t value);
+// batch VT: AsyncTaskMethodBuilder<decimal>.SetResult -- the 16-byte decimal
+// box carrier (the value arrives pointer-shaped).
+void icall_async_builder_set_result_dec(Il2CppObject* self, const Il2CppDecimal* value);
 // AsyncTaskMethodBuilder<T>.SetException(Exception) -- store the exception
 // (minimal: the Result rethrow path is batch 156d).
 void icall_async_builder_set_exception(Il2CppObject* self, Il2CppObject* ex);

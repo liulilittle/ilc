@@ -532,6 +532,14 @@ public static partial class MethodRefResolver
                     // and hashes it (ValueTypeOverride); M-scope simplifies to
                     // the low-4-bytes value hash.
                     0x11 or 0x15 => 1,
+                    // VAR/MVAR (a GENERIC struct's T field, e.g. GBox<T>.Value):
+                    // the open TypeDef metadata cannot name the closed argument
+                    // (T=int vs T=long both encode 0x13), so M-scope applies the
+                    // same low-4-bytes value-hash simplification as 0x11/0x15.
+                    // (The classifier is a real function; this arm keeps it from
+                    // throwing on the generic-struct shape -- the documented
+                    // M-scope divergence, not a silent truncation.)
+                    0x13 or 0x1E => 1,
                     _ => throw new NotSupportedException(
                         $"System.ValueType::GetHashCode for receiver type {receiverType}: unsupported first-field element byte 0x{elem:X2}"),
                 };

@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // task.cpp -- System.Threading.Tasks minimal synchronous surface (batch
 // 155d + 156c): completed Task<T> (Task.FromResult) + the async state-machine
 // surface. The async builder rides as a Task: Create() makes an incomplete
@@ -121,6 +121,21 @@ Il2CppObject* icall_task_from_result_u(int64_t value)
     auto* task = reinterpret_cast<il2cpp::Il2CppTask*>(
         il2cpp_object_new(&System_Threading_Tasks_Task_1_class));
     auto* boxed = icall_box_ulong(static_cast<uint64_t>(value));
+    task->result = boxed;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&task->result), boxed);
+    task->isCompleted = 1;
+    return reinterpret_cast<Il2CppObject*>(task);
+}
+
+// batch VT (ValueType carrier): Task<decimal>.FromResult -- the 16-byte
+// decimal box carrier (the value arrives pointer-shaped, the icall_box_decimal
+// convention).
+Il2CppObject* icall_task_from_result_dec(const Il2CppDecimal* value)
+{
+    EnsureTaskRegistered();
+    auto* task = reinterpret_cast<il2cpp::Il2CppTask*>(
+        il2cpp_object_new(&System_Threading_Tasks_Task_1_class));
+    auto* boxed = icall_box_decimal(value);
     task->result = boxed;
     il2cpp_write_barrier(reinterpret_cast<void**>(&task->result), boxed);
     task->isCompleted = 1;
@@ -407,6 +422,45 @@ int64_t icall_task_get_result_original_u(Il2CppObject* self)
     return static_cast<int64_t>(icall_unbox_ulong(task->result));
 }
 
+// batch VT: Task<decimal>.Result -- the decimal T3 contract (the result slot
+// is the FIRST parameter; the boxed decimal payload is copied into it).
+void icall_task_get_result_dec(Il2CppDecimal* out, Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    auto* task = reinterpret_cast<il2cpp::Il2CppTask*>(self);
+    if (task->exception != nullptr)
+    {
+        ThrowFaultedAggregate();
+    }
+    if (task->isCompleted != 1)
+    {
+        il2cpp::il2cpp_throw_invalid_operation_exception("The task is not completed.");
+    }
+    *out = icall_unbox_decimal(task->result);
+}
+
+// TaskAwaiter<decimal>.GetResult() -- original-rethrow variant.
+void icall_task_get_result_original_dec(Il2CppDecimal* out, Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    auto* task = reinterpret_cast<il2cpp::Il2CppTask*>(self);
+    if (task->exception != nullptr)
+    {
+        ThrowFaultedOriginal(task);
+    }
+    if (task->isCompleted != 1)
+    {
+        il2cpp::il2cpp_throw_invalid_operation_exception("The task is not completed.");
+    }
+    *out = icall_unbox_decimal(task->result);
+}
+
 // Task<T>.IsCompleted.
 int32_t icall_task_get_is_completed(Il2CppObject* self)
 {
@@ -540,6 +594,22 @@ void icall_async_builder_set_result_u(Il2CppObject* self, int64_t value)
     task->isCompleted = 1;
 }
 
+// AsyncTaskMethodBuilder<decimal>.SetResult (batch VT): the 16-byte decimal
+// box carrier (the value arrives pointer-shaped).
+void icall_async_builder_set_result_dec(Il2CppObject* self, const Il2CppDecimal* value)
+{
+    if (self == nullptr)
+    {
+        il2cpp::il2cpp_throw_null_reference_exception(nullptr);
+    }
+    auto* task = reinterpret_cast<il2cpp::Il2CppTask*>(self);
+    if (task->isCompleted == 1) return;
+    auto* boxed = icall_box_decimal(value);
+    task->result = boxed;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&task->result), boxed);
+    task->isCompleted = 1;
+}
+
 // AsyncTaskMethodBuilder<T>.SetException(Exception): batch 156d -- the
 // faulted-task model. The M-model catch variable is the exception's SHORT
 // type name (an interned managed string); store it on the task and mark it
@@ -591,3 +661,4 @@ void icall_async_builder_await_unsupported(Il2CppObject* self)
 }
 
 } // namespace il2cpp::runtime
+
