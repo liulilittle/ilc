@@ -211,8 +211,199 @@ void ConvertThrowRangeUnsigned(uint64_t mag, bool negative, uint64_t maxMag)
     }
 }
 
+// The net48 ParseNumbers.StringToInt accumulation for the base-conversion
+// family: tight grammar, radix 2/8/10/16. Radix 2/8/16 accumulate the raw bit
+// pattern of the target width (uint32 when wide64=false, uint64 when true);
+// radix 10 accumulates the unsigned magnitude and returns the sign separately.
+// Throws ArgumentException (invalid radix / '-' for a non-decimal radix),
+// ArgumentOutOfRangeException (empty) and FormatException (no digits / trailing
+// characters) exactly as net48 (pinned by convertbase / convbase probes).
+struct ConvertBaseAcc
+{
+    uint64_t raw;
+    bool negative;
+};
+
+ConvertBaseAcc ConvertParseBase(Il2CppString* value, int32_t fromBase, bool wide64)
+{
+    ConvertBaseAcc acc{0, false};
+    if (!IsValidRadix(fromBase))
+    {
+        il2cpp_throw_argument_exception("The 'base' argument must be from 2 to 36.");
+    }
+    if (value == nullptr)
+    {
+        return acc; // net48 "null means zero" rule for the base overloads (pinned)
+    }
+    const char16_t* p = value->chars;
+    const char16_t* end = p + value->length;
+    if (p == end)
+    {
+        // net48 quirk (pinned): ParseNumbers.StringToInt rejects an empty
+        // tight string with ArgumentOutOfRangeException.
+        il2cpp_throw_argument_out_of_range_exception("value", "String cannot be empty.");
+    }
+    // Sign: '-' is legal ONLY for radix 10 (ArgumentException for 2/8/16);
+    // '+' is consumed for any radix ("+101", 2 parses to 5 -- pinned).
+    if (*p == u'-')
+    {
+        if (fromBase != 10)
+        {
+            il2cpp_throw_argument_exception("Negative numbers are not allowed in the given base.");
+        }
+        acc.negative = true;
+        ++p;
+    }
+    else if (*p == u'+')
+    {
+        ++p;
+    }
+    // Radix 16 consumes an optional "0x"/"0X" prefix AFTER the sign
+    // ("0xFF", 16 == 255; "0b"/"0o" prefixes are NOT accepted -- pinned).
+    if (fromBase == 16 && (end - p) >= 2 && p[0] == u'0' && (p[1] == u'x' || p[1] == u'X'))
+    {
+        p += 2;
+    }
+    const char16_t* digitStart = p;
+    bool overflow = false;
+    if (fromBase == 10)
+    {
+        while (p < end)
+        {
+            uint32_t digit;
+            if (!TryParseDigit(*p, fromBase, digit))
+            {
+                break;
+            }
+            if (acc.raw > (UINT64_MAX - digit) / 10ULL)
+            {
+                overflow = true;
+                break;
+            }
+            acc.raw = acc.raw * 10ULL + digit;
+            ++p;
+        }
+    }
+    else
+    {
+        // Radix 2/8/16: accumulation with net48's per-digit overflow pre-check
+        // (maxVal = widthMax / radix). Wraparound INSIDE the target width is
+        // legal ("80000000", 16 -> INT32_MIN) but exceeding it throws.
+        const uint64_t maxVal = wide64
+            ? (UINT64_MAX / static_cast<uint64_t>(fromBase))
+            : (0xFFFFFFFFULL / static_cast<uint64_t>(fromBase));
+        while (p < end)
+        {
+            uint32_t digit;
+            if (!TryParseDigit(*p, fromBase, digit))
+            {
+                break;
+            }
+            if (acc.raw > maxVal)
+            {
+                overflow = true;
+                break;
+            }
+            acc.raw = acc.raw * static_cast<uint64_t>(fromBase) + digit;
+            ++p;
+        }
+    }
+    if (overflow)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small.");
+    }
+    if (p == digitStart)
+    {
+        il2cpp_throw_format_exception("Input string was not in a correct format.");
+    }
+    if (p != end)
+    {
+        il2cpp_throw_format_exception("Input string was not in a correct format.");
+    }
+    return acc;
+}
+
+// Render an unsigned value as a base-N string (radix 2/8/16), no leading
+// zeros, "0" for zero. Shared by the ToString(byte/short/long, base) icalls.
+Il2CppString* ConvertFormatUnsignedBase(uint64_t value, int32_t toBase)
+{
+    char tmp[64];
+    if (value == 0)
+    {
+        tmp[0] = '0';
+        tmp[1] = '\0';
+        return il2cpp_string_new_from_cs(tmp);
+    }
+    int n = 0;
+    uint64_t remaining = value;
+    while (remaining != 0)
+    {
+        const uint32_t digit = static_cast<uint32_t>(remaining % static_cast<uint64_t>(toBase));
+        tmp[n++] = static_cast<char>(digit < 10 ? ('0' + digit) : ('a' + digit - 10));
+        remaining /= static_cast<uint64_t>(toBase);
+    }
+    char buf[65];
+    int len = 0;
+    while (n > 0)
+    {
+        buf[len++] = tmp[--n];
+    }
+    buf[len] = '\0';
+    return il2cpp_string_new_from_cs(buf);
+}
+
 } // namespace
 
+//------------------------------------------------------------------------------
+// Convert.ToString(byte/short/long, int toBase) -- net48 convert.cs:2093/2103/
+// 2123. Same radix contract; byte base 10 renders the unsigned decimal (0..255),
+// short/long base 10 the signed decimal, and 2/8/16 the unsigned target-width
+// pattern (uint8 / uint16 / uint64).
+//------------------------------------------------------------------------------
+Il2CppString* icall_convert_to_string_u1_base(int32_t value, int32_t toBase)
+{
+    if (!IsValidRadix(toBase))
+    {
+        il2cpp_throw_argument_exception("The 'base' argument must be from 2 to 36.");
+        return nullptr; // unreachable (the throw helper never returns)
+    }
+    if (toBase == 10)
+    {
+        return icall_int32_to_string(static_cast<int32_t>(static_cast<uint8_t>(value)));
+    }
+    return ConvertFormatUnsignedBase(static_cast<uint32_t>(static_cast<uint8_t>(value)), toBase);
+}
+
+Il2CppString* icall_convert_to_string_i2_base(int32_t value, int32_t toBase)
+{
+    if (!IsValidRadix(toBase))
+    {
+        il2cpp_throw_argument_exception("The 'base' argument must be from 2 to 36.");
+        return nullptr; // unreachable (the throw helper never returns)
+    }
+    if (toBase == 10)
+    {
+        return icall_int32_to_string(value);
+    }
+    return ConvertFormatUnsignedBase(static_cast<uint32_t>(static_cast<uint16_t>(value)), toBase);
+}
+
+Il2CppString* icall_convert_to_string_i8_base(int64_t value, int32_t toBase)
+{
+    if (!IsValidRadix(toBase))
+    {
+        il2cpp_throw_argument_exception("The 'base' argument must be from 2 to 36.");
+        return nullptr; // unreachable (the throw helper never returns)
+    }
+    if (toBase == 10)
+    {
+        return icall_int64_to_string(value);
+    }
+    return ConvertFormatUnsignedBase(static_cast<uint64_t>(value), toBase);
+}
+
+//------------------------------------------------------------------------------
+// p0conv2 (D1): System.Convert -> System.Decimal.
 //------------------------------------------------------------------------------
 // String conversions: null -> 0 / 0.0 (the Convert null rule); otherwise the
 // format.cpp Parse semantics (FormatException / OverflowException propagate).
@@ -357,6 +548,132 @@ int32_t icall_convert_to_int32_string_base(Il2CppString* value, int32_t fromBase
     int32_t result = 0;
     std::memcpy(&result, &bits, sizeof(result));
     return result;
+}
+
+//------------------------------------------------------------------------------
+// The other base-parse widths (net48 convert.cs:1977..2089). Each applies the
+// per-target signed/unsigned range check on top of ConvertParseBase.
+//------------------------------------------------------------------------------
+
+int64_t icall_convert_to_int64_string_base(Il2CppString* value, int32_t fromBase)
+{
+    const ConvertBaseAcc acc = ConvertParseBase(value, fromBase, true);
+    if (fromBase == 10)
+    {
+        const uint64_t limit = acc.negative ? 9223372036854775808ULL : 9223372036854775807ULL;
+        if (acc.raw > limit)
+        {
+            il2cpp_throw_overflow_exception("Value was either too large or too small for an Int64.");
+        }
+        return acc.negative ? -static_cast<int64_t>(acc.raw) : static_cast<int64_t>(acc.raw);
+    }
+    // Radix 2/8/16: reinterpret the uint64 accumulation as the int64 pattern.
+    int64_t result = 0;
+    std::memcpy(&result, &acc.raw, sizeof(result));
+    return result;
+}
+
+int32_t icall_convert_to_byte_string_base(Il2CppString* value, int32_t fromBase)
+{
+    const ConvertBaseAcc acc = ConvertParseBase(value, fromBase, false);
+    if (fromBase == 10)
+    {
+        if (acc.negative || acc.raw > 255ULL)
+        {
+            il2cpp_throw_overflow_exception("Value was either too large or too small for a Byte.");
+        }
+    }
+    else if (acc.raw > 255ULL)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Byte.");
+    }
+    return static_cast<int32_t>(acc.raw);
+}
+
+int32_t icall_convert_to_sbyte_string_base(Il2CppString* value, int32_t fromBase)
+{
+    const ConvertBaseAcc acc = ConvertParseBase(value, fromBase, false);
+    if (fromBase == 10)
+    {
+        if (acc.negative ? acc.raw > 128ULL : acc.raw > 127ULL)
+        {
+            il2cpp_throw_overflow_exception("Value was either too large or too small for a SByte.");
+        }
+        return acc.negative ? -static_cast<int32_t>(acc.raw) : static_cast<int32_t>(acc.raw);
+    }
+    // net48 quirk (convert.cs:1999): base != 10 && r <= Byte.MaxValue -> the
+    // byte pattern reinterpreted as sbyte ("10000000", 2 -> -128).
+    const int32_t r = static_cast<int32_t>(static_cast<uint32_t>(acc.raw));
+    if (r <= 255)
+    {
+        return static_cast<int32_t>(static_cast<int8_t>(r));
+    }
+    if (r < -128 || r > 127)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a SByte.");
+    }
+    return static_cast<int32_t>(static_cast<int8_t>(r));
+}
+
+int32_t icall_convert_to_int16_string_base(Il2CppString* value, int32_t fromBase)
+{
+    const ConvertBaseAcc acc = ConvertParseBase(value, fromBase, false);
+    if (fromBase == 10)
+    {
+        if (acc.negative ? acc.raw > 32768ULL : acc.raw > 32767ULL)
+        {
+            il2cpp_throw_overflow_exception("Value was either too large or too small for an Int16.");
+        }
+        return acc.negative ? -static_cast<int32_t>(acc.raw) : static_cast<int32_t>(acc.raw);
+    }
+    // net48 quirk (convert.cs:2017): base != 10 && r <= UInt16.MaxValue.
+    const int32_t r = static_cast<int32_t>(static_cast<uint32_t>(acc.raw));
+    if (r <= 65535)
+    {
+        return static_cast<int32_t>(static_cast<int16_t>(r));
+    }
+    if (r < -32768 || r > 32767)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for an Int16.");
+    }
+    return static_cast<int32_t>(static_cast<int16_t>(r));
+}
+
+int32_t icall_convert_to_uint16_string_base(Il2CppString* value, int32_t fromBase)
+{
+    const ConvertBaseAcc acc = ConvertParseBase(value, fromBase, false);
+    if (fromBase == 10)
+    {
+        if (acc.negative || acc.raw > 65535ULL)
+        {
+            il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt16.");
+        }
+    }
+    else if (acc.raw > 65535ULL)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt16.");
+    }
+    return static_cast<int32_t>(acc.raw);
+}
+
+uint32_t icall_convert_to_uint32_string_base(Il2CppString* value, int32_t fromBase)
+{
+    const ConvertBaseAcc acc = ConvertParseBase(value, fromBase, false);
+    if (fromBase == 10 && (acc.negative || acc.raw > 4294967295ULL))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt32.");
+    }
+    return static_cast<uint32_t>(acc.raw);
+}
+
+uint64_t icall_convert_to_uint64_string_base(Il2CppString* value, int32_t fromBase)
+{
+    const ConvertBaseAcc acc = ConvertParseBase(value, fromBase, true);
+    if (fromBase == 10 && acc.negative)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt64.");
+    }
+    return acc.raw;
 }
 
 double icall_convert_to_double_string(Il2CppString* value)
@@ -1356,6 +1673,12 @@ int32_t icall_convert_to_char_d(double value)
 {
     (void)value;
     ThrowConvertIce("Invalid cast from 'Double' to 'Char'.");
+}
+
+int32_t icall_convert_to_char_dec(const void* d)
+{
+    (void)d;
+    ThrowConvertIce("Invalid cast from 'Decimal' to 'Char'.");
 }
 
 }} // namespace il2cpp::runtime

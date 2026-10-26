@@ -86,7 +86,7 @@ public class MethodMapTestsMath
                 new byte[] { 0x00, 0x02, 0x0D, 0x0D, 0x12, 0x05 }), "Round"));
 
         Assert.Contains("System.Math::Round", ex.Message);
-        Assert.Contains("not wired", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
     }
 
     //--------------------------------------------------------------------------

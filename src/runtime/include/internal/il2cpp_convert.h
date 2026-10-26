@@ -66,6 +66,20 @@ int32_t icall_convert_to_int32_string(Il2CppString* value);
 //   * no parsable digits or trailing junk -> FormatException.
 int32_t icall_convert_to_int32_string_base(Il2CppString* value, int32_t fromBase);
 
+// Convert.ToXxx(string, int fromBase): the SAME radix contract (net48
+// ParseNumbers.StringToInt, IsTight) for the other widths. null -> 0 (the
+// Convert rule); empty -> ArgumentOutOfRangeException; invalid radix ->
+// ArgumentException; out-of-range -> OverflowException; bad digits/trailing ->
+// FormatException. The per-target signed/unsigned range checks are the net48
+// wrappers (convert.cs:1977..2089).
+int64_t icall_convert_to_int64_string_base(Il2CppString* value, int32_t fromBase);
+int32_t icall_convert_to_byte_string_base(Il2CppString* value, int32_t fromBase);
+int32_t icall_convert_to_sbyte_string_base(Il2CppString* value, int32_t fromBase);
+int32_t icall_convert_to_int16_string_base(Il2CppString* value, int32_t fromBase);
+int32_t icall_convert_to_uint16_string_base(Il2CppString* value, int32_t fromBase);
+uint32_t icall_convert_to_uint32_string_base(Il2CppString* value, int32_t fromBase);
+uint64_t icall_convert_to_uint64_string_base(Il2CppString* value, int32_t fromBase);
+
 // Convert.ToInt32(long): CHECKED truncation -- in-range values truncate to
 // int32; out-of-range -> OverflowException (net48 contract).
 int32_t icall_convert_to_int32_i8(int64_t value);
@@ -152,6 +166,16 @@ Il2CppString* icall_convert_to_string_bool(bool value);
 // ("-42", 16 -> "ffffffd6"; INT32_MIN, 8 -> "20000000000").
 Il2CppString* icall_convert_to_string_i4_base(int32_t value, int32_t toBase);
 
+// Convert.ToString(byte/short/long, int toBase): the SAME radix contract.
+// byte: base 10 renders the unsigned decimal (0..255); short/long: base 10
+// renders the signed decimal. Bases 2/8/16 render the value as UNSIGNED of the
+// target width (uint8/uint16/uint64) -- a negative short/long prints its
+// two's-complement pattern ("-1" short, 16 -> "ffff"; long, 16 ->
+// "ffffffffffffffff"). [net48 convert.cs:2093,2103,2123]
+Il2CppString* icall_convert_to_string_u1_base(int32_t value, int32_t toBase);
+Il2CppString* icall_convert_to_string_i2_base(int32_t value, int32_t toBase);
+Il2CppString* icall_convert_to_string_i8_base(int64_t value, int32_t toBase);
+
 // Convert.ToString(object): net48 returns the EMPTY string for null and the
 // argument's ToString() text otherwise (the IFormatProvider overload ignores
 // the provider for every primitive). This is the null-safe wrapper over
@@ -197,6 +221,11 @@ double icall_convert_to_double_char(int32_t utf16);
 int32_t icall_convert_to_bool_char(int32_t utf16);
 int32_t icall_convert_to_char_bool(int32_t value);
 int32_t icall_convert_to_char_d(double value);
+// Convert.ToChar(decimal): net48 throws InvalidCastException for EVERY decimal
+// (decimal's IConvertible has no ToChar). The value is ignored; the helper
+// always throws. (Convert.ToChar(DateTime) shares this helper: both sources
+// have no IConvertible.ToChar on net48.) [net48 convert.cs:578,583]
+int32_t icall_convert_to_char_dec(const void* d);
 
 // Convert.ToBoolean(int32): 0 -> 0, any non-zero (incl. negative) -> 1.
 int32_t icall_convert_to_bool_i4(int32_t value);

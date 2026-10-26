@@ -1,4 +1,4 @@
-namespace Il2Cpp.Transpiler.Emit;
+﻿namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.ConvertExtra -- System.Convert checked-narrowing gap surface.
@@ -69,8 +69,6 @@ public static partial class MethodRefResolver
             case "ToInt16":
             case "ToUInt16":
             {
-                if (ps.Length != 1)
-                    throw new NotSupportedException($"Convert.{name} with {ps.Length} param(s) not wired");
                 // (icall suffix, net48 checked range, rounding-_d icall infix)
                 var (suffix, _, dName) = name switch
                 {
@@ -79,6 +77,27 @@ public static partial class MethodRefResolver
                     "ToInt16" => ("i2", "[-32768, 32767]", "int16"),
                     _ => ("u2", "[0, 65535]", "uint16"),
                 };
+                // Convert.{name}(value, IFormatProvider) / (string, int fromBase):
+                // net48 ignores the provider; the radix form is the batch-9 icall
+                // (convert.cs:1977/1993/2011/2030).
+                if (ps.Length != 1)
+                {
+                    if (ps.Length == 2 && ps[1] == 0x12)
+                        return ps[0] switch
+                        {
+                            0x1C => I($"il2cpp::runtime::icall_convert_to_{dName}_obj", 2, true, false, false, new[] { "", "drop" }),
+                            0x0E => I($"il2cpp::runtime::icall_convert_to_{dName}_string", 2, true, false, false, new[] { "s", "drop" }),
+                            _ => throw new NotSupportedException(
+                                $"LOUD whitelist (net48 has no such overload): Convert.{name} param type 0x{ps[0]:X2} with IFormatProvider -- " +
+                                "net48 has only the (object, string) provider forms [Reference convert.cs:600,693,815,893,916,1007]"),
+                        };
+                    if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x08)
+                        return I($"il2cpp::runtime::icall_convert_to_{dName}_string_base", 2, true, false, false, new[] { "s", "i" });
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.{name} with {ps.Length} param(s) -- " +
+                        "net48 has the 1-arg value overloads, (object,string)+IFormatProvider and (string,int fromBase) " +
+                        "[Reference convert.cs:595-1007]");
+                }
                 return ps[0] switch
                 {
                     // All int32-carried integer sources through the checked
@@ -111,13 +130,33 @@ public static partial class MethodRefResolver
                     // (null -> 0; the checked narrow range over the full-width
                     // int64/uint64 sources).
                     0x1C => I($"il2cpp::runtime::icall_convert_to_{dName}_obj", 1, true, false, false, new[] { "" }),
-                    _ => throw new NotSupportedException($"Convert.{name} param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
+                    _ => throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.{name} param type 0x{ps[0]:X2} -- " +
+                        "net48 has the primitive value overloads [Reference convert.cs:595-1007]"),
                 };
             }
             case "ToUInt32":
             {
+                // Convert.ToUInt32(value, IFormatProvider) / (string, int fromBase)
+                // -- batch 9 (convert.cs:1141/1235/2058).
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"Convert.ToUInt32 with {ps.Length} param(s) not wired");
+                {
+                    if (ps.Length == 2 && ps[1] == 0x12)
+                        return ps[0] switch
+                        {
+                            0x1C => I("il2cpp::runtime::icall_convert_to_uint32_obj", 2, true, false, false, new[] { "", "drop" }),
+                            0x0E => I("il2cpp::runtime::icall_convert_to_uint32_string", 2, true, false, false, new[] { "s", "drop" }),
+                            _ => throw new NotSupportedException(
+                                $"LOUD whitelist (net48 has no such overload): Convert.ToUInt32 param type 0x{ps[0]:X2} with IFormatProvider -- " +
+                                "net48 has only the (object, string) provider forms [Reference convert.cs:1141,1235]"),
+                        };
+                    if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x08)
+                        return I("il2cpp::runtime::icall_convert_to_uint32_string_base", 2, true, false, false, new[] { "s", "i" });
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.ToUInt32 with {ps.Length} param(s) -- " +
+                        "net48 has the 1-arg value overloads, (object,string)+IFormatProvider and (string,int fromBase) " +
+                        "[Reference convert.cs:1136-1235]");
+                }
                 return ps[0] switch
                 {
                     // Signed small integers + byte/ushort: checked [0, 2^32)
@@ -147,13 +186,31 @@ public static partial class MethodRefResolver
                     // BATCH 8: Convert.ToUInt32(object) -- the boxed dispatch
                     // (null -> 0; negative signed sources throw).
                     0x1C => I("il2cpp::runtime::icall_convert_to_uint32_obj", 1, true, false, false, new[] { "" }),
-                    _ => throw new NotSupportedException($"Convert.ToUInt32 param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
+                    _ => throw new NotSupportedException($"LOUD whitelist (net48 has no such overload): Convert.ToUInt32 param type 0x{ps[0]:X2} -- net48 has the primitive value overloads [Reference convert.cs:1136-1242]"),
                 };
             }
             case "ToUInt64":
             {
+                // Convert.ToUInt64(value, IFormatProvider) / (string, int fromBase)
+                // -- batch 9 (convert.cs:1348/1434/2083).
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"Convert.ToUInt64 with {ps.Length} param(s) not wired");
+                {
+                    if (ps.Length == 2 && ps[1] == 0x12)
+                        return ps[0] switch
+                        {
+                            0x1C => I("il2cpp::runtime::icall_convert_to_uint64_obj", 2, true, false, false, new[] { "", "drop" }, "l"),
+                            0x0E => I("il2cpp::runtime::icall_convert_to_uint64_string", 2, true, false, false, new[] { "s", "drop" }, "l"),
+                            _ => throw new NotSupportedException(
+                                $"LOUD whitelist (net48 has no such overload): Convert.ToUInt64 param type 0x{ps[0]:X2} with IFormatProvider -- " +
+                                "net48 has only the (object, string) provider forms [Reference convert.cs:1348,1434]"),
+                        };
+                    if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x08)
+                        return I("il2cpp::runtime::icall_convert_to_uint64_string_base", 2, true, false, false, new[] { "s", "i" }, "l");
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.ToUInt64 with {ps.Length} param(s) -- " +
+                        "net48 has the 1-arg value overloads, (object,string)+IFormatProvider and (string,int fromBase) " +
+                        "[Reference convert.cs:1343-1434]");
+                }
                 return ps[0] switch
                 {
                     // Signed sources: negative throws (checked [0, 2^64)).
@@ -179,13 +236,29 @@ public static partial class MethodRefResolver
                     // BATCH 8: Convert.ToUInt64(object) -- the boxed dispatch
                     // (null -> 0; negative signed sources throw).
                     0x1C => I("il2cpp::runtime::icall_convert_to_uint64_obj", 1, true, false, false, new[] { "" }, "l"),
-                    _ => throw new NotSupportedException($"Convert.ToUInt64 param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
+                    _ => throw new NotSupportedException($"LOUD whitelist (net48 has no such overload): Convert.ToUInt64 param type 0x{ps[0]:X2} -- net48 has the primitive value overloads [Reference convert.cs:1343-1441]"),
                 };
             }
             case "ToSingle":
             {
+                // Convert.ToSingle(value, IFormatProvider) -- batch 9
+                // (convert.cs:1455/1517).
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"Convert.ToSingle with {ps.Length} param(s) not wired");
+                {
+                    if (ps.Length == 2 && ps[1] == 0x12)
+                        return ps[0] switch
+                        {
+                            0x1C => I("il2cpp::runtime::icall_convert_to_single_obj", 2, true, false, false, new[] { "", "drop" }, "d"),
+                            0x0E => I("il2cpp::runtime::icall_convert_to_single_string", 2, true, false, false, new[] { "s", "drop" }, "d"),
+                            _ => throw new NotSupportedException(
+                                $"LOUD whitelist (net48 has no such overload): Convert.ToSingle param type 0x{ps[0]:X2} with IFormatProvider -- " +
+                                "net48 has only the (object, string) provider forms [Reference convert.cs:1455,1517]"),
+                        };
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.ToSingle with {ps.Length} param(s) -- " +
+                        "net48 has the 1-arg value overloads and (object,string)+IFormatProvider " +
+                        "[Reference convert.cs:1451-1517]");
+                }
                 return ps[0] switch
                 {
                     // double -> float RNE narrowing, never throws (overflow ->
@@ -226,7 +299,7 @@ public static partial class MethodRefResolver
                     // BATCH 8: Convert.ToSingle(object) -- the boxed dispatch
                     // (null -> 0f; char throws ICE, which the icall reproduces).
                     0x1C => I("il2cpp::runtime::icall_convert_to_single_obj", 1, true, false, false, new[] { "" }, "d"),
-                    _ => throw new NotSupportedException($"Convert.ToSingle param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
+                    _ => throw new NotSupportedException($"LOUD whitelist (net48 has no such overload): Convert.ToSingle param type 0x{ps[0]:X2} -- net48 has the primitive value overloads [Reference convert.cs:1451-1529]"),
                 };
             }
             case "ToDecimal":
@@ -273,10 +346,13 @@ public static partial class MethodRefResolver
                         0x03 => I("il2cpp::runtime::icall_convert_to_decimal_char", 2, true, false, false, new[] { "i", "drop" }, "dec"),
                         0x1C => I("il2cpp::runtime::icall_convert_to_decimal_obj", 2, true, false, false, new[] { "", "drop" }, "dec"),
                         _ => throw new NotSupportedException(
-                            $"Convert.ToDecimal param type 0x{ps[0]:X2} with IFormatProvider not wired"),
+                            $"LOUD whitelist (net48 has no such overload): Convert.ToDecimal param type 0x{ps[0]:X2} with IFormatProvider -- " +
+                            "net48 has only the primitive + (object, string, decimal) provider forms [Reference convert.cs:1630,1688]"),
                     };
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"Convert.ToDecimal with {ps.Length} param(s) not wired (object/2-arg provider overloads on the edit_convert.md needs-new list)");
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.ToDecimal with {ps.Length} param(s) -- " +
+                        "net48 has the 1-arg value overloads and (object,string)+IFormatProvider [Reference convert.cs:1626-1698]");
                 return ps[0] switch
                 {
                     // Integer sources ride the existing ctor icalls. ResultKind
@@ -302,9 +378,12 @@ public static partial class MethodRefResolver
                     // BATCH 8: Convert.ToDecimal(object) -- the boxed dispatch
                     // (null -> 0m; char throws ICE, which the icall reproduces).
                     0x1C => I("il2cpp::runtime::icall_convert_to_decimal_obj", 1, true, false, false, new[] { "" }, "dec"),
-                    _ => throw new NotSupportedException($"Convert.ToDecimal param type 0x{ps[0]:X2} not wired (object/2-arg provider overloads on the edit_convert.md needs-new list)"),
+                    _ => throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.ToDecimal param type 0x{ps[0]:X2} -- " +
+                        "net48 has the primitive value overloads [Reference convert.cs:1626-1702]"),
                 };
             default: return null;
         }
     }
 }
+

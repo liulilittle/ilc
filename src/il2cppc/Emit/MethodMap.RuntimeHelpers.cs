@@ -47,43 +47,68 @@ public static partial class MethodRefResolver
             case "GetHashCode":
                 if (ps.Length == 1)
                     return I("il2cpp::runtime::icall_object_get_hash_code", 1, true, false, false, new[] { "" });
-                throw new NotSupportedException($"RuntimeHelpers.GetHashCode with {ps.Length} arg(s) not wired (the runtime icall_object_get_hash_code takes exactly (object))");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): RuntimeHelpers.GetHashCode with {ps.Length} arg(s) -- " +
+                    "net48 has exactly GetHashCode(object) [Reference Source runtimehelpers.cs:155]");
             // bool Equals(object, object): reference equality (the fold's
             // RefEqMarker emits a C++ pointer comparison -- the same fold
             // Object.ReferenceEquals uses).
             case "Equals":
                 return ps.Length == 2
                     ? new ResolvedMethod(ResolvedMethod.RefEqMarker, 2, false, true, false, new[] { false, false }, false)
-                    : throw new NotSupportedException($"RuntimeHelpers.Equals with {ps.Length} arg(s) not wired (the reference-equality fold needs exactly (object, object))");
+                    : throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): RuntimeHelpers.Equals with {ps.Length} arg(s) -- " +
+                        "net48 has exactly Equals(object, object) [Reference Source runtimehelpers.cs:160]");
             // object GetObjectValue(object): the box-passthrough wrapper --
             // the transpiler's box already produces the boxed value, so the
             // call is an identity (the fold pushes the argument back).
             case "GetObjectValue":
                 return ps.Length == 1
                     ? new ResolvedMethod(ResolvedMethod.IdentityMarker, 1, false, true, true, new[] { false }, false)
-                    : throw new NotSupportedException($"RuntimeHelpers.GetObjectValue with {ps.Length} arg(s) not wired (the identity fold needs exactly (object))");
+                    : throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): RuntimeHelpers.GetObjectValue with {ps.Length} arg(s) -- " +
+                        "net48 has exactly GetObjectValue(object) [Reference Source runtimehelpers.cs:50]");
             // --- LOUD rejections (net48 audit section 3; no runtime counterpart) ---
             case "PrepareDelegate":
-                throw new NotSupportedException("RuntimeHelpers.PrepareDelegate not wired: it is a JIT-prepare hint (netcore body is empty) and this AOT has no JIT to prepare the delegate");
+                throw new NotSupportedException(
+                    "LOUD whitelist (① machine/JIT state): RuntimeHelpers.PrepareDelegate is a JIT-prepare hint " +
+                    "(this AOT has no JIT to prepare the delegate) [Reference Source runtimehelpers.cs:135]");
             case "PrepareContractedDelegate":
-                throw new NotSupportedException("RuntimeHelpers.PrepareContractedDelegate not wired: a constrained-execution JIT-prepare hint (netcore body is empty) with no runtime counterpart");
+                throw new NotSupportedException(
+                    "LOUD whitelist (① machine/JIT state): RuntimeHelpers.PrepareContractedDelegate is a constrained-execution " +
+                    "JIT-prepare hint (no JIT to prepare) [Reference Source runtimehelpers.cs:150]");
             case "EnsureSufficientExecutionStack":
-                throw new NotSupportedException("RuntimeHelpers.EnsureSufficientExecutionStack not wired: the runtime has no stack-probe primitive (the AOT model runs on the host stack with no managed stack-limit checks)");
+                throw new NotSupportedException(
+                    "LOUD whitelist (① machine/JIT state): RuntimeHelpers.EnsureSufficientExecutionStack is a host stack-probe " +
+                    "hint (the AOT runs on the host stack with no managed stack-limit checks) [Reference Source runtimehelpers.cs:191]");
             case "ProbeForSufficientStack":
-                throw new NotSupportedException("RuntimeHelpers.ProbeForSufficientStack not wired: the runtime has no stack-probe primitive (netcore body is empty)");
+                throw new NotSupportedException(
+                    "LOUD whitelist (① machine/JIT state): RuntimeHelpers.ProbeForSufficientStack is a host stack-probe hint " +
+                    "(no managed stack-limit checks) [Reference Source runtimehelpers.cs:197]");
             case "ExecuteCodeWithGuaranteedCleanup":
-                throw new NotSupportedException("RuntimeHelpers.ExecuteCodeWithGuaranteedCleanup not wired: it takes a TryCode/CleanupCode delegate pair and the runtime has no constrained-execution support");
+                throw new NotSupportedException(
+                    "LOUD whitelist (③ no runtime descriptor): RuntimeHelpers.ExecuteCodeWithGuaranteedCleanup is a " +
+                    "constrained-execution try/finally (TryCode/CleanupCode delegate pair); the runtime has no CER support " +
+                    "[Reference Source runtimehelpers.cs:229]");
             case "_RunClassConstructor":
-                throw new NotSupportedException("RuntimeHelpers._RunClassConstructor not wired: the transpiler drives type-initialization through generated ensure_cctor guards, not a runtime type-init driver");
+                throw new NotSupportedException(
+                    "LOUD whitelist (③ no runtime descriptor): RuntimeHelpers._RunClassConstructor is a runtime type-init " +
+                    "driver; the transpiler drives type-initialization through generated ensure_cctor guards " +
+                    "[Reference Source runtimehelpers.cs:63]");
             case "_RunModuleConstructor":
-                throw new NotSupportedException("RuntimeHelpers._RunModuleConstructor not wired: the transpiler has no module-level constructor driver (module ctors are not in the M3 model)");
+                throw new NotSupportedException(
+                    "LOUD whitelist (③ no runtime descriptor): RuntimeHelpers._RunModuleConstructor is a module-level " +
+                    "constructor driver (module ctors are not in the M3 model) [Reference Source runtimehelpers.cs:81]");
             case "InitializeArray":
                 // StackFold.FoldInitializeArray intercepts the canonical
                 // `newarr + dup + ldtoken<RVA field> + InitializeArray`
                 // pattern BEFORE the resolver (StackFold.cs:1333); reaching
                 // here means an un-folded shape -- reject, never emit a call
                 // against the fold-only member.
-                throw new NotSupportedException("RuntimeHelpers.InitializeArray not wired as an icall: the runtime constant-array init is a StackFold fold (ldtoken<RVA field> + newarr); the call reached the resolver without the fold pattern");
+                throw new NotSupportedException(
+                    "LOUD whitelist (③ no runtime descriptor): RuntimeHelpers.InitializeArray is a StackFold fold " +
+                    "(ldtoken<RVA field> + newarr); the call reached the resolver without the fold pattern " +
+                    "[Reference Source runtimehelpers.cs:32]");
             default:
                 return null;
         }

@@ -197,14 +197,18 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_decimal_compare", 1, true, false, true, new[] { "dec", "dec" });
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException("CompareTo(object) not wired: a boxed decimal needs the runtime System_Decimal box class (T1 boxingext2), unwired until the box icalls land");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (③ no runtime descriptor): Decimal.CompareTo(object) needs the runtime " +
+                        "System_Decimal box class (unmaterialized BCL value type) [Reference Source decimal.cs:404]");
                 return null;
             // bool Equals(decimal) -- instance, receiver address uncast.
             case "Equals":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_decimal_equals", 1, true, false, true, new[] { "dec", "dec" });
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException("Equals(object) not wired: a boxed decimal needs the runtime System_Decimal box class (T1 boxingext2), unwired until the box icalls land");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (③ no runtime descriptor): Decimal.Equals(object) needs the runtime " +
+                        "System_Decimal box class (unmaterialized BCL value type) [Reference Source decimal.cs:449]");
                 return null;
             case "GetHashCode":
                 if (ps.Length == 0)

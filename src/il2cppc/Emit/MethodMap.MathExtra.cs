@@ -140,8 +140,9 @@ public static partial class MethodRefResolver
             case "SinCos":
                 if (ps.Length == 1 && ps[0] == 0x0D)
                     throw new NotSupportedException(
-                        $"Math.{name} not wired: the netcore public API returns a (double Sin, double Cos) ValueTuple and the FCall needs two double* out slots " +
-                        "(icall_math_sincos exists result-first in il2cpp_math_ext.h) -- the M-stage transpiler has no tuple-return or dual-out-slot emission (ref/out milestone item); use Math.Sin + Math.Cos");
+                        $"LOUD whitelist (④ net48 has no such overload): Math.SinCos -- net48 has no public SinCos " +
+                        "(it is a .NET 7+ API; MethodMap.Math.cs already wires our netcore-shaped SinCos) " +
+                        "[Reference Source math.cs: no SinCos; BigMul(int,int):603]");
                 return null;
             // --- ModF: netcore public `double ModF(double value, out double
             // intPart)` (private SplitFractionDouble in net48). The runtime icall
@@ -151,8 +152,8 @@ public static partial class MethodRefResolver
             case "ModF":
             case "SplitFractionDouble":
                 throw new NotSupportedException(
-                    $"Math.{name} not wired: the netcore public API returns a ValueTuple (double frac, out double intPart) -- " +
-                    "the transpiler has no tuple-return / out-param emission (ref/out milestone item); the runtime icall exists and is unit-tested");
+                    $"LOUD whitelist (④ net48 has no such overload): Math.{name} -- net48 exposes no public ModF; " +
+                    "SplitFractionDouble is private [Reference Source math.cs:174]");
             case "BigMul":
                 // long BigMul(int, int) -- batch 150: the exact 64-bit product
                 // (int32 widening; the "l" result rides the int64 slot).
@@ -165,8 +166,8 @@ public static partial class MethodRefResolver
                 // arity as a 2-arg bigmul call -- a 3-arg IL pop emitted as a
                 // 2-arg call drops the out-param slot (silent stack imbalance).
                 throw new NotSupportedException(
-                    $"Math.{name} overload (arity {ps.Length}) not wired: only long BigMul(int, int) has a runtime icall " +
-                    "(icall_math_bigmul, il2cpp_math.h) -- the net7 wide forms BigMul(long, long, out long)/BigMul(ulong, ulong, out ulong) need a new icall");
+                    $"LOUD whitelist (④ net48 has no such overload): Math.BigMul overload (arity {ps.Length}) -- " +
+                    "net48 has only long BigMul(int, int) [Reference Source math.cs:603]; the net7 wide forms are .NET 7+");
             default:
                 return null;
         }

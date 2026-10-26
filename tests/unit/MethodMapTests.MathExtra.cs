@@ -171,8 +171,8 @@ public class MethodMapTestsMathExtra
             ResolveMember(Synthesize("System", "Math", "ModF", Sig(0x0D, 0x0D)), "ModF"));
 
         Assert.Contains("System.Math::ModF", ex.Message);
-        Assert.Contains("not wired", ex.Message);
-        Assert.Contains("ValueTuple", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
+        Assert.Contains("net48", ex.Message);
     }
 
     //--------------------------------------------------------------------------
