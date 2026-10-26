@@ -35,10 +35,20 @@ using Il2Cpp.Transpiler.Model;
 //                                  path becomes reachable once the
 //                                  descriptor emission lands, see the
 //                                  register wiring report below)
-// Known-but-unwireable members (Format / IsDefined / GetValues / ToObject /
-//   TryParse / ToString(string) / Parse(Type,string,bool)) throw
-//   NotSupportedException (LOUD, the BCL wiring convention). Anything else
-//   returns null -> the generated-name fallback.
+// D-ENUM-REST (2026-10-27): ToString(IFormatProvider) and
+//   ToString(string, IFormatProvider) are wired -- net48 IGNORES the provider
+//   (both forms return the plain ToString / ToString(format) text), so the
+//   provider slot is dropped at emission and the boxed-enum icall is reused.
+//
+// Known-but-unwireable members throw NotSupportedException (LOUD whitelist,
+// self-identifying):
+//   * Parse / TryParse / ToString with an arity outside the net48 forms --
+//     net48 has only Parse(Type,String)/(Type,String,bool),
+//     TryParse<T>(String,out T)/(String,bool,out T) and the four ToString
+//     forms [Reference Source enum.cs:351,357,333,338,795,851,808,871].
+//   * TryParse without a resolvable generic-argument name -> dynamic dispatch.
+//   * the enum-register capacity guard (kMaxRegisteredEnums).
+// Anything else returns null -> the generated-name fallback.
 //
 // TYPE-ARGUMENT SLOT (name-string ABI, enumface): the runtime's enum
 // primitives traditionally took the enum type as an Il2CppClass* descriptor
@@ -247,7 +257,10 @@ public static partial class MethodRefResolver
                     // case-insensitive NAME matching (net48 semantics).
                     return I("il2cpp::runtime::il2cpp_enum_parse_boxed_ic", 3, true, true, false,
                         new[] { "", "", "b" });
-                throw new NotSupportedException($"Enum.Parse with {ps.Length} parameter(s) not wired: only the (Type, string) and (Type, string, bool) overloads map to il2cpp_enum_parse_boxed(_ic)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Enum.Parse with {ps.Length} parameter(s) -- " +
+                    "net48 has only the (Type, string) and (Type, string, bool) forms " +
+                    "[Reference Source enum.cs:351,357]");
             case "TryParse":
                 // bool TryParse<T>(string, out T) / (string, bool, out T) --
                 // batch 148e wiring-gap closure: the runtime icall
@@ -273,10 +286,16 @@ public static partial class MethodRefResolver
                         3 => new ResolvedMethod("il2cpp::runtime::il2cpp_enum_parse_ic", 3, false, true, false,
                             new[] { false, false, false }, false, ParamTypeNames: new[] { "", "b", "enumaddr" },
                             PrependTypeClass: genArgNames[0]),
-                        _ => throw new NotSupportedException($"Enum.TryParse with {ps.Length} parameter(s) not wired (only the (string, out T) and (string, bool, out T) overloads)"),
+                        _ => throw new NotSupportedException(
+                            $"LOUD whitelist (net48 has no such overload): Enum.TryParse with {ps.Length} " +
+                            "parameter(s) -- net48 has only the (string, out T) and (string, bool, out T) forms " +
+                            "[Reference Source enum.cs:333,338]"),
                     };
                 }
-                throw new NotSupportedException("Enum.TryParse not wired: the generic argument T is not a VALUETYPE with a resolvable name");
+                throw new NotSupportedException(
+                    "LOUD whitelist (dynamic dispatch): Enum.TryParse -- the generic argument T is not a VALUETYPE " +
+                    "with a resolvable name (the runtime needs the enum's klass descriptor, which the transpiler " +
+                    "cannot inject for an untracked T)");
             // instance string ToString(): the System.Enum-owner shape
             // (Enum-typed references). The runtime needs (class, value):
             // the class descriptor is not producible yet (no typeof/ldtoken
@@ -298,7 +317,7 @@ public static partial class MethodRefResolver
                             new[] { "deref:l" }, null, false, true)
                         : I("il2cpp::runtime::il2cpp_enum_boxed_to_string", 0, true, true, true,
                             new[] { "boxed" }, null, false, false);
-                if (ps.Length == 1)
+                if (ps.Length == 1 && ps[0] == 0x0E)
                     // ToString(string format) -- batch 148 wiring-gap closure:
                     // the format-specifier primitive (D/G/F/X, case-insensitive)
                     // over the same boxed-enum ABI + the format string. Null/
@@ -308,7 +327,29 @@ public static partial class MethodRefResolver
                             new[] { "deref:l", "" }, null, false, true)
                         : I("il2cpp::runtime::il2cpp_enum_boxed_to_string_format", 1, true, true, true,
                             new[] { "boxed", "" }, null, false, false);
-                throw new NotSupportedException($"Enum.ToString with {ps.Length} parameter(s) not wired (only the parameterless and single-format overloads map)");
+                // ToString(IFormatProvider provider) -- enum.cs:871. The
+                // provider is IGNORED (net48 returns the plain ToString()
+                // text), so the provider slot is dropped at emission.
+                if (ps.Length == 1 && ps[0] == 0x12)
+                    return receiverIsAddress
+                        ? I("il2cpp::runtime::il2cpp_enum_to_string", 1, true, true, true,
+                            new[] { "deref:l", "drop" }, null, false, true)
+                        : I("il2cpp::runtime::il2cpp_enum_boxed_to_string", 1, true, true, true,
+                            new[] { "boxed", "drop" }, null, false, false);
+                // ToString(string format, IFormatProvider provider) --
+                // enum.cs:808. The provider is IGNORED (net48 returns
+                // ToString(format)), so the provider slot is dropped.
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x12)
+                    return receiverIsAddress
+                        ? I("il2cpp::runtime::il2cpp_enum_to_string_format", 2, true, true, true,
+                            new[] { "deref:l", "", "drop" }, null, false, true)
+                        : I("il2cpp::runtime::il2cpp_enum_boxed_to_string_format", 2, true, true, true,
+                            new[] { "boxed", "", "drop" }, null, false, false);
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Enum.ToString with {ps.Length} " +
+                    $"parameter(s) (0x{(ps.Length > 0 ? ps[0] : 0):X2}, ...) -- net48 Enum.ToString forms " +
+                    "are (), (string format), (string format, IFormatProvider) and (IFormatProvider) " +
+                    "[Reference Source enum.cs:795,851,808,871]");
             // bool Equals(object): the boxed-enum equality icall (ICALL-C,
             // 2026-08-07 -- il2cpp_enum_equals, enumext.h). The runtime takes
             // two Il2CppObject* (self, other); the bool result rides the int32
@@ -526,7 +567,9 @@ public static partial class MethodRefResolver
     {
         if (enumCount > MaxRegisteredEnums)
             throw new NotSupportedException(
-                $"enum register capacity exceeded: {enumCount} enum types need il2cpp_enum_register metadata, but the runtime registry holds at most {MaxRegisteredEnums} (enumext.cpp kMaxRegisteredEnums)");
+                $"LOUD whitelist (no runtime descriptor): enum register capacity exceeded: {enumCount} enum types " +
+                $"need il2cpp_enum_register metadata, but the runtime registry holds at most {MaxRegisteredEnums} " +
+                "(enumext.cpp kMaxRegisteredEnums)");
     }
 }
 

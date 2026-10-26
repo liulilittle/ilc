@@ -24,6 +24,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_string.h"
+#include "il2cpp_array.h"         // Il2CppArray (the composite-format args)
 #include "il2cpp_value_semantics.h" // icall_object_to_string (the object forms)
 
 #include <cstdint>
@@ -60,5 +61,61 @@ void il2cpp_trace_write(Il2CppString* text);
 // does not.
 void il2cpp_debug_write_line_obj(Il2CppObject* value);
 void il2cpp_trace_write_obj(Il2CppObject* value);
+
+//--------------------------------------------------------------------------
+// D-DEBUG-REST (2026-10-27): the remaining net48 Debug/Trace overloads.
+//
+// net48 (System_compmod_system_diagnostics_Debug.cs) has, in addition to
+// the string/object forms above:
+//   * the CATEGORY forms -- Write/WriteLine(string message, string category)
+//     and Write/WriteLine(object value, string category). The Trace class
+//     implementation (reference lines 497/507/522/532) renders
+//     `category + ":" + (value/message ?? "")` -- a null category degrades
+//     to the category-less form, a null message/value to the empty string.
+//   * the COMPOSITE-FORMAT form -- WriteLine(string format, object[] args):
+//     String.Format(CultureInfo.InvariantCulture, format, args) then the
+//     line writer (reference lines 240/502). The formatting authority is
+//     icall_string_format (the same kernel the console module's fmt_array
+//     icalls use).
+//   * Debug.Fail(string message, string detailMessage) / Trace.Fail(string)
+//     / Trace.Fail(string,string): the assertion-failure forms (reference
+//     lines 141/384/389) -- "Assertion Failed: <message>" and, for the
+//     detail form, the detail message on the following line.
+//   * Trace.Assert(bool) / (bool,string) / (bool,string,string): the
+//     Trace-owned assertion forms (reference lines 355/360/366) -- the same
+//     print-and-continue contract as il2cpp_debug_assert.
+//
+// All of these are [Conditional("DEBUG")] on the managed side, so a Release
+// build strips the call sites; the mappings exist so a DEBUG-defined build
+// resolves instead of failing LOUD.
+//--------------------------------------------------------------------------
+
+// Category forms (Debug -> stdout, Trace -> stdout; WriteLine appends \n).
+void il2cpp_debug_write_line_category(Il2CppString* message, Il2CppString* category);
+void il2cpp_debug_write_category(Il2CppString* message, Il2CppString* category);
+void il2cpp_debug_write_line_obj_category(Il2CppObject* value, Il2CppString* category);
+void il2cpp_debug_write_obj_category(Il2CppObject* value, Il2CppString* category);
+
+void il2cpp_trace_write_line_category(Il2CppString* message, Il2CppString* category);
+void il2cpp_trace_write_category(Il2CppString* message, Il2CppString* category);
+void il2cpp_trace_write_line_obj_category(Il2CppObject* value, Il2CppString* category);
+void il2cpp_trace_write_obj_category(Il2CppObject* value, Il2CppString* category);
+
+// Composite-format forms (Debug -> stdout, Trace -> stdout).
+void il2cpp_debug_write_line_fmt(Il2CppObject* format, Il2CppArray* args);
+void il2cpp_trace_write_line_fmt(Il2CppObject* format, Il2CppArray* args);
+
+// Fail / Assert forms (stderr for the failure text; stdout for the Trace
+// write forms above).
+void il2cpp_debug_fail_detail(Il2CppString* message, Il2CppString* detailMessage);
+void il2cpp_trace_fail(Il2CppString* message);
+void il2cpp_trace_fail_detail(Il2CppString* message, Il2CppString* detailMessage);
+void il2cpp_trace_assert(int32_t condition);
+void il2cpp_trace_assert_msg(int32_t condition, Il2CppString* message);
+void il2cpp_trace_assert_detail(int32_t condition, Il2CppString* message, Il2CppString* detailMessage);
+// Trace.Assert(bool, string, string detailFormat, object[] args): the
+// detail is a composite-format string (reference line 447).
+void il2cpp_trace_assert_fmt(int32_t condition, Il2CppString* message,
+                             Il2CppObject* detailFormat, Il2CppArray* args);
 
 }} // namespace il2cpp::runtime

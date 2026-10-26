@@ -184,6 +184,46 @@ public class MethodMapEnumTests
     }
 
     //--------------------------------------------------------------------------
+    // ToString(IFormatProvider) / ToString(string, IFormatProvider) -- the
+    // net48 provider overloads (enum.cs:871 / :808). The provider is IGNORED
+    // by net48 (the plain ToString / ToString(format) text is returned), so
+    // the provider slot is DROPPED at emission.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Enum_ToStringWithProvider_MapsToBoxedToStringDroppingProvider()
+    {
+        var resolved = ResolveMember("ToString", Sig(0x0E, 0x12));
+
+        Assert.Equal("il2cpp::runtime::il2cpp_enum_boxed_to_string", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "boxed", "drop" }, resolved.ParamTypeNames);
+        Assert.False(resolved.PrependZeroArg);
+    }
+
+    [Fact]
+    public void Resolve_Enum_ToStringWithFormatProvider_MapsToBoxedFormatDroppingProvider()
+    {
+        var resolved = ResolveMember("ToString", Sig(0x0E, 0x0E, 0x12));
+
+        Assert.Equal("il2cpp::runtime::il2cpp_enum_boxed_to_string_format", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "boxed", "", "drop" }, resolved.ParamTypeNames);
+        Assert.False(resolved.PrependZeroArg);
+    }
+
+    [Fact]
+    public void Resolve_Enum_ToStringBadArity_ThrowsWhitelistLoud()
+    {
+        // An arity outside the four net48 ToString forms -> LOUD whitelist.
+        var ex = Assert.Throws<NotSupportedException>(
+            () => ResolveMember("ToString", Sig(0x0E, 0x0E, 0x0E, 0x0E)));
+
+        Assert.Contains("System.Enum::ToString", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
+        Assert.Contains("enum.cs", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
     // Equals(object) -- ICALL-C (2026-08-07): the boxed-enum equality icall
     // (il2cpp_enum_equals, enumext.h:200). bool result rides the int32 slot
     // (rv=true); the receiver and the argument both pass through uncast (the

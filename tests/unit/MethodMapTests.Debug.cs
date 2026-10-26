@@ -240,15 +240,251 @@ public class MethodMapDebugTests
         Assert.Matches("^[A-Za-z_][A-Za-z0-9_]*$", resolved.CppName);
     }
 
+    //--------------------------------------------------------------------------
+    // D-DEBUG-REST: the net48 category / composite-format / Fail / Assert
+    // forms (debugext.h il2cpp_debug_*_category / il2cpp_*_fmt /
+    // il2cpp_*_fail_detail / il2cpp_trace_assert*).
+    //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Trace_Fail_FallsBackToGeneratedName()
+    public void Resolve_Debug_WriteLineStringCategory_MapsToCategoryIcall()
     {
-        // Trace.Fail is outside the mapped surface (Debug.Fail is mapped) --
-        // the fallback keeps it loud at C++ link time.
+        // Debug.WriteLine(string message, string category) -- net48 :217.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Debug", "WriteLine", Sig(0x01, 0x0E, 0x0E)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_write_line_category", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Debug_WriteLineObjectCategory_MapsToObjCategoryIcall()
+    {
+        // Debug.WriteLine(object value, string category) -- net48 :228.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Debug", "WriteLine", Sig(0x01, 0x1C, 0x0E)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_write_line_obj_category", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Debug_WriteLineFormatArray_MapsToFmtIcall()
+    {
+        // Debug.WriteLine(string format, params object[] args) -- net48 :239.
+        // The args ride an SZARRAY (0x1D) + element byte (0x05).
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Debug", "WriteLine",
+                new byte[] { 0x00, 0x02, 0x01, 0x0E, 0x1D, 0x05 }), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_write_line_fmt", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "a" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Debug_WriteStringCategory_MapsToCategoryIcall()
+    {
+        // Debug.Write(string message, string category) -- net48 :177.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Debug", "Write", Sig(0x01, 0x0E, 0x0E)), "Write");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_write_category", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Debug_WriteObjectCategory_MapsToObjCategoryIcall()
+    {
+        // Debug.Write(object value, string category) -- net48 :186.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Debug", "Write", Sig(0x01, 0x1C, 0x0E)), "Write");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_write_obj_category", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Debug_FailStringString_MapsToFailDetailIcall()
+    {
+        // Debug.Fail(string message, string detailMessage) -- net48 :141.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Debug", "Fail", Sig(0x01, 0x0E, 0x0E)), "Fail");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_fail_detail", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_WriteStringCategory_MapsToCategoryIcall()
+    {
+        // Trace.Write(string message, string category) -- net48 :522.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "Write", Sig(0x01, 0x0E, 0x0E)), "Write");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_write_category", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_WriteObjectCategory_MapsToObjCategoryIcall()
+    {
+        // Trace.Write(object value, string category) -- net48 :532.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "Write", Sig(0x01, 0x1C, 0x0E)), "Write");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_write_obj_category", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_WriteLineStringCategory_MapsToCategoryIcall()
+    {
+        // Trace.WriteLine(string message, string category) -- net48 :507.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "WriteLine", Sig(0x01, 0x0E, 0x0E)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_write_line_category", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_WriteLineObjectCategory_MapsToObjCategoryIcall()
+    {
+        // Trace.WriteLine(object value, string category) -- net48 :497.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "WriteLine", Sig(0x01, 0x1C, 0x0E)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_write_line_obj_category", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_WriteLineFormatArray_MapsToFmtIcall()
+    {
+        // Trace.WriteLine(string format, params object[] args) -- net48 :502.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "WriteLine",
+                new byte[] { 0x00, 0x02, 0x01, 0x0E, 0x1D, 0x05 }), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_write_line_fmt", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "a" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_FailString_MapsToTraceFailIcall()
+    {
+        // Trace.Fail(string) -- net48 :384 (debugext.h il2cpp_trace_fail).
         var resolved = ResolveMember(Synthesize("System.Diagnostics", "Trace", "Fail", Sig(0x01, 0x0E)), "Fail");
 
-        Assert.StartsWith("System_Diagnostics_Trace_", resolved.CppName);
-        Assert.Matches("^[A-Za-z_][A-Za-z0-9_]*$", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_fail", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_FailStringString_MapsToTraceFailDetailIcall()
+    {
+        // Trace.Fail(string message, string detailMessage) -- net48 :389.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "Fail", Sig(0x01, 0x0E, 0x0E)), "Fail");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_fail_detail", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "s", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_AssertBool_MapsToTraceAssertIcall()
+    {
+        // Trace.Assert(bool) -- net48 :355.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "Assert", Sig(0x01, 0x02)), "Assert");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_assert", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "b" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_AssertBoolString_MapsToTraceAssertMsgIcall()
+    {
+        // Trace.Assert(bool, string) -- net48 :360.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "Assert", Sig(0x01, 0x02, 0x0E)), "Assert");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_assert_msg", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "b", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_AssertBoolStringString_MapsToTraceAssertDetailIcall()
+    {
+        // Trace.Assert(bool, string, string) -- net48 :366.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "Assert", Sig(0x01, 0x02, 0x0E, 0x0E)), "Assert");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_assert_detail", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "b", "s", "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_AssertBoolStringStringArgs_MapsToTraceAssertFmtIcall()
+    {
+        // Trace.Assert(bool, string, string detailFormat, object[] args) --
+        // net48 :447 (the detail is a composite-format string).
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Trace", "Assert",
+                new byte[] { 0x00, 0x04, 0x01, 0x02, 0x0E, 0x0E, 0x1D, 0x05 }), "Assert");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_assert_fmt", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "b", "s", "", "a" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Debug_WriteLineNoArgs_ThrowsWhitelistLoud()
+    {
+        // The stub requires a text argument -- a zero-argument write has no
+        // net48 counterpart -> LOUD whitelist (self-identifying).
+        var ex = Assert.Throws<NotSupportedException>(
+            () => ResolveMember(Synthesize("System.Diagnostics", "Debug", "WriteLine", Sig(0x01)), "WriteLine"));
+
+        Assert.Contains("System.Diagnostics.Debug::WriteLine", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
+        Assert.Contains("System_compmod_system_diagnostics_Debug.cs", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_Debug_WriteLineInt_ThrowsWhitelistLoud()
+    {
+        // No numeric formatter in the debug module -> LOUD whitelist.
+        var ex = Assert.Throws<NotSupportedException>(
+            () => ResolveMember(Synthesize("System.Diagnostics", "Debug", "WriteLine", Sig(0x01, 0x08)), "WriteLine"));
+
+        Assert.Contains("System.Diagnostics.Debug::WriteLine", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_Trace_WriteInt_ThrowsWhitelistLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(
+            () => ResolveMember(Synthesize("System.Diagnostics", "Trace", "Write", Sig(0x01, 0x08)), "Write"));
+
+        Assert.Contains("System.Diagnostics.Trace::Write", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
     }
 
     //--------------------------------------------------------------------------

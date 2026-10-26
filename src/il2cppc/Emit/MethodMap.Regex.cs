@@ -74,7 +74,10 @@ public static partial class MethodRefResolver
     {
         if (ps.Length < 2)
             throw new NotSupportedException(
-                "instance form: the runtime has no Regex ctor/handle object graph (v2, regex-domain.md section 1.1)");
+                "LOUD whitelist (no runtime descriptor): Regex instance form -- the runtime regex domain " +
+                "(regex.h / regex_api.cpp) has no Regex ctor/handle object graph; only the STATIC " +
+                "(string input, string pattern[, RegexOptions[, TimeSpan]]) signatures are wired " +
+                "[src/runtime/include/internal/regex.h]");
         if (ps[0] != 0x0E || ps[1] != 0x0E)
             return null; // not a (string, string) overload
         return ps.Length switch
@@ -97,11 +100,17 @@ public static partial class MethodRefResolver
     {
         if (ps.Length < 3)
             throw new NotSupportedException(
-                "instance form: the runtime has no Regex ctor/handle object graph (v2, regex-domain.md section 1.1)");
+                "LOUD whitelist (no runtime descriptor): Regex instance form -- the runtime regex domain " +
+                "(regex.h / regex_api.cpp) has no Regex ctor/handle object graph; only the STATIC " +
+                "(string input, string pattern, string replacement[, RegexOptions[, TimeSpan]]) signature is wired " +
+                "[src/runtime/include/internal/regex.h]");
         if (ps[0] != 0x0E || ps[1] != 0x0E)
             return null;
         if (ps[2] == 0x12)
-            throw new NotSupportedException("MatchEvaluator overload: no delegate-evaluator support on the runtime surface");
+            throw new NotSupportedException(
+                "LOUD whitelist (no runtime descriptor): Regex.Replace(string, string, MatchEvaluator) -- the " +
+                "runtime regex domain (regex.h / regex_api.cpp) has no delegate-evaluator support; only the " +
+                "string-replacement form is wired [src/runtime/include/internal/regex.h]");
         if (ps[2] != 0x0E)
             return null;
         return ps.Length switch

@@ -297,18 +297,21 @@ public class MethodMapXmlTests
     }
 
     //--------------------------------------------------------------------------
-    // Unwired members hit the default -> LOUD "member not wired"
+    // Unwired members hit the default -> LOUD whitelist (no runtime
+    // descriptor: the runtime xml domain is a handle-gap model whose surface
+    // is the net48 face; the remaining members have no runtime primitive).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_XmlDocument_GetOuterXml_WithArg_ThrowsLoudNotWired()
+    public void Resolve_XmlDocument_GetOuterXml_WithArg_ThrowsWhitelistLoud()
     {
         // get_InnerXml/get_InnerText/get_OuterXml are wired; a member outside
-        // the covered surface still hits the default LOUD.
+        // the covered surface still hits the default LOUD whitelist.
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Xml", "XmlDocument", "Save", Sig(0x01, 0x0E)), "Save"));
 
         Assert.StartsWith("System.Xml.XmlDocument::Save: ", ex.Message);
-        Assert.Contains("member not wired", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
+        Assert.Contains("no runtime descriptor", ex.Message);
     }
 
     //--------------------------------------------------------------------------

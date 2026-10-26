@@ -1,4 +1,4 @@
-﻿namespace Il2Cpp.Transpiler.Emit;
+namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.Buffer -- System.Buffer icall mappings (buffer.h / buffer.cpp).

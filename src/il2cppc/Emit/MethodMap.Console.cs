@@ -148,7 +148,8 @@ public static partial class MethodRefResolver
             // bug, not a user-program gap -- keep it an internal error.
             return newline
                 ? I("il2cpp::runtime::icall_console_write_line_n", 0, false, false, false, null, null, false, false, true)
-                : throw new NotSupportedException("Console.Write() with zero arguments does not exist in net48 (internal transpiler error)");
+                : throw new NotSupportedException(
+                    "LOUD whitelist (net48 has no such overload): Console.Write() with 0 params -- net48 Console has no parameterless Write (only WriteLine() at console.cs:1989); the Write forms are (bool)/(char)/(char[])/(char[],int,int)/(decimal)/(double)/(float)/(int)/(uint)/(long)/(ulong)/(object)/(string) and the composite (string,object...) forms [Reference Source mscorlib/system/console.cs:2212-2298]");
         }
         if (count == 1)
         {
@@ -287,8 +288,12 @@ public static partial class MethodRefResolver
                     return I(newline ? "il2cpp::runtime::icall_console_write_line_object" : "il2cpp::runtime::icall_console_write_object", 1, false, false, false, null, null, false, false, true);
             }
             throw new NotSupportedException(
-                $"Console.{(newline ? "WriteLine" : "Write")} param type 0x{ps[0]:X2}" +
-                (vtName != null ? $" ({vtName})" : "") + " not wired in M5");
+                $"LOUD whitelist (net48 has no such overload): Console.{(newline ? "WriteLine" : "Write")} param type 0x{ps[0]:X2}" +
+                (vtName != null ? $" ({vtName})" : "") +
+                " -- the net48 single-value " + (newline ? "WriteLine" : "Write") +
+                " forms are bool/char/char[]/decimal/double/float/int/uint/long/ulong/object/string " +
+                "[Reference Source mscorlib/system/console.cs:" +
+                (newline ? "1996-2082" : "2212-2298") + "]");
         }
         // Composite forms: WriteLine(string format, object...) and the params
         // array -- routed through the String.Format kernel so the composite
@@ -308,7 +313,11 @@ public static partial class MethodRefResolver
         if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
             return I(newline ? "il2cpp::runtime::icall_console_write_line_chars_range" : "il2cpp::runtime::icall_console_write_chars_range", 3, false, false, false, new[] { "a", "i", "i" });
         throw new NotSupportedException(
-            $"Console.{(newline ? "WriteLine" : "Write")} with {count} param(s) (0x{ps[0]:X2}, ...) not wired in M5");
+            $"LOUD whitelist (net48 has no such overload): Console.{(newline ? "WriteLine" : "Write")} with {count} " +
+            $"param(s) (0x{ps[0]:X2}, ...) -- the net48 composite " + (newline ? "WriteLine" : "Write") +
+            " forms are (string,object), (string,object,object), (string,object,object,object) and " +
+            "(string,object[]) [Reference Source mscorlib/system/console.cs:" +
+            (newline ? "2090-2141" : "2151-2202") + "]");
     }
 
     // Console STREAM TextWriter members -- the Write/WriteLine surface of the
@@ -354,7 +363,10 @@ public static partial class MethodRefResolver
                         : null;
                 default:
                     throw new NotSupportedException(
-                        $"Console.In TextReader member '{name}' not wired (Read/Peek/ReadLine/ReadToEnd only)");
+                        $"LOUD whitelist (runtime console stream object graph): Console.In TextReader member '{name}' -- " +
+                        "the stdin reader is a runtime console stream object (machine state); only Read/Peek/ReadLine/" +
+                        "ReadToEnd/Close/Dispose have a runtime icall " +
+                        "[src/runtime/include/internal/il2cpp_console.h]");
             }
         }
         // Value-type argument naming for the 0x11 (VALUETYPE) shapes.
@@ -419,7 +431,10 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_console_stream_write_chars_range", 3, false, false, true, new[] { "", "a", "i", "i" });
             }
             throw new NotSupportedException(
-                $"console stream TextWriter.Write overload (arity {count}, param 0x{(count > 0 ? ps[0] : 0):X2}) not wired");
+                $"LOUD whitelist (net48 has no such overload): console stream TextWriter.Write overload (arity {count}, " +
+                $"param 0x{(count > 0 ? ps[0] : 0):X2}) -- the net48 TextWriter.Write forms are (bool)/(char)/(char[])/" +
+                "(char[],int,int)/(decimal)/(double)/(float)/(int)/(uint)/(long)/(ulong)/(object)/(string) and the " +
+                "composite (string,object...) forms [Reference Source mscorlib/system/io/textwriter.cs:193-350]");
         }
         if (name == "WriteLine")
         {
@@ -464,8 +479,14 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_console_stream_write_line_chars_range", 3, false, false, true, new[] { "", "a", "i", "i" });
             }
             throw new NotSupportedException(
-                $"console stream TextWriter.WriteLine overload (arity {count}, param 0x{(count > 0 ? ps[0] : 0):X2}) not wired");
+                $"LOUD whitelist (net48 has no such overload): console stream TextWriter.WriteLine overload (arity {count}, " +
+                $"param 0x{(count > 0 ? ps[0] : 0):X2}) -- the net48 TextWriter.WriteLine forms are ()/(bool)/(char)/(char[])/" +
+                "(char[],int,int)/(decimal)/(double)/(float)/(int)/(uint)/(long)/(ulong)/(object)/(string) and the " +
+                "composite (string,object...) forms [Reference Source mscorlib/system/io/textwriter.cs:360-532]");
         }
-        throw new NotSupportedException($"console stream TextWriter member '{name}' not wired (Write/WriteLine/Flush)");
+        throw new NotSupportedException(
+            $"LOUD whitelist (runtime console stream object graph): console stream TextWriter member '{name}' -- " +
+            "the console stream is a runtime object (machine state); only Write/WriteLine/Flush have a runtime icall " +
+            "[src/runtime/include/internal/il2cpp_console.h]");
     }
 }

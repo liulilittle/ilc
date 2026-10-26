@@ -10,8 +10,10 @@ namespace Il2Cpp.Transpiler.Emit;
 // "a" cast (Il2CppObject* -> Il2CppArray* -- the runtime icall declares the
 // concrete array type); the string param carries the "s" cast exactly like
 // the existing string icalls in MethodMap.Convert.cs. The char[]-array
-// variants (ToBase64CharArray/FromBase64CharArray) have no runtime helper --
-// rejected LOUD (the manual's known-unwireable rule).
+// variants (ToBase64CharArray/FromBase64CharArray) ARE wired (batch 8) to
+// the runtime char[] encoder. The arity guards are LOUD whitelist (net48 has
+// exactly the four/four/single/single forms -- Reference Source
+// convert.cs:2131/2141/2150/2193/2345/2371), self-identifying.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {

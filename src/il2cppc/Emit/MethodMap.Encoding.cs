@@ -35,14 +35,22 @@ namespace Il2Cpp.Transpiler.Emit;
 //     plain variable) keeps the generated-name fallback and fails LOUD at
 //     emission.
 //
-// LOUD rejections -- the remaining forms of the three names:
-//   * GetBytes/GetString overloads other than the allocating single-arg
-//     forms (GetBytes(byte[],int,int,byte[],int), GetString(byte[],int,int),
-//     the offset/length family) have no allocating helper.
-//   * GetChars(byte[],int,int) ranged form: now wired on ALL three pages
+// LOUD rejections -- the arity/shape guards. Every net48 Encoding overload
+// IS wired (GetBytes: (char[])/(char[],int,int)/(char[],int,int,byte[],int)/
+// (string)/(string,int,int,byte[],int); GetByteCount: (char[])/(string)/
+// (char[],int,int); GetCharCount: (byte[])/(byte[],int,int); GetString:
+// (byte[])/(byte[],int,int); GetChars: (byte[])/(byte[],int,int)/
+// (byte[],int,int,char[],int) -- Reference Source text_encoding.cs:949-201),
+// so each guard only fires for a shape net48 does not have -> LOUD whitelist
+// (self-identifying, with the Reference Source line numbers).
+//   * GetChars(byte[],int,int) ranged form: wired on ALL three pages
 //     (enc-b23 -- il2cpp_encoding_<page>_get_chars 3-arg overloads,
 //     il2cpp_encoding.h:152-154); the single-array GetChars(byte[]) stays
 //     UTF8-page-only (the ascii/unicode pages ship the ranged form only).
+//   * EncodingPage's receiver guard: a receiver that is not one of the four
+//     known pages (UTF8/Unicode/UnicodeBE/ASCII) -> dynamic dispatch (the
+//     page is baked into the icall name and cannot be resolved from an
+//     untracked/custom Encoding subclass).
 //
 // Out-of-scope members (GetByteCount/GetCharCount/GetEncoding/Convert/
 // get_Default/ctors/...) return null -> the generated-name path (standard
@@ -137,8 +145,10 @@ public static partial class MethodRefResolver
                     return ObjectEncodingIcall("icall_encoding_get_bytes_into_chars", "get_bytes",
                         new[] { "", "a", "i", "i", "a", "i" }, null);
                 throw new NotSupportedException(
-                    $"Encoding.GetBytes overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
-                    "(allocating string/char[] and ranged (char,int,int) forms only)");
+                    $"LOUD whitelist (net48 has no such overload): Encoding.GetBytes overload (arity {count}, " +
+                    $"param 0x{ps[0]:X2}) -- net48 GetBytes forms are (char[]), (char[],int,int), " +
+                    "(char[],int,int,byte[],int), (string) and (string,int,int,byte[],int) " +
+                    "[Reference Source text_encoding.cs:1023,1038,1054,1061,1075]");
             case "GetByteCount":
                 // nb9 (M4-fix/M8): the object-receiver entries read the page off
                 // the receiver at runtime, so a plain Encoding-typed parameter is
@@ -153,8 +163,9 @@ public static partial class MethodRefResolver
                     return ObjectEncodingIcall("icall_encoding_get_byte_count_chars_range", "get_byte_count",
                         new[] { "", "a", "i", "i" }, null);
                 throw new NotSupportedException(
-                    $"Encoding.GetByteCount overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
-                    "(string/char[] and ranged (char,int,int) forms only)");
+                    $"LOUD whitelist (net48 has no such overload): Encoding.GetByteCount overload (arity {count}, " +
+                    $"param 0x{ps[0]:X2}) -- net48 GetByteCount forms are (char[]), (string) and (char[],int,int) " +
+                    "[Reference Source text_encoding.cs:949,962,977]");
             case "GetCharCount":
                 // nb9 (M4-fix/M8): the object-receiver entries read the page off
                 // the receiver at runtime, so a plain Encoding-typed parameter is
@@ -166,8 +177,9 @@ public static partial class MethodRefResolver
                     return ObjectEncodingIcall("icall_encoding_get_char_count_bytes_range", "get_char_count",
                         new[] { "", "a", "i", "i" }, null);
                 throw new NotSupportedException(
-                    $"Encoding.GetCharCount overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
-                    "(byte[] and ranged (byte,int,int) forms only)");
+                    $"LOUD whitelist (net48 has no such overload): Encoding.GetCharCount overload (arity {count}, " +
+                    $"param 0x{ps[0]:X2}) -- net48 GetCharCount forms are (byte[]) and (byte[],int,int) " +
+                    "[Reference Source text_encoding.cs:1161,1176]");
             case "GetString":
                 // nb9 (M4-fix/M8): the object-receiver entries read the page off
                 // the receiver at runtime, so a plain Encoding-typed parameter is
@@ -179,8 +191,9 @@ public static partial class MethodRefResolver
                     return ObjectEncodingIcall("icall_encoding_get_string_range", "get_string",
                         new[] { "", "a", "i", "i" }, "System.String");
                 throw new NotSupportedException(
-                    $"Encoding.GetString overload (arity {count}, param 0x{ps[0]:X2}) not wired in M5 " +
-                    "(byte[] and ranged (byte,int,int) forms only)");
+                    $"LOUD whitelist (net48 has no such overload): Encoding.GetString overload (arity {count}, " +
+                    $"param 0x{ps[0]:X2}) -- net48 GetString forms are (byte[]) and (byte[],int,int) " +
+                    "[Reference Source text_encoding.cs:1483,1499]");
             case "GetChars":
                 // GetChars(byte[]) / GetChars(byte[],int,int) -> char[],
                 // GetChars(byte[],int,int,char[],int) -> int (writes into the
@@ -199,8 +212,9 @@ public static partial class MethodRefResolver
                     return ObjectEncodingIcall("icall_encoding_get_chars_all", "get_chars",
                         new[] { "", "a" }, "System.Char[]");
                 throw new NotSupportedException(
-                    $"Encoding.GetChars overload (arity {count}, param 0x{(count > 0 ? ps[0] : 0):X2}) not wired in M5 " +
-                    "(allocating single-byte[] / ranged / destination-array forms only)");
+                    $"LOUD whitelist (net48 has no such overload): Encoding.GetChars overload (arity {count}, " +
+                    $"param 0x{(count > 0 ? ps[0] : 0):X2}) -- net48 GetChars forms are (byte[]), (byte[],int,int) " +
+                    "and (byte[],int,int,char[],int) [Reference Source text_encoding.cs:1217,1232,1249]");
             default: return null;
         }
     }
@@ -231,8 +245,10 @@ public static partial class MethodRefResolver
             "System.Text.UnicodeEncodingBE" => "unicodebe",
             "System.Text.ASCIIEncoding" => "ascii",
             _ => throw new NotSupportedException(
-                $"{member} on receiver '{receiverType}' not wired in M5 (UTF8/Unicode/ASCII singleton " +
-                "receivers only -- call the member directly on Encoding.UTF8/Unicode/ASCII)"),
+                $"LOUD whitelist (dynamic dispatch): {member} on receiver '{receiverType}' -- the receiver's " +
+                "runtime encoding type is not one of the four known pages (UTF8/Unicode/UnicodeBE/ASCII); the page " +
+                "is baked into the icall name and cannot be resolved from an untracked or custom Encoding subclass " +
+                "[src/runtime/include/internal/il2cpp_encoding.h:113-119]"),
         };
     }
 

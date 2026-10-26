@@ -66,7 +66,11 @@ public static partial class MethodRefResolver
                 // receiver and does nothing else.
                 if (count == 0)
                     return I("il2cpp::runtime::il2cpp_object_ctor_nop", 0, false, false, true);
-                throw new NotSupportedException($"XmlDocument ctor with {count} param(s) not wired (only the parameterless form exists in the basic domain)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (no runtime descriptor): XmlDocument ctor with {count} param(s) -- net48's " +
+                    "public ctors are () and (XmlNameTable) (xmldocument.cs:85,90); the runtime xml domain is a " +
+                    "handle-gap model (xml_doc.h) with no XmlNameTable descriptor, so the parameterless form is the " +
+                    "only wireable one [Reference Source System.Xml/System/Xml/Dom/XmlDocument.cs:85,90]");
             case "LoadXml":
                 // LoadXml(string): parse into a new tree; the root handle
                 // replaces the receiver local (ResultIsReceiver -- the
@@ -168,9 +172,11 @@ public static partial class MethodRefResolver
                 return null;
             default:
                 throw new NotSupportedException(
-                    "System.Xml.XmlDocument member not wired: the basic domain covers " +
-                    ".ctor/LoadXml/get_OuterXml/SelectNodes/SelectSingleNode/GetAttribute/" +
-                    "get_InnerText/get_InnerXml only (see xml_doc.h); other members have no runtime surface");
+                    $"LOUD whitelist (no runtime descriptor): System.Xml.XmlDocument member '{name}' -- the runtime " +
+                    "xml domain is a handle-gap model (xml_doc.h) whose surface is the net48 face " +
+                    "(.ctor/LoadXml/get_OuterXml/SelectNodes/SelectSingleNode/GetAttribute/get_InnerText/get_InnerXml); " +
+                    "the remaining net48 members have no runtime primitive/descriptor " +
+                    "[src/runtime/include/internal/xml_doc.h]");
         }
     }
 
@@ -211,7 +217,10 @@ public static partial class MethodRefResolver
             case ".ctor":
                 if (count == 0)
                     return I("il2cpp::runtime::il2cpp_object_ctor_nop", 0, false, false, true);
-                throw new NotSupportedException($"XmlWriterSettings ctor with {count} param(s) not wired (only the parameterless form exists in the minimal face)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): XmlWriterSettings ctor with {count} param(s) -- " +
+                    "net48's only PUBLIC ctor is the parameterless form (the other two are internal) " +
+                    "[Reference Source System.Xml/System/Xml/Core/XmlWriterSettings.cs:101]");
             case "set_OmitXmlDeclaration":
                 if (count == 1 && ps[0] == 0x02) // bool
                     return I("il2cpp::runtime::il2cpp_xml_writer_settings_set_omit_declaration", 1, false, false, true,
@@ -244,7 +253,10 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::il2cpp_xml_writer_create_sw", 1, true, true, false,
                             new[] { "" }, returnTypeName: "System.Xml.XmlWriter");
                     throw new NotSupportedException(
-                        $"XmlWriter.Create target type '{arg0Type ?? "untracked"}' not wired: only a StringBuilder / StringWriter target exists in the minimal face");
+                        $"LOUD whitelist (dynamic dispatch): XmlWriter.Create target type '{arg0Type ?? "untracked"}' -- " +
+                        "the declared param type is TextWriter (CLASS), so the target kind is only known from the " +
+                        "tracked argument type; only a StringBuilder / StringWriter target has a runtime icall " +
+                        "[src/runtime/include/internal/xml_write.h]");
                 }
                 if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
                 {
@@ -255,7 +267,10 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::il2cpp_xml_writer_create_sw_s", 2, true, true, false,
                             new[] { "", "" }, returnTypeName: "System.Xml.XmlWriter");
                     throw new NotSupportedException(
-                        $"XmlWriter.Create target type '{arg1Type ?? "untracked"}' not wired: only a StringBuilder / StringWriter target exists in the minimal face");
+                        $"LOUD whitelist (dynamic dispatch): XmlWriter.Create target type '{arg1Type ?? "untracked"}' -- " +
+                        "the declared param type is TextWriter (CLASS), so the target kind is only known from the " +
+                        "tracked argument type; only a StringBuilder / StringWriter target has a runtime icall " +
+                        "[src/runtime/include/internal/xml_write.h]");
                 }
                 return null;
             case "WriteStartElement":
@@ -347,10 +362,11 @@ public static partial class MethodRefResolver
                 return null;
             default:
                 throw new NotSupportedException(
-                    "System.Xml.XmlWriter/XmlWriterSettings member not wired: the minimal face covers " +
-                    "Create/WriteStartElement/WriteAttributeString/WriteElementString/WriteString/" +
-                    "WriteEndElement/WriteEndDocument/Flush/Close + XmlWriterSettings(.ctor/" +
-                    "set_OmitXmlDeclaration/set_Indent) only (see xml_write.h)");
+                    $"LOUD whitelist (no runtime descriptor): System.Xml.XmlWriter/XmlWriterSettings member '{name}' -- " +
+                    "the runtime xml_write.h surface is the minimal write face (Create/WriteStartElement/" +
+                    "WriteAttributeString/WriteElementString/WriteString/WriteEndElement/WriteEndDocument/Flush/" +
+                    "Close + XmlWriterSettings(.ctor/set_OmitXmlDeclaration/set_Indent)); the remaining net48 " +
+                    "members have no runtime primitive/descriptor [src/runtime/include/internal/xml_write.h]");
         }
     }
 }
