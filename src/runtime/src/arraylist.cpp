@@ -239,6 +239,38 @@ Il2CppObject* il2cpp_arraylist_create()
     return reinterpret_cast<Il2CppObject*>(list);
 }
 
+void il2cpp_arraylist_create_capacity(Il2CppObject* self, int32_t capacity)
+{
+    ThrowIfNullReceiver(self);
+    if (capacity < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("capacity",
+            "capacity is less than zero.");
+    }
+    // The receiver is the newobj-allocated list (the emitter's
+    // il2cpp_object_new placeholder); the ctor pre-sizes its items array in
+    // place. AllocItems can compact the container: root 'list' across the
+    // allocation and re-read before the publication store (the GrowList /
+    // set_capacity discipline).
+    Il2CppArrayList* list = AsList(self);
+    list->count = 0;
+    if (capacity > 0)
+    {
+        GcRoot<Il2CppArrayList*> root(list, "icall_arraylist_create_capacity");
+        Il2CppArray* arr = AllocItems(capacity);
+        list = root.Get();
+        list->items = arr;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
+                             reinterpret_cast<Il2CppObject*>(list->items));
+    }
+    else
+    {
+        // Capacity 0 keeps items null (the first Add grows to the default 4),
+        // matching the parameterless ctor arm above.
+        list->items = nullptr;
+    }
+}
+
 void il2cpp_arraylist_add(Il2CppObject* self, Il2CppObject* value)
 {
     ThrowIfNullReceiver(self);

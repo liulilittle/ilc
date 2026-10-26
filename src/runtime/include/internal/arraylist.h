@@ -76,6 +76,15 @@ Il2CppClass* il2cpp_arraylist_class();
 // array. Returns the new object (never null).
 Il2CppObject* il2cpp_arraylist_create();
 
+// ArrayList(int capacity) -- an INSTANCE-style ctor: it pre-sizes the receiver
+// list's items array to 'capacity' reference slots (a fresh list's Capacity
+// reads 'capacity'). A capacity of 0 keeps items null (Capacity 0, the first
+// Add grows to the default 4 -- matching .NET Framework 4.8's empty-items ctor
+// arm); a negative capacity raises ArgumentOutOfRangeException. The items
+// array is a reference array, so the allocation can compact the container:
+// 'list' is GC-rooted and re-read before the publication store.
+void il2cpp_arraylist_create_capacity(Il2CppObject* self, int32_t capacity);
+
 // Add(value) -- append at the end. Null is legal. Grows (doubles the items
 // array, min 4) when the list is full.
 void il2cpp_arraylist_add(Il2CppObject* self, Il2CppObject* value);

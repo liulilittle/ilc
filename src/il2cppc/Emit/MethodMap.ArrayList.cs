@@ -48,7 +48,15 @@ public static partial class MethodRefResolver
             case ".ctor":
                 if (count == 0)
                     return I("il2cpp::il2cpp_arraylist_create", 0, true, true, true, new[] { "drop" });
-                throw new NotSupportedException($"ArrayList ctor with {count} arg(s) not wired (the runtime has only the parameterless create icall)");
+                // ArrayList(int capacity): an INSTANCE-style ctor -- the receiver
+                // (the newobj-allocated list) is pre-sized in place and the int32
+                // capacity rides the "i" cast (arraylist.h). ParamCount is the
+                // IL argument count (1); the casts array carries the receiver
+                // slot too (the List<T>(int) capacity-ctor precedent).
+                if (count == 1 && ps.Length >= 1 && ps[0] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_create_capacity", 1, false, false, true,
+                        new[] { "", "i" });
+                throw new NotSupportedException($"ArrayList ctor with {count} arg(s) not wired (the runtime exposes only the parameterless and int-capacity create icalls)");
             case "Add": return I("il2cpp::il2cpp_arraylist_add", 1, false, false, true);
             case "get_Item": return I("il2cpp::il2cpp_arraylist_get_item", 1, true, true, true, new[] { "", "i" });
             case "set_Item": return I("il2cpp::il2cpp_arraylist_set_item", 2, false, false, true, new[] { "", "i", "" });

@@ -79,10 +79,17 @@ void il2cpp_buffer_block_copy(Il2CppObject* src, int32_t srcOffset,
 int32_t il2cpp_buffer_byte_length(Il2CppObject* arr);
 
 // icall_buffer_get_byte -- Buffer.GetByte(Array, int) -> the array's payload
-// byte at raw-data offset 'index' (int32 carrier), with the net48 validation
-// (see buffer.cpp). Defined here because the MethodMap Buffer surface is
-// buffer.h (il2cpp_buffer_*); the GetByte/SetByte LOUD note is superseded.
+// byte at raw-data offset 'index' (int32 carrier, the UNSIGNED byte value
+// 0..255), with the net48 validation (see buffer.cpp). Defined here because
+// the MethodMap Buffer surface is buffer.h (il2cpp_buffer_*).
 int32_t icall_buffer_get_byte(Il2CppObject* arr, int32_t index);
+
+// icall_buffer_set_byte -- Buffer.SetByte(Array, int, byte): store ONE payload
+// byte at the raw-data offset 'index' (the value arrives in an int32 carrier;
+// only the low byte is written). The net48 validation mirrors GetByte exactly:
+// null/not-array, reference-element array (ArgumentException), index outside
+// [0, byteLength) -> ArgumentOutOfRangeException.
+void icall_buffer_set_byte(Il2CppObject* arr, int32_t index, int32_t value);
 
 // Buffer.MemoryCopy (raw pointer form): copy 'count' raw bytes from 'src' to
 // 'dst' with memmove overlap safety (forward and backward overlap both behave

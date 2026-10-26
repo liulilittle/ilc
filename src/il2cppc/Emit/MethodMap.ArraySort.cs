@@ -59,8 +59,11 @@ public static partial class MethodRefResolver
                         0x0C => I("il2cpp::il2cpp_array_sort_float", 1, false, false, false, new[] { "a" }),
                         0x0D => I("il2cpp::il2cpp_array_sort_double", 1, false, false, false, new[] { "a" }),
                         0x0E => I("il2cpp::il2cpp_array_sort_string", 1, false, false, false, new[] { "a" }),
+                        // arrgen1b: uint64 (0x0B) rides the int64 direct-call
+                        // sort (the 8-byte cell; the bits are identical).
+                        0x0B => I("il2cpp::il2cpp_array_sort_int64", 1, false, false, false, new[] { "a" }),
                         _ => throw new NotSupportedException(
-                            $"Array.Sort<T> generic argument 0x{genArgs[0]:X2} has no direct-call sort (only int32/uint32/int64/float/double/string arrays)"),
+                            $"Array.Sort<T> generic argument 0x{genArgs[0]:X2} has no direct-call sort (only int32/uint32/int64/float/double/string/uint64 arrays)"),
                     };
                 }
                 if (count == 2)
@@ -131,6 +134,11 @@ public static partial class MethodRefResolver
                     0x0A when count == 2 => I("il2cpp::il2cpp_array_index_of_int64", 2, true, false, false, new[] { "a", "l" }),
                     0x0A when count == 3 => I("il2cpp::il2cpp_array_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
                     0x0A when count == 4 => I("il2cpp::il2cpp_array_index_of_int64_range", 4, true, false, false, new[] { "a", "l", "i", "i" }),
+                    // arrgen1b: uint64 (0x0B) rides the int64 scans (equality
+                    // is bitwise, so the unsigned payload compares correctly).
+                    0x0B when count == 2 => I("il2cpp::il2cpp_array_index_of_int64", 2, true, false, false, new[] { "a", "l" }),
+                    0x0B when count == 3 => I("il2cpp::il2cpp_array_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
+                    0x0B when count == 4 => I("il2cpp::il2cpp_array_index_of_int64_range", 4, true, false, false, new[] { "a", "l", "i", "i" }),
                     0x0C when count == 2 => I("il2cpp::il2cpp_array_index_of_float_start", 2, true, false, false, new[] { "a", "d" }, appendZero: true),
                     0x0C when count == 3 => I("il2cpp::il2cpp_array_index_of_float_start", 3, true, false, false, new[] { "a", "d", "i" }),
                     0x0C when count == 4 => I("il2cpp::il2cpp_array_index_of_float_range", 4, true, false, false, new[] { "a", "d", "i", "i" }),
@@ -144,7 +152,7 @@ public static partial class MethodRefResolver
                     0x12 or 0x1C when count == 3 => I("il2cpp::il2cpp_array_index_of_object_start", 3, true, false, false, new[] { "a", "", "i" }),
                     0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_index_of_object_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
                     _ => throw new NotSupportedException(
-                        $"Array.IndexOf<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call"),
+                        $"Array.IndexOf<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call (the wired families are int32/uint32/int64/float/double/string/object/uint64)"),
                 };
             case "LastIndexOf":
                 if (genArgs == null) return null;
@@ -158,6 +166,10 @@ public static partial class MethodRefResolver
                     0x0A when count == 2 => I("il2cpp::il2cpp_array_last_index_of_long", 2, true, false, false, new[] { "a", "l" }),
                     0x0A when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
                     0x0A when count == 4 => I("il2cpp::il2cpp_array_last_index_of_int64_range", 4, true, false, false, new[] { "a", "l", "i", "i" }),
+                    // arrgen1b: uint64 (0x0B) rides the int64 reverse scans.
+                    0x0B when count == 2 => I("il2cpp::il2cpp_array_last_index_of_long", 2, true, false, false, new[] { "a", "l" }),
+                    0x0B when count == 3 => I("il2cpp::il2cpp_array_last_index_of_int64_start", 3, true, false, false, new[] { "a", "l", "i" }),
+                    0x0B when count == 4 => I("il2cpp::il2cpp_array_last_index_of_int64_range", 4, true, false, false, new[] { "a", "l", "i", "i" }),
                     0x0C when count == 2 => I("il2cpp::il2cpp_array_last_index_of_float", 2, true, false, false, new[] { "a", "d" }),
                     0x0C when count == 3 => I("il2cpp::il2cpp_array_last_index_of_float_start", 3, true, false, false, new[] { "a", "d", "i" }),
                     0x0C when count == 4 => I("il2cpp::il2cpp_array_last_index_of_float_range", 4, true, false, false, new[] { "a", "d", "i", "i" }),
@@ -171,7 +183,7 @@ public static partial class MethodRefResolver
                     0x12 or 0x1C when count == 3 => I("il2cpp::il2cpp_array_last_index_of_object_start", 3, true, false, false, new[] { "a", "", "i" }),
                     0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_last_index_of_object_range", 4, true, false, false, new[] { "a", "", "i", "i" }),
                     _ => throw new NotSupportedException(
-                        $"Array.LastIndexOf<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call"),
+                        $"Array.LastIndexOf<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call (the wired families are int32/uint32/int64/float/double/string/object/uint64)"),
                 };
             case "BinarySearch":
                 if (genArgs == null) return null;
@@ -207,6 +219,12 @@ public static partial class MethodRefResolver
                     0x0A when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_int64", 3, true, false, false, new[] { "a", "l", "" }),
                     0x0A when count == 4 => I("il2cpp::il2cpp_array_binary_search_int64_range", 4, true, false, false, new[] { "a", "i", "i", "l" }),
                     0x0A when count == 5 => I("il2cpp::il2cpp_array_binary_search_icomparer_int64_range", 5, true, false, false, new[] { "a", "i", "i", "l", "" }),
+                    // arrgen1b: uint64 (0x0B) rides the int64 searches (the
+                    // 8-byte cell; the bits are identical).
+                    0x0B when count == 2 => I("il2cpp::il2cpp_array_binary_search_int64", 2, true, false, false, new[] { "a", "l" }),
+                    0x0B when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_int64", 3, true, false, false, new[] { "a", "l", "" }),
+                    0x0B when count == 4 => I("il2cpp::il2cpp_array_binary_search_int64_range", 4, true, false, false, new[] { "a", "i", "i", "l" }),
+                    0x0B when count == 5 => I("il2cpp::il2cpp_array_binary_search_icomparer_int64_range", 5, true, false, false, new[] { "a", "i", "i", "l", "" }),
                     0x0C when count == 2 => I("il2cpp::il2cpp_array_binary_search_float", 2, true, false, false, new[] { "a", "d" }),
                     0x0C when count == 3 => I("il2cpp::il2cpp_array_binary_search_icomparer_float", 3, true, false, false, new[] { "a", "d", "" }),
                     0x0C when count == 4 => I("il2cpp::il2cpp_array_binary_search_float_range", 4, true, false, false, new[] { "a", "i", "i", "d" }),
@@ -220,7 +238,7 @@ public static partial class MethodRefResolver
                     0x12 or 0x1C when count == 2 => I("il2cpp::il2cpp_array_binary_search_object", 2, true, false, false, new[] { "a", "" }),
                     0x12 or 0x1C when count == 4 => I("il2cpp::il2cpp_array_binary_search_object_range", 4, true, false, false, new[] { "a", "i", "i", "" }),
                     _ => throw new NotSupportedException(
-                        $"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call"),
+                        $"Array.BinarySearch<T> generic argument 0x{genArgs[0]:X2} with {count} arg(s) has no direct-call (the wired families are int32/uint32/int64/float/double/string/object/uint64)"),
                 };
             default: return null;
         }

@@ -101,6 +101,10 @@ void il2cpp_array_reverse_ushort(Il2CppArray* arr);
 void il2cpp_array_reverse_char(Il2CppArray* arr);
 void il2cpp_array_reverse_uint(Il2CppArray* arr);
 
+// W7 (T2): Array.Reverse(ulong[]): the uint64 twin of the int64 reverser
+// (8-byte slot reversal). ulong[] only (isRefElem == false, elemSize == 8).
+void il2cpp_array_reverse_uint64(Il2CppArray* arr);
+
 // Array.Reverse(string[]): in-place two-pointer reversal of the reference
 // slots (identity -- never the pointees, no string comparison). Reference
 // arrays only; null slots are legal and reverse like any other element.

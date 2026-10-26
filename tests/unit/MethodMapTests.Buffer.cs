@@ -110,18 +110,33 @@ public class MethodMapBufferTests
     }
 
     //--------------------------------------------------------------------------
-    // SetByte(Array, int, byte) -- same known-member-with-no-icall rejection
-    // as GetByte (the second label of the same switch case in
-    // MethodMap.Buffer.cs); 0x05 U1 decodes fine, so TryMapBuffer's branch is
-    // the one that fires (its message carries the owner::name prefix).
+    // SetByte(Array, int, byte) -- WIRED (arrgen1b): the 3-arg shape maps to
+    // icall_buffer_set_byte (buffer.h/.cpp); the byte value arrives in an int32
+    // carrier ("i"), the array slot stays uncased. The net48 validation mirrors
+    // GetByte. A non-3-arg shape still fails LOUD.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Buffer_SetByte_ThrowsLoud()
+    public void Resolve_Buffer_SetByte_MapsToSetByteIcall()
     {
         var (_, arr) = Synthesize("SetByte", new byte[] { 0x00, 0x03, 0x01, 0x12, 0x00, 0x08, 0x05 });
 
+        var resolved = ResolveBuffer("SetByte", new byte[] { 0x00, 0x03, 0x01, 0x12, arr, 0x08, 0x05 });
+
+        Assert.Equal("il2cpp::runtime::icall_buffer_set_byte", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { true, false, false }, resolved.ParamIsRef);
+    }
+
+    [Fact]
+    public void Resolve_Buffer_SetByte_BadArity_ThrowsLoud()
+    {
+        var (_, arr) = Synthesize("SetByte", new byte[] { 0x00, 0x02, 0x01, 0x12, 0x00, 0x08 });
+
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveBuffer("SetByte", new byte[] { 0x00, 0x03, 0x01, 0x12, arr, 0x08, 0x05 }));
+            ResolveBuffer("SetByte", new byte[] { 0x00, 0x02, 0x01, 0x12, arr, 0x08 }));
 
         Assert.Contains("System.Buffer::SetByte", ex.Message);
     }

@@ -390,6 +390,187 @@ Il2CppArray* icall_array_find_all_d(Il2CppArray* arr, Il2CppObject* match);
 // icall_array_resize_i4 (same net48 contract and rooting discipline).
 void icall_array_resize_d(Il2CppArray** arraySlot, int32_t newSize);
 
+//------------------------------------------------------------------------------
+// The FLOAT generic family (the double twins with a 4-byte element stride).
+// A float leaf's predicate ABI is the DOUBLE slot (the linq-domain FPredFn /
+// FPredThisFn contract -- a float widens to double), so the callbacks are
+// invoked through InvokeDPred. Same validation order, per-binding callback and
+// GC rooting contract as the int32 family; float arrays only.
+//------------------------------------------------------------------------------
+float icall_array_find_f(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_exists_f(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_f(Il2CppArray* arr, Il2CppObject* match);
+float icall_array_find_last_f(Il2CppArray* arr, Il2CppObject* match);
+Il2CppArray* icall_array_find_all_f(Il2CppArray* arr, Il2CppObject* match);
+void icall_array_for_each_f(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_resize_f(Il2CppArray** arraySlot, int32_t newSize);
+
+// Array.FindIndex<double/float>(T[], Predicate<T>) and their _2/_3 overloads:
+// the index of the first matching element in the range, or -1. Same range
+// validation as icall_array_find_index; the double/float predicate ABI is
+// InvokeDPred.
+int32_t icall_array_find_index_d(Il2CppArray* arr, Il2CppObject* predicate,
+                                  int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_2_d(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_3_d(Il2CppArray* arr, Il2CppObject* predicate,
+                                    int32_t startIndex);
+int32_t icall_array_find_index_f(Il2CppArray* arr, Il2CppObject* predicate,
+                                  int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_2_f(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_3_f(Il2CppArray* arr, Il2CppObject* predicate,
+                                    int32_t startIndex);
+
+// Array.FindLastIndex<long/string/double/float>(T[], Predicate<T>) and their
+// _2/_3 overloads: the index of the LAST matching element in the range, or -1
+// (BACKWARD scan). Same range validation as icall_array_find_last_index; the
+// predicate ABI follows the family (I8PredFn / StrPredFn / DPredFn).
+int32_t icall_array_find_last_index_i8(Il2CppArray* arr, Il2CppObject* predicate,
+                                        int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_2_i8(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_3_i8(Il2CppArray* arr, Il2CppObject* predicate,
+                                          int32_t startIndex);
+int32_t icall_array_find_last_index_str(Il2CppArray* arr, Il2CppObject* predicate,
+                                         int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_2_str(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_3_str(Il2CppArray* arr, Il2CppObject* predicate,
+                                           int32_t startIndex);
+int32_t icall_array_find_last_index_d(Il2CppArray* arr, Il2CppObject* predicate,
+                                       int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_2_d(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_3_d(Il2CppArray* arr, Il2CppObject* predicate,
+                                         int32_t startIndex);
+int32_t icall_array_find_last_index_f(Il2CppArray* arr, Il2CppObject* predicate,
+                                       int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_2_f(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_3_f(Il2CppArray* arr, Il2CppObject* predicate,
+                                         int32_t startIndex);
+
+//------------------------------------------------------------------------------
+// The UINT64 generic family (the ELEMENT_TYPE_U8 "q" slot). Same contract as
+// the int64 family; the predicate ABI is bool(*)(uint64_t) /
+// bool(*)(Il2CppObject*, uint64_t) (InvokeUPred). ulong arrays only.
+//------------------------------------------------------------------------------
+uint64_t icall_array_find_u8(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_exists_u8(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_u8(Il2CppArray* arr, Il2CppObject* match);
+uint64_t icall_array_find_last_u8(Il2CppArray* arr, Il2CppObject* match);
+Il2CppArray* icall_array_find_all_u8(Il2CppArray* arr, Il2CppObject* match);
+void icall_array_for_each_u8(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_resize_u8(Il2CppArray** arraySlot, int32_t newSize);
+int32_t icall_array_find_index_u8(Il2CppArray* arr, Il2CppObject* predicate,
+                                   int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_2_u8(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_3_u8(Il2CppArray* arr, Il2CppObject* predicate,
+                                     int32_t startIndex);
+int32_t icall_array_find_last_index_u8(Il2CppArray* arr, Il2CppObject* predicate,
+                                        int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_2_u8(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_3_u8(Il2CppArray* arr, Il2CppObject* predicate,
+                                          int32_t startIndex);
+
+//------------------------------------------------------------------------------
+// The NARROW-INTEGRAL generic families (bool/char/sbyte/byte/short/ushort/uint).
+// Every narrow integral lives in an int32 slot (MethodSignatureCoder "b"/"c"/
+// "i1"/"u1"/"i2"/"u2"/"i"), so the predicate ABI is the int32 one
+// (InvokeFindIndexPred): the element cell is read at its real width and widened
+// to int32 before the callback. The suffix follows the slot code:
+//   _b bool | _c char | _i1 sbyte | _u1 byte | _i2 short | _u2 ushort | _u4 uint
+// One template per operator (arrayext2.cpp); the explicit wrappers instantiate
+// it per cell type. Same contract as the int32 family; the matching narrow
+// array only.
+//------------------------------------------------------------------------------
+int32_t icall_array_find_b(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_c(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_i1(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_u1(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_i2(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_u2(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_u4(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_exists_b(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_exists_c(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_exists_i1(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_exists_u1(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_exists_i2(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_exists_u2(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_exists_u4(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_b(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_c(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_i1(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_u1(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_i2(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_u2(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_true_for_all_u4(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_last_b(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_last_c(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_last_i1(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_last_u1(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_last_i2(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_last_u2(Il2CppArray* arr, Il2CppObject* match);
+int32_t icall_array_find_last_u4(Il2CppArray* arr, Il2CppObject* match);
+Il2CppArray* icall_array_find_all_b(Il2CppArray* arr, Il2CppObject* match);
+Il2CppArray* icall_array_find_all_c(Il2CppArray* arr, Il2CppObject* match);
+Il2CppArray* icall_array_find_all_i1(Il2CppArray* arr, Il2CppObject* match);
+Il2CppArray* icall_array_find_all_u1(Il2CppArray* arr, Il2CppObject* match);
+Il2CppArray* icall_array_find_all_i2(Il2CppArray* arr, Il2CppObject* match);
+Il2CppArray* icall_array_find_all_u2(Il2CppArray* arr, Il2CppObject* match);
+Il2CppArray* icall_array_find_all_u4(Il2CppArray* arr, Il2CppObject* match);
+void icall_array_for_each_b(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_for_each_c(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_for_each_i1(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_for_each_u1(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_for_each_i2(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_for_each_u2(Il2CppArray* arr, Il2CppObject* action);
+void icall_array_for_each_u4(Il2CppArray* arr, Il2CppObject* action);
+int32_t icall_array_find_index_b(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_c(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_i1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_u1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_i2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_u2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_u4(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_index_2_b(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_2_c(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_2_i1(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_2_u1(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_2_i2(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_2_u2(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_2_u4(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_index_3_b(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_index_3_c(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_index_3_i1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_index_3_u1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_index_3_i2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_index_3_u2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_index_3_u4(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_last_index_b(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_c(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_i1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_u1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_i2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_u2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_u4(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count);
+int32_t icall_array_find_last_index_2_b(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_2_c(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_2_i1(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_2_u1(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_2_i2(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_2_u2(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_2_u4(Il2CppArray* arr, Il2CppObject* predicate);
+int32_t icall_array_find_last_index_3_b(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_last_index_3_c(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_last_index_3_i1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_last_index_3_u1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_last_index_3_i2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_last_index_3_u2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+int32_t icall_array_find_last_index_3_u4(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex);
+void icall_array_resize_b(Il2CppArray** arraySlot, int32_t newSize);
+void icall_array_resize_c(Il2CppArray** arraySlot, int32_t newSize);
+void icall_array_resize_i1(Il2CppArray** arraySlot, int32_t newSize);
+void icall_array_resize_u1(Il2CppArray** arraySlot, int32_t newSize);
+void icall_array_resize_i2(Il2CppArray** arraySlot, int32_t newSize);
+void icall_array_resize_u2(Il2CppArray** arraySlot, int32_t newSize);
+void icall_array_resize_u4(Il2CppArray** arraySlot, int32_t newSize);
+
 // Array.Empty<T>() -- a zero-length T[] (the source of the params-array
 // Roslyn lowers TrimStart()/TrimEnd() no-arg calls to, among other
 // consumers). One icall per wired generic argument:
@@ -419,6 +600,10 @@ Il2CppObject* icall_array_empty_bool();
 Il2CppObject* icall_array_empty_short();
 Il2CppObject* icall_array_empty_ushort();
 Il2CppObject* icall_array_empty_uint();
+// Array.Empty<ulong>(): the uint64 zero-length factory (the one primitive
+// element family without a dedicated factory -- ulong[] has elemSize 8, the
+// same plain-allocation shape as the uint32 factory above).
+Il2CppObject* icall_array_empty_uint64();
 
 // The shared CULTURE string comparator used by Array.Sort/BinarySearch
 // (string[]) and the default Comparer<string> paths (defined in arrayext2.cpp;

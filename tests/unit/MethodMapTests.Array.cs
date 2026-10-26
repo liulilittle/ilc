@@ -78,16 +78,17 @@ public class MethodMapArrayTests
     }
 
     [Fact]
-    public void Resolve_Array_FindIndexNonInt32_MethodSpec_ThrowsLoud()
+    public void Resolve_Array_FindIndexValuetype_MethodSpec_ThrowsLoud()
     {
-        // FindIndex<uint64> -- the wired families are int32 (0x08), int64
-        // (0x0A) and string (0x0E), each with its own delegate icall (arrgen1,
-        // il2cpp_array_ext2.h); any other generic argument stays LOUD (never
-        // silently drop the delegate). uint64 (0x0B) has no runtime icall.
+        // FindIndex<valuetype> -- every primitive family (int32/int64/string/
+        // double/float/uint64 and the narrow integrals) is wired (arrgen1b);
+        // a BCL valuetype generic argument (0x11) stays LOUD (no runtime
+        // descriptor / box class). The array param byte is a decodable
+        // SZARRAY(int32) -- the resolver dispatches on the generic argument.
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMethodSpec(SynthesizeGeneric("System", "Array", "FindIndex",
                 new byte[] { 0x00, 0x03, 0x08, 0x1D, 0x08, 0x08, 0x08 },
-                new byte[] { 0x0A, 0x01, 0x0B })));
+                new byte[] { 0x0A, 0x01, 0x11 })));
 
         Assert.Contains("System.Array::FindIndex", ex.Message);
     }
@@ -190,16 +191,17 @@ public class MethodMapArrayTests
     [InlineData("Exists")]
     [InlineData("TrueForAll")]
     [InlineData("Resize")]
-    public void Resolve_Array_NonInt32_MethodSpec_ThrowsLoud(string member)
+    public void Resolve_Array_Valuetype_MethodSpec_ThrowsLoud(string member)
     {
-        // Find<uint64> etc. -- the wired families are int32 (0x08), int64
-        // (0x0A), string (0x0E) and, for Find/Exists/TrueForAll, double (0x0D)
-        // (arrgen1, il2cpp_array_ext2.h); any other generic argument stays
-        // LOUD. uint64 (0x0B) has no runtime delegate/resize icall.
+        // Find/Exists/TrueForAll/Resize<valuetype> -- every primitive family is
+        // wired (arrgen1b, il2cpp_array_ext2.h); a BCL valuetype generic
+        // argument (0x11) stays LOUD (no runtime delegate/resize icall -- the
+        // box class / descriptor is unmaterialized). The array param byte is a
+        // decodable SZARRAY(int32); the resolver dispatches on the generic arg.
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMethodSpec(SynthesizeGeneric("System", "Array", member,
                 new byte[] { 0x00, 0x02, 0x08, 0x1D, 0x08, 0x08 },
-                new byte[] { 0x0A, 0x01, 0x0B })));
+                new byte[] { 0x0A, 0x01, 0x11 })));
 
         Assert.Contains("System.Array::" + member, ex.Message);
     }
@@ -361,6 +363,179 @@ public class MethodMapArrayTests
         Assert.Equal(icall, resolved.CppName);
         Assert.Equal(1, resolved.ParamCount);
         Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+    }
+
+    //==========================================================================
+    // arrgen1b -- the FLOAT (0x0C) and UINT64 (0x0B) generic families wired in
+    // this batch. The float family rides the DOUBLE-slot predicate ABI (the
+    // transpiler stores float in a double slot; the runtime invokes the leaf
+    // through InvokeDPred); the uint64 family rides the "q" slot (InvokeUPred).
+    // The former LOUD catch-all arms of Find/FindAll/Exists/TrueForAll/ForEach/
+    // FindLast/FindIndex/FindLastIndex/Resize/Empty/Reverse are now mappings.
+    //==========================================================================
+
+    [Theory]
+    [InlineData(0x0C, "il2cpp::runtime::icall_array_find_f", "d")]
+    [InlineData(0x0B, "il2cpp::runtime::icall_array_find_u8", "l")]
+    public void Resolve_Array_Find_FloatOrUInt64_MethodSpec_MapsToFamilyIcall(byte elem, string icall, string kind)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Find",
+            new byte[] { 0x00, 0x02, 0x08, 0x1D, elem, 0x08 },
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal(kind, resolved.ResultKind);
+    }
+
+    [Theory]
+    [InlineData(0x0C, "il2cpp::runtime::icall_array_find_last_f", "d")]
+    [InlineData(0x0B, "il2cpp::runtime::icall_array_find_last_u8", "l")]
+    public void Resolve_Array_FindLast_FloatOrUInt64_MethodSpec_MapsToFamilyIcall(byte elem, string icall, string kind)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "FindLast",
+            new byte[] { 0x00, 0x02, 0x08, 0x1D, elem, 0x08 },
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(kind, resolved.ResultKind);
+    }
+
+    [Theory]
+    [InlineData("FindAll", 0x0C, "il2cpp::runtime::icall_array_find_all_f")]
+    [InlineData("FindAll", 0x0B, "il2cpp::runtime::icall_array_find_all_u8")]
+    [InlineData("ForEach", 0x0C, "il2cpp::runtime::icall_array_for_each_f")]
+    [InlineData("ForEach", 0x0B, "il2cpp::runtime::icall_array_for_each_u8")]
+    [InlineData("Exists", 0x0C, "il2cpp::runtime::icall_array_exists_f")]
+    [InlineData("Exists", 0x0B, "il2cpp::runtime::icall_array_exists_u8")]
+    [InlineData("TrueForAll", 0x0C, "il2cpp::runtime::icall_array_true_for_all_f")]
+    [InlineData("TrueForAll", 0x0B, "il2cpp::runtime::icall_array_true_for_all_u8")]
+    public void Resolve_Array_PredicateFamily_FloatOrUInt64_MethodSpec_MapsToFamilyIcall(
+        string member, byte elem, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", member,
+            new byte[] { 0x00, 0x02, 0x08, 0x1D, elem, 0x08 },
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(0x0C, "il2cpp::runtime::icall_array_resize_f")]
+    [InlineData(0x0B, "il2cpp::runtime::icall_array_resize_u8")]
+    public void Resolve_Array_Resize_FloatOrUInt64_MethodSpec_MapsToFamilyIcall(byte elem, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Resize",
+            new byte[] { 0x00, 0x02, 0x01, 0x10, 0x1D, elem, 0x08 },
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "addr:a", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(0x0C, 2, "il2cpp::runtime::icall_array_find_index_2_f")]
+    [InlineData(0x0C, 3, "il2cpp::runtime::icall_array_find_index_3_f")]
+    [InlineData(0x0C, 4, "il2cpp::runtime::icall_array_find_index_f")]
+    [InlineData(0x0D, 2, "il2cpp::runtime::icall_array_find_index_2_d")]
+    [InlineData(0x0D, 3, "il2cpp::runtime::icall_array_find_index_3_d")]
+    [InlineData(0x0D, 4, "il2cpp::runtime::icall_array_find_index_d")]
+    [InlineData(0x0B, 2, "il2cpp::runtime::icall_array_find_index_2_u8")]
+    [InlineData(0x0B, 3, "il2cpp::runtime::icall_array_find_index_3_u8")]
+    [InlineData(0x0B, 4, "il2cpp::runtime::icall_array_find_index_u8")]
+    public void Resolve_Array_FindIndex_FloatDoubleUInt64_MethodSpec_MapsToFamilyIcall(byte elem, int ps, string icall)
+    {
+        // ps.Length selects the arity: 2 = (array, match), 3 = (+startIndex),
+        // 4 = (+count). The param bytes after the array are arbitrary (the
+        // resolver dispatches on the element byte + ps.Length).
+        // Signature blob: header(0x00) + count + ret(0x08) + SZARRAY(elem)
+        // (2 bytes) + one byte per remaining parameter.
+        var sig = new byte[4 + ps];
+        sig[0] = 0x00;
+        sig[1] = (byte)ps;
+        sig[2] = 0x08;
+        sig[3] = 0x1D;
+        sig[4] = elem;
+        for (var i = 5; i < sig.Length; ++i) sig[i] = 0x08;
+
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "FindIndex", sig,
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(ps, resolved.ParamCount);
+    }
+
+    [Theory]
+    [InlineData(0x0A, 2, "il2cpp::runtime::icall_array_find_last_index_2_i8")]
+    [InlineData(0x0A, 3, "il2cpp::runtime::icall_array_find_last_index_3_i8")]
+    [InlineData(0x0A, 4, "il2cpp::runtime::icall_array_find_last_index_i8")]
+    [InlineData(0x0E, 2, "il2cpp::runtime::icall_array_find_last_index_2_str")]
+    [InlineData(0x0E, 3, "il2cpp::runtime::icall_array_find_last_index_3_str")]
+    [InlineData(0x0E, 4, "il2cpp::runtime::icall_array_find_last_index_str")]
+    [InlineData(0x0D, 2, "il2cpp::runtime::icall_array_find_last_index_2_d")]
+    [InlineData(0x0D, 3, "il2cpp::runtime::icall_array_find_last_index_3_d")]
+    [InlineData(0x0D, 4, "il2cpp::runtime::icall_array_find_last_index_d")]
+    [InlineData(0x0C, 2, "il2cpp::runtime::icall_array_find_last_index_2_f")]
+    [InlineData(0x0C, 3, "il2cpp::runtime::icall_array_find_last_index_3_f")]
+    [InlineData(0x0C, 4, "il2cpp::runtime::icall_array_find_last_index_f")]
+    [InlineData(0x0B, 2, "il2cpp::runtime::icall_array_find_last_index_2_u8")]
+    [InlineData(0x0B, 3, "il2cpp::runtime::icall_array_find_last_index_3_u8")]
+    [InlineData(0x0B, 4, "il2cpp::runtime::icall_array_find_last_index_u8")]
+    public void Resolve_Array_FindLastIndex_Families_MethodSpec_MapsToFamilyIcall(byte elem, int ps, string icall)
+    {
+        var sig = new byte[4 + ps];
+        sig[0] = 0x00;
+        sig[1] = (byte)ps;
+        sig[2] = 0x08;
+        sig[3] = 0x1D;
+        sig[4] = elem;
+        for (var i = 5; i < sig.Length; ++i) sig[i] = 0x08;
+
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "FindLastIndex", sig,
+            new byte[] { 0x0A, 0x01, elem }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(ps, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Array_EmptyUInt64_MethodSpec_MapsToIcall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Empty",
+            new byte[] { 0x00, 0x00, 0x1D, 0x0B }, new byte[] { 0x0A, 0x01, 0x0B }));
+
+        Assert.Equal("il2cpp::runtime::icall_array_empty_uint64", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Array_ReverseUInt64_MethodSpec_MapsToIcall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Reverse",
+            new byte[] { 0x00, 0x01, 0x01, 0x1D, 0x0B }, new byte[] { 0x0A, 0x01, 0x0B }));
+
+        Assert.Equal("il2cpp::il2cpp_array_reverse_uint64", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_SortUInt64_MethodSpec_YieldsToDirectCallDomain()
+    {
+        // Array.Sort<ulong>(ulong[]) has no dedicated elemKind in the icall
+        // layer: MethodMap.Array.cs yields (null) and the ArraySort direct-call
+        // domain maps it to il2cpp_array_sort_int64 (the 8-byte cell).
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Sort",
+            new byte[] { 0x00, 0x01, 0x01, 0x1D, 0x0B }, new byte[] { 0x0A, 0x01, 0x0B }));
+
+        Assert.Equal("il2cpp::il2cpp_array_sort_int64", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------

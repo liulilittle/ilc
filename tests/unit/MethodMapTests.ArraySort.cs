@@ -1,4 +1,4 @@
-using System.Reflection.Metadata;
+﻿using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Il2Cpp.Transpiler.Emit;
@@ -410,6 +410,75 @@ public class MethodMapArraySortTests
         Assert.True(resolved.ReturnsValue);
         Assert.Equal(3, resolved.ParamCount);
         Assert.Equal(new[] { "a", "i", "" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // arrgen1b: the uint64 (0x0B) direct-call surface. uint64 has no dedicated
+    // elemKind, so it rides the int64 direct-call kernels (the 8-byte cell; the
+    // value bits are identical). Sort/IndexOf/LastIndexOf/BinarySearch all
+    // resolve now -- the former LOUD catch-all arms are mappings.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Array_SortUInt64_MethodSpec_ResolvesToDirectCall()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "Sort",
+            new byte[] { 0x00, 0x01, 0x01, 0x1D, 0x0B }, new byte[] { 0x0A, 0x01, 0x0B }));
+
+        Assert.Equal("il2cpp::il2cpp_array_sort_int64", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(2, "il2cpp::il2cpp_array_index_of_int64")]
+    [InlineData(3, "il2cpp::il2cpp_array_index_of_int64_start")]
+    [InlineData(4, "il2cpp::il2cpp_array_index_of_int64_range")]
+    public void Resolve_Array_IndexOfUInt64_MethodSpec_ResolvesToDirectCall(int ps, string expectedCpp)
+    {
+        var sig = new byte[4 + ps];
+        sig[0] = 0x00; sig[1] = (byte)ps; sig[2] = 0x08; sig[3] = 0x1D; sig[4] = 0x0B;
+        for (var i = 5; i < sig.Length; ++i) sig[i] = 0x08;
+
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "IndexOf", sig,
+            new byte[] { 0x0A, 0x01, 0x0B }));
+
+        Assert.Equal(expectedCpp, resolved.CppName);
+        Assert.Equal(ps, resolved.ParamCount);
+    }
+
+    [Theory]
+    [InlineData(2, "il2cpp::il2cpp_array_last_index_of_long")]
+    [InlineData(3, "il2cpp::il2cpp_array_last_index_of_int64_start")]
+    [InlineData(4, "il2cpp::il2cpp_array_last_index_of_int64_range")]
+    public void Resolve_Array_LastIndexOfUInt64_MethodSpec_ResolvesToDirectCall(int ps, string expectedCpp)
+    {
+        var sig = new byte[4 + ps];
+        sig[0] = 0x00; sig[1] = (byte)ps; sig[2] = 0x08; sig[3] = 0x1D; sig[4] = 0x0B;
+        for (var i = 5; i < sig.Length; ++i) sig[i] = 0x08;
+
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "LastIndexOf", sig,
+            new byte[] { 0x0A, 0x01, 0x0B }));
+
+        Assert.Equal(expectedCpp, resolved.CppName);
+        Assert.Equal(ps, resolved.ParamCount);
+    }
+
+    [Theory]
+    [InlineData(2, "il2cpp::il2cpp_array_binary_search_int64")]
+    [InlineData(3, "il2cpp::il2cpp_array_binary_search_icomparer_int64")]
+    [InlineData(4, "il2cpp::il2cpp_array_binary_search_int64_range")]
+    [InlineData(5, "il2cpp::il2cpp_array_binary_search_icomparer_int64_range")]
+    public void Resolve_Array_BinarySearchUInt64_MethodSpec_ResolvesToDirectCall(int ps, string expectedCpp)
+    {
+        var sig = new byte[4 + ps];
+        sig[0] = 0x00; sig[1] = (byte)ps; sig[2] = 0x08; sig[3] = 0x1D; sig[4] = 0x0B;
+        for (var i = 5; i < sig.Length; ++i) sig[i] = 0x08;
+
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "BinarySearch", sig,
+            new byte[] { 0x0A, 0x01, 0x0B }));
+
+        Assert.Equal(expectedCpp, resolved.CppName);
+        Assert.Equal(ps, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------

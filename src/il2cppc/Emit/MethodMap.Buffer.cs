@@ -56,7 +56,14 @@ public static partial class MethodRefResolver
                         new[] { "", "i" });
                 throw new NotSupportedException($"GetByte with {ps.Length} params is not the 2-arg (Array, int) form");
             case "SetByte":
-                throw new NotSupportedException("no runtime icall (runtime surface: block_copy/byte_length/get_byte/memory_copy only)");
+                // Buffer.SetByte(Array, int, byte): the net48 3-arg shape. The
+                // byte value arrives in an int32 carrier (the IL evaluation
+                // stack widens it), so the "i" cast reaches the int32_t param.
+                // Validation/exception contract mirrors GetByte (buffer.cpp).
+                if (ps.Length == 3)
+                    return I("il2cpp::runtime::icall_buffer_set_byte", 3, false, false, false,
+                        new[] { "", "i", "i" });
+                throw new NotSupportedException($"SetByte with {ps.Length} params is not the 3-arg (Array, int, byte) form");
             default: return null;
         }
     }

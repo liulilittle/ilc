@@ -107,6 +107,12 @@ typedef bool (*I8PredThisFn)(Il2CppObject*, int64_t);
 typedef bool (*DPredFn)(double);
 typedef bool (*DPredThisFn)(Il2CppObject*, double);
 
+// Predicate<ulong> callback signatures (the ELEMENT_TYPE_U8 "q" slot). The
+// transpiler emits a ulong predicate leaf as bool(uint64_t); the runtime reads
+// the element's 8-byte cell and invokes it through this ABI.
+typedef bool (*UPredFn)(uint64_t);
+typedef bool (*UPredThisFn)(Il2CppObject*, uint64_t);
+
 // Predicate<string> callback signatures (the element is a managed reference).
 typedef bool (*StrPredFn)(Il2CppString*);
 typedef bool (*StrPredThisFn)(Il2CppObject*, Il2CppString*);
@@ -441,6 +447,13 @@ bool InvokeDPred(Il2CppDelegate* d, double v)
     return d->target != nullptr
         ? reinterpret_cast<DPredThisFn>(d->methodPtr)(d->target, v)
         : reinterpret_cast<DPredFn>(d->methodPtr)(v);
+}
+
+bool InvokeUPred(Il2CppDelegate* d, uint64_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<UPredThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<UPredFn>(d->methodPtr)(v);
 }
 
 bool InvokeStrPred(Il2CppDelegate* d, Il2CppString* v)
@@ -1121,6 +1134,28 @@ static void ValidateFindLastRangeExt2(Il2CppArray* a, int32_t startIndex, int32_
 }
 
 //------------------------------------------------------------------------------
+// ValidateFindLastIndexRangeExt2 -- the net48 Array.FindLastIndex<T> range
+// validation. FindLastIndex scans BACKWARD over the window
+// [startIndex - count + 1, startIndex] (NOT the forward [startIndex,
+// startIndex + count) window the FindIndex family uses): startIndex must be a
+// valid ELEMENT index (< Length, not <=), and the window's low edge
+// startIndex - count + 1 must not fall below 0.
+//------------------------------------------------------------------------------
+static void ValidateFindLastIndexRangeExt2(Il2CppArray* a, int32_t startIndex, int32_t count)
+{
+    if (startIndex < 0 || startIndex >= a->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "startIndex", "startIndex was out of range. Must be non-negative and less than the size of the collection.");
+    }
+    if (count < 0 || startIndex - count + 1 < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "count", "count was out of range. Must be non-negative and less than or equal to the size of the collection.");
+    }
+}
+
+//------------------------------------------------------------------------------
 // icall_array_find_last_index -- Array.FindLastIndex<int>(int32[], int, int,
 // Predicate<int>) (see header). BACKWARD scan over [startIndex, startIndex +
 // count); the index of the LAST match, or -1 when none match. Same validation,
@@ -1131,15 +1166,15 @@ int32_t icall_array_find_last_index(Il2CppArray* arr, Il2CppObject* predicate,
 {
     Il2CppArray* a = RequireFindIndexArray(arr);
     RequireInt32ArrayExt2(a);
-    ValidateFindLastRangeExt2(a, startIndex, count);
+    ValidateFindLastIndexRangeExt2(a, startIndex, count);
     Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
 
     RootScopeExt2 roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&a));
 
-    const int32_t end = startIndex + count; // one past the last scanned index
-    for (int32_t i = end - 1; i >= startIndex; --i)
+    const int32_t first = startIndex - count + 1; // the lowest scanned index
+    for (int32_t i = startIndex; i >= first; --i)
     {
         const int32_t v = *reinterpret_cast<const int32_t*>(
             il2cpp_array_get_elem_ptr(a, i));
@@ -1154,15 +1189,19 @@ int32_t icall_array_find_last_index(Il2CppArray* arr, Il2CppObject* predicate,
 int32_t icall_array_find_last_index_2(Il2CppArray* arr, Il2CppObject* predicate)
 {
     Il2CppArray* a = RequireFindIndexArray(arr);
-    return icall_array_find_last_index(a, predicate, 0, a->length);
+    // net48 FindLastIndex(array, match) scans [0, Length-1] -- startIndex =
+    // Length - 1, count = Length.
+    return icall_array_find_last_index(a, predicate, a->length - 1, a->length);
 }
 
 int32_t icall_array_find_last_index_3(Il2CppArray* arr, Il2CppObject* predicate,
                                       int32_t startIndex)
 {
     Il2CppArray* a = RequireFindIndexArray(arr);
+    // net48 FindLastIndex(array, startIndex, match) scans the window
+    // [0, startIndex] -- count = startIndex + 1.
     return icall_array_find_last_index(a, predicate, startIndex,
-                                       a->length - startIndex);
+                                       startIndex + 1);
 }
 
 //------------------------------------------------------------------------------
@@ -1808,6 +1847,274 @@ int32_t icall_array_find_index_3_str(Il2CppArray* arr, Il2CppObject* predicate,
 }
 
 //------------------------------------------------------------------------------
+// icall_array_find_index_d / _f and their _2/_3 overloads -- Array.FindIndex<T>
+// for the double and float families. Same contract as the int32 family (range
+// validation, first-match forward scan); the predicate ABI is the double-slot
+// ABI (InvokeDPred -- a float leaf widens to double).
+//------------------------------------------------------------------------------
+int32_t icall_array_find_index_d(Il2CppArray* arr, Il2CppObject* predicate,
+                                  int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(double))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Double arrays are supported.");
+    }
+    ValidateFindLastRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    const int32_t end = startIndex + count;
+    for (int32_t i = startIndex; i < end; ++i)
+    {
+        const double v = *reinterpret_cast<const double*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, v))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t icall_array_find_index_2_d(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_index_d(a, predicate, 0, a->length);
+}
+
+int32_t icall_array_find_index_3_d(Il2CppArray* arr, Il2CppObject* predicate,
+                                    int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_index_d(a, predicate, startIndex,
+                                    a->length - startIndex);
+}
+
+int32_t icall_array_find_index_f(Il2CppArray* arr, Il2CppObject* predicate,
+                                  int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(float))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+    ValidateFindLastRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    const int32_t end = startIndex + count;
+    for (int32_t i = startIndex; i < end; ++i)
+    {
+        const float v = *reinterpret_cast<const float*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, static_cast<double>(v)))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t icall_array_find_index_2_f(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_index_f(a, predicate, 0, a->length);
+}
+
+int32_t icall_array_find_index_3_f(Il2CppArray* arr, Il2CppObject* predicate,
+                                    int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_index_f(a, predicate, startIndex,
+                                    a->length - startIndex);
+}
+
+//------------------------------------------------------------------------------
+// icall_array_find_last_index_i8 / _str / _d / _f and their _2/_3 overloads --
+// Array.FindLastIndex<T> for the int64, string, double and float families.
+// Same contract as the int32 family (range validation, BACKWARD first-match
+// scan over [startIndex - count + 1, startIndex]); the predicate ABI is the
+// matching family's (I8PredFn / StrPredFn / DPredFn -- a float leaf widens to
+// double).
+//------------------------------------------------------------------------------
+int32_t icall_array_find_last_index_i8(Il2CppArray* arr, Il2CppObject* predicate,
+                                        int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(int64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Int64 arrays are supported.");
+    }
+    ValidateFindLastIndexRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    const int32_t first = startIndex - count + 1; // the lowest scanned index
+    for (int32_t i = startIndex; i >= first; --i)
+    {
+        const int64_t v = *reinterpret_cast<const int64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeI8Pred(d, v))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t icall_array_find_last_index_2_i8(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_i8(a, predicate, a->length - 1, a->length);
+}
+
+int32_t icall_array_find_last_index_3_i8(Il2CppArray* arr, Il2CppObject* predicate,
+                                          int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_i8(a, predicate, startIndex,
+                                          startIndex + 1);
+}
+
+int32_t icall_array_find_last_index_str(Il2CppArray* arr, Il2CppObject* predicate,
+                                         int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    RequireRefArrayExt2(a);
+    ValidateFindLastIndexRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    const int32_t first = startIndex - count + 1; // the lowest scanned index
+    for (int32_t i = startIndex; i >= first; --i)
+    {
+        Il2CppString* v = *reinterpret_cast<Il2CppString* const*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeStrPred(d, v))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t icall_array_find_last_index_2_str(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_str(a, predicate, a->length - 1, a->length);
+}
+
+int32_t icall_array_find_last_index_3_str(Il2CppArray* arr, Il2CppObject* predicate,
+                                           int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_str(a, predicate, startIndex,
+                                           startIndex + 1);
+}
+
+int32_t icall_array_find_last_index_d(Il2CppArray* arr, Il2CppObject* predicate,
+                                       int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(double))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Double arrays are supported.");
+    }
+    ValidateFindLastIndexRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    const int32_t first = startIndex - count + 1; // the lowest scanned index
+    for (int32_t i = startIndex; i >= first; --i)
+    {
+        const double v = *reinterpret_cast<const double*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, v))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t icall_array_find_last_index_2_d(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_d(a, predicate, a->length - 1, a->length);
+}
+
+int32_t icall_array_find_last_index_3_d(Il2CppArray* arr, Il2CppObject* predicate,
+                                         int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_d(a, predicate, startIndex,
+                                         startIndex + 1);
+}
+
+int32_t icall_array_find_last_index_f(Il2CppArray* arr, Il2CppObject* predicate,
+                                       int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(float))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+    ValidateFindLastIndexRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    const int32_t first = startIndex - count + 1; // the lowest scanned index
+    for (int32_t i = startIndex; i >= first; --i)
+    {
+        const float v = *reinterpret_cast<const float*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, static_cast<double>(v)))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t icall_array_find_last_index_2_f(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_f(a, predicate, a->length - 1, a->length);
+}
+
+int32_t icall_array_find_last_index_3_f(Il2CppArray* arr, Il2CppObject* predicate,
+                                         int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_f(a, predicate, startIndex,
+                                         startIndex + 1);
+}
+
+//------------------------------------------------------------------------------
 // icall_array_find_d / _exists_d / _true_for_all_d -- the double generic family
 // (see header). Same contract as the int32 family; the predicate ABI is
 // bool(*)(double) / bool(*)(Il2CppObject*, double).
@@ -1891,6 +2198,794 @@ int32_t icall_array_true_for_all_d(Il2CppArray* arr, Il2CppObject* match)
 }
 
 //------------------------------------------------------------------------------
+// icall_array_find_f / _exists_f / _true_for_all_f -- the float generic family
+// (see header). Same contract as the int32 family; the predicate ABI is the
+// double-slot ABI (a float leaf widens to double -- the linq-domain FPredFn /
+// FPredThisFn contract), exactly like the double family above. The result
+// carrier follows the element kind (float -> "f").
+//------------------------------------------------------------------------------
+float icall_array_find_f(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(float))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const float v = *reinterpret_cast<const float*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, static_cast<double>(v)))
+        {
+            return v;
+        }
+    }
+    return 0.0f; // default(float): no element matched
+}
+
+int32_t icall_array_exists_f(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(float))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const float v = *reinterpret_cast<const float*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, static_cast<double>(v)))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int32_t icall_array_true_for_all_f(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(float))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const float v = *reinterpret_cast<const float*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (!InvokeDPred(d, static_cast<double>(v)))
+        {
+            return 0;
+        }
+    }
+    return 1; // empty array: vacuously true
+}
+
+//------------------------------------------------------------------------------
+// The UINT64 generic family (the ELEMENT_TYPE_U8 "q" slot; an 8-byte cell with
+// an unsigned predicate ABI -- InvokeUPred). Same contract as the int64 family;
+// the element cell is read as uint64_t.
+//------------------------------------------------------------------------------
+uint64_t icall_array_find_u8(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(uint64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.UInt64 arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const uint64_t v = *reinterpret_cast<const uint64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeUPred(d, v))
+        {
+            return v;
+        }
+    }
+    return 0; // default(ulong): no element matched
+}
+
+int32_t icall_array_exists_u8(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(uint64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.UInt64 arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const uint64_t v = *reinterpret_cast<const uint64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeUPred(d, v))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int32_t icall_array_true_for_all_u8(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(uint64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.UInt64 arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const uint64_t v = *reinterpret_cast<const uint64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (!InvokeUPred(d, v))
+        {
+            return 0;
+        }
+    }
+    return 1; // empty array: vacuously true
+}
+
+uint64_t icall_array_find_last_u8(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(uint64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.UInt64 arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        const uint64_t v = *reinterpret_cast<const uint64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeUPred(d, v))
+        {
+            return v;
+        }
+    }
+    return 0; // default(ulong): no element matched
+}
+
+Il2CppArray* icall_array_find_all_u8(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(uint64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.UInt64 arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    Il2CppArray* full = il2cpp_array_new(nullptr, sizeof(uint64_t), false, a->length);
+    roots.Add(reinterpret_cast<void**>(&full));
+
+    int32_t wi = 0;
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const uint64_t v = *reinterpret_cast<const uint64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeUPred(d, v))
+        {
+            *reinterpret_cast<uint64_t*>(il2cpp_array_get_elem_ptr(full, wi)) = v;
+            ++wi;
+        }
+    }
+    if (wi == a->length)
+    {
+        return full;
+    }
+    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(uint64_t), false, wi);
+    if (wi > 0)
+    {
+        std::memcpy(out->data, full->data,
+                    static_cast<size_t>(wi) * sizeof(uint64_t));
+    }
+    return out;
+}
+
+void icall_array_for_each_u8(Il2CppArray* arr, Il2CppObject* action)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(uint64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.UInt64 arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(action, "action");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const uint64_t v = *reinterpret_cast<const uint64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        InvokeUPred(d, v);
+    }
+}
+
+int32_t icall_array_find_index_u8(Il2CppArray* arr, Il2CppObject* predicate,
+                                   int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(uint64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.UInt64 arrays are supported.");
+    }
+    ValidateFindLastRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    const int32_t end = startIndex + count;
+    for (int32_t i = startIndex; i < end; ++i)
+    {
+        const uint64_t v = *reinterpret_cast<const uint64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeUPred(d, v))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t icall_array_find_index_2_u8(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_index_u8(a, predicate, 0, a->length);
+}
+
+int32_t icall_array_find_index_3_u8(Il2CppArray* arr, Il2CppObject* predicate,
+                                     int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_index_u8(a, predicate, startIndex,
+                                     a->length - startIndex);
+}
+
+int32_t icall_array_find_last_index_u8(Il2CppArray* arr, Il2CppObject* predicate,
+                                        int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(uint64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.UInt64 arrays are supported.");
+    }
+    ValidateFindLastIndexRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    const int32_t first = startIndex - count + 1; // the lowest scanned index
+    for (int32_t i = startIndex; i >= first; --i)
+    {
+        const uint64_t v = *reinterpret_cast<const uint64_t*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeUPred(d, v))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int32_t icall_array_find_last_index_2_u8(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_u8(a, predicate, a->length - 1, a->length);
+}
+
+int32_t icall_array_find_last_index_3_u8(Il2CppArray* arr, Il2CppObject* predicate,
+                                          int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return icall_array_find_last_index_u8(a, predicate, startIndex,
+                                          startIndex + 1);
+}
+
+void icall_array_resize_u8(Il2CppArray** arraySlot, int32_t newSize)
+{
+    if (arraySlot == nullptr)
+    {
+        il2cpp_throw_argument_exception("Array slot must not be null.");
+        return; // unreachable (the factory throws)
+    }
+    if (newSize < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "newSize", "newSize was out of range. Must be non-negative.");
+        return;
+    }
+
+    Il2CppArray* old = *arraySlot;
+    if (old == nullptr)
+    {
+        *arraySlot = il2cpp_array_new(nullptr, sizeof(uint64_t), false, newSize);
+        return;
+    }
+    RequireFindIndexArray(old);
+    if (old->isRefElem || old->elemSize != sizeof(uint64_t))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.UInt64 arrays are supported.");
+    }
+    const int32_t oldLength = old->length;
+    if (oldLength == newSize)
+    {
+        return; // net48: an equal length keeps the same reference (no-op)
+    }
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(arraySlot));
+
+    Il2CppArray* fresh = il2cpp_array_new(nullptr, sizeof(uint64_t), false, newSize);
+    Il2CppArray* moved = *arraySlot;
+    const int32_t copyLen = oldLength < newSize ? oldLength : newSize;
+    if (copyLen > 0)
+    {
+        std::memcpy(fresh->data, moved->data,
+                    static_cast<size_t>(copyLen) * sizeof(uint64_t));
+    }
+    *arraySlot = fresh;
+}
+
+//------------------------------------------------------------------------------
+// The NARROW-INTEGRAL generic families (bool/char/sbyte/byte/short/ushort/uint).
+// The transpiler stores every narrow integral in an int32 slot (MethodSignature
+// Coder: "b"/"c"/"i1"/"u1"/"i2"/"u2" -- uint32 "i"), so a Predicate<byte> leaf
+// is emitted as bool(int32_t): the element cell is read at its real width and
+// WIDENED to int32 before the int32 predicate ABI (InvokeFindIndexPred). Same
+// validation order, per-binding callback and GC rooting contract as the int32
+// family. One template per operator; the explicit wrappers below instantiate it
+// per cell type.
+//------------------------------------------------------------------------------
+template <typename TCell>
+int32_t FindNarrow(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(TCell))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional narrow-integral arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const TCell v = *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeFindIndexPred(d, static_cast<int32_t>(v)))
+        {
+            return static_cast<int32_t>(v);
+        }
+    }
+    return 0; // default(T): no element matched
+}
+
+template <typename TCell>
+int32_t ExistsNarrow(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(TCell))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional narrow-integral arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const TCell v = *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeFindIndexPred(d, static_cast<int32_t>(v)))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+template <typename TCell>
+int32_t TrueForAllNarrow(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(TCell))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional narrow-integral arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const TCell v = *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(a, i));
+        if (!InvokeFindIndexPred(d, static_cast<int32_t>(v)))
+        {
+            return 0;
+        }
+    }
+    return 1; // empty array: vacuously true
+}
+
+template <typename TCell>
+int32_t FindLastNarrow(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(TCell))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional narrow-integral arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        const TCell v = *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeFindIndexPred(d, static_cast<int32_t>(v)))
+        {
+            return static_cast<int32_t>(v);
+        }
+    }
+    return 0; // default(T): no element matched
+}
+
+template <typename TCell>
+Il2CppArray* FindAllNarrow(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(TCell))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional narrow-integral arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    Il2CppArray* full = il2cpp_array_new(nullptr, sizeof(TCell), false, a->length);
+    roots.Add(reinterpret_cast<void**>(&full));
+
+    int32_t wi = 0;
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const TCell v = *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeFindIndexPred(d, static_cast<int32_t>(v)))
+        {
+            *reinterpret_cast<TCell*>(il2cpp_array_get_elem_ptr(full, wi)) = v;
+            ++wi;
+        }
+    }
+    if (wi == a->length)
+    {
+        return full;
+    }
+    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(TCell), false, wi);
+    if (wi > 0)
+    {
+        std::memcpy(out->data, full->data, static_cast<size_t>(wi) * sizeof(TCell));
+    }
+    return out;
+}
+
+template <typename TCell>
+void ForEachNarrow(Il2CppArray* arr, Il2CppObject* action)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(TCell))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional narrow-integral arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(action, "action");
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const TCell v = *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(a, i));
+        InvokeFindIndexPred(d, static_cast<int32_t>(v));
+    }
+}
+
+template <typename TCell>
+int32_t FindIndexNarrow(Il2CppArray* arr, Il2CppObject* predicate,
+                        int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(TCell))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional narrow-integral arrays are supported.");
+    }
+    ValidateFindLastRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+    const int32_t end = startIndex + count;
+    for (int32_t i = startIndex; i < end; ++i)
+    {
+        const TCell v = *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeFindIndexPred(d, static_cast<int32_t>(v)))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+template <typename TCell>
+int32_t FindIndexNarrow2(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return FindIndexNarrow<TCell>(a, predicate, 0, a->length);
+}
+
+template <typename TCell>
+int32_t FindIndexNarrow3(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return FindIndexNarrow<TCell>(a, predicate, startIndex, a->length - startIndex);
+}
+
+template <typename TCell>
+int32_t FindLastIndexNarrow(Il2CppArray* arr, Il2CppObject* predicate,
+                            int32_t startIndex, int32_t count)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(TCell))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional narrow-integral arrays are supported.");
+    }
+    ValidateFindLastIndexRangeExt2(a, startIndex, count);
+    Il2CppDelegate* d = RequireFindIndexPredicate(predicate, "match");
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+    const int32_t first = startIndex - count + 1; // the lowest scanned index
+    for (int32_t i = startIndex; i >= first; --i)
+    {
+        const TCell v = *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeFindIndexPred(d, static_cast<int32_t>(v)))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+template <typename TCell>
+int32_t FindLastIndexNarrow2(Il2CppArray* arr, Il2CppObject* predicate)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return FindLastIndexNarrow<TCell>(a, predicate, a->length - 1, a->length);
+}
+
+template <typename TCell>
+int32_t FindLastIndexNarrow3(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    return FindLastIndexNarrow<TCell>(a, predicate, startIndex, startIndex + 1);
+}
+
+template <typename TCell>
+void ResizeNarrow(Il2CppArray** arraySlot, int32_t newSize)
+{
+    if (arraySlot == nullptr)
+    {
+        il2cpp_throw_argument_exception("Array slot must not be null.");
+        return; // unreachable (the factory throws)
+    }
+    if (newSize < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "newSize", "newSize was out of range. Must be non-negative.");
+        return;
+    }
+    Il2CppArray* old = *arraySlot;
+    if (old == nullptr)
+    {
+        *arraySlot = il2cpp_array_new(nullptr, sizeof(TCell), false, newSize);
+        return;
+    }
+    RequireFindIndexArray(old);
+    if (old->isRefElem || old->elemSize != sizeof(TCell))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional narrow-integral arrays are supported.");
+    }
+    const int32_t oldLength = old->length;
+    if (oldLength == newSize)
+    {
+        return; // net48: an equal length keeps the same reference (no-op)
+    }
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(arraySlot));
+    Il2CppArray* fresh = il2cpp_array_new(nullptr, sizeof(TCell), false, newSize);
+    Il2CppArray* moved = *arraySlot;
+    const int32_t copyLen = oldLength < newSize ? oldLength : newSize;
+    if (copyLen > 0)
+    {
+        std::memcpy(fresh->data, moved->data, static_cast<size_t>(copyLen) * sizeof(TCell));
+    }
+    *arraySlot = fresh;
+}
+
+//------------------------------------------------------------------------------
+// Narrow-integral explicit wrappers (bool/char/sbyte/byte/short/ushort/uint).
+// The suffix follows the MethodSignatureCoder slot code: _b/_c/_i1/_u1/_i2/
+// _u2/_u4.
+//------------------------------------------------------------------------------
+int32_t icall_array_find_b(Il2CppArray* arr, Il2CppObject* match) { return FindNarrow<bool>(arr, match); }
+int32_t icall_array_find_c(Il2CppArray* arr, Il2CppObject* match) { return FindNarrow<char16_t>(arr, match); }
+int32_t icall_array_find_i1(Il2CppArray* arr, Il2CppObject* match) { return FindNarrow<int8_t>(arr, match); }
+int32_t icall_array_find_u1(Il2CppArray* arr, Il2CppObject* match) { return FindNarrow<uint8_t>(arr, match); }
+int32_t icall_array_find_i2(Il2CppArray* arr, Il2CppObject* match) { return FindNarrow<int16_t>(arr, match); }
+int32_t icall_array_find_u2(Il2CppArray* arr, Il2CppObject* match) { return FindNarrow<uint16_t>(arr, match); }
+int32_t icall_array_find_u4(Il2CppArray* arr, Il2CppObject* match) { return FindNarrow<uint32_t>(arr, match); }
+
+int32_t icall_array_exists_b(Il2CppArray* arr, Il2CppObject* match) { return ExistsNarrow<bool>(arr, match); }
+int32_t icall_array_exists_c(Il2CppArray* arr, Il2CppObject* match) { return ExistsNarrow<char16_t>(arr, match); }
+int32_t icall_array_exists_i1(Il2CppArray* arr, Il2CppObject* match) { return ExistsNarrow<int8_t>(arr, match); }
+int32_t icall_array_exists_u1(Il2CppArray* arr, Il2CppObject* match) { return ExistsNarrow<uint8_t>(arr, match); }
+int32_t icall_array_exists_i2(Il2CppArray* arr, Il2CppObject* match) { return ExistsNarrow<int16_t>(arr, match); }
+int32_t icall_array_exists_u2(Il2CppArray* arr, Il2CppObject* match) { return ExistsNarrow<uint16_t>(arr, match); }
+int32_t icall_array_exists_u4(Il2CppArray* arr, Il2CppObject* match) { return ExistsNarrow<uint32_t>(arr, match); }
+
+int32_t icall_array_true_for_all_b(Il2CppArray* arr, Il2CppObject* match) { return TrueForAllNarrow<bool>(arr, match); }
+int32_t icall_array_true_for_all_c(Il2CppArray* arr, Il2CppObject* match) { return TrueForAllNarrow<char16_t>(arr, match); }
+int32_t icall_array_true_for_all_i1(Il2CppArray* arr, Il2CppObject* match) { return TrueForAllNarrow<int8_t>(arr, match); }
+int32_t icall_array_true_for_all_u1(Il2CppArray* arr, Il2CppObject* match) { return TrueForAllNarrow<uint8_t>(arr, match); }
+int32_t icall_array_true_for_all_i2(Il2CppArray* arr, Il2CppObject* match) { return TrueForAllNarrow<int16_t>(arr, match); }
+int32_t icall_array_true_for_all_u2(Il2CppArray* arr, Il2CppObject* match) { return TrueForAllNarrow<uint16_t>(arr, match); }
+int32_t icall_array_true_for_all_u4(Il2CppArray* arr, Il2CppObject* match) { return TrueForAllNarrow<uint32_t>(arr, match); }
+
+int32_t icall_array_find_last_b(Il2CppArray* arr, Il2CppObject* match) { return FindLastNarrow<bool>(arr, match); }
+int32_t icall_array_find_last_c(Il2CppArray* arr, Il2CppObject* match) { return FindLastNarrow<char16_t>(arr, match); }
+int32_t icall_array_find_last_i1(Il2CppArray* arr, Il2CppObject* match) { return FindLastNarrow<int8_t>(arr, match); }
+int32_t icall_array_find_last_u1(Il2CppArray* arr, Il2CppObject* match) { return FindLastNarrow<uint8_t>(arr, match); }
+int32_t icall_array_find_last_i2(Il2CppArray* arr, Il2CppObject* match) { return FindLastNarrow<int16_t>(arr, match); }
+int32_t icall_array_find_last_u2(Il2CppArray* arr, Il2CppObject* match) { return FindLastNarrow<uint16_t>(arr, match); }
+int32_t icall_array_find_last_u4(Il2CppArray* arr, Il2CppObject* match) { return FindLastNarrow<uint32_t>(arr, match); }
+
+Il2CppArray* icall_array_find_all_b(Il2CppArray* arr, Il2CppObject* match) { return FindAllNarrow<bool>(arr, match); }
+Il2CppArray* icall_array_find_all_c(Il2CppArray* arr, Il2CppObject* match) { return FindAllNarrow<char16_t>(arr, match); }
+Il2CppArray* icall_array_find_all_i1(Il2CppArray* arr, Il2CppObject* match) { return FindAllNarrow<int8_t>(arr, match); }
+Il2CppArray* icall_array_find_all_u1(Il2CppArray* arr, Il2CppObject* match) { return FindAllNarrow<uint8_t>(arr, match); }
+Il2CppArray* icall_array_find_all_i2(Il2CppArray* arr, Il2CppObject* match) { return FindAllNarrow<int16_t>(arr, match); }
+Il2CppArray* icall_array_find_all_u2(Il2CppArray* arr, Il2CppObject* match) { return FindAllNarrow<uint16_t>(arr, match); }
+Il2CppArray* icall_array_find_all_u4(Il2CppArray* arr, Il2CppObject* match) { return FindAllNarrow<uint32_t>(arr, match); }
+
+void icall_array_for_each_b(Il2CppArray* arr, Il2CppObject* action) { ForEachNarrow<bool>(arr, action); }
+void icall_array_for_each_c(Il2CppArray* arr, Il2CppObject* action) { ForEachNarrow<char16_t>(arr, action); }
+void icall_array_for_each_i1(Il2CppArray* arr, Il2CppObject* action) { ForEachNarrow<int8_t>(arr, action); }
+void icall_array_for_each_u1(Il2CppArray* arr, Il2CppObject* action) { ForEachNarrow<uint8_t>(arr, action); }
+void icall_array_for_each_i2(Il2CppArray* arr, Il2CppObject* action) { ForEachNarrow<int16_t>(arr, action); }
+void icall_array_for_each_u2(Il2CppArray* arr, Il2CppObject* action) { ForEachNarrow<uint16_t>(arr, action); }
+void icall_array_for_each_u4(Il2CppArray* arr, Il2CppObject* action) { ForEachNarrow<uint32_t>(arr, action); }
+
+int32_t icall_array_find_index_b(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindIndexNarrow<bool>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_index_c(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindIndexNarrow<char16_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_index_i1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindIndexNarrow<int8_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_index_u1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindIndexNarrow<uint8_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_index_i2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindIndexNarrow<int16_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_index_u2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindIndexNarrow<uint16_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_index_u4(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindIndexNarrow<uint32_t>(arr, predicate, startIndex, count); }
+
+int32_t icall_array_find_index_2_b(Il2CppArray* arr, Il2CppObject* predicate) { return FindIndexNarrow2<bool>(arr, predicate); }
+int32_t icall_array_find_index_2_c(Il2CppArray* arr, Il2CppObject* predicate) { return FindIndexNarrow2<char16_t>(arr, predicate); }
+int32_t icall_array_find_index_2_i1(Il2CppArray* arr, Il2CppObject* predicate) { return FindIndexNarrow2<int8_t>(arr, predicate); }
+int32_t icall_array_find_index_2_u1(Il2CppArray* arr, Il2CppObject* predicate) { return FindIndexNarrow2<uint8_t>(arr, predicate); }
+int32_t icall_array_find_index_2_i2(Il2CppArray* arr, Il2CppObject* predicate) { return FindIndexNarrow2<int16_t>(arr, predicate); }
+int32_t icall_array_find_index_2_u2(Il2CppArray* arr, Il2CppObject* predicate) { return FindIndexNarrow2<uint16_t>(arr, predicate); }
+int32_t icall_array_find_index_2_u4(Il2CppArray* arr, Il2CppObject* predicate) { return FindIndexNarrow2<uint32_t>(arr, predicate); }
+
+int32_t icall_array_find_index_3_b(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindIndexNarrow3<bool>(arr, predicate, startIndex); }
+int32_t icall_array_find_index_3_c(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindIndexNarrow3<char16_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_index_3_i1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindIndexNarrow3<int8_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_index_3_u1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindIndexNarrow3<uint8_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_index_3_i2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindIndexNarrow3<int16_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_index_3_u2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindIndexNarrow3<uint16_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_index_3_u4(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindIndexNarrow3<uint32_t>(arr, predicate, startIndex); }
+
+int32_t icall_array_find_last_index_b(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindLastIndexNarrow<bool>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_last_index_c(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindLastIndexNarrow<char16_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_last_index_i1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindLastIndexNarrow<int8_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_last_index_u1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindLastIndexNarrow<uint8_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_last_index_i2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindLastIndexNarrow<int16_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_last_index_u2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindLastIndexNarrow<uint16_t>(arr, predicate, startIndex, count); }
+int32_t icall_array_find_last_index_u4(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex, int32_t count) { return FindLastIndexNarrow<uint32_t>(arr, predicate, startIndex, count); }
+
+int32_t icall_array_find_last_index_2_b(Il2CppArray* arr, Il2CppObject* predicate) { return FindLastIndexNarrow2<bool>(arr, predicate); }
+int32_t icall_array_find_last_index_2_c(Il2CppArray* arr, Il2CppObject* predicate) { return FindLastIndexNarrow2<char16_t>(arr, predicate); }
+int32_t icall_array_find_last_index_2_i1(Il2CppArray* arr, Il2CppObject* predicate) { return FindLastIndexNarrow2<int8_t>(arr, predicate); }
+int32_t icall_array_find_last_index_2_u1(Il2CppArray* arr, Il2CppObject* predicate) { return FindLastIndexNarrow2<uint8_t>(arr, predicate); }
+int32_t icall_array_find_last_index_2_i2(Il2CppArray* arr, Il2CppObject* predicate) { return FindLastIndexNarrow2<int16_t>(arr, predicate); }
+int32_t icall_array_find_last_index_2_u2(Il2CppArray* arr, Il2CppObject* predicate) { return FindLastIndexNarrow2<uint16_t>(arr, predicate); }
+int32_t icall_array_find_last_index_2_u4(Il2CppArray* arr, Il2CppObject* predicate) { return FindLastIndexNarrow2<uint32_t>(arr, predicate); }
+
+int32_t icall_array_find_last_index_3_b(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindLastIndexNarrow3<bool>(arr, predicate, startIndex); }
+int32_t icall_array_find_last_index_3_c(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindLastIndexNarrow3<char16_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_last_index_3_i1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindLastIndexNarrow3<int8_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_last_index_3_u1(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindLastIndexNarrow3<uint8_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_last_index_3_i2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindLastIndexNarrow3<int16_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_last_index_3_u2(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindLastIndexNarrow3<uint16_t>(arr, predicate, startIndex); }
+int32_t icall_array_find_last_index_3_u4(Il2CppArray* arr, Il2CppObject* predicate, int32_t startIndex) { return FindLastIndexNarrow3<uint32_t>(arr, predicate, startIndex); }
+
+void icall_array_resize_b(Il2CppArray** arraySlot, int32_t newSize) { ResizeNarrow<bool>(arraySlot, newSize); }
+void icall_array_resize_c(Il2CppArray** arraySlot, int32_t newSize) { ResizeNarrow<char16_t>(arraySlot, newSize); }
+void icall_array_resize_i1(Il2CppArray** arraySlot, int32_t newSize) { ResizeNarrow<int8_t>(arraySlot, newSize); }
+void icall_array_resize_u1(Il2CppArray** arraySlot, int32_t newSize) { ResizeNarrow<uint8_t>(arraySlot, newSize); }
+void icall_array_resize_i2(Il2CppArray** arraySlot, int32_t newSize) { ResizeNarrow<int16_t>(arraySlot, newSize); }
+void icall_array_resize_u2(Il2CppArray** arraySlot, int32_t newSize) { ResizeNarrow<uint16_t>(arraySlot, newSize); }
+void icall_array_resize_u4(Il2CppArray** arraySlot, int32_t newSize) { ResizeNarrow<uint32_t>(arraySlot, newSize); }
+
+//------------------------------------------------------------------------------
 // icall_array_find_last_i8 / _d / _str -- Array.FindLast<T> for the int64,
 // double and reference (string) families. BACKWARD scan: the VALUE of the LAST
 // element whose predicate returns true, or default(T) when none match (an empty
@@ -1947,6 +3042,34 @@ double icall_array_find_last_d(Il2CppArray* arr, Il2CppObject* match)
         }
     }
     return 0.0; // default(double): no element matched
+}
+
+// Array.FindLast<float>(float[], Predicate<float>): the float twin of
+// icall_array_find_last_d -- BACKWARD scan, the double-slot predicate ABI.
+float icall_array_find_last_f(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(float))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = a->length - 1; i >= 0; --i)
+    {
+        const float v = *reinterpret_cast<const float*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, static_cast<double>(v)))
+        {
+            return v;
+        }
+    }
+    return 0.0f; // default(float): no element matched
 }
 
 Il2CppObject* icall_array_find_last_str(Il2CppArray* arr, Il2CppObject* match)
@@ -2021,6 +3144,30 @@ void icall_array_for_each_d(Il2CppArray* arr, Il2CppObject* action)
     }
 }
 
+// Array.ForEach<float>(float[], Action<float>): the float twin of
+// icall_array_for_each_d -- the double-slot action ABI.
+void icall_array_for_each_f(Il2CppArray* arr, Il2CppObject* action)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(float))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(action, "action");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const float v = *reinterpret_cast<const float*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        InvokeDPred(d, static_cast<double>(v));
+    }
+}
+
 void icall_array_for_each_str(Il2CppArray* arr, Il2CppObject* action)
 {
     Il2CppArray* a = RequireFindIndexArray(arr);
@@ -2086,6 +3233,50 @@ Il2CppArray* icall_array_find_all_d(Il2CppArray* arr, Il2CppObject* match)
     return out;
 }
 
+// Array.FindAll<float>(float[], Predicate<float>): the float twin of
+// icall_array_find_all_d -- a NEW float[] of every matching element, in source
+// order (an empty result is a zero-length array); the double-slot predicate ABI.
+Il2CppArray* icall_array_find_all_f(Il2CppArray* arr, Il2CppObject* match)
+{
+    Il2CppArray* a = RequireFindIndexArray(arr);
+    if (a->isRefElem || a->elemSize != sizeof(float))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+    Il2CppDelegate* d = RequireArrayCallback(match, "match");
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&a));
+
+    Il2CppArray* full = il2cpp_array_new_typed(sizeof(float), 3, a->length);
+    roots.Add(reinterpret_cast<void**>(&full));
+
+    int32_t wi = 0;
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        const float v = *reinterpret_cast<const float*>(
+            il2cpp_array_get_elem_ptr(a, i));
+        if (InvokeDPred(d, static_cast<double>(v)))
+        {
+            *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(full, wi)) = v;
+            ++wi;
+        }
+    }
+    if (wi == a->length)
+    {
+        return full;
+    }
+    Il2CppArray* out = il2cpp_array_new_typed(sizeof(float), 3, wi);
+    if (wi > 0)
+    {
+        std::memcpy(out->data, full->data,
+                    static_cast<size_t>(wi) * sizeof(float));
+    }
+    return out;
+}
+
 //------------------------------------------------------------------------------
 // icall_array_resize_d -- Array.Resize<double>(ref double[], int newSize): the
 // double twin of icall_array_resize_i4 (the same net48 contract and rooting).
@@ -2132,6 +3323,56 @@ void icall_array_resize_d(Il2CppArray** arraySlot, int32_t newSize)
     {
         std::memcpy(fresh->data, moved->data,
                     static_cast<size_t>(copyLen) * sizeof(double));
+    }
+    *arraySlot = fresh;
+}
+
+//------------------------------------------------------------------------------
+// icall_array_resize_f -- Array.Resize<float>(ref float[], int newSize): the
+// float twin of icall_array_resize_d (the same net48 contract and rooting).
+//------------------------------------------------------------------------------
+void icall_array_resize_f(Il2CppArray** arraySlot, int32_t newSize)
+{
+    if (arraySlot == nullptr)
+    {
+        il2cpp_throw_argument_exception("Array slot must not be null.");
+        return; // unreachable (the factory throws)
+    }
+    if (newSize < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "newSize", "newSize was out of range. Must be non-negative.");
+        return;
+    }
+
+    Il2CppArray* old = *arraySlot;
+    if (old == nullptr)
+    {
+        *arraySlot = il2cpp_array_new_typed(sizeof(float), 3, newSize);
+        return;
+    }
+    RequireFindIndexArray(old);
+    if (old->isRefElem || old->elemSize != sizeof(float))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.Single arrays are supported.");
+    }
+    const int32_t oldLength = old->length;
+    if (oldLength == newSize)
+    {
+        return; // net48: an equal length keeps the same reference (no-op)
+    }
+
+    RootScopeExt2 roots;
+    roots.Add(reinterpret_cast<void**>(arraySlot));
+
+    Il2CppArray* fresh = il2cpp_array_new_typed(sizeof(float), 3, newSize);
+    Il2CppArray* moved = *arraySlot;
+    const int32_t copyLen = oldLength < newSize ? oldLength : newSize;
+    if (copyLen > 0)
+    {
+        std::memcpy(fresh->data, moved->data,
+                    static_cast<size_t>(copyLen) * sizeof(float));
     }
     *arraySlot = fresh;
 }
@@ -2267,6 +3508,11 @@ Il2CppObject* icall_array_empty_ushort()
 Il2CppObject* icall_array_empty_uint()
 {
     return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(uint32_t), false, 0));
+}
+
+Il2CppObject* icall_array_empty_uint64()
+{
+    return reinterpret_cast<Il2CppObject*>(il2cpp_array_new(nullptr, sizeof(uint64_t), false, 0));
 }
 
 } // namespace runtime

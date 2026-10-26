@@ -45,10 +45,28 @@ public class MethodMapArrayListTests
     }
 
     [Fact]
-    public void Resolve_ArrayList_CtorCapacity_ThrowsLoud()
+    public void Resolve_ArrayList_CtorCapacity_MapsToCreateCapacityIcall()
     {
+        // ArrayList(int capacity): an INSTANCE-style ctor -- the receiver passes
+        // through uncast ("") and the int32 capacity rides the "i" cast
+        // (arraylist.h il2cpp_arraylist_create_capacity(self, capacity)).
+        var resolved = ResolveMember(Synthesize("System.Collections", "ArrayList", ".ctor", Sig(0x01, 0x08)), ".ctor");
+
+        Assert.Equal("il2cpp::il2cpp_arraylist_create_capacity", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_ArrayList_CtorNonInt32Capacity_ThrowsLoud()
+    {
+        // Only the int-capacity ctor is wired; an object/long capacity keeps
+        // the LOUD contract (no matching runtime create icall).
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Collections", "ArrayList", ".ctor", Sig(0x01, 0x08)), ".ctor"));
+            ResolveMember(Synthesize("System.Collections", "ArrayList", ".ctor", Sig(0x01, 0x0A)), ".ctor"));
 
         Assert.Contains("System.Collections.ArrayList::.ctor", ex.Message);
     }

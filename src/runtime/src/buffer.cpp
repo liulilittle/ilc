@@ -167,11 +167,44 @@ int32_t icall_buffer_get_byte(Il2CppObject* arr, int32_t index)
     }
     const int64_t bytes =
         static_cast<int64_t>(a->length) * static_cast<int64_t>(a->elemSize);
+    // net48 Buffer.GetByte/SetByte raise ArgumentOutOfRangeException for an
+    // index outside [0, byteLength) (not IndexOutOfRangeException).
     if (index < 0 || static_cast<int64_t>(index) >= bytes)
     {
-        il2cpp_throw_index_out_of_range_exception(nullptr);
+        il2cpp_throw_argument_out_of_range_exception(
+            "index", "Index was outside the bounds of the array.");
     }
-    return a->data[index];
+    // The payload is a char array (signed on x86/x64): return the UNSIGNED
+    // byte value (0..255), matching .NET's byte return.
+    return static_cast<int32_t>(static_cast<unsigned char>(a->data[index]));
+}
+
+//------------------------------------------------------------------------------
+// icall_buffer_set_byte -- Buffer.SetByte(Array, int, byte) (see the header
+//   contract). Stores ONE payload byte at the raw-data offset 'index'. The
+//   value rides an int32 carrier (the IL byte argument is widened on the
+//   evaluation stack); only the low byte is written, matching .NET's
+//   Buffer.SetByte(Array, int, byte). Validation mirrors GetByte: null/not-
+//   array, reference-element array (ArgumentException), index outside
+//   [0, byteLength) -> IndexOutOfRangeException.
+//------------------------------------------------------------------------------
+void icall_buffer_set_byte(Il2CppObject* arr, int32_t index, int32_t value)
+{
+    Il2CppArray* a = RequireArray(arr);
+    if (a->isRefElem)
+    {
+        il2cpp_throw_new(kArgumentChain, "Array is not a primitive type.");
+    }
+    const int64_t bytes =
+        static_cast<int64_t>(a->length) * static_cast<int64_t>(a->elemSize);
+    // net48 Buffer.GetByte/SetByte raise ArgumentOutOfRangeException for an
+    // index outside [0, byteLength).
+    if (index < 0 || static_cast<int64_t>(index) >= bytes)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "index", "Index was outside the bounds of the array.");
+    }
+    a->data[index] = static_cast<char>(value & 0xFF);
 }
 
 //------------------------------------------------------------------------------
