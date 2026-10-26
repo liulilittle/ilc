@@ -1490,6 +1490,32 @@ public class MethodMapTestsLinq
         Assert.Equal("System.String[]", resolved.ReturnTypeName);
     }
 
+    // OrderBy / OrderByDescending over a DECIMAL source with an int64 / double /
+    // decimal TKey (net48 OrderBy<decimal,TKey>): the decimal-source wide-key sort.
+    [Theory]
+    [InlineData("OrderBy", 0x0A, "il2cpp::il2cpp_linq_order_by_key_dec_i8")]
+    [InlineData("OrderByDescending", 0x0A, "il2cpp::il2cpp_linq_order_by_key_desc_dec_i8")]
+    [InlineData("OrderBy", 0x0D, "il2cpp::il2cpp_linq_order_by_key_dec_d")]
+    [InlineData("OrderByDescending", 0x0D, "il2cpp::il2cpp_linq_order_by_key_desc_dec_d")]
+    public void Resolve_OrderBy_DecimalSource_WideKey_MapsToDecKeySort(string name, byte tKey, string cpp)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeOrderByDec(name, tKey));
+
+        Assert.Equal(cpp, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_OrderBy_DecimalSource_DecimalKey_MapsToDecKeySort()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeOrderByDec("OrderBy", 0x11));
+
+        Assert.Equal("il2cpp::il2cpp_linq_order_by_key_dec_dec", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
     // GroupBy over a DECIMAL source with an ELEMENT selector (net48
     // GroupBy<decimal,int,int>): the decimal-source grouping surface with the
     // projected int32 element family.
@@ -2918,7 +2944,14 @@ public class MethodMapTestsLinq
         spec.WriteByte(0x0A);
         spec.WriteCompressedInteger(2);
         spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
-        spec.WriteByte(tKey);
+        if (tKey == 0x11)
+        {
+            spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded); // TKey = System.Decimal
+        }
+        else
+        {
+            spec.WriteByte(tKey);
+        }
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

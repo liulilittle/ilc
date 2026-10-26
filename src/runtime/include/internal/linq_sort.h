@@ -103,6 +103,13 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i4(Il2CppArray* src, Il2CppObject* ke
 // key selector; the result is a fresh decimal[].
 Il2CppArray* il2cpp_linq_order_by_key_dec_i4(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_dec_i4(Il2CppArray* src, Il2CppObject* keySel);
+// p0grp: the same over a DECIMAL source with an int64 / double / decimal TKey.
+Il2CppArray* il2cpp_linq_order_by_key_dec_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_dec_d(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_d(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_dec_dec(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_dec(Il2CppArray* src, Il2CppObject* keySel);
 
 // Enumerable.ThenBy -- the CHAINED-SORTER surface (D-LO2-1). Enumerable.
 // OrderBy(k1).ThenBy(k2) is a FUSED composite sort (net48 EnumerableSorter

@@ -677,6 +677,11 @@ public static partial class MethodRefResolver
                 string? decKeyFam = keyByte switch
                 {
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+                    0x0A or 0x0B => "i8",
+                    0x0C or 0x0D => "d",
+                    // 0x11 is every value type; only a real System.Decimal key has
+                    // the decimal key comparison (DateTime/Guid stay LOUD).
+                    0x11 when IsDecimalGenArg(genArgNames, 1) => "dec",
                     _ => null,
                 };
                 if (decKeyFam == null)
@@ -684,9 +689,10 @@ public static partial class MethodRefResolver
                         $"Enumerable.{name}<System.Decimal,{GenericArgTypeName(keyByte)}> not wired: the " +
                         "decimal-source keyed sort covers int32/int64/double/decimal keys only " +
                         "(see docs/audit/b5-gaps.md)");
-                return I(desc
-                        ? "il2cpp::il2cpp_linq_order_by_key_desc_dec_i4"
-                        : "il2cpp::il2cpp_linq_order_by_key_dec_i4",
+                string decKeyEntry = (decKeyFam == "i4" ? "i4"
+                    : decKeyFam == "i8" ? "i8"
+                    : decKeyFam == "d" ? "d" : "dec");
+                return I($"il2cpp::il2cpp_linq_order_by_key{(desc ? "_desc" : "")}_dec_{decKeyEntry}",
                     2, true, true, false, TwoArg, returnTypeName: "System.Decimal[]");
             }
             // p0grp: GroupBy over a DateTime[] SOURCE (net48

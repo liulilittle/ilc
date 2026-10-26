@@ -624,6 +624,57 @@ Il2CppArray* SortDecI4KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool des
                                     CmpKeyValue<int32_t>);
 }
 
+// p0grp: the DECIMAL-source keyed sort with an int64 / double / decimal key.
+static int64_t InvokeKeyDecI8(Il2CppDelegate* keySel, const runtime::Il2CppDecimal& v)
+{
+    typedef int64_t (*Fn)(runtime::Il2CppDecimal);
+    typedef int64_t (*ThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+    return keySel->target != nullptr
+        ? reinterpret_cast<ThisFn>(keySel->methodPtr)(keySel->target, v)
+        : reinterpret_cast<Fn>(keySel->methodPtr)(v);
+}
+
+static double InvokeKeyDecD(Il2CppDelegate* keySel, const runtime::Il2CppDecimal& v)
+{
+    typedef double (*Fn)(runtime::Il2CppDecimal);
+    typedef double (*ThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+    return keySel->target != nullptr
+        ? reinterpret_cast<ThisFn>(keySel->methodPtr)(keySel->target, v)
+        : reinterpret_cast<Fn>(keySel->methodPtr)(v);
+}
+
+static runtime::Il2CppDecimal InvokeKeyDecDec(Il2CppDelegate* keySel, const runtime::Il2CppDecimal& v)
+{
+    typedef runtime::Il2CppDecimal (*Fn)(runtime::Il2CppDecimal);
+    typedef runtime::Il2CppDecimal (*ThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+    return keySel->target != nullptr
+        ? reinterpret_cast<ThisFn>(keySel->methodPtr)(keySel->target, v)
+        : reinterpret_cast<Fn>(keySel->methodPtr)(v);
+}
+
+static int32_t CmpDecKeyValue(const runtime::Il2CppDecimal& a, const runtime::Il2CppDecimal& b)
+{
+    return runtime::icall_decimal_compare(&a, &b);
+}
+
+Il2CppArray* SortDecI8KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc = false)
+{
+    return SortDecKeyCopyT<int64_t>(src, keySel, desc, InvokeKeyDecI8,
+                                    CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* SortDecDKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc = false)
+{
+    return SortDecKeyCopyT<double>(src, keySel, desc, InvokeKeyDecD,
+                                   CmpKeyValue<double>);
+}
+
+Il2CppArray* SortDecDecKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc = false)
+{
+    return SortDecKeyCopyT<runtime::Il2CppDecimal>(src, keySel, desc, InvokeKeyDecDec,
+                                                   CmpDecKeyValue);
+}
+
 //------------------------------------------------------------------------------
 // SortDoubleKeyCopy -- the DOUBLE-SOURCE counterpart of SortInt32KeyCopy (and
 // of the SortInt64KeyCopy template): build a new double array holding the
@@ -979,6 +1030,55 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_i4(Il2CppArray* src, Il2CppObject
     RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
     Il2CppDelegate* d = RequireKeySelector(keySel);
     return SortDecI4KeyCopy(s, d, true);
+}
+
+// p0grp: the DECIMAL-source keyed sort with an int64 / double / decimal key.
+Il2CppArray* il2cpp_linq_order_by_key_dec_i8(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecI8KeyCopy(s, d, false);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_i8(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecI8KeyCopy(s, d, true);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_dec_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecDKeyCopy(s, d, false);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecDKeyCopy(s, d, true);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_dec_dec(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecDecKeyCopy(s, d, false);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_dec(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecDecKeyCopy(s, d, true);
 }
 
 //------------------------------------------------------------------------------
