@@ -669,6 +669,17 @@ public static partial class MethodRefResolver
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
                         _ => "",
                     };
+                    // The 0x11 value types need the NAME: System.Decimal maps to
+                    // the decimal bucket family (4); DateTime/TimeSpan/Guid have
+                    // no bucket storage.
+                    string DElemFamilyNamed(byte b, string[]? names, int index)
+                    {
+                        if (b != 0x11) return DElemFamily(b);
+                        if (names is not { Length: > 0 } || index >= names.Length) return "";
+                        var n = names[index];
+                        if (n.StartsWith("V:", StringComparison.Ordinal)) n = n[2..];
+                        return n == "System.Decimal" ? "4" : "";
+                    }
                     string DResultFamily(byte b) => b switch
                     {
                         0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
@@ -677,7 +688,7 @@ public static partial class MethodRefResolver
                         0x0C => "5",
                         _ => "2",
                     };
-                    string dEk = dElemByte is { } deb ? DElemFamily(deb) : "0";
+                    string dEk = dElemByte is { } deb ? DElemFamilyNamed(deb, genArgNames, 2) : "0";
                     if (dEk.Length == 0)
                         throw new NotSupportedException(
                             $"Enumerable.GroupBy TElement '{GenericArgTypeName(dElemByte!.Value)}' " +

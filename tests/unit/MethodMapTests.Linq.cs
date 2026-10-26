@@ -1390,6 +1390,18 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "0", "0", "0" }, resolved.AppendLiterals);
     }
 
+    // GroupBy over a DECIMAL source with a DECIMAL TElement (net48
+    // GroupBy<decimal,int,decimal>): the decimal bucket family (4).
+    [Fact]
+    public void Resolve_GroupBy_DecimalSource_DecimalElement_MapsToDecimalBucket()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGroupByDecSel(0x08, 0x11));
+
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "4", "0", "0" }, resolved.AppendLiterals);
+    }
+
     //--------------------------------------------------------------------------
     // The INDEX overloads over a List<T> (net48 Func<TSource,int,bool> /
     // Func<TSource,int,TResult>): the callback receives the element AND its
@@ -2667,7 +2679,14 @@ public class MethodMapTestsLinq
         spec.WriteCompressedInteger(3);
         spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
         spec.WriteByte(tKey);
-        spec.WriteByte(tElem);
+        if (tElem == 0x11)
+        {
+            spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded); // TElement = System.Decimal
+        }
+        else
+        {
+            spec.WriteByte(tElem);
+        }
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

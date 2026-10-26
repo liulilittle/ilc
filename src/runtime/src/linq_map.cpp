@@ -3460,6 +3460,9 @@ enum class GroupElemKind
     Ref = 1,
     I8 = 2,
     D = 3,
+    // p0grp: a System.Decimal bucket element (16-byte value cell) -- the
+    // decimal-source GroupBy with a decimal TElement.
+    Decimal = 4,
 };
 
 
@@ -3692,6 +3695,8 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
 // NewGroupElementArray -- the bucket storage for one element family.
 Il2CppArray* NewGroupElementArray(GroupElemKind kind, int32_t length)
 {
+    if (kind == GroupElemKind::Decimal)
+        return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, length);
     return kind == GroupElemKind::Int32
         ? il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int32_t)), false, length)
         : il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, length);
@@ -3897,6 +3902,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         elemRef = nullptr; // nb9 fix H1: drop the previous iteration's root
         int64_t elemI8 = 0;
         double elemD = 0;
+        runtime::Il2CppDecimal elemDec{};
         if (ed != nullptr)
         {
             if (decimalSource)
@@ -3909,6 +3915,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     case GroupElemKind::Ref: elemRef = InvokeSelDecRef(ed, dv); break;
                     case GroupElemKind::I8: elemI8 = InvokeSelDecI8(ed, dv); break;
                     case GroupElemKind::D: elemD = InvokeSelDecD(ed, dv); break;
+                    case GroupElemKind::Decimal: elemDec = InvokeSelDecDecKey(ed, dv); break;
                 }
             }
             else if (refSource)
@@ -3920,6 +3927,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     case GroupElemKind::Ref: elemRef = InvokeSelRefRef(ed, srcElem); break;
                     case GroupElemKind::I8: elemI8 = InvokeSelRefI8(ed, srcElem); break;
                     case GroupElemKind::D: elemD = InvokeSelRefD(ed, srcElem); break;
+                    case GroupElemKind::Decimal: elemDec = InvokeSelRefDecKey(ed, srcElem); break;
                 }
             }
             else
@@ -3929,6 +3937,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                 case GroupElemKind::Ref: elemRef = InvokeSelI4Ref(ed, v); break;
                 case GroupElemKind::I8: elemI8 = InvokeSelI4I8(ed, v); break;
                 case GroupElemKind::D: elemD = InvokeSelI4D(ed, v); break;
+                case GroupElemKind::Decimal: elemDec = InvokeSelI4DecKey(ed, v); break;
             }
         }
         else if (kind == GroupElemKind::Int32)
@@ -4013,6 +4022,10 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     *slot = boxed;
                     break;
                 }
+                case GroupElemKind::Decimal:
+                    *reinterpret_cast<runtime::Il2CppDecimal*>(
+                        il2cpp_array_get_elem_ptr(grp->elements, at)) = elemDec;
+                    break;
             }
             ++grp->count;
         }
@@ -4075,6 +4088,10 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     *slot = boxed;
                     break;
                 }
+                case GroupElemKind::Decimal:
+                    *reinterpret_cast<runtime::Il2CppDecimal*>(
+                        il2cpp_array_get_elem_ptr(grp->elements, 0)) = elemDec;
+                    break;
             }
             grp->count = 1;
         }
@@ -4325,6 +4342,7 @@ Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keyS
         case 1: kind = GroupElemKind::Ref; break;
         case 2: kind = GroupElemKind::I8; break;
         case 3: kind = GroupElemKind::D; break;
+        case 4: kind = GroupElemKind::Decimal; break;
         default:
             il2cpp_throw_not_supported_exception("GroupBy: unsupported TElement family code.");
     }
