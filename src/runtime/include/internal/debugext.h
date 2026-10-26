@@ -24,6 +24,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_string.h"
+#include "il2cpp_value_semantics.h" // icall_object_to_string (the object forms)
 
 #include <cstdint>
 
@@ -51,5 +52,13 @@ void il2cpp_debug_fail(Il2CppString* message);
 // WITHOUT a trailing newline (.NET Trace.Write semantics; Trace.WriteLine
 // is il2cpp_debug_write_line).
 void il2cpp_trace_write(Il2CppString* text);
+
+// System.Diagnostics.Debug.WriteLine(object) / Trace.WriteLine(object) /
+// Trace.Write(object): the object's ToString text (net48 semantics -- a null
+// value raises NullReferenceException through icall_object_to_string, and a
+// boxed primitive formats its value). WriteLine appends the newline, Write
+// does not.
+void il2cpp_debug_write_line_obj(Il2CppObject* value);
+void il2cpp_trace_write_obj(Il2CppObject* value);
 
 }} // namespace il2cpp::runtime

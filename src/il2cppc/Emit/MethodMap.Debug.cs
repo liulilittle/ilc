@@ -73,6 +73,12 @@ public static partial class MethodRefResolver
                     case "WriteLine":
                         if (ps.Length == 1 && ps[0] == 0x0E)
                             return I("il2cpp::runtime::il2cpp_debug_write_line", 1, false, false, false, new[] { "s" });
+                        // Debug.WriteLine(object): the object's ToString text
+                        // (icall_object_to_string -- null raises
+                        // NullReferenceException, a boxed primitive formats
+                        // its value; net48 semantics).
+                        if (ps.Length == 1 && ps[0] == 0x1C)
+                            return I("il2cpp::runtime::il2cpp_debug_write_line_obj", 1, false, false, false, new[] { "" });
                         if (ps.Length == 0)
                             throw new NotSupportedException("Debug.WriteLine(): the runtime stub il2cpp_debug_write_line requires a text argument");
                         throw new NotSupportedException($"Debug.WriteLine param type 0x{ps[0]:X2} not wired: the debug module has no formatter for it");
@@ -90,10 +96,18 @@ public static partial class MethodRefResolver
                     case "Write":
                         if (ps.Length == 1 && ps[0] == 0x0E)
                             return I("il2cpp::runtime::il2cpp_trace_write", 1, false, false, false, new[] { "s" });
+                        // Trace.Write(object): the object's ToString text
+                        // (no trailing newline -- .NET Trace.Write semantics).
+                        if (ps.Length == 1 && ps[0] == 0x1C)
+                            return I("il2cpp::runtime::il2cpp_trace_write_obj", 1, false, false, false, new[] { "" });
                         throw new NotSupportedException($"Trace.Write param type 0x{ps[0]:X2} not wired: the debug module has no formatter for it");
                     case "WriteLine":
                         if (ps.Length == 1 && ps[0] == 0x0E)
                             return I("il2cpp::runtime::il2cpp_debug_write_line", 1, false, false, false, new[] { "s" });
+                        // Trace.WriteLine(object): the object's ToString text
+                        // plus a trailing newline.
+                        if (ps.Length == 1 && ps[0] == 0x1C)
+                            return I("il2cpp::runtime::il2cpp_debug_write_line_obj", 1, false, false, false, new[] { "" });
                         throw new NotSupportedException($"Trace.WriteLine param type 0x{ps[0]:X2} not wired: the debug module has no formatter for it");
                     default: return null;
                 }

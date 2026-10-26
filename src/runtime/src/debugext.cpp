@@ -69,4 +69,14 @@ void il2cpp_trace_write(Il2CppString* text)
     WriteManagedText(stdout, text, false);
 }
 
+void il2cpp_debug_write_line_obj(Il2CppObject* value)
+{
+    il2cpp_debug_write_line(icall_object_to_string(value));
+}
+
+void il2cpp_trace_write_obj(Il2CppObject* value)
+{
+    il2cpp_trace_write(icall_object_to_string(value));
+}
+
 }} // namespace il2cpp::runtime

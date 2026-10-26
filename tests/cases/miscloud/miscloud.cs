@@ -15,6 +15,7 @@
 // Every line prints "label=value". net48 is the reference baseline.
 //------------------------------------------------------------------------------
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 

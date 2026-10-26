@@ -93,6 +93,20 @@ public class MethodMapDebugTests
     }
 
     [Fact]
+    public void Resolve_Debug_WriteLineObject_MapsToWriteLineObjIcall()
+    {
+        // Debug.WriteLine(object): the object's ToString text
+        // (il2cpp_debug_write_line_obj -- net48 semantics).
+        var resolved = ResolveMember(Synthesize("System.Diagnostics", "Debug", "WriteLine", Sig(0x01, 0x1C)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_write_line_obj", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
     public void Resolve_Debug_WriteLineNoArgs_ThrowsLoud()
     {
         // The stub requires a text argument -- a zero-argument write has no
@@ -114,13 +128,13 @@ public class MethodMapDebugTests
     }
 
     [Fact]
-    public void Resolve_Debug_WriteLineObject_ThrowsLoud()
+    public void Resolve_Debug_WriteLineObject_MapsToWriteLineObjIcall_Existing()
     {
-        // No boxed-value printer in the debug module -> LOUD.
-        var ex = Assert.Throws<NotSupportedException>(
-            () => ResolveMember(Synthesize("System.Diagnostics", "Debug", "WriteLine", Sig(0x01, 0x1C)), "WriteLine"));
+        // Debug.WriteLine(object): now wired to the object-ToString icall
+        // (il2cpp_debug_write_line_obj -- icall_object_to_string).
+        var resolved = ResolveMember(Synthesize("System.Diagnostics", "Debug", "WriteLine", Sig(0x01, 0x1C)), "WriteLine");
 
-        Assert.Contains("System.Diagnostics.Debug::WriteLine", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_write_line_obj", resolved.CppName);
     }
 
     //--------------------------------------------------------------------------
@@ -166,6 +180,26 @@ public class MethodMapDebugTests
         Assert.False(resolved.ReturnsValue);
         Assert.Equal(1, resolved.ParamCount);
         Assert.Equal(new[] { "s" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_WriteObject_MapsToTraceWriteObjIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Diagnostics", "Trace", "Write", Sig(0x01, 0x1C)), "Write");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_trace_write_obj", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Trace_WriteLineObject_MapsToWriteLineObjIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Diagnostics", "Trace", "WriteLine", Sig(0x01, 0x1C)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_write_line_obj", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
     }
 
     [Fact]
