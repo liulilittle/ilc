@@ -320,6 +320,16 @@ Il2CppArray* il2cpp_linq_select_dec_i8(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dec_d(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dec_f(Il2CppArray* src, Il2CppObject* sel);
 
+// p0linq4 (D3) follow-up: the INT32-source Select with a DateTime / TimeSpan /
+// Guid result (net48 Select<int,TResult>). The selector returns the struct BY
+// VALUE and the output cell carries the raw struct image.
+Il2CppArray* il2cpp_linq_select_i4_dt(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_i4_ts(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_i4_guid(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_i4_dt(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_i4_ts(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_i4_guid(Il2CppArray* src, Il2CppObject* sel);
+
 // The DECIMAL-source INDEX Select (net48 Select<decimal,int,TResult>): the
 // selector receives the element AND its 0-based source index. TResult is int32 /
 // int64 / double / float / decimal.

@@ -210,7 +210,7 @@ public class MethodMapTestsLinq
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
             genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x11 })));
-        Assert.Contains("System.Decimal only", ex.Message);
+        Assert.Contains("DateTime/TimeSpan/Guid", ex.Message);
     }
 
     //--------------------------------------------------------------------------
@@ -1624,7 +1624,26 @@ public class MethodMapTestsLinq
     [InlineData("System.Guid", true, "il2cpp::il2cpp_linq_select_idx_ref_guid", "System.Guid[]")]
     public void Resolve_RefSelect_ValueStructResult_MapsToRefValueStructKernel(string resType, bool indexForm, string icall, string retType)
     {
-        var resolved = ResolveMethodSpec(SynthesizeGenericRefSourceValueResult("Select", indexForm, resType));
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueSourceValueResult("Select", indexForm, 0x0E, resType));
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(retType, resolved.ReturnTypeName);
+    }
+
+    //==========================================================================
+    // The INT32-source Select with a VALUE-STRUCT result (net48 Select<int,
+    // TResult>): DateTime / TimeSpan / Guid. The selector returns the struct BY
+    // VALUE (the same convention as the decimal result).
+    //==========================================================================
+    [Theory]
+    [InlineData("System.DateTime", false, "il2cpp::il2cpp_linq_select_i4_dt", "System.DateTime[]")]
+    [InlineData("System.TimeSpan", false, "il2cpp::il2cpp_linq_select_i4_ts", "System.TimeSpan[]")]
+    [InlineData("System.Guid", false, "il2cpp::il2cpp_linq_select_i4_guid", "System.Guid[]")]
+    [InlineData("System.DateTime", true, "il2cpp::il2cpp_linq_select_idx_i4_dt", "System.DateTime[]")]
+    [InlineData("System.TimeSpan", true, "il2cpp::il2cpp_linq_select_idx_i4_ts", "System.TimeSpan[]")]
+    [InlineData("System.Guid", true, "il2cpp::il2cpp_linq_select_idx_i4_guid", "System.Guid[]")]
+    public void Resolve_I4Select_ValueStructResult_MapsToI4ValueStructKernel(string resType, bool indexForm, string icall, string retType)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueSourceValueResult("Select", indexForm, 0x08, resType));
         Assert.Equal(icall, resolved.CppName);
         Assert.Equal(retType, resolved.ReturnTypeName);
     }
@@ -2162,15 +2181,15 @@ public class MethodMapTestsLinq
         return Serialize(mdb);
     }
 
-    // REFERENCE-source Select helper: TSource is System.String (0x0E) and
-    // TResult is a named VALUETYPE TypeRef (the 0x11 byte is name-resolved to
-    // System.DateTime / System.TimeSpan / System.Guid).
+    // VALUE-source Select helper: TSource is a primitive byte (0x08 int32 /
+    // 0x0E string) and TResult is a named VALUETYPE TypeRef (the 0x11 byte is
+    // name-resolved to System.DateTime / System.TimeSpan / System.Guid).
     //   row 1: System.Linq.Enumerable      (coded 0x05)
     //   row 2: ...IEnumerable`1            (coded 0x09)
     //   row 3: System.Func`2               (coded 0x0D)
     //   row 4: <result value type>        (coded 0x11)
-    private static MemoryStream SynthesizeGenericRefSourceValueResult(string methodName, bool indexForm,
-        string resTypeName)
+    private static MemoryStream SynthesizeGenericValueSourceValueResult(string methodName, bool indexForm,
+        byte srcByte, string resTypeName)
     {
         var mdb = new MetadataBuilder();
         mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
@@ -2194,11 +2213,11 @@ public class MethodMapTestsLinq
         sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
         sig.WriteByte(0x11); sig.WriteCompressedInteger(coded);
         sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
-        sig.WriteByte(0x0E);
+        sig.WriteByte(srcByte);
         sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0B);
         sig.WriteByte(indexForm ? (byte)0x03 : (byte)0x02);
         sig.WriteByte(0x13); sig.WriteByte(0x00);
-        sig.WriteByte(0x0E);
+        sig.WriteByte(srcByte);
         if (indexForm) sig.WriteByte(0x08);
         sig.WriteByte(0x11); sig.WriteCompressedInteger(coded);
         var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
@@ -2206,7 +2225,7 @@ public class MethodMapTestsLinq
         var spec = new BlobBuilder();
         spec.WriteByte(0x0A);
         spec.WriteCompressedInteger(2);
-        spec.WriteByte(0x0E);
+        spec.WriteByte(srcByte);
         spec.WriteByte(0x11);
         spec.WriteCompressedInteger(coded);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));

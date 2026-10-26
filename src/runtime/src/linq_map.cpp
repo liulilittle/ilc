@@ -2539,6 +2539,162 @@ Il2CppArray* il2cpp_linq_select_dec_f(Il2CppArray* src, Il2CppObject* sel)
 }
 
 //------------------------------------------------------------------------------
+// p0linq4 (D3) follow-up: the INT32-source Select with a DateTime / TimeSpan /
+// Guid result (net48 Select<int,TResult>). The selector returns the struct BY
+// VALUE (the same convention SelectToDecimal relies on) and the output cell
+// carries the raw struct image (DateTime: packed ticks + kind; TimeSpan: the
+// ticks; Guid: the 16 bytes).
+// GC SAFETY: the delegate, the source and the result are rooted across the
+// per-element callback; the slot address is re-derived after every callback.
+//------------------------------------------------------------------------------
+typedef runtime::Il2CppDateTime (*SelI4ToDtFn)(int32_t v);
+typedef runtime::Il2CppDateTime (*SelI4ToDtThisFn)(Il2CppObject* self, int32_t v);
+typedef runtime::Il2CppDateTime (*SelI4ToDtIdxFn)(int32_t v, int32_t index);
+typedef runtime::Il2CppDateTime (*SelI4ToDtIdxThisFn)(Il2CppObject* self, int32_t v, int32_t index);
+typedef runtime::Il2CppTimeSpan (*SelI4ToTsFn)(int32_t v);
+typedef runtime::Il2CppTimeSpan (*SelI4ToTsThisFn)(Il2CppObject* self, int32_t v);
+typedef runtime::Il2CppTimeSpan (*SelI4ToTsIdxFn)(int32_t v, int32_t index);
+typedef runtime::Il2CppTimeSpan (*SelI4ToTsIdxThisFn)(Il2CppObject* self, int32_t v, int32_t index);
+typedef Il2CppGuid (*SelI4ToGuidFn)(int32_t v);
+typedef Il2CppGuid (*SelI4ToGuidThisFn)(Il2CppObject* self, int32_t v);
+typedef Il2CppGuid (*SelI4ToGuidIdxFn)(int32_t v, int32_t index);
+typedef Il2CppGuid (*SelI4ToGuidIdxThisFn)(Il2CppObject* self, int32_t v, int32_t index);
+
+Il2CppArray* il2cpp_linq_select_i4_dt(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDateTime)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        const runtime::Il2CppDateTime slot = d->target != nullptr
+            ? reinterpret_cast<SelI4ToDtThisFn>(d->methodPtr)(d->target, v)
+            : reinterpret_cast<SelI4ToDtFn>(d->methodPtr)(v);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot, sizeof(runtime::Il2CppDateTime));
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_i4_ts(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppTimeSpan)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        const runtime::Il2CppTimeSpan slot = d->target != nullptr
+            ? reinterpret_cast<SelI4ToTsThisFn>(d->methodPtr)(d->target, v)
+            : reinterpret_cast<SelI4ToTsFn>(d->methodPtr)(v);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot, sizeof(runtime::Il2CppTimeSpan));
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_i4_guid(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(Il2CppGuid)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        const Il2CppGuid slot = d->target != nullptr
+            ? reinterpret_cast<SelI4ToGuidThisFn>(d->methodPtr)(d->target, v)
+            : reinterpret_cast<SelI4ToGuidFn>(d->methodPtr)(v);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot, sizeof(Il2CppGuid));
+    }
+    return out;
+}
+
+// The INDEX overloads: the selector receives the element AND its zero-based
+// source index.
+Il2CppArray* il2cpp_linq_select_idx_i4_dt(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDateTime)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        const runtime::Il2CppDateTime slot = d->target != nullptr
+            ? reinterpret_cast<SelI4ToDtIdxThisFn>(d->methodPtr)(d->target, v, i)
+            : reinterpret_cast<SelI4ToDtIdxFn>(d->methodPtr)(v, i);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot, sizeof(runtime::Il2CppDateTime));
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_i4_ts(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppTimeSpan)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        const runtime::Il2CppTimeSpan slot = d->target != nullptr
+            ? reinterpret_cast<SelI4ToTsIdxThisFn>(d->methodPtr)(d->target, v, i)
+            : reinterpret_cast<SelI4ToTsIdxFn>(d->methodPtr)(v, i);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot, sizeof(runtime::Il2CppTimeSpan));
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_i4_guid(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(Il2CppGuid)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = I4At(src, i);
+        const Il2CppGuid slot = d->target != nullptr
+            ? reinterpret_cast<SelI4ToGuidIdxThisFn>(d->methodPtr)(d->target, v, i)
+            : reinterpret_cast<SelI4ToGuidIdxFn>(d->methodPtr)(v, i);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot, sizeof(Il2CppGuid));
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
 // The DECIMAL-source INDEX Select (net48 Select<decimal,int,TResult>): the
 // selector receives the element AND its zero-based source index. TResult is
 // int32 / int64 / double / float / decimal.

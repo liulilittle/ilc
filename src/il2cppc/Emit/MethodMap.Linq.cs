@@ -1150,15 +1150,27 @@ public static partial class MethodRefResolver
                             // (elemSize 16, non-reference) and the selector
                             // returns the struct BY VALUE through its own ABI --
                             // the runtime picks the entry by the SOURCE family
-                            // (i4/i8/d/f/dec). A non-decimal 0x11 (DateTime, a
-                            // user struct) has no kernel and stays LOUD.
+                            // (i4/i8/d/f/dec). The 0x11 byte covers every value
+                            // type, so the decoded MethodSpec FULL NAME is the
+                            // only authority: the DateTime/TimeSpan/Guid results
+                            // ride the int32-source by-value selector kernels,
+                            // decimal its own, and any other value type stays LOUD.
                         {
+                            string? resName = genArgNames is { Length: > 1 } ? genArgNames[1] : null;
+                            if (resName is "System.DateTime" or "System.TimeSpan" or "System.Guid")
+                            {
+                                string suffix = resName == "System.DateTime" ? "dt"
+                                    : resName == "System.TimeSpan" ? "ts" : "guid";
+                                return I($"il2cpp::il2cpp_linq_select_{(selIdx ? "idx_" : "")}i4_{suffix}",
+                                    2, true, true, false, TwoArg,
+                                    returnTypeName: resName + "[]");
+                            }
                             if (!IsDecimalGenArg(genArgNames, 1))
                                 throw new NotSupportedException(
                                     $"Enumerable.Select<{GenericArgTypeName(genArgs![0])}," +
                                     $"{GenericArgTypeName(tRes)}> not wired: the value-type result " +
-                                    "family with a kernel is System.Decimal only " +
-                                    "(il2cpp_linq_select_<src>_dec)");
+                                    "family with a kernel is System.Decimal (il2cpp_linq_select_<src>_dec) " +
+                                    "and DateTime/TimeSpan/Guid (il2cpp_linq_select[_idx]_i4_dt/_ts/_guid)");
                             if (selIdx)
                             {
                                 // p0linq4 (D2): the (element, index) selector
