@@ -85,6 +85,25 @@ namespace Cases
             Console.WriteLine("asm_type=" + (a != null ? a.FullName : "<null>"));
             var miss = asm.GetType("Cases.DoesNotExist", false);
             Console.WriteLine("asm_type_missing=" + (miss != null ? miss.FullName : "<null>"));
+
+            // ---- GetMethod 6-param (CallingConventions) ----
+            var m6 = t.GetMethod("Method", BindingFlags.Public | BindingFlags.Instance, null,
+                CallingConventions.Any, new Type[] { typeof(int), typeof(string) }, null);
+            Console.WriteLine("method6=" + (m6 != null ? m6.Name : "<null>"));
+
+            // ---- GetConstructor 5-param (CallingConventions) ----
+            var c5 = t.GetConstructor(BindingFlags.Public | BindingFlags.Instance, null,
+                CallingConventions.Any, new Type[] { typeof(int) }, null);
+            Console.WriteLine("ctor5=" + (c5 != null ? c5.Name : "<null>"));
+
+            // ---- GetProperty 6-param (BindingFlags, Binder) ----
+            var p6 = t.GetProperty("Item", BindingFlags.Public | BindingFlags.Instance, null,
+                typeof(int), new Type[] { typeof(int) }, null);
+            Console.WriteLine("prop6=" + (p6 != null ? p6.Name : "<null>"));
+
+            // ---- Activator.CreateInstance(Type, object[], object[]) ----
+            var act3 = Activator.CreateInstance(typeof(ArityHost), new object[0], new object[0]);
+            Console.WriteLine("act3=" + (act3 != null ? act3.GetType().Name : "<null>"));
         }
     }
 }

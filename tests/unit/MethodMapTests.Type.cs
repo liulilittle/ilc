@@ -99,19 +99,10 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
-    // GetTypeCode -- the INSTANCE overload (IConvertible impl) is unwireable:
-    // the receiver is the name-string Type value and the runtime has no
-    // string->TypeCode path -- must fail LOUD.
+    // GetTypeCode -- the INSTANCE overload on a runtime receiver is now wired
+    // (REFL-ARITY) to the name->TypeCode kernel; see
+    // Resolve_Type_GetTypeCodeInstance_MapsToTypeCodeFromNameIcall below.
     //--------------------------------------------------------------------------
-    [Fact]
-    public void Resolve_Type_GetTypeCodeInstance_ThrowsLoud()
-    {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Type", "GetTypeCode",
-                new byte[] { 0x00, 0x00, 0x08 }), "GetTypeCode")); // ()
-
-        Assert.Contains("System.Type::GetTypeCode", ex.Message);
-    }
 
     //--------------------------------------------------------------------------
     // IsAssignableFrom -- instance: target = this, source = the argument.
@@ -890,6 +881,63 @@ public class MethodMapTestsType
         Assert.Equal("System.String", resolved.ReturnTypeName);
         Assert.True(resolved.IsInstance);
         Assert.Equal(4, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetTypeCodeInstance_MapsToTypeCodeFromNameIcall()
+    {
+        // REFL-ARITY: the INSTANCE Type.GetTypeCode() on a runtime receiver --
+        // the Type VALUE (full-name string) mapped to the net48 TypeCode.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetTypeCode",
+            new byte[] { 0x00, 0x00, 0x08 }), "GetTypeCode"); // () -> TypeCode (int32 carrier)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_typecode_from_name", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetMethodCallingConventions_MapsToTypesFlagsIcall()
+    {
+        // Type.GetMethod(string, BindingFlags, Binder, CallingConventions,
+        // Type[], ParameterModifier[]) -- the 6-param form net48 HAS.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetMethod",
+            new byte[] { 0x00, 0x06, 0x12, 0x05, 0x0E, 0x11, 0x05, 0x12, 0x05, 0x11, 0x05, 0x1D, 0x12, 0x05, 0x1D, 0x12, 0x05 }),
+            "GetMethod"); // (string, BindingFlags, Binder, CallingConventions, Type[], ParameterModifier[])
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_method_types_flags", resolved.CppName);
+        Assert.Equal(6, resolved.ParamCount);
+        Assert.Equal(new[] { 0, 1, 5, 2 }, resolved.ArgOrder);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetConstructorCallingConventions_MapsToCtorFlagsIcall()
+    {
+        // Type.GetConstructor(BindingFlags, Binder, CallingConventions,
+        // Type[], ParameterModifier[]) -- the 5-param form net48 HAS.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetConstructor",
+            new byte[] { 0x00, 0x05, 0x12, 0x05, 0x11, 0x05, 0x12, 0x05, 0x11, 0x05, 0x1D, 0x12, 0x05, 0x1D, 0x12, 0x05 }),
+            "GetConstructor"); // (BindingFlags, Binder, CallingConventions, Type[], ParameterModifier[])
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_constructor_flags", resolved.CppName);
+        Assert.Equal(5, resolved.ParamCount);
+        Assert.Equal(new[] { 0, 4, 1 }, resolved.ArgOrder);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetPropertyFlagsBinderReturnTypeTypesMods_MapsToTypesRetFlagsIcall()
+    {
+        // Type.GetProperty(string, BindingFlags, Binder, Type returnType,
+        // Type[] types, ParameterModifier[]) -- the 6-param form net48 HAS.
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetProperty",
+            new byte[] { 0x00, 0x06, 0x12, 0x05, 0x0E, 0x11, 0x05, 0x12, 0x05, 0x12, 0x05, 0x1D, 0x12, 0x05, 0x1D, 0x12, 0x05 }),
+            "GetProperty"); // (string, BindingFlags, Binder, Type, Type[], ParameterModifier[])
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_property_types_ret_flags", resolved.CppName);
+        Assert.Equal(6, resolved.ParamCount);
+        Assert.Equal(new[] { 0, 1, 4, 5, 2 }, resolved.ArgOrder);
     }
 
     //--------------------------------------------------------------------------

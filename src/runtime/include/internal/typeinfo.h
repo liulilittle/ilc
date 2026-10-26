@@ -478,6 +478,13 @@ Il2CppObject* il2cpp_typeinfo_get_interface(Il2CppObject* typeName, Il2CppObject
 // -> InvalidOperationException (defensive query convention; a null Type
 // receiver is not valid IL).
 //------------------------------------------------------------------------------
+// REFL-ARITY: Type.GetTypeCode() on a RUNTIME receiver (a GetType() result).
+// The receiver is the Type VALUE (full-name string); this maps the NAME to the
+// net48 System.TypeCode enum value (the same table as il2cpp_type_get_typecode
+// in typeext.cpp -- Int32=9 / Boolean=3 / Char=4 / Double=14 / String=18 /
+// Decimal=15 / else Object=1). A null / malformed / unregistered name answers
+// 0 (TypeCode.Empty; net48 Type.GetTypeCode(null) -> Empty).
+int32_t il2cpp_typeinfo_get_typecode_from_name(Il2CppObject* typeName);
 int32_t il2cpp_typeinfo_is_generic_type(Il2CppObject* typeName);
 int32_t il2cpp_typeinfo_get_generic_arity(Il2CppObject* typeName);
 Il2CppArray* il2cpp_typeinfo_get_generic_arguments(Il2CppObject* typeName);
@@ -952,6 +959,18 @@ Il2CppObject* il2cpp_typeinfo_get_property_types_ret(Il2CppObject* typeName,
                                                      Il2CppObject* memberName,
                                                      Il2CppObject* returnTypeName,
                                                      Il2CppArray* types);
+// REFL-ARITY: Type.GetProperty(string, BindingFlags, Binder, Type returnType,
+// Type[] types, ParameterModifier[]) -- the 6-param form net48 HAS. The binder
+// and modifiers are ignored by net48's match (default binder; by-ref modifiers
+// only -- W7), but the BindingFlags DOES filter, so this is the flags-aware
+// sibling of il2cpp_typeinfo_get_property_types_ret. Same result contract (the
+// member-NAME string on a hit, nullptr otherwise; NRE / ArgumentNullException
+// doctrine).
+Il2CppObject* il2cpp_typeinfo_get_property_types_ret_flags(Il2CppObject* typeName,
+                                                           Il2CppObject* memberName,
+                                                           Il2CppObject* returnTypeName,
+                                                           Il2CppArray* types,
+                                                           int32_t bindingAttr);
 
 //------------------------------------------------------------------------------
 // REFL5 (item 3 / C2) -- the member-TYPE property family + the flag-derived

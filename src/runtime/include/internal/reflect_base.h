@@ -49,6 +49,13 @@ Il2CppObject* il2cpp_activator_create_instance(Il2CppObject* typeName);
 // bool)) ignores the flag (net48 default = public-only binding) and reuses
 // il2cpp_activator_create_instance. Null typeName -> ArgumentNullException.
 Il2CppObject* il2cpp_activator_create_instance_args(Il2CppObject* typeName, Il2CppArray* args);
+// REFL-ARITY: Activator.CreateInstance(Type, object[] args, object[]
+// activationAttributes) -- net48's 3-param form. A null/EMPTY
+// activationAttributes behaves exactly like the 2-param form; a NON-EMPTY one
+// throws NotSupportedException (net48, on a non-MBR type). Delegates to
+// il2cpp_activator_create_instance_args after that check.
+Il2CppObject* il2cpp_activator_create_instance_args_attrs(Il2CppObject* typeName, Il2CppArray* args,
+                                                          Il2CppArray* activationAttributes);
 
 // Type.GetType(string typeName) -> the type's full-name string (the INPUT
 // object itself -- simplified Type model identity), or nullptr when the

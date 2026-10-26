@@ -342,6 +342,13 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x1D)
                     return I("il2cpp::il2cpp_activator_create_instance_args", 2, true, true, false,
                         new[] { "", "a" });
+                // REFL-ARITY: CreateInstance(Type, object[], object[]
+                // activationAttributes) -- net48's 3-param form. A null/empty
+                // activationAttributes behaves like the 2-param form; a non-empty
+                // one throws NotSupportedException (net48, non-MBR).
+                if (ps.Length == 3 && ps[0] == 0x12 && ps[1] == 0x1D && ps[2] == 0x1D)
+                    return I("il2cpp::il2cpp_activator_create_instance_args_attrs", 3, true, true, false,
+                        new[] { "", "a", "a" });
                 if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x02)
                     return I("il2cpp::il2cpp_activator_create_instance", 2, true, true, false,
                         new[] { "", "drop" });

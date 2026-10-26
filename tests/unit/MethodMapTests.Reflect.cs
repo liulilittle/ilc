@@ -220,6 +220,24 @@ public class MethodMapTestsReflect
     }
 
     //--------------------------------------------------------------------------
+    // REFL-ARITY -- Activator.CreateInstance(Type, object[] args, object[]
+    // activationAttributes): net48's 3-param form. A null/empty
+    // activationAttributes behaves like the 2-param form; a non-empty one
+    // throws NotSupportedException (net48, non-MBR).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Activator_CreateInstanceArgsAttrs_MapsToArgsAttrsIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Activator", "CreateInstance",
+            new byte[] { 0x00, 0x03, 0x12, 0x05, 0x12, 0x05, 0x1D, 0x1C, 0x1D, 0x1C }), "CreateInstance"); // (Type, object[], object[])
+
+        Assert.Equal("il2cpp::il2cpp_activator_create_instance_args_attrs", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.False(resolved.IsInstance); // STATIC
+        Assert.Equal(3, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
     // Harness -- same synthetic-PE pipeline as MethodMapTests.Type.cs.
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)

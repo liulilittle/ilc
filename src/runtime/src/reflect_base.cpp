@@ -373,6 +373,27 @@ Il2CppObject* il2cpp_activator_create_instance_args(Il2CppObject* typeName, Il2C
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_activator_create_instance_args_attrs -- Activator.CreateInstance(Type,
+// object[] args, object[] activationAttributes) (REFL-ARITY). net48 ignores a
+// null/EMPTY activationAttributes and throws NotSupportedException for a
+// NON-EMPTY one (on a non-MBR type); the args path is identical to
+// il2cpp_activator_create_instance_args.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_activator_create_instance_args_attrs(Il2CppObject* typeName, Il2CppArray* args,
+                                                          Il2CppArray* activationAttributes)
+{
+    if (activationAttributes != nullptr && activationAttributes->length > 0)
+    {
+        il2cpp_throw_new("System.NotSupportedException,System.NotSupportedException,"
+                         "System.SystemException,System.Exception",
+                         "CreateInstance with activation attributes is not supported "
+                         "(net48 throws NotSupportedException for a non-empty activationAttributes "
+                         "on a non-MBR type).");
+    }
+    return il2cpp_activator_create_instance_args(typeName, args);
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_type_get_type -- Type.GetType(string).
 //
 //   null   -> ArgumentNullException (paramName "typeName"; net48

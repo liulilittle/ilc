@@ -2739,6 +2739,24 @@ Il2CppObject* il2cpp_typeinfo_get_generic_type_definition(Il2CppObject* typeName
     return typeName;
 }
 
+// REFL-ARITY -- Type.GetTypeCode() on a RUNTIME receiver (a GetType() result):
+// the Type VALUE (full-name string) mapped to the net48 System.TypeCode enum
+// value. The table mirrors il2cpp_type_get_typecode (typeext.cpp) so the
+// descriptor path and the name-string path agree.
+int32_t il2cpp_typeinfo_get_typecode_from_name(Il2CppObject* typeName)
+{
+    if (typeName == nullptr) return 0; // TypeCode.Empty
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(typeName, nameBuf)) return 0;
+    if (std::strcmp(nameBuf, "System.Int32") == 0) return 9;
+    if (std::strcmp(nameBuf, "System.Boolean") == 0) return 3;
+    if (std::strcmp(nameBuf, "System.Char") == 0) return 4;
+    if (std::strcmp(nameBuf, "System.Double") == 0) return 14;
+    if (std::strcmp(nameBuf, "System.String") == 0) return 18;
+    if (std::strcmp(nameBuf, "System.Decimal") == 0) return 15;
+    return 1; // TypeCode.Object -- the M4 fallback for all other types
+}
+
 namespace {
 // FindPublicFieldThroughBaseChain -- own table first, then the baseType chain
 // (inherited fields live under THEIR declaring type's table), public only
@@ -4558,10 +4576,17 @@ Il2CppObject* il2cpp_typeinfo_get_property_return_type(Il2CppObject* typeName,
     return il2cpp_typeinfo_get_property_types_ret(typeName, memberName, returnTypeName, nullptr);
 }
 
-Il2CppObject* il2cpp_typeinfo_get_property_types_ret(Il2CppObject* typeName,
-                                                     Il2CppObject* memberName,
-                                                     Il2CppObject* returnTypeName,
-                                                     Il2CppArray* types)
+namespace {
+
+// REFL-ARITY -- the shared exact-signature property matcher used by both
+// il2cpp_typeinfo_get_property_types_ret (default Public|Instance|Static
+// binding) and the flags-aware il2cpp_typeinfo_get_property_types_ret_flags.
+// The property-type match is on the IL property-type full name
+// (Il2CppPropertyInfo.typeName). A name + type duplicate would be net48
+// AmbiguousMatch -- the first match wins (W7 narrow model).
+Il2CppObject* PropertyTypesRetCore(Il2CppObject* typeName, Il2CppObject* memberName,
+                                   Il2CppObject* returnTypeName, Il2CppArray* types,
+                                   int32_t bindingAttr)
 {
     if (typeName == nullptr) ThrowNullTypeReceiver();
     if (memberName == nullptr) ThrowNullMemberName("name");
@@ -4581,10 +4606,6 @@ Il2CppObject* il2cpp_typeinfo_get_property_types_ret(Il2CppObject* typeName,
     if (wantArity > 4) return nullptr;
     char typeNames[4][kNameBufferSize];
     if (types != nullptr && !ReadTypeElements(types, typeNames, wantArity)) return nullptr;
-    // Default Public|Instance|Static binding; the property-type match is on
-    // the IL property-type full name (Il2CppPropertyInfo.typeName). A name +
-    // type duplicate would be net48 AmbiguousMatch -- the first match wins
-    // (W7 narrow model).
     for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
     {
         if (scan->properties == nullptr) continue;
@@ -4602,7 +4623,7 @@ Il2CppObject* il2cpp_typeinfo_get_property_types_ret(Il2CppObject* typeName,
                 const Il2CppMethodInfo* acc = il2cpp_type_get_method(scan, accessorNames[ai]);
                 if (acc != nullptr) { accessorFlags |= acc->flags; sawAccessor = true; }
             }
-            if (!sawAccessor || !MemberMatchesVis(accessorFlags, 16 | 4 | 8, true)) continue;
+            if (!sawAccessor || !MemberMatchesVis(accessorFlags, bindingAttr, true)) continue;
             if (p.indexParams != wantArity) continue;
             if (p.getterName != nullptr && wantArity > 0 && wantArity <= 4)
             {
@@ -4616,6 +4637,25 @@ Il2CppObject* il2cpp_typeinfo_get_property_types_ret(Il2CppObject* typeName,
         }
     }
     return nullptr;
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_typeinfo_get_property_types_ret(Il2CppObject* typeName,
+                                                     Il2CppObject* memberName,
+                                                     Il2CppObject* returnTypeName,
+                                                     Il2CppArray* types)
+{
+    return PropertyTypesRetCore(typeName, memberName, returnTypeName, types, 16 | 4 | 8);
+}
+
+Il2CppObject* il2cpp_typeinfo_get_property_types_ret_flags(Il2CppObject* typeName,
+                                                           Il2CppObject* memberName,
+                                                           Il2CppObject* returnTypeName,
+                                                           Il2CppArray* types,
+                                                           int32_t bindingAttr)
+{
+    return PropertyTypesRetCore(typeName, memberName, returnTypeName, types, bindingAttr);
 }
 
 //------------------------------------------------------------------------------

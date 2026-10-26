@@ -194,18 +194,28 @@ public class StackFoldTestsTypeChain
     }
 
     //--------------------------------------------------------------------------
-    // The 0-param INSTANCE GetTypeCode form (IConvertible impl) is not part
-    // of the fold (the static 1-param form is); it stays LOUD.
+    // The 0-param INSTANCE GetTypeCode form on a folded typeof chain is now
+    // wired (REFL-ARITY): it resolves to the name->TypeCode kernel
+    // (il2cpp_typeinfo_get_typecode_from_name). The static 1-param form still
+    // folds to a typecode CONSTANT.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Fold_GetTypeCode_InstanceForm_ThrowsLoud()
+    public void Fold_GetTypeCode_InstanceForm_MapsToTypeCodeFromNameIcall()
     {
         using var pe = Synthesize(BodyKind.GetTypeCodeInstance);
         var md = pe.GetMetadataReader();
+        var tokens = PeTokens(pe);
 
-        var ex = Assert.Throws<NotSupportedException>(() => Fold(pe, md));
-        Assert.Contains("GetTypeCode", ex.Message);
-        Assert.Contains("instance", ex.Message);
+        var stmts = Fold(pe, md);
+        var allCalls = new List<CallExpr>();
+        foreach (var s in stmts)
+        {
+            if (s is AssignStmt a && a.Value is CallExpr ac) allCalls.Add(ac);
+            else if (s is RetStmt r && r.Value is CallExpr rc) allCalls.Add(rc);
+        }
+        var typecodeCall = Assert.Single(
+            allCalls.Where(c => c.Resolved?.CppName == "il2cpp::il2cpp_typeinfo_get_typecode_from_name"));
+        Assert.Equal($"call_{tokens.GetTypeCode0}", typecodeCall.Function);
     }
 
     //--------------------------------------------------------------------------
