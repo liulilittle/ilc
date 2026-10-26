@@ -344,6 +344,16 @@ Il2CppArray* il2cpp_linq_select_idx_i4_dec(Il2CppArray* src, Il2CppObject* sel);
 //   Il2CppDecimal (*)(Il2CppObject* this, Il2CppObject* elem)        (bound)
 Il2CppArray* il2cpp_linq_select_ref_dec(Il2CppArray* src, Il2CppObject* sel);
 
+// p0linq4 (D3) follow-up: Select over a REFERENCE-element source returning
+// DateTime / TimeSpan / Guid -- the remaining 8/16-byte value results. The
+// element crosses as Il2CppObject* and the result struct rides the return
+// slot (the same by-value convention as the decimal selector above):
+//   Il2CppDateTime (*)(Il2CppObject* elem)                        (static)
+//   Il2CppDateTime (*)(Il2CppObject* this, Il2CppObject* elem)    (bound)
+Il2CppArray* il2cpp_linq_select_ref_dt(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_ref_ts(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_ref_guid(Il2CppArray* src, Il2CppObject* sel);
+
 // The reference-source Select with a VALUE result (net48
 // Select<TSource,TResult> with a non-reference TResult over a reference source):
 // int32 / int64 / double / float. The result array carries the matching
@@ -360,6 +370,9 @@ Il2CppArray* il2cpp_linq_select_idx_ref_i4(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_ref_i8(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_ref_d(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_ref_f(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_ref_dt(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_ref_ts(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_ref_guid(Il2CppArray* src, Il2CppObject* sel);
 
 //------------------------------------------------------------------------------
 // LINQ GROUPING domain (D-LINQ-4) -- Enumerable.GroupBy, int32 family.

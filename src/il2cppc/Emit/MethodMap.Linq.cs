@@ -661,13 +661,13 @@ public static partial class MethodRefResolver
                         if (IsRefFamilyByte(genArgs[1]))
                             return I("il2cpp::il2cpp_linq_select_idx_ref_ref", 2, true, true, false, TwoArg,
                                 returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
-                        string? idxVs = LinqValueResultSuffix(genArgs[1]);
+                        string? idxVs = LinqValueResultSuffixWide(genArgs[1], genArgNames, 1);
                         if (idxVs is null)
                             throw new NotSupportedException(
                                 $"Enumerable.Select<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
                                 "with a (element, index) selector over a reference-element source is not wired: " +
-                                "the reference index-selector surface covers a REFERENCE TResult and the " +
-                                "int32/int64/double/float VALUE results only");
+                                "the reference index-selector surface covers a REFERENCE TResult, the " +
+                                "int32/int64/double/float VALUE results and the DateTime/TimeSpan/Guid value results");
                         return I($"il2cpp::il2cpp_linq_select_idx_ref_{idxVs}", 2, true, true, false, TwoArg,
                             returnTypeName: LinqValueResultArrayName(idxVs));
                     }
@@ -684,14 +684,17 @@ public static partial class MethodRefResolver
                         return I("il2cpp::il2cpp_linq_select_ref_ref", 2, true, true, false, TwoArg,
                             returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
                     // A VALUE TResult over a reference source (net48
-                    // Select<TSource,TResult>): int32 / int64 / double / float.
-                    string? vs = LinqValueResultSuffix(genArgs[1]);
+                    // Select<TSource,TResult>): int32 / int64 / double / float
+                    // and the DateTime/TimeSpan/Guid value structs (the 0x11
+                    // byte is name-resolved by LinqValueResultSuffixWide).
+                    string? vs = LinqValueResultSuffixWide(genArgs[1], genArgNames, 1);
                     if (vs is null)
                         throw new NotSupportedException(
                             $"Enumerable.Select<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
                             "not wired: the runtime reference-source select surface is ref -> ref " +
-                            "(il2cpp_linq_select_ref_ref), ref -> decimal (il2cpp_linq_select_ref_dec) and " +
-                            "ref -> int32/int64/double/float (il2cpp_linq_select_ref_i4/_i8/_d/_f)");
+                            "(il2cpp_linq_select_ref_ref), ref -> decimal (il2cpp_linq_select_ref_dec), " +
+                            "ref -> int32/int64/double/float (il2cpp_linq_select_ref_i4/_i8/_d/_f) and " +
+                            "ref -> DateTime/TimeSpan/Guid (il2cpp_linq_select_ref_dt/_ts/_guid)");
                     return I($"il2cpp::il2cpp_linq_select_ref_{vs}", 2, true, true, false, TwoArg,
                         returnTypeName: LinqValueResultArrayName(vs));
                 }
@@ -2395,8 +2398,28 @@ public static partial class MethodRefResolver
     {
         "i4" => "System.Int32[]",
         "i8" => "System.Int64[]",
+        "dt" => "System.DateTime[]",
+        "ts" => "System.TimeSpan[]",
+        "guid" => "System.Guid[]",
         _ => "System.Double[]",
     };
+
+    // The 0x11 VALUETYPE byte covers decimal/DateTime/TimeSpan/Guid (and every
+    // user struct), so the decoded MethodSpec FULL NAME is the only authority.
+    // The dt/ts/guid results ride their own by-value selector kernels
+    // (il2cpp_linq_select_[idx_]ref_dt/_ts/_guid); anything else stays null.
+    private static string? LinqValueResultSuffixWide(byte b, string[]? genArgNames, int idx)
+    {
+        if (b != 0x11) return LinqValueResultSuffix(b);
+        var n = genArgNames is { Length: > 0 } && idx < genArgNames.Length ? genArgNames[idx] : null;
+        return n switch
+        {
+            "System.DateTime" => "dt",
+            "System.TimeSpan" => "ts",
+            "System.Guid" => "guid",
+            _ => null,
+        };
+    }
 
     // The RESULT ABI suffix of the element-operator entries for a List kind.
     private static string LinqListAbiSuffix(string listKind) => listKind switch

@@ -1611,6 +1611,25 @@ public class MethodMapTestsLinq
     }
 
     //==========================================================================
+    // The reference-source Select with a VALUE-STRUCT result (net48
+    // Select<TSource,TResult> over a reference source): DateTime / TimeSpan /
+    // Guid. The 0x11 VALUETYPE byte is name-resolved by the MethodSpec TypeRef.
+    //==========================================================================
+    [Theory]
+    [InlineData("System.DateTime", false, "il2cpp::il2cpp_linq_select_ref_dt", "System.DateTime[]")]
+    [InlineData("System.TimeSpan", false, "il2cpp::il2cpp_linq_select_ref_ts", "System.TimeSpan[]")]
+    [InlineData("System.Guid", false, "il2cpp::il2cpp_linq_select_ref_guid", "System.Guid[]")]
+    [InlineData("System.DateTime", true, "il2cpp::il2cpp_linq_select_idx_ref_dt", "System.DateTime[]")]
+    [InlineData("System.TimeSpan", true, "il2cpp::il2cpp_linq_select_idx_ref_ts", "System.TimeSpan[]")]
+    [InlineData("System.Guid", true, "il2cpp::il2cpp_linq_select_idx_ref_guid", "System.Guid[]")]
+    public void Resolve_RefSelect_ValueStructResult_MapsToRefValueStructKernel(string resType, bool indexForm, string icall, string retType)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericRefSourceValueResult("Select", indexForm, resType));
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(retType, resolved.ReturnTypeName);
+    }
+
+    //==========================================================================
     // The DECIMAL-source Select with a VALUE result (net48
     // Select<decimal,TResult> and the (element,index) form): int32 / int64 /
     // double / float. Before this change the non-decimal results LOUD-rejected
@@ -2139,6 +2158,57 @@ public class MethodMapTestsLinq
         {
             spec.WriteByte(resByte);
         }
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // REFERENCE-source Select helper: TSource is System.String (0x0E) and
+    // TResult is a named VALUETYPE TypeRef (the 0x11 byte is name-resolved to
+    // System.DateTime / System.TimeSpan / System.Guid).
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: <result value type>        (coded 0x11)
+    private static MemoryStream SynthesizeGenericRefSourceValueResult(string methodName, bool indexForm,
+        string resTypeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var lastDot = resTypeName.LastIndexOf('.');
+        var resNs = lastDot > 0 ? resTypeName[..lastDot] : "";
+        var resName = lastDot > 0 ? resTypeName[(lastDot + 1)..] : resTypeName;
+        var resRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(resNs), mdb.GetOrAddString(resName));
+        var coded = (MetadataTokens.GetRowNumber(resRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(coded);
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x0E);
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0B);
+        sig.WriteByte(indexForm ? (byte)0x03 : (byte)0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);
+        sig.WriteByte(0x0E);
+        if (indexForm) sig.WriteByte(0x08);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(coded);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x0E);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger(coded);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }
