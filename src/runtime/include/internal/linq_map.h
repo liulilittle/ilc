@@ -269,6 +269,7 @@ Il2CppObject* il2cpp_linq_to_list_f(Il2CppArray* src);
 Il2CppObject* il2cpp_linq_to_list_dec(Il2CppArray* src);
 Il2CppObject* il2cpp_linq_to_list_dt(Il2CppArray* src);
 Il2CppObject* il2cpp_linq_to_list_ts(Il2CppArray* src);
+Il2CppObject* il2cpp_linq_to_list_guid(Il2CppArray* src);
 Il2CppObject* il2cpp_linq_to_list_struct(Il2CppArray* src, Il2CppClass* klass,
                                          int32_t payloadSize);
 

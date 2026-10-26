@@ -1000,6 +1000,9 @@ public static partial class MethodRefResolver
                             case "System.TimeSpan":
                                 return I("il2cpp::il2cpp_linq_to_list_ts", 1, true, true, false,
                                     OneArg, returnTypeName: "System.Collections.Generic.List`1_System.TimeSpan");
+                            case "System.Guid":
+                                return I("il2cpp::il2cpp_linq_to_list_guid", 1, true, true, false,
+                                    OneArg, returnTypeName: "System.Collections.Generic.List`1_System.Guid");
                         }
                         // A USER STRUCT (a value type defined in this assembly):
                         // the box needs the struct's own generated descriptor and

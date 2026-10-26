@@ -8,6 +8,7 @@
 #include "il2cpp_object.h"
 #include "sortedlist.h"
 #include "decimal.h"      // p0linq4 (D1): Il2CppDecimal (List<decimal> elements)
+#include "guid.h"         // p0linq4 (D1): Il2CppGuid (List<Guid> elements)
 #include "il2cpp_time.h"  // p0linq4 (D1): Il2CppDateTime / Il2CppTimeSpan
 #include <cstddef>
 #include <cstdint>
@@ -198,6 +199,20 @@ void il2cpp_list_obj_set_item_dec(Il2CppObject* self, int32_t index, const runti
 bool il2cpp_list_obj_remove_dec(Il2CppObject* self, const runtime::Il2CppDecimal* value);
 int32_t il2cpp_list_obj_index_of_dec(Il2CppObject* self, const runtime::Il2CppDecimal* value);
 bool il2cpp_list_obj_contains_dec(Il2CppObject* self, const runtime::Il2CppDecimal* value);
+// Guid is a 16-byte value element; the boxed carrier is icall_box_guid.
+// The VALUE parameters cross as `const uint8_t*` because the transpiler's
+// Guid "g" cast renders exactly that (GuidValueBytePtr), and the getter
+// writes through a `uint8_t*` result slot (the "guid" result kind appends
+// reinterpret_cast<uint8_t*>(&target)).
+void il2cpp_list_obj_add_guid(Il2CppObject* self, const uint8_t* value);
+void il2cpp_list_obj_insert_guid(Il2CppObject* self, int32_t index, const uint8_t* value);
+void il2cpp_list_obj_set_item_guid(Il2CppObject* self, int32_t index, const uint8_t* value);
+bool il2cpp_list_obj_remove_guid(Il2CppObject* self, const uint8_t* value);
+int32_t il2cpp_list_obj_index_of_guid(Il2CppObject* self, const uint8_t* value);
+bool il2cpp_list_obj_contains_guid(Il2CppObject* self, const uint8_t* value);
+void il2cpp_list_obj_get_item_guid(Il2CppObject* self, int32_t index, uint8_t* result);
+void il2cpp_list_obj_enumerator_get_current_guid(Il2CppObject* self, uint8_t* result);
+Il2CppObject* il2cpp_list_obj_to_array_guid(Il2CppObject* self);
 // The decimal GETTERS write through an explicit RESULT SLOT (the decimal T3
 // contract: a 16-byte value cannot ride the return register).
 void il2cpp_list_obj_get_item_dec(runtime::Il2CppDecimal* result, Il2CppObject* self, int32_t index);

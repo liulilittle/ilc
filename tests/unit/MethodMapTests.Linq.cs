@@ -126,6 +126,23 @@ public class MethodMapTestsLinq
     }
 
     //--------------------------------------------------------------------------
+    // ToList<Guid>(IEnumerable<Guid>) -> il2cpp_linq_to_list_guid. Guid is the
+    // remaining 16-byte value element; the listobj storage boxes it through
+    // icall_box_guid on entry (listobj.h). The 0x11 byte alone covers every
+    // value type, so the MethodSpec FULL NAME (System.Guid) is the authority.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ToList_Guid_MapsToBoxedGuid()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericNamedArg("ToList",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x1C, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            ns: "System", typeName: "Guid"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_to_list_guid", resolved.CppName);
+        Assert.Equal("System.Collections.Generic.List`1_System.Guid", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // Sum/Min/Max/Average over decimal[] -> the 16-byte decimal kernels
     // (P0LINQ1 D2). ResultKind "dec" is the result-slot ABI marker.
     //--------------------------------------------------------------------------

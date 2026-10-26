@@ -233,6 +233,7 @@ public static partial class MethodRefResolver
         var decElem = objElemSuffix == "System.Decimal";
         var dtElem = objElemSuffix == "System.DateTime";
         var tsElem = objElemSuffix == "System.TimeSpan";
+        var guidElem = objElemSuffix == "System.Guid";
         TypeDef? structElemDef = null;
         string? structElemCpp = null;
         if (objElemSuffix != null && objElemSuffix.Contains('.') && TypeEmitter.SessionTypes is { } knownEnumTypes)
@@ -245,7 +246,7 @@ public static partial class MethodRefResolver
                 structElemCpp = TypeEmitter.TypeCppName(structElemDef);
             }
         }
-        var boxedValueElem = decElem || dtElem || tsElem || structElemDef != null;
+        var boxedValueElem = decElem || dtElem || tsElem || guidElem || structElemDef != null;
         // Value-type tuple element: the tracked suffix carries the tuple's
         // closed name; get_Current copies the boxed payload into the caller's
         // struct slot (the same shape as a user-struct element).
@@ -287,6 +288,9 @@ public static partial class MethodRefResolver
                 if (tsElem)
                     return I("il2cpp::il2cpp_list_obj_enumerator_get_current_ts", 0, true, false, true,
                         new[] { "deref:r" }, resultKind: "ts", returnTypeName: "System.TimeSpan");
+                if (guidElem)
+                    return I("il2cpp::il2cpp_list_obj_enumerator_get_current_guid", 0, true, false, true,
+                        new[] { "deref:r" }, resultKind: "guid", returnTypeName: "System.Guid");
                 if (structElemCpp != null)
                     return I($"il2cpp::il2cpp_list_obj_enumerator_get_current_struct_t<{structElemCpp}>", 0, true, false, true,
                         new[] { "deref:r" }, resultKind: "us:" + structElemCpp,

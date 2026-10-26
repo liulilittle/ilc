@@ -97,6 +97,12 @@ public static partial class MethodRefResolver
                 // to icall_object_to_string / icall_object_get_hash_code.
                 if (name == "ToString" && receiverType == "System.TimeSpan" && receiverIsAddress)
                     return I("il2cpp::runtime::icall_timespan_to_string", 0, true, true, true, new[] { "deref:ts" });
+                // boxwire (nullable GN-2 follow-up): Roslyn emits
+                // `callvirt Object::ToString` for the Guid OVERRIDE too (the
+                // TimeSpan arm above is the same shape). Address receivers only
+                // (a BOXED Guid keeps the klass dispatch).
+                if (name == "ToString" && receiverType == "System.Guid" && receiverIsAddress)
+                    return I("il2cpp::il2cpp_guid_to_string", 0, true, true, true, new[] { "g" });
                 if (name == "GetHashCode" && receiverType == "System.TimeSpan" && receiverIsAddress)
                     return I("il2cpp::runtime::icall_timespan_get_hash_code", 0, true, false, true, new[] { "deref:ts" });
                 if (name == "GetHashCode" && receiverType == "System.Version")

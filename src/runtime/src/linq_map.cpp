@@ -2169,6 +2169,33 @@ Il2CppObject* il2cpp_linq_to_list_ts(Il2CppArray* src)
     return list;
 }
 
+// ToList<Guid> -- a 16-byte value element boxed through icall_box_guid (see
+// listobj.h). The Guid element carries no separate image: the array cell and
+// the boxed payload are the same 16 bytes.
+Il2CppObject* il2cpp_linq_to_list_guid(Il2CppArray* src)
+{
+    RequireArray(src);
+    if (src->isRefElem || src->elemSize != static_cast<int32_t>(sizeof(Il2CppGuid)))
+    {
+        il2cpp_throw_not_supported_exception(
+            "ToList<Guid> needs a 16-byte value-element source array.");
+    }
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppGuid elem;
+        std::memcpy(&elem, il2cpp_array_get_elem_ptr(src, i), sizeof(elem));
+        il2cpp_list_obj_add_guid(list, reinterpret_cast<const uint8_t*>(&elem));
+    }
+    return list;
+}
+
 Il2CppObject* il2cpp_linq_to_list_struct(Il2CppArray* src, Il2CppClass* klass,
                                          int32_t payloadSize)
 {

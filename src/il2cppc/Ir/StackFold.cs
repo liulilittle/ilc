@@ -2493,6 +2493,23 @@ public static class StackFold
                     _ => null,
                 };
             }
+            // A callvirt result carries the same value-kind marker (the List<T>
+            // indexer/get_Item arms set ResultKind "dec"/"dt"/"ts"/"guid"), so a
+            // later value-type member call (e.g. `list[0].ToString()`) resolves
+            // with the element's managed type instead of falling back to the
+            // Object default (which would pass the value ADDRESS as an
+            // Il2CppObject*).
+            if (value is VirtualCallExpr vc2 && vc2.ResultKind is string rk2)
+            {
+                return rk2 switch
+                {
+                    "dt" => "System.DateTime",
+                    "ts" => "System.TimeSpan",
+                    "dec" => "System.Decimal",
+                    "guid" => "System.Guid",
+                    _ => null,
+                };
+            }
             // nb9: a call result's MANAGED type (Resolved.ReturnTypeName) must
             // survive a stloc into a local -- the foreach element of a GroupBy
             // result is stored that way, and the per-bucket Count/Sum dispatch

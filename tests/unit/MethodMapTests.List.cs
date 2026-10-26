@@ -546,15 +546,52 @@ public class MethodMapTestsList
     }
 
     [Fact]
-    public void Resolve_List_Add_DottedStructReceiver_StaysLoud()
+    public void Resolve_List_Guid_Add_MapsToBoxedGuid()
     {
-        // p0linq4 (D1): a BCL struct full name that is NOT one of the three
-        // boxed-list families (decimal/DateTime/TimeSpan) still has no
-        // per-type box domain -- it stays LOUD, never silently takes the
-        // reference domain (a raw Guid value is not an Il2CppObject*).
+        // p0linq4 (D1) follow-up: List<Guid> is the remaining 16-byte value
+        // element -- the element is BOXED through icall_box_guid into the
+        // listobj reference array, so Add dispatches to the *_guid forwarder
+        // (the Guid value crosses with the "g" byte-pointer cast).
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
+            "Add", receiverType: "System.Collections.Generic.List`1_System.Guid");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_add_guid", resolved.CppName);
+        Assert.Equal(new[] { "", "g" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_List_Guid_GetItem_MapsToBoxedGuidResultSlot()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "get_Item", Sig(0x20,0x01,0x13,0x00,0x08)),
+            "get_Item", receiverType: "System.Collections.Generic.List`1_System.Guid");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_get_item_guid", resolved.CppName);
+        // the 16-byte Guid cannot ride the return register: the icall writes
+        // through an explicit result slot ("guid" ResultKind).
+        Assert.Equal("guid", resolved.ResultKind);
+        Assert.Equal("System.Guid", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_List_Guid_ToArray_MapsToBoxedGuidArray()
+    {
+        var resolved = ResolveMember(Synthesize("System.Collections.Generic", "List`1", "ToArray", Sig(0x20,0x00,0x1D,0x13,0x00)),
+            "ToArray", receiverType: "System.Collections.Generic.List`1_System.Guid");
+
+        Assert.Equal("il2cpp::il2cpp_list_obj_to_array_guid", resolved.CppName);
+        Assert.Equal("System.Guid[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_List_OtherStructReceiver_StaysLoud()
+    {
+        // A BCL struct full name that is NOT one of the boxed-list families
+        // (decimal/DateTime/TimeSpan/Guid) still has no per-type box domain --
+        // it stays LOUD, never silently takes the reference domain (a raw
+        // struct value is not an Il2CppObject*).
         Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Collections.Generic", "List`1", "Add", Sig(0x20,0x01,0x01,0x13,0x00)),
-                "Add", receiverType: "System.Collections.Generic.List`1_System.Guid"));
+                "Add", receiverType: "System.Collections.Generic.List`1_System.IntPtr"));
     }
 
     //--------------------------------------------------------------------------

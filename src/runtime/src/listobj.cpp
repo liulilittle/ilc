@@ -6,6 +6,7 @@
 #include "il2cpp_value_semantics.h" // runtime::icall_object_equals (IndexOf/Remove equality)
 #include "il2cpp_boxing_ext2.h" // runtime::icall_box_long / icall_unbox_long (G4 Int64 domain)
 #include "il2cpp_boxing_ext.h" // runtime::icall_box_double / icall_unbox_double (G4 Double domain)
+#include "il2cpp_nullable.h"  // runtime::icall_box_guid / icall_unbox_guid (Guid element family)
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -227,6 +228,24 @@ bool il2cpp_list_obj_remove_dec(Il2CppObject* self,const runtime::Il2CppDecimal*
 void il2cpp_list_obj_get_item_dec(runtime::Il2CppDecimal* result,Il2CppObject* self,int32_t idx){ *result = runtime::icall_unbox_decimal(il2cpp_list_obj_get_item(self,idx)); }
 void il2cpp_list_obj_enumerator_get_current_dec(runtime::Il2CppDecimal* result,Il2CppObject* self){ *result = runtime::icall_unbox_decimal(il2cpp_list_obj_enumerator_get_current(self)); }
 Il2CppObject* il2cpp_list_obj_to_array_dec(Il2CppObject* self){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppListObj* l=AsList(self); Il2CppArray* r=il2cpp_array_new(nullptr,sizeof(runtime::Il2CppDecimal),false,l->count); rs.Add(reinterpret_cast<void**>(&r)); l=AsList(self); char* dst=reinterpret_cast<char*>(r->data); Il2CppObject** src=l->items?Slots(l):nullptr; for(int32_t i=0;i<l->count;++i){ const runtime::Il2CppDecimal v=src?runtime::icall_unbox_decimal(src[i]):runtime::Il2CppDecimal(); std::memcpy(dst+static_cast<size_t>(i)*sizeof(runtime::Il2CppDecimal),&v,sizeof(runtime::Il2CppDecimal)); } return reinterpret_cast<Il2CppObject*>(r); }
+
+//------------------------------------------------------------------------------
+// Guid element family (16-byte value cell). The boxed carrier is
+// icall_box_guid (il2cpp_nullable.h); the same BoxedValueEquals scan as the
+// decimal family compares the payload by value, so IndexOf/Contains/Remove
+// reuse the shared listobj scan through the boxed value.
+// GC SAFETY: identical to the decimal family -- 'self' is rooted across the
+// boxing allocation and every read re-derives the slot from the rooted list.
+//------------------------------------------------------------------------------
+void il2cpp_list_obj_add_guid(Il2CppObject* self, const uint8_t* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_guid(reinterpret_cast<const Il2CppGuid*>(v)); il2cpp_list_obj_add(self,b); }
+void il2cpp_list_obj_insert_guid(Il2CppObject* self,int32_t idx,const uint8_t* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_guid(reinterpret_cast<const Il2CppGuid*>(v)); il2cpp_list_obj_insert(self,idx,b); }
+void il2cpp_list_obj_set_item_guid(Il2CppObject* self,int32_t idx,const uint8_t* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_guid(reinterpret_cast<const Il2CppGuid*>(v)); il2cpp_list_obj_set_item(self,idx,b); }
+int32_t il2cpp_list_obj_index_of_guid(Il2CppObject* self,const uint8_t* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_guid(reinterpret_cast<const Il2CppGuid*>(v)); return il2cpp_list_obj_index_of(self,b); }
+bool il2cpp_list_obj_contains_guid(Il2CppObject* self,const uint8_t* v){ return il2cpp_list_obj_index_of_guid(self,v)>=0; }
+bool il2cpp_list_obj_remove_guid(Il2CppObject* self,const uint8_t* v){ ThrowIfNull(self); int32_t idx=il2cpp_list_obj_index_of_guid(self,v); if(idx<0) return false; il2cpp_list_obj_remove_at(self,idx); return true; }
+void il2cpp_list_obj_get_item_guid(Il2CppObject* self,int32_t idx,uint8_t* result){ const Il2CppGuid g=runtime::icall_unbox_guid(il2cpp_list_obj_get_item(self,idx)); std::memcpy(result,&g,sizeof(g)); }
+void il2cpp_list_obj_enumerator_get_current_guid(Il2CppObject* self,uint8_t* result){ const Il2CppGuid g=runtime::icall_unbox_guid(il2cpp_list_obj_enumerator_get_current(self)); std::memcpy(result,&g,sizeof(g)); }
+Il2CppObject* il2cpp_list_obj_to_array_guid(Il2CppObject* self){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppListObj* l=AsList(self); Il2CppArray* r=il2cpp_array_new(nullptr,sizeof(Il2CppGuid),false,l->count); rs.Add(reinterpret_cast<void**>(&r)); l=AsList(self); char* dst=reinterpret_cast<char*>(r->data); Il2CppObject** src=l->items?Slots(l):nullptr; for(int32_t i=0;i<l->count;++i){ const Il2CppGuid g=src?runtime::icall_unbox_guid(src[i]):Il2CppGuid(); std::memcpy(dst+static_cast<size_t>(i)*sizeof(Il2CppGuid),&g,sizeof(Il2CppGuid)); } return reinterpret_cast<Il2CppObject*>(r); }
 
 void il2cpp_list_obj_add_dt(Il2CppObject* self, runtime::Il2CppDateTime v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(runtime::il2cpp_datetime_to_array_bits(v)); il2cpp_list_obj_add(self,b); }
 void il2cpp_list_obj_insert_dt(Il2CppObject* self,int32_t idx,runtime::Il2CppDateTime v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); Il2CppObject* b=runtime::icall_box_long(runtime::il2cpp_datetime_to_array_bits(v)); il2cpp_list_obj_insert(self,idx,b); }
