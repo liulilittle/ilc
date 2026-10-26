@@ -2337,6 +2337,100 @@ void il2cpp_linq_average_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
 }
 
 //------------------------------------------------------------------------------
+// P0LINQ1 (D2) follow-up: the SELECTOR aggregates with a DECIMAL projection
+// (net48 Sum/Min/Max/Average<TSource>(source, Func<TSource,decimal>)) over an
+// INT32 source. The 16-byte decimal result rides an explicit result slot (the
+// decimal T3 contract -- the slot is the FIRST parameter); the selector
+// returns the decimal BY VALUE (the SelectToDecimal callback ABI).
+// GC SAFETY: the delegate and the source are rooted across every callback.
+//------------------------------------------------------------------------------
+typedef runtime::Il2CppDecimal (*SelDecProjFn)(int32_t v);
+typedef runtime::Il2CppDecimal (*SelDecProjThisFn)(Il2CppObject* self, int32_t v);
+
+static runtime::Il2CppDecimal InvokeSelDecProj(Il2CppDelegate* d, int32_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecProjThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecProjFn>(d->methodPtr)(v);
+}
+
+void il2cpp_linq_sum_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelDecProj(d, I4At(src, i));
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+}
+
+void il2cpp_linq_min_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best = InvokeSelDecProj(d, I4At(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelDecProj(d, I4At(src, i));
+        if (runtime::icall_decimal_compare(&elem, &best) < 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_max_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best = InvokeSelDecProj(d, I4At(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelDecProj(d, I4At(src, i));
+        if (runtime::icall_decimal_compare(&elem, &best) > 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireInt32Family(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelDecProj(d, I4At(src, i));
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+    runtime::Il2CppDecimal count;
+    std::memset(&count, 0, sizeof(runtime::Il2CppDecimal));
+    runtime::icall_decimal_ctor_int32(&count, src->length);
+    runtime::icall_decimal_div(result, result, &count);
+}
+
+//------------------------------------------------------------------------------
 // P0LINQ1 (D3) -- Select with TResult = System.Decimal.
 //
 // net48's Select is generic in TResult; decimal is a 16-byte value type, and

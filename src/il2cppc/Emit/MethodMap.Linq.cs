@@ -333,11 +333,27 @@ public static partial class MethodRefResolver
                             _ => I("il2cpp::il2cpp_linq_average_sel_f", 2, true, false, false,
                                 TwoArg, resultKind: "d"),
                         };
+                    case "V:System.Decimal":
+                    case "System.Decimal":
+                        // A DECIMAL projection: the 16-byte result rides an
+                        // explicit result slot (the decimal T3 contract --
+                        // ResultKind "dec" prepends it).
+                        return name switch
+                        {
+                            "Sum" => I("il2cpp::il2cpp_linq_sum_sel_dec", 2, true, false, false,
+                                TwoArg, resultKind: "dec"),
+                            "Min" => I("il2cpp::il2cpp_linq_min_sel_dec", 2, true, false, false,
+                                TwoArg, resultKind: "dec"),
+                            "Max" => I("il2cpp::il2cpp_linq_max_sel_dec", 2, true, false, false,
+                                TwoArg, resultKind: "dec"),
+                            _ => I("il2cpp::il2cpp_linq_average_sel_dec", 2, true, false, false,
+                                TwoArg, resultKind: "dec"),
+                        };
                     default:
                         throw new NotSupportedException(
                             $"Enumerable.{name} with selector projection '{proj}' not wired: " +
-                            "the stage-1 selector-aggregate surface covers int32/int64/double projections " +
-                            "(a decimal projection has no runtime aggregate kernel)");
+                            "the stage-1 selector-aggregate surface covers int32/int64/double/decimal projections " +
+                            "(a float projection is wired below)");
                 }
             }
             return name switch

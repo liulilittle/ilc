@@ -295,6 +295,15 @@ void il2cpp_linq_min_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
 void il2cpp_linq_max_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
 void il2cpp_linq_average_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
 
+// P0LINQ1 (D2) follow-up: the SELECTOR aggregates with a DECIMAL projection
+// (net48 Sum/Min/Max/Average<TSource>(source, Func<TSource,decimal>)) over an
+// INT32 source. The 16-byte decimal result rides an explicit result slot (the
+// decimal T3 contract -- the slot is the FIRST parameter).
+void il2cpp_linq_sum_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_min_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_max_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+
 //------------------------------------------------------------------------------
 // P0LINQ1 (D3) -- Select with TResult = System.Decimal. net48's Select is
 // generic in TResult and decimal is a 16-byte value type, so the selector is

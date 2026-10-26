@@ -1190,6 +1190,18 @@ public class MethodMapTestsLinq
         Assert.Equal("0", resolved.AppendLiterals![0]);
     }
 
+    // The ARRAY-source selector aggregate with a DECIMAL projection (net48
+    // Sum<TSource,decimal>): the same 16-byte result-slot contract.
+    [Fact]
+    public void Resolve_ArrayInt_SumDecimalProjection_MapsToDecimalResultSlotKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericListAggDecimalProjection("Sum", "System.Decimal"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_sum_sel_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
     //--------------------------------------------------------------------------
     // The INDEX overloads over a List<T> (net48 Func<TSource,int,bool> /
     // Func<TSource,int,TResult>): the callback receives the element AND its
