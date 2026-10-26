@@ -792,7 +792,12 @@ public static partial class MethodRefResolver
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                         throw new NotSupportedException(
                             "Enumerable.OrderBy with a (element, index) key selector over a reference-element " +
-                            "source is not wired (the runtime has no index key-selector entry)");
+                            "source is not wired: LOUD whitelist ④ -- net48 has no (element, index) key " +
+                            "selector overload. MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the " +
+                            "net48 Reference Source System.Core/System/Linq/Enumerable.cs list only " +
+                            "OrderBy<TSource,TKey>(IEnumerable<TSource>, Func<TSource,TKey>) and " +
+                            "OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) shape is a " +
+                            ".NET 9 Index() family form (see docs/audit/b5-gaps.md)");
                     string keySuffix = LinqKeyFamilySuffix(genArgs[1]);
                     if (genArgs[1] == 0x0E)
                         throw new NotSupportedException(
@@ -3060,7 +3065,11 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over an int64-element source with an (element, index) key selector " +
-                        "is not wired (the runtime has no index key-selector entry)");
+                        "is not wired: LOUD whitelist ④ -- net48 has no (element, index) key selector overload. " +
+                        "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
+                        "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
+                        "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
+                        "shape is a .NET 9 Index() family form (see docs/audit/b5-gaps.md)");
                 byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
                 string? keyFam = keyByte switch
                 {
