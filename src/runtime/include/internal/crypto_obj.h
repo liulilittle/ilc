@@ -373,6 +373,10 @@ void icall_hmac_ctor_default(Il2CppObject* self);
 Il2CppObject* icall_hmac_get_key(Il2CppObject* self);
 void icall_hmac_set_key(Il2CppObject* self, Il2CppArray* key);
 Il2CppObject* icall_hmac_compute_hash(Il2CppObject* self, Il2CppArray* data);
+// net48 HashAlgorithm.ComputeHash(byte[], int, int) inherited by HMAC
+// (hashalgorithm.cs:91): same validation order as the hash family.
+Il2CppObject* icall_hmac_compute_hash_range(Il2CppObject* self, Il2CppArray* data,
+                                            int32_t offset, int32_t count);
 void icall_hmac_dispose(Il2CppObject* self);
 Il2CppObject* icall_hmac_get_hash(Il2CppObject* self);
 void icall_hmac_clear(Il2CppObject* self);
@@ -444,6 +448,9 @@ void icall_aes_dispose(Il2CppObject* self);
 //------------------------------------------------------------------------------
 void icall_rng_ctor(Il2CppObject* self);
 void icall_rng_get_bytes(Il2CppObject* self, Il2CppArray* bytes);
+// net48 RandomNumberGenerator.GetBytes(byte[], int, int)
+// (randomnumbergenerator.cs:53): fill the [offset, offset+count) slice.
+void icall_rng_get_bytes_range(Il2CppObject* self, Il2CppArray* bytes, int32_t offset, int32_t count);
 void icall_rng_get_nonzero_bytes(Il2CppObject* self, Il2CppArray* bytes);
 void icall_rng_fill_static(Il2CppArray* bytes);
 void icall_rng_dispose(Il2CppObject* self);

@@ -71,33 +71,58 @@ public class MethodMapBase64Tests
     }
 
     //--------------------------------------------------------------------------
-    // ToBase64String(byte[], Base64FormattingOptions) -- the options overload
-    // has no runtime helper: LOUD, never a silently-wrong emission.
+    // ToBase64String(byte[], int) is NOT a net48 overload (convert.cs:2131,
+    // 2141, 2150, 2156 are the only forms): whitelist 4, LOUD with a
+    // self-identifying message.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Convert_ToBase64StringOptionsOverload_ThrowsLoud()
+    public void Resolve_Convert_ToBase64StringInvalidOverload_ThrowsWhitelistLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveConvert("ToBase64String",
                 new byte[] { 0x00, 0x02, 0x0E, 0x1D, 0x05, 0x08 }));
 
         Assert.Contains("System.Convert::ToBase64String", ex.Message);
-        Assert.Contains("overload", ex.Message);
+        Assert.Contains("whitelist", ex.Message);
+        Assert.Contains("Reference Source", ex.Message);
     }
 
     //--------------------------------------------------------------------------
-    // ToBase64CharArray / FromBase64CharArray -- the char[]-buffer forms of
-    // the same Base64 domain, no runtime helper: LOUD.
+    // ToBase64CharArray(byte[], int, int, char[], int) -- net48 has this
+    // overload (convert.cs:2193) and it is compile-time analyzable: wire the
+    // char[]-buffer encoder instead of LOUD-rejecting it.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Convert_ToBase64CharArray_ThrowsLoud()
+    public void Resolve_Convert_ToBase64CharArray_MapsToCharArrayIcall()
     {
         // int ToBase64CharArray(byte[], int, int, char[], int): 0x08 ret.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveConvert("ToBase64CharArray",
-                new byte[] { 0x00, 0x05, 0x08, 0x1D, 0x05, 0x08, 0x08, 0x1D, 0x03, 0x08 }));
+        var resolved = ResolveConvert("ToBase64CharArray",
+            new byte[] { 0x00, 0x05, 0x08, 0x1D, 0x05, 0x08, 0x08, 0x1D, 0x03, 0x08 });
 
-        Assert.Contains("System.Convert::ToBase64CharArray", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_convert_to_base64_char_array", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(5, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "i", "i", "a", "i" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // ToBase64CharArray(..., Base64FormattingOptions) -- the options overload
+    // (convert.cs:2203): wire the line-break-capable char[]-buffer encoder.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Convert_ToBase64CharArrayOptions_MapsToOptionsIcall()
+    {
+        var resolved = ResolveConvert("ToBase64CharArray",
+            new byte[] { 0x00, 0x06, 0x08, 0x1D, 0x05, 0x08, 0x08, 0x1D, 0x03, 0x08, 0x11, 0x05 });
+
+        Assert.Equal("il2cpp::runtime::il2cpp_convert_to_base64_char_array_options", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(6, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "i", "i", "a", "i", "" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

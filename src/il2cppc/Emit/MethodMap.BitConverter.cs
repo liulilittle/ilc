@@ -82,9 +82,14 @@ public static partial class MethodRefResolver
                         0x0B => I("il2cpp::runtime::il2cpp_bitconverter_get_bytes_uint64", 1, true, true, false, new[] { "q" }),
                         0x0C => I("il2cpp::runtime::il2cpp_bitconverter_get_bytes_single", 1, true, true, false, new[] { "d" }),
                         0x0D => I("il2cpp::runtime::il2cpp_bitconverter_get_bytes_double", 1, true, true, false, new[] { "d" }),
-                        var b => throw new NotSupportedException($"BitConverter.GetBytes param type 0x{b:X2} not wired (net48 10 overloads: bool/char/int16/uint16/int32/uint32/int64/uint64/single/double)"),
+                        var b => throw new NotSupportedException(
+                            $"LOUD whitelist (net48 has no such overload): BitConverter.GetBytes param type 0x{b:X2} -- " +
+                            "net48 has exactly the ten scalar overloads bool/char/int16/uint16/int32/uint32/int64/uint64/" +
+                            "single/double [Reference Source bitconverter.cs:41-150]"),
                     }
-                    : throw new NotSupportedException($"BitConverter.GetBytes overload (arity {ps.Length}) not wired (single-param forms only)");
+                    : throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): BitConverter.GetBytes arity {ps.Length} -- " +
+                        "net48 has the single-param scalar forms only [Reference Source bitconverter.cs:41-150]");
             case "ToBoolean": return MapToT("il2cpp::runtime::il2cpp_bitconverter_to_bool", ps);
             case "ToChar": return MapToT("il2cpp::runtime::il2cpp_bitconverter_to_char", ps);
             case "ToInt16": return MapToT("il2cpp::runtime::il2cpp_bitconverter_to_int16", ps);
@@ -98,11 +103,17 @@ public static partial class MethodRefResolver
             case "SingleToInt32Bits":
                 return ps.Length == 1 && ps[0] == 0x0C
                     ? I("il2cpp::runtime::il2cpp_bitconverter_single_to_int32_bits", 1, true, false, false, new[] { "d" })
-                    : throw new NotSupportedException($"BitConverter.SingleToInt32Bits param type 0x{(ps.Length == 1 ? ps[0] : 0):X2} not wired (float form only)");
+                    : throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): BitConverter.SingleToInt32Bits param type " +
+                        $"0x{(ps.Length == 1 ? ps[0] : 0):X2} -- net48 has no SingleToInt32Bits at all (it is a .NET " +
+                        "Core-only API; the float form is our extension) [Reference Source bitconverter.cs:41-455]");
             case "Int32BitsToSingle":
                 return ps.Length == 1 && ps[0] == 0x08
                     ? I("il2cpp::runtime::il2cpp_bitconverter_int32_bits_to_single", 1, true, false, false, new[] { "i" }, "d")
-                    : throw new NotSupportedException($"BitConverter.Int32BitsToSingle param type 0x{(ps.Length == 1 ? ps[0] : 0):X2} not wired (int32 form only)");
+                    : throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): BitConverter.Int32BitsToSingle param type " +
+                        $"0x{(ps.Length == 1 ? ps[0] : 0):X2} -- net48 has no Int32BitsToSingle at all (it is a .NET " +
+                        "Core-only API; the int32 form is our extension) [Reference Source bitconverter.cs:41-455]");
             case "ToString":
                 // byte[] hex formatter: "AB-CD-EF" uppercase, '-' separated;
                 // empty array -> "" (net48 probe-verified 2026-08-05). The
@@ -127,11 +138,16 @@ public static partial class MethodRefResolver
                     if (ps.Length == 3 && ps[1] == 0x08 && ps[2] == 0x08)
                         return I("il2cpp::runtime::il2cpp_bitconverter_to_hex_string_range", 3, true, true, false, new[] { "a", "i", "i" });
                     throw new NotSupportedException(
-                        $"BitConverter.ToString overload ({ps.Length} arg(s), ps[1]=0x{ps[1]:X2}) not wired (the net48 forms are (byte[]), (byte[], int) and (byte[], int, int))");
+                        $"LOUD whitelist (net48 has no such overload): BitConverter.ToString ({ps.Length} arg(s), " +
+                        $"ps[1]=0x{ps[1]:X2}) -- the net48 forms are (byte[]), (byte[], int) and (byte[], int, int) " +
+                        "[Reference Source bitconverter.cs:361,405,414]");
                 }
                 return ps.Length == 1 && ps[0] == 0x1D
                     ? I("il2cpp::runtime::il2cpp_bitconverter_to_hex_string", 1, true, true, false, new[] { "a" })
-                    : throw new NotSupportedException($"BitConverter.ToString overload (arity {ps.Length}) not wired (single byte[] form only)");
+                    : throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): BitConverter.ToString arity {ps.Length} -- " +
+                        "the net48 forms are (byte[]), (byte[], int) and (byte[], int, int) " +
+                        "[Reference Source bitconverter.cs:361,405,414]");
             case "get_IsLittleEndian":
                 // net48 exposes IsLittleEndian as a static readonly FIELD
                 // (ldsfld, folded to 1 in StackFold), so this property shape
@@ -153,7 +169,11 @@ public static partial class MethodRefResolver
             1 => I(icall, 1, true, false, false, new[] { "a" }, resultKind),
             2 => ps[1] == 0x08
                 ? I(icall + "_offset", 2, true, false, false, new[] { "a", "i" }, resultKind)
-                : throw new NotSupportedException($"BitConverter.ToT startIndex param type 0x{ps[1]:X2} not wired (int32 form only)"),
-            _ => throw new NotSupportedException($"BitConverter.ToT arity {ps.Length} not wired (offset-free and startIndex forms only)"),
+                : throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): BitConverter.ToT startIndex param type " +
+                    $"0x{ps[1]:X2} -- every net48 ToT startIndex is int32 [Reference Source bitconverter.cs:154-337]"),
+            _ => throw new NotSupportedException(
+                $"LOUD whitelist (net48 has no such overload): BitConverter.ToT arity {ps.Length} -- net48 has " +
+                "the (byte[],int) startIndex forms only [Reference Source bitconverter.cs:154-337]"),
         };
 }

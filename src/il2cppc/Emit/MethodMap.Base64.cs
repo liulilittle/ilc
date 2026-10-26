@@ -39,7 +39,10 @@ public static partial class MethodRefResolver
                         new[] { "a", "i", "i", "" });
                 return ps.Length == 1 && ps[0] == 0x1D
                     ? I("il2cpp::runtime::il2cpp_convert_to_base64_string", 1, true, true, false, new[] { "a" })
-                    : throw new NotSupportedException($"Convert.ToBase64String overload (arity {ps.Length}) not wired in M5 (single byte[] form only)");
+                    : throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.ToBase64String arity {ps.Length} -- " +
+                        "net48 forms are (byte[]), (byte[],Base64FormattingOptions), (byte[],int,int) and " +
+                        "(byte[],int,int,Base64FormattingOptions) [Reference Source convert.cs:2131,2141,2150,2156]");
             // FromBase64String(string) -> byte[]: the only overload of this name.
             // ps[0] is the string param (0x0E) -- the SZARRAY-return element
             // byte is now consumed by RawSignature (G2), so ps no longer
@@ -47,16 +50,35 @@ public static partial class MethodRefResolver
             case "FromBase64String":
                 return ps.Length == 1 && ps[0] == 0x0E
                     ? I("il2cpp::runtime::il2cpp_convert_from_base64_string", 1, true, true, false, new[] { "s" })
-                    : throw new NotSupportedException($"Convert.FromBase64String overload (arity {ps.Length}) not wired in M5 (single string form only)");
+                    : throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.FromBase64String arity {ps.Length} -- " +
+                        "net48 has the single string form only [Reference Source convert.cs:2345]");
             // BATCH 8: FromBase64CharArray(char[], int, int) -> byte[].
             case "FromBase64CharArray":
                 return ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
                     ? I("il2cpp::runtime::il2cpp_convert_from_base64_char_array", 3, true, true, false,
                         new[] { "a", "i", "i" })
-                    : throw new NotSupportedException($"Convert.FromBase64CharArray overload (arity {ps.Length}) not wired");
-            // char[]-buffer variants: same Base64 domain, no runtime helper.
+                    : throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Convert.FromBase64CharArray arity {ps.Length} -- " +
+                        "net48 has the (char[],int,int) form only [Reference Source convert.cs:2371]");
+            // char[]-buffer encoder (convert.cs:2193/2203): the int result is
+            // the number of chars written into outArray at offsetOut. Both
+            // net48 overloads are compile-time analyzable and wire to the
+            // runtime char[] encoder (the options form inserts CRLF every 76
+            // output chars).
             case "ToBase64CharArray":
-                throw new NotSupportedException($"Convert.{name} (char[] variant) has no runtime helper on the M5 surface");
+                if (ps.Length == 5 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
+                    && ps[3] == 0x1D && ps[4] == 0x08)
+                    return I("il2cpp::runtime::il2cpp_convert_to_base64_char_array", 5, true, false, false,
+                        new[] { "a", "i", "i", "a", "i" });
+                if (ps.Length == 6 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
+                    && ps[3] == 0x1D && ps[4] == 0x08 && ps[5] is 0x11 or 0x40)
+                    return I("il2cpp::runtime::il2cpp_convert_to_base64_char_array_options", 6, true, false, false,
+                        new[] { "a", "i", "i", "a", "i", "" });
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Convert.ToBase64CharArray arity {ps.Length} -- " +
+                    "net48 forms are (byte[],int,int,char[],int) and (byte[],int,int,char[],int,Base64FormattingOptions) " +
+                    "[Reference Source convert.cs:2193,2203]");
             default: return null;
         }
     }

@@ -499,6 +499,94 @@ public class MethodMapTestsCrypto
     }
 
     //--------------------------------------------------------------------------
+    // net48 HashAlgorithm.ComputeHash(byte[], int, int) is inherited by the
+    // KeyedHashAlgorithm/HMAC family (hashalgorithm.cs:91 -- HMAC only overrides
+    // HashCore/HashFinal/Initialize, hmac.cs:128-157). The range overload is
+    // therefore compile-time analyzable for HMAC and must wire to the shared
+    // HMAC range icall, not a LOUD rejection.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ComputeHash_HmacRangeOverload_MapsToHmacRangeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("HMACSHA256", "ComputeHash",
+            Sig(B(0x1D, 0x08), B(0x1D, 0x08), B(0x08), B(0x08))), "ComputeHash",
+            receiverType: "System.Security.Cryptography.HMACSHA256");
+
+        Assert.Equal("il2cpp::runtime::icall_hmac_compute_hash_range", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "a", "i", "i" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Byte[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_ComputeHash_HmacRangeOverload_ParentOwner_DispatchesFromReceiver()
+    {
+        // callvirt KeyedHashAlgorithm::ComputeHash(byte[], int, int) with an
+        // HMACSHA512 receiver (the parent-owner callvirt shape).
+        var resolved = ResolveMember(Synthesize("KeyedHashAlgorithm", "ComputeHash",
+            Sig(B(0x1D, 0x08), B(0x1D, 0x08), B(0x08), B(0x08))), "ComputeHash",
+            receiverType: "System.Security.Cryptography.HMACSHA512");
+
+        Assert.Equal("il2cpp::runtime::icall_hmac_compute_hash_range", resolved.CppName);
+        Assert.Equal(new[] { "", "a", "i", "i" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // net48 RandomNumberGenerator.GetBytes(byte[], int, int) is a public virtual
+    // method on the parent (randomnumbergenerator.cs:53 -- RNGCryptoServiceProvider
+    // does not override it on desktop net48). Compile-time analyzable: wire the
+    // range fill.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_GetBytes_RangeOverload_MapsToRngGetBytesRange()
+    {
+        var resolved = ResolveMember(Synthesize("RNGCryptoServiceProvider", "GetBytes",
+            Sig(B(0x00), B(0x1D, 0x08), B(0x08), B(0x08))), "GetBytes");
+
+        Assert.Equal("il2cpp::runtime::icall_rng_get_bytes_range", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "a", "i", "i" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // net48 HMACSHA1(byte[] key, bool useManagedSha1) is a public ctor
+    // (hmacsha1.cs:24). The flag only chooses SHA1Managed vs
+    // SHA1CryptoServiceProvider -- both produce standard SHA1, so the flag is
+    // semantically irrelevant and is dropped at the call site.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Ctor_HMACSHA1_UseManagedSha1_MapsToHmacCtor()
+    {
+        var resolved = ResolveMember(Synthesize("HMACSHA1", ".ctor",
+            Sig(B(0x00), B(0x1D, 0x08), B(0x02))), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_hmac_ctor", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "a", "drop" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // Whitelist 4 (net48 has no such overload): GetNonZeroBytes is byte[]-only
+    // (randomnumbergenerator.cs:67), so any other arity must stay LOUD with a
+    // self-identifying whitelist message (never silent, never a guessed map).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_GetNonZeroBytes_NonByteArrayArity_ThrowsWhitelistLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("RNGCryptoServiceProvider", "GetNonZeroBytes",
+                Sig(B(0x00), B(0x1D, 0x08), B(0x08))), "GetNonZeroBytes"));
+
+        Assert.Contains("whitelist", ex.Message);
+        Assert.Contains("Reference Source", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as the resolver)
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName, string? receiverType = null)

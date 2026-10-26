@@ -878,6 +878,46 @@ Il2CppObject* icall_hmac_compute_hash(Il2CppObject* self, Il2CppArray* data)
     return reinterpret_cast<Il2CppObject*>(CloneByteArray(obj->hs.hashValue));
 }
 
+// net48 HashAlgorithm.ComputeHash(byte[], int, int) inherited by HMAC
+// (hashalgorithm.cs:91). Validation order matches the hash family
+// (hashalgorithm.cs:91-111): null -> ArgumentNullException, offset < 0 ->
+// ArgumentOutOfRangeException, count < 0 or out of range -> ArgumentException,
+// THEN the disposed check. The HMAC context is rebuilt from the stored key on
+// every call (no cross-call shared state).
+Il2CppObject* icall_hmac_compute_hash_range(Il2CppObject* self, Il2CppArray* data,
+                                            int32_t offset, int32_t count)
+{
+    if (data == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("buffer");
+    }
+    if (offset < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("offset",
+            "offset and count must specify a range within the data array");
+    }
+    if (count < 0 || count > data->length - offset)
+    {
+        il2cpp_throw_argument_exception(
+            "offset and count must specify a range within the data array");
+    }
+    auto* obj = reinterpret_cast<il2cpp::Il2CppHmacObject*>(self);
+    if (obj->hs.disposed)
+    {
+        ThrowHashDisposed();
+    }
+    const il2cpp::runtime::Il2CppHmacHash* desc = HmacDescriptorOf(obj);
+    il2cpp_hmac_create(&obj->ctx, desc, obj->key->data, static_cast<size_t>(obj->key->length));
+    if (count > 0)
+    {
+        il2cpp_hmac_update(&obj->ctx, data->data + offset, static_cast<size_t>(count));
+    }
+    Il2CppArray* result = il2cpp_array_new(nullptr, 1, false, static_cast<int32_t>(desc->digestSize));
+    il2cpp_hmac_final(&obj->ctx, reinterpret_cast<uint8_t*>(result->data));
+    obj->hs.hashValue = result;
+    return reinterpret_cast<Il2CppObject*>(CloneByteArray(obj->hs.hashValue));
+}
+
 void icall_hmac_dispose(Il2CppObject* self)
 {
     // net48 key clearing + the HashAlgorithm disposed flag: clear the cached
@@ -1403,6 +1443,38 @@ void icall_rng_get_bytes(Il2CppObject*, Il2CppArray* bytes)
         il2cpp_throw_argument_null_exception("data");
     }
     il2cpp_rng_fill(reinterpret_cast<uint8_t*>(bytes->data), static_cast<size_t>(bytes->length));
+}
+
+// net48 RandomNumberGenerator.GetBytes(byte[], int, int)
+// (randomnumbergenerator.cs:53-65): null -> ArgumentNullException; offset < 0
+// or count < 0 -> ArgumentOutOfRangeException; offset+count past the end ->
+// ArgumentException. The base implementation fills a temporary array and copies
+// it into the slice -- filling the slice directly is equivalent.
+void icall_rng_get_bytes_range(Il2CppObject*, Il2CppArray* bytes, int32_t offset, int32_t count)
+{
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("data");
+    }
+    if (offset < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("offset",
+            "Value must be greater than or equal to 0.");
+    }
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count",
+            "Value must be greater than or equal to 0.");
+    }
+    if (count > bytes->length - offset)
+    {
+        il2cpp_throw_argument_exception(
+            "Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+    }
+    if (count > 0)
+    {
+        il2cpp_rng_fill(reinterpret_cast<uint8_t*>(bytes->data) + offset, static_cast<size_t>(count));
+    }
 }
 
 void icall_rng_get_nonzero_bytes(Il2CppObject*, Il2CppArray* bytes)

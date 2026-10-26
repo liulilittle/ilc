@@ -61,17 +61,30 @@ public static partial class MethodRefResolver
         switch (name)
         {
             case "Create":
+                // Whitelist 1 (machine state): Create(string)/Create() on the
+                // abstract parents resolve through CryptoConfig.CreateFromName,
+                // whose answer depends on the machine's crypto configuration
+                // (hashalgorithm.cs:49/53, hmac.cs:120/124,
+                // symmetricalgorithm.cs:217, randomnumbergenerator.cs:33).
                 if (count != 0)
                     throw new NotSupportedException(
-                        "CryptoConfig by-name factories (HashAlgorithm.Create(string)) are not wired " +
-                        "(net48 depends on machine-level crypto config)");
+                        "LOUD whitelist (machine-state/CryptoConfig): Create(string) resolves through " +
+                        "CryptoConfig.CreateFromName (Reference Source hashalgorithm.cs:53, hmac.cs:124) -- " +
+                        "machine-level crypto configuration is not analyzable");
                 if (algo == null)
-                    throw new NotSupportedException($"Create() on owner '{owner}' not wired (concrete algorithm types only)");
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (machine-state/CryptoConfig): Create() on '{owner}' resolves through " +
+                        "CryptoConfig.CreateFromName (Reference Source hashalgorithm.cs:49, " +
+                        "symmetricalgorithm.cs:217) -- the concrete algorithm is machine-configured, " +
+                        "not analyzable");
                 if (algo == "aes")
                     return I("il2cpp::runtime::icall_aes_create", 0, true, true, false,
                         returnTypeName: "System.Security.Cryptography.Aes");
                 if (algo.StartsWith("hmac-", StringComparison.Ordinal) || algo == "rng")
-                    throw new NotSupportedException($"Create() on '{algo}' not wired (use new + ctor instead)");
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (machine-state/CryptoConfig): Create() on '{algo}' resolves through " +
+                        "CryptoConfig (Reference Source hmac.cs:120, randomnumbergenerator.cs:33) -- " +
+                        "not analyzable; use new + ctor for a concrete algorithm");
                 return I($"il2cpp::runtime::icall_{algo}_create", 0, true, true, false,
                     returnTypeName: CryptoAlgoTypeName(algo));
 
@@ -109,7 +122,9 @@ public static partial class MethodRefResolver
                         // break consumers that use the value as an int.
                         return I("il2cpp::runtime::icall_aes_transform_block", 5, true, false, true,
                             new[] { "", "a", "i", "i", "a", "i" }, resultKind: "i");
-                    throw new NotSupportedException("Aes incremental block streaming (TransformBlock) overload not wired (v2)");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (net48 has no such overload): ICryptoTransform.TransformBlock is only " +
+                        "(byte[],int,int,byte[],int) [Reference Source icryptotransform.cs:40]");
                 }
                 // The HASH family implements ICryptoTransform on HashAlgorithm /
                 // KeyedHashAlgorithm (hashalgorithm.cs): TransformBlock feeds the
@@ -122,7 +137,9 @@ public static partial class MethodRefResolver
                 if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
                     return I($"il2cpp::runtime::icall_{algo}_transform_block", 5, true, true, true,
                         new[] { "", "a", "i", "i", "a", "i" }, resultKind: "i");
-                throw new NotSupportedException($"HashAlgorithm.TransformBlock on '{algo}' not wired");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such member): '{algo}' is not a HashAlgorithm, so it has " +
+                    "no TransformBlock [Reference Source hashalgorithm.cs:133]");
 
             case "TransformFinalBlock":
                 if (owner == "System.Security.Cryptography.ICryptoTransform")
@@ -130,7 +147,9 @@ public static partial class MethodRefResolver
                     if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                         return I("il2cpp::runtime::icall_aes_transform_final_block", 3, true, true, true,
                             new[] { "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
-                    throw new NotSupportedException("Aes incremental block streaming (TransformFinalBlock) is not wired (v2)");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (net48 has no such overload): ICryptoTransform.TransformFinalBlock is only " +
+                        "(byte[],int,int) [Reference Source icryptotransform.cs:46]");
                 }
                 if (algo == null) return null;
                 if (algo.StartsWith("hmac-", StringComparison.Ordinal))
@@ -139,7 +158,9 @@ public static partial class MethodRefResolver
                 if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
                     return I($"il2cpp::runtime::icall_{algo}_transform_final_block", 3, true, true, true,
                         new[] { "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
-                throw new NotSupportedException($"HashAlgorithm.TransformFinalBlock on '{algo}' not wired");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such member): '{algo}' is not a HashAlgorithm, so it has " +
+                    "no TransformFinalBlock [Reference Source hashalgorithm.cs:156]");
 
             case "get_HashSize":
                 // HashAlgorithm.HashSize: the digest size in BITS (net48
@@ -198,13 +219,17 @@ public static partial class MethodRefResolver
                     // else clone). HMAC has no IV -- a set_IV/get_IV here is
                     // unwireable, not silent.
                     if (name is not ("set_Key" or "get_Key"))
-                        throw new NotSupportedException($"HMAC {name} is not wired (HMAC has no IV)");
+                        throw new NotSupportedException(
+                            $"LOUD whitelist (net48 has no such member): HMAC {name} -- HMAC exposes Key " +
+                            "only, no IV [Reference Source hmac.cs:93]");
                     return name == "get_Key"
                         ? I("il2cpp::runtime::icall_hmac_get_key", 0, true, true, true, new[] { "" },
                             returnTypeName: "System.Byte[]")
                         : count == 1 && ps[0] == 0x1D
                             ? I("il2cpp::runtime::icall_hmac_set_key", 1, false, false, true, new[] { "", "a" })
-                            : throw new NotSupportedException($"HMAC {name} overload (arity {count}) not wired");
+                            : throw new NotSupportedException(
+                                $"LOUD whitelist (net48 has no such overload): HMAC {name} arity {count} -- " +
+                                "the Key property is 0-arg get / 1-arg set only [Reference Source hmac.cs:93]");
                 }
                 if (algo != "aes") return null;
                 return name switch
@@ -219,7 +244,9 @@ public static partial class MethodRefResolver
                     "get_IV" when count == 0 =>
                         I("il2cpp::runtime::icall_aes_get_iv", 0, true, true, true, new[] { "" },
                             returnTypeName: "System.Byte[]"),
-                    _ => throw new NotSupportedException($"Aes {name} overload (arity {count}) not wired"),
+                    _ => throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Aes {name} arity {count} -- " +
+                        "Key/IV are 0-arg get / 1-arg set only [Reference Source symmetricalgorithm.cs:118,133]"),
                 };
 
             case "CreateEncryptor":
@@ -240,7 +267,9 @@ public static partial class MethodRefResolver
                             : "il2cpp::runtime::icall_aes_create_decryptor_self",
                         0, true, true, true, new[] { "" },
                         returnTypeName: "System.Security.Cryptography.AesTransform");
-                throw new NotSupportedException($"Aes {name} overload (arity {count}) not wired");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Aes {name} arity {count} -- net48 has " +
+                    "only () and (byte[],byte[]) [Reference Source symmetricalgorithm.cs:227,231,233,237]");
 
             case "GenerateKey":
             case "GenerateIV":
@@ -262,15 +291,24 @@ public static partial class MethodRefResolver
                 if (algo != "rng") return null;
                 if (count == 1 && ps[0] == 0x1D)
                     return I("il2cpp::runtime::icall_rng_get_bytes", 1, false, false, true, new[] { "", "a" });
+                // net48 RandomNumberGenerator.GetBytes(byte[], int, int)
+                // (randomnumbergenerator.cs:53): a public virtual parent method
+                // that RNGCryptoServiceProvider does not override on desktop --
+                // compile-time analyzable, so wire the range fill.
+                if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                    return I("il2cpp::runtime::icall_rng_get_bytes_range", 3, false, false, true,
+                        new[] { "", "a", "i", "i" });
                 throw new NotSupportedException(
-                    $"RNGCryptoServiceProvider.GetBytes overload (arity {count}) not wired (net48 has the byte[] form only)");
+                    $"LOUD whitelist (net48 has no such overload): GetBytes arity {count} -- net48 has only " +
+                    "GetBytes(byte[]) and GetBytes(byte[],int,int) [Reference Source randomnumbergenerator.cs:51,53]");
 
             case "GetNonZeroBytes":
                 if (algo != "rng") return null;
                 if (count == 1 && ps[0] == 0x1D)
                     return I("il2cpp::runtime::icall_rng_get_nonzero_bytes", 1, false, false, true, new[] { "", "a" });
                 throw new NotSupportedException(
-                    $"RNGCryptoServiceProvider.GetNonZeroBytes overload (arity {count}) not wired (net48 has the byte[] form only)");
+                    $"LOUD whitelist (net48 has no such overload): GetNonZeroBytes arity {count} -- net48 has " +
+                    "the byte[] form only [Reference Source randomnumbergenerator.cs:67]");
 
             case "Fill":
                 if (algo != "rng") return null;
@@ -351,22 +389,36 @@ public static partial class MethodRefResolver
             if (count == 1 && (ps[0] == 0x0E || ps[0] == 0x1D || ps[0] == 0x12))
                 return I("il2cpp::runtime::icall_rng_ctor", 1, false, false, true, new[] { "", "drop" });
             throw new NotSupportedException(
-                $"RNGCryptoServiceProvider ctor with {count} param(s) not wired (net48 has the parameterless / string / byte[] / CspParameters forms only)");
+                $"LOUD whitelist (net48 has no such overload): RNGCryptoServiceProvider ctor with {count} " +
+                "param(s) -- net48 has only (), (string), (byte[]) and (CspParameters) " +
+                "[Reference Source rngcryptoserviceprovider.cs:43,49,51,54]");
         }
         if (algo == "aes") return null; // Aes is abstract -- no direct ctor
         if (algo.StartsWith("hmac-", StringComparison.Ordinal))
         {
             if (count == 1 && ps[0] == 0x1D)
                 return I("il2cpp::runtime::icall_hmac_ctor", 1, false, false, true, new[] { "", "a" });
+            // net48 HMACSHA1(byte[] key, bool useManagedSha1) (hmacsha1.cs:24):
+            // the flag only selects SHA1Managed vs SHA1CryptoServiceProvider;
+            // both produce standard SHA1, so the HMAC digest is identical and
+            // the flag is dropped. The key normalization is the shared ctor.
+            if (count == 2 && algo == "hmac-sha1" && ps[0] == 0x1D && ps[1] == 0x02)
+                return I("il2cpp::runtime::icall_hmac_ctor", 2, false, false, true, new[] { "", "a", "drop" });
             // net48 HMACSHAx() : this(Utils.GenerateRandom(BlockSizeValue))
             // -- a fresh CSPRNG key of the algorithm's block size.
             if (count == 0)
                 return I("il2cpp::runtime::icall_hmac_ctor_default", 0, false, false, true);
-            throw new NotSupportedException($"HMACSHAx ctor with {count} param(s) not wired");
+            throw new NotSupportedException(
+                $"LOUD whitelist (net48 has no such overload): HMACSHAx ctor with {count} param(s) -- " +
+                "net48 has () and (byte[]), plus HMACSHA1(byte[],bool) " +
+                "[Reference Source hmacsha1.cs:20,22,24; hmacsha256.cs:15,17]");
         }
         if (count == 0)
             return I($"il2cpp::runtime::icall_{algo}_ctor", 0, false, false, true);
-        throw new NotSupportedException($"HashAlgorithm ctor with {count} param(s) not wired");
+        throw new NotSupportedException(
+            $"LOUD whitelist (net48 has no such overload): HashAlgorithm ctor with {count} param(s) -- " +
+            "every net48 concrete hash algorithm has a parameterless ctor only " +
+            "[Reference Source md5.cs:20; sha256managed.cs:33]");
     }
 
     private static ResolvedMethod CryptoComputeHash(string algo, byte[] ps, int count)
@@ -375,9 +427,14 @@ public static partial class MethodRefResolver
         if (count == 1 && ps[0] == 0x1D)
             return I(hmac ? "il2cpp::runtime::icall_hmac_compute_hash" : $"il2cpp::runtime::icall_{algo}_compute_hash",
                 1, true, true, true, new[] { "", "a" }, returnTypeName: "System.Byte[]");
-        if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08 && !hmac)
-            return I($"il2cpp::runtime::icall_{algo}_compute_hash_range", 3, true, true, true,
-                new[] { "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
+        if (count == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+        {
+            // net48 HashAlgorithm.ComputeHash(byte[], int, int) is inherited by
+            // KeyedHashAlgorithm/HMAC (hashalgorithm.cs:91; HMAC overrides only
+            // HashCore/HashFinal/Initialize, hmac.cs:128-157) -- analyzable.
+            return I(hmac ? "il2cpp::runtime::icall_hmac_compute_hash_range" : $"il2cpp::runtime::icall_{algo}_compute_hash_range",
+                3, true, true, true, new[] { "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
+        }
         if (count == 1 && ps[0] == 0x12)
         {
             // ComputeHash(Stream): the 4096-byte chunked read loop (net48).
@@ -389,9 +446,13 @@ public static partial class MethodRefResolver
             if (algo is "md5" or "sha1" or "sha256" or "sha384" or "sha512")
                 return I($"il2cpp::runtime::icall_{algo}_compute_hash_stream", 1, true, true, true,
                     new[] { "", "" }, returnTypeName: "System.Byte[]");
-            throw new NotSupportedException($"ComputeHash(Stream) on '{algo}' not wired");
+            throw new NotSupportedException(
+                $"LOUD whitelist (net48 has no such member): ComputeHash(Stream) on '{algo}' -- only " +
+                "HashAlgorithm defines it [Reference Source hashalgorithm.cs:57]");
         }
         throw new NotSupportedException(
-            $"ComputeHash overload (arity {count}, param 0x{(count > 0 ? ps[0] : 0):X2}) not wired");
+            $"LOUD whitelist (net48 has no such overload): ComputeHash arity {count} " +
+            $"(param 0x{(count > 0 ? ps[0] : 0):X2}) -- net48 has ComputeHash(Stream), ComputeHash(byte[]) " +
+            "and ComputeHash(byte[],int,int) [Reference Source hashalgorithm.cs:57,77,91]");
     }
 }

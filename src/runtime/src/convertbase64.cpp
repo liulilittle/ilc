@@ -88,55 +88,100 @@ void ThrowBase64Range(const char* paramName)
         "Offset and length were out of bounds for the array or the length is greater than the number of elements from the index to the end of the source collection.");
 }
 
+// Exact net48 output length (ToBase64_CalculateAndValidateOutputLength,
+// convert.cs:2315): 4 chars per 3-byte quantum (rounded up) plus one CRLF per
+// complete 76-char line. No trailing CRLF when the output is an exact multiple
+// of 76.
+int32_t Base64OutputLength(int32_t length, bool lineBreaks)
+{
+    int64_t outLen = (static_cast<int64_t>(length) / 3) * 4;
+    outLen += (length % 3 != 0) ? 4 : 0;
+    if (outLen == 0)
+    {
+        return 0;
+    }
+    if (lineBreaks)
+    {
+        int64_t newLines = outLen / 76;
+        if ((outLen % 76) == 0)
+        {
+            --newLines;
+        }
+        outLen += newLines * 2;
+    }
+    return static_cast<int32_t>(outLen);
+}
+
+// Faithful port of Convert.ConvertToBase64Array (convert.cs:2258-2313): write
+// the RFC 4648 encoding of [offset, offset+length) into 'out' and return the
+// number of chars written. The CRLF insertion points match net48 exactly (a
+// break is emitted BEFORE the quantum that would start line 77, including a
+// final partial quantum).
+int32_t EncodeBase64Core(Il2CppArray* bytes, int32_t offset, int32_t length, bool lineBreaks, char16_t* out)
+{
+    const int32_t lengthmod3 = length % 3;
+    const int32_t calcLength = offset + (length - lengthmod3);
+    int32_t j = 0;
+    int32_t charcount = 0;
+    int32_t i;
+    for (i = offset; i < calcLength; i += 3)
+    {
+        if (lineBreaks)
+        {
+            if (charcount == 76)
+            {
+                out[j++] = u'\r';
+                out[j++] = u'\n';
+                charcount = 0;
+            }
+            charcount += 4;
+        }
+        out[j] = static_cast<char16_t>(kBase64Alphabet[(ByteAt(bytes, i) & 0xfc) >> 2]);
+        out[j + 1] = static_cast<char16_t>(kBase64Alphabet[((ByteAt(bytes, i) & 0x03) << 4)
+                                                          | ((ByteAt(bytes, i + 1) & 0xf0) >> 4)]);
+        out[j + 2] = static_cast<char16_t>(kBase64Alphabet[((ByteAt(bytes, i + 1) & 0x0f) << 2)
+                                                          | ((ByteAt(bytes, i + 2) & 0xc0) >> 6)]);
+        out[j + 3] = static_cast<char16_t>(kBase64Alphabet[ByteAt(bytes, i + 2) & 0x3f]);
+        j += 4;
+    }
+    i = calcLength;
+    if (lineBreaks && (lengthmod3 != 0) && (charcount == 76))
+    {
+        out[j++] = u'\r';
+        out[j++] = u'\n';
+    }
+    switch (lengthmod3)
+    {
+        case 2:
+            out[j] = static_cast<char16_t>(kBase64Alphabet[(ByteAt(bytes, i) & 0xfc) >> 2]);
+            out[j + 1] = static_cast<char16_t>(kBase64Alphabet[((ByteAt(bytes, i) & 0x03) << 4)
+                                                              | ((ByteAt(bytes, i + 1) & 0xf0) >> 4)]);
+            out[j + 2] = static_cast<char16_t>(kBase64Alphabet[(ByteAt(bytes, i + 1) & 0x0f) << 2]);
+            out[j + 3] = u'=';
+            j += 4;
+            break;
+        case 1:
+            out[j] = static_cast<char16_t>(kBase64Alphabet[(ByteAt(bytes, i) & 0xfc) >> 2]);
+            out[j + 1] = static_cast<char16_t>(kBase64Alphabet[(ByteAt(bytes, i) & 0x03) << 4]);
+            out[j + 2] = u'=';
+            out[j + 3] = u'=';
+            j += 4;
+            break;
+        default:
+            break;
+    }
+    return j;
+}
+
 // Core encoder over the byte range [offset, offset+length) of 'bytes'.
 // When 'lineBreaks' is true a CRLF is inserted every 76 output characters
 // (net48 Base64FormattingOptions.InsertLineBreaks).
 Il2CppString* EncodeBase64Range(Il2CppArray* bytes, int32_t offset, int32_t length, bool lineBreaks)
 {
-    const int32_t outLen = ((length + 2) / 3) * 4;
-    const int32_t breaks = lineBreaks ? (outLen + 75) / 76 : 0;
-    std::vector<char16_t> buf(static_cast<size_t>(outLen) + static_cast<size_t>(breaks) * 2);
-
-    int32_t i = 0;
-    int32_t o = 0;
-    int32_t line = 0;
-    while (i + 2 < length)
-    {
-        const uint32_t v = (static_cast<uint32_t>(ByteAt(bytes, offset + i)) << 16)
-                         | (static_cast<uint32_t>(ByteAt(bytes, offset + i + 1)) << 8)
-                         | static_cast<uint32_t>(ByteAt(bytes, offset + i + 2));
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 18) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 12) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 6) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[v & 63]);
-        i += 3;
-        line += 4;
-        if (lineBreaks && line == 76 && i < length)
-        {
-            buf[static_cast<size_t>(o++)] = u'\r';
-            buf[static_cast<size_t>(o++)] = u'\n';
-            line = 0;
-        }
-    }
-    const int32_t rem = length - i;
-    if (rem == 1)
-    {
-        const uint32_t v = static_cast<uint32_t>(ByteAt(bytes, offset + i)) << 16;
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 18) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 12) & 63]);
-        buf[static_cast<size_t>(o++)] = u'=';
-        buf[static_cast<size_t>(o++)] = u'=';
-    }
-    else if (rem == 2)
-    {
-        const uint32_t v = (static_cast<uint32_t>(ByteAt(bytes, offset + i)) << 16)
-                         | (static_cast<uint32_t>(ByteAt(bytes, offset + i + 1)) << 8);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 18) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 12) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 6) & 63]);
-        buf[static_cast<size_t>(o++)] = u'=';
-    }
-    return il2cpp_string_new(buf.data(), o);
+    const int32_t outLen = Base64OutputLength(length, lineBreaks);
+    std::vector<char16_t> buf(static_cast<size_t>(outLen));
+    const int32_t written = EncodeBase64Core(bytes, offset, length, lineBreaks, buf.data());
+    return il2cpp_string_new(buf.data(), written);
 }
 
 // Validate the (offset, length) pair against the array length (net48 contract).
@@ -210,6 +255,66 @@ Il2CppString* il2cpp_convert_to_base64_string_range_options(Il2CppArray* bytes, 
     }
     ValidateRange(bytes, offset, length, "offset", "length");
     return EncodeBase64Range(bytes, offset, length, options == 1);
+}
+
+//------------------------------------------------------------------------------
+// Convert.ToBase64CharArray(byte[], int, int, char[], int[, options]) --
+// net48 validation order (convert.cs:2203-2255): inArray null, outArray null,
+// negative length/offsetIn/offsetOut, invalid options, offsetIn past the end,
+// then (after the empty-input early return) the offsetOut capacity check.
+// The encoder is the same ConvertToBase64Array port the string form uses.
+//------------------------------------------------------------------------------
+int32_t il2cpp_convert_to_base64_char_array_options(Il2CppArray* bytes, int32_t offsetIn, int32_t length,
+                                                    Il2CppArray* outChars, int32_t offsetOut, int32_t options)
+{
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("inArray");
+    }
+    if (outChars == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("outArray");
+    }
+    if (length < 0)
+    {
+        ThrowOutOfRange("length");
+    }
+    if (offsetIn < 0)
+    {
+        ThrowOutOfRange("offsetIn");
+    }
+    if (offsetOut < 0)
+    {
+        ThrowOutOfRange("offsetOut");
+    }
+    if (options != 0 && options != 1)
+    {
+        il2cpp_throw_argument_exception("The options parameter must be None or InsertLineBreaks.");
+    }
+    const int32_t inLength = il2cpp_array_get_length(bytes);
+    if (offsetIn > inLength - length)
+    {
+        ThrowBase64Range("offsetIn");
+    }
+    if (inLength == 0)
+    {
+        return 0;
+    }
+    const bool lineBreaks = (options == 1);
+    const int32_t needed = Base64OutputLength(length, lineBreaks);
+    const int32_t outLength = il2cpp_array_get_length(outChars);
+    if (offsetOut > outLength - needed)
+    {
+        ThrowBase64Range("offsetOut");
+    }
+    char16_t* dst = reinterpret_cast<char16_t*>(il2cpp_array_get_elem_ptr(outChars, offsetOut));
+    return EncodeBase64Core(bytes, offsetIn, length, lineBreaks, dst);
+}
+
+int32_t il2cpp_convert_to_base64_char_array(Il2CppArray* bytes, int32_t offsetIn, int32_t length,
+                                            Il2CppArray* outChars, int32_t offsetOut)
+{
+    return il2cpp_convert_to_base64_char_array_options(bytes, offsetIn, length, outChars, offsetOut, 0);
 }
 
 //------------------------------------------------------------------------------

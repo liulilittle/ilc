@@ -49,4 +49,15 @@ Il2CppString* il2cpp_convert_to_base64_string_options(Il2CppArray* bytes, int32_
 Il2CppString* il2cpp_convert_to_base64_string_range_options(Il2CppArray* bytes, int32_t offset, int32_t length, int32_t options);
 Il2CppArray* il2cpp_convert_from_base64_char_array(Il2CppArray* chars, int32_t offset, int32_t length);
 
+// Convert.ToBase64CharArray(byte[], int, int, char[], int) and the
+// Base64FormattingOptions overload (convert.cs:2193/2203): encode the byte
+// range into outChars at offsetOut and return the number of chars written.
+// Both arrays are validated in net48 order (inArray/outArray null, negative
+// length/offsetIn/offsetOut, invalid options, offsetIn past the end, then --
+// after the empty-input early return -- offsetOut capacity).
+int32_t il2cpp_convert_to_base64_char_array(Il2CppArray* bytes, int32_t offsetIn, int32_t length,
+                                            Il2CppArray* outChars, int32_t offsetOut);
+int32_t il2cpp_convert_to_base64_char_array_options(Il2CppArray* bytes, int32_t offsetIn, int32_t length,
+                                                    Il2CppArray* outChars, int32_t offsetOut, int32_t options);
+
 }} // namespace il2cpp::runtime

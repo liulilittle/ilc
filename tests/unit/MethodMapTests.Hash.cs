@@ -133,6 +133,41 @@ public class MethodMapTestsHash
     }
 
     //--------------------------------------------------------------------------
+    // MethodMap.Hash.cs is the SUPERSEDED T1 mapper (TryMapCrypto owns every
+    // hash owner in the dispatch). It must nevertheless not LOUD-reject the
+    // net48 HashAlgorithm overloads that the T4 object layer implements --
+    // the file delegates to TryMapCrypto so the two mappings can never drift
+    // (range: hashalgorithm.cs:91; stream: hashalgorithm.cs:57).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void TryMapHash_DelegatesToCryptoObjectLayer_ForRangeAndStreamOverloads()
+    {
+        var mapper = typeof(MethodRefResolver).GetMethod("TryMapHash",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(mapper);
+
+        // byte[] ComputeHash(byte[], int, int) on an SHA512 receiver.
+        var range = (ResolvedMethod?)mapper!.Invoke(null, new object?[]
+        {
+            "System.Security.Cryptography.HashAlgorithm", "ComputeHash",
+            new byte[] { 0x1D, 0x08, 0x08 }, 3, null,
+            "System.Security.Cryptography.SHA512", false, null, null
+        });
+        Assert.NotNull(range);
+        Assert.Equal("il2cpp::runtime::icall_sha512_compute_hash_range", range!.CppName);
+
+        // byte[] ComputeHash(Stream) on an SHA384 receiver.
+        var stream = (ResolvedMethod?)mapper.Invoke(null, new object?[]
+        {
+            "System.Security.Cryptography.HashAlgorithm", "ComputeHash",
+            new byte[] { 0x12 }, 1, null,
+            "System.Security.Cryptography.SHA384", false, null, null
+        });
+        Assert.NotNull(stream);
+        Assert.Equal("il2cpp::runtime::icall_sha384_compute_hash_stream", stream!.CppName);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as the resolver)
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName, string? receiverType = null)

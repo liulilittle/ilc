@@ -117,6 +117,8 @@ public class MethodMapBitConverterTests
                 new byte[] { 0x00, 0x03, 0x08, 0x1D, 0x05, 0x08, 0x08 }), "ToInt32"));
 
         Assert.Contains("arity 3", ex.Message);
+        Assert.Contains("whitelist", ex.Message);
+        Assert.Contains("Reference Source", ex.Message);
     }
 
     [Fact]
@@ -128,6 +130,8 @@ public class MethodMapBitConverterTests
                 new byte[] { 0x00, 0x02, 0x08, 0x1D, 0x05, 0x0A }), "ToInt32"));
 
         Assert.Contains("startIndex", ex.Message);
+        Assert.Contains("whitelist", ex.Message);
+        Assert.Contains("Reference Source", ex.Message);
     }
 
     //--------------------------------------------------------------------------
