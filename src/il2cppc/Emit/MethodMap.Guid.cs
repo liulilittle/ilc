@@ -60,7 +60,13 @@ public static partial class MethodRefResolver
                 // managed string ("s" cast), null behaves as "D".
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_guid_to_string_format", 1, true, true, true, new[] { "g", "s" });
-                throw new NotSupportedException("ToString(format) not wired: only the 0-arg and string-format shapes exist");
+                // net48 Guid.ToString(string format, IFormatProvider provider):
+                // the provider is dropped at emission (the runtime format
+                // family is invariant-culture only -- the DateTime/
+                // ParseExact provider-drop precedent).
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x12)
+                    return I("il2cpp::il2cpp_guid_to_string_format", 2, true, true, true, new[] { "g", "s", "drop" });
+                throw new NotSupportedException("ToString(format) not wired: only the 0-arg, (string) and (string, IFormatProvider) shapes exist");
             // static Guid Parse(string): the runtime STRICT parse wrapper
             // (il2cpp_guid_parse_strict) throws ArgumentNullException on a
             // null string and FormatException on any other invalid input --

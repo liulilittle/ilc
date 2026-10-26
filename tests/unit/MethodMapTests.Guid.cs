@@ -36,7 +36,8 @@ using Xunit;
 //
 // Known-unwireable overloads reject LOUDLY (NotSupportedException with the
 // "{owner}::{name}" prefix -- see BclResolve's wrap):
-//   * ToString(format)       -- guid.h implements the "D" form only.
+//   * ToString(string, IFormatProvider) -- the provider is dropped
+//     (invariant-culture only); guid.h implements the N/D/B/P/X form only.
 //   * Equals(object)/CompareTo(object) -- boxed Guids have no box class.
 //   * .ctor(byte[])          -- guid.h has no from-bytes icall.
 //
@@ -94,6 +95,22 @@ public class MethodMapGuidTests
         var resolved = ResolveMember(Synthesize("System", "Guid", "ToString", Sig(0x0E, 0x0E)), "ToString");
 
         Assert.Equal("il2cpp::il2cpp_guid_to_string_format", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_Guid_ToStringFormatProvider_MapsToFormatIcallDroppingProvider()
+    {
+        // net48 Guid.ToString(string format, IFormatProvider provider): the
+        // provider is dropped at emission (invariant-culture only). The
+        // IFormatProvider param is CLASS (0x12) + coded-index byte.
+        var resolved = ResolveMember(Synthesize("System", "Guid", "ToString",
+            new byte[] { 0x00, 0x02, 0x0E, 0x0E, 0x12, 0x05 }), "ToString");
+
+        Assert.Equal("il2cpp::il2cpp_guid_to_string_format", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "g", "s", "drop" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

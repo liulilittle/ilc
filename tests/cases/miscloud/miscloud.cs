@@ -47,6 +47,9 @@ namespace Cases
             }
             Guid g = new Guid(bytes);
             Console.WriteLine("guid.ctor=" + g.ToString());
+            // net48 ToString(string, IFormatProvider): the provider is dropped
+            // (invariant-culture only).
+            Console.WriteLine("guid.fmtprov=" + g.ToString("N", System.Globalization.CultureInfo.InvariantCulture));
 
             Guid z = new Guid(new byte[16]);
             Console.WriteLine("guid.zero=" + z.ToString());
