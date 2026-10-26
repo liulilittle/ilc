@@ -490,6 +490,19 @@ int32_t InvokeSelDecI4(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
         : reinterpret_cast<SelDecI4Fn>(d->methodPtr)(v);
 }
 
+// p0grp: the decimal-source selector returning a REFERENCE result (the
+// Func<System.Decimal,TElement> element-selector shape with a reference
+// TElement).
+typedef Il2CppObject* (*SelDecRefFn)(runtime::Il2CppDecimal);
+typedef Il2CppObject* (*SelDecRefThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+
+Il2CppObject* InvokeSelDecRef(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecRefThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecRefFn>(d->methodPtr)(v);
+}
+
 // BATCH4: the wide-key selector ABIs over a DECIMAL source element (the
 // Func<System.Decimal,TKey> shape, TKey wider than the int32 slot). The key
 // returns BY VALUE in its own family slot (the same by-value convention as the
@@ -3715,7 +3728,9 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     // I4At. The bucket storage for both is the Ref family when the source is a
     // reference array (the element selector projects a reference).
     const bool refSource = src->isRefElem != 0;
+    const bool decimalSource = !refSource && src->elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDecimal));
     if (refSource) RequireRefFamily(src);
+    else if (decimalSource) RequireDecimalFamily(src);
     else RequireInt32Family(src);
     if (elemSel == nullptr && cmp == nullptr)
     {
@@ -3758,9 +3773,11 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
 
     for (int32_t i = 0; i < src->length; ++i)
     {
-        // p0grp: a reference source element crosses as Il2CppObject*; an int32
-        // source element as the 4-byte cell value.
-        const int32_t v = refSource ? 0 : I4At(src, i);
+        // p0grp: a reference source element crosses as Il2CppObject*; a decimal
+        // source element as the 16-byte value struct; an int32 source element as
+        // the 4-byte cell value.
+        const int32_t v = (refSource || decimalSource) ? 0 : I4At(src, i);
+        const runtime::Il2CppDecimal dv = decimalSource ? *DecAt(src, i) : runtime::Il2CppDecimal();
         srcElem = refSource
             ? *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(src, i))
             : nullptr;
@@ -3772,7 +3789,40 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         // pointers from the rooted result (never caches a raw pointer).
         int64_t keyLo = 0;
         int64_t keyHi = 0;
-        if (refSource)
+        if (decimalSource)
+        {
+            // The decimal-source key selector takes the 16-byte decimal BY
+            // VALUE (the InvokeSelDec* ABIs).
+            switch (keyKind)
+            {
+                case 7: keyLo = InvokeSelDecI8(kd, dv); break;
+                case 8:
+                {
+                    const runtime::Il2CppDecimal k = InvokeSelDecDecKey(kd, dv);
+                    std::memcpy(&keyLo, &k, sizeof(keyLo));
+                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+                    break;
+                }
+                case 9:
+                {
+                    const runtime::Il2CppDateTime k = InvokeSelDecDtKey(kd, dv);
+                    keyLo = k.ticks;
+                    keyHi = k.kind;
+                    break;
+                }
+                case 10:
+                {
+                    const Il2CppGuid k = InvokeSelDecGuidKey(kd, dv);
+                    std::memcpy(&keyLo, &k, sizeof(keyLo));
+                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+                    break;
+                }
+                default:
+                    keyLo = NarrowKey(InvokeSelDecI4(kd, dv), keyKind);
+                    break;
+            }
+        }
+        else if (refSource)
         {
             // The reference-source key selector takes Il2CppObject* (the
             // InvokeSelRef* ABIs).
@@ -3849,7 +3899,19 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         double elemD = 0;
         if (ed != nullptr)
         {
-            if (refSource)
+            if (decimalSource)
+            {
+                // The decimal-source element selector takes the 16-byte decimal
+                // BY VALUE (the InvokeSelDec* ABIs).
+                switch (kind)
+                {
+                    case GroupElemKind::Int32: elemI4 = InvokeSelDecI4(ed, dv); break;
+                    case GroupElemKind::Ref: elemRef = InvokeSelDecRef(ed, dv); break;
+                    case GroupElemKind::I8: elemI8 = InvokeSelDecI8(ed, dv); break;
+                    case GroupElemKind::D: elemD = InvokeSelDecD(ed, dv); break;
+                }
+            }
+            else if (refSource)
             {
                 // The reference-source element selector takes Il2CppObject*.
                 switch (kind)

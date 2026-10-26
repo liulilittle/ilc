@@ -635,21 +635,70 @@ public static partial class MethodRefResolver
                         $"{DescribeRejectedKey(genArgs[1], decKeyName)} " +
                         "has no runtime key carrier yet (see docs/audit/b4-gaps.md)");
                 }
-                if (count != 2)
+                if (count == 2)
                 {
-                    throw new NotSupportedException(
-                        $"Enumerable.GroupBy over a System.Decimal[] source with {count - 2} " +
-                        "additional argument(s) not wired: the decimal-source surface covers the " +
-                        "key-selector-only overload (an element selector / comparer / result " +
-                        "selector over a decimal source has no runtime callback ABI; " +
-                        "see docs/audit/b4-gaps.md)");
+                    return I("il2cpp::il2cpp_linq_group_by_dec_key", 2, true, true, false,
+                        TwoArg, returnTypeName: "System.Linq.IGroupingResult",
+                        appendLiterals: new[]
+                        {
+                            decKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        });
                 }
-                return I("il2cpp::il2cpp_linq_group_by_dec_key", 2, true, true, false,
-                    TwoArg, returnTypeName: "System.Linq.IGroupingResult",
-                    appendLiterals: new[]
+                // count >= 3: an element selector / comparer / result selector.
+                // The runtime BuildGroups reads the decimal source and projects
+                // the element through the InvokeSelDec* ABIs.
+                {
+                    var dParams = LinqEncodedParamTypes(md, sigHandle);
+                    int dElemArg = -1, dCmpArg = -1, dResArg = -1;
+                    for (int pi = 2; pi < dParams.Length; pi++)
                     {
-                        decKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    });
+                        var ddef = GenericDefNameOf(dParams[pi]);
+                        if (ddef == "System.Func`2") dElemArg = pi;
+                        else if (ddef == "System.Func`3") dResArg = pi;
+                        else if (ddef == "System.Collections.Generic.IEqualityComparer`1") dCmpArg = pi;
+                    }
+                    byte? dElemByte = dElemArg >= 0 && genArgs.Length >= 3 ? genArgs[2] : null;
+                    byte? dResByte = dResArg >= 0 && genArgs.Length >= 3
+                        ? (genArgs.Length >= 4 ? genArgs[3] : genArgs[2]) : null;
+                    string DElemFamily(byte b) => b switch
+                    {
+                        0x08 => "0",
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
+                        0x0A or 0x0B => "2",
+                        0x0D => "3",
+                        0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
+                        _ => "",
+                    };
+                    string DResultFamily(byte b) => b switch
+                    {
+                        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                        0x0A or 0x0B => "3",
+                        0x0D => "4",
+                        0x0C => "5",
+                        _ => "2",
+                    };
+                    string dEk = dElemByte is { } deb ? DElemFamily(deb) : "0";
+                    if (dEk.Length == 0)
+                        throw new NotSupportedException(
+                            $"Enumerable.GroupBy TElement '{GenericArgTypeName(dElemByte!.Value)}' " +
+                            "over a System.Decimal source is not a supported element family");
+                    string dRk = dResByte is { } drb ? DResultFamily(drb) : "0";
+                    int dElemIdx = dElemArg >= 0 ? dElemArg : -1;
+                    int dCmpIdx = dCmpArg >= 0 ? dCmpArg : -1;
+                    int dResIdx = dResArg >= 0 ? dResArg : -1;
+                    var dArgOrder = new[] { 0, 1, dElemIdx, dCmpIdx, dResIdx };
+                    var dCasts = new[] { "a", "", "", "", "" };
+                    var dLiterals = new[] { dEk, dRk,
+                        decKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+                    var dRetType = dRk == "0"
+                        ? "System.Linq.IGroupingResult"
+                        : dRk == "1" ? "System.Int32[]"
+                        : dRk == "3" ? "System.Int64[]"
+                        : dRk == "4" ? "System.Double[]"
+                        : dRk == "5" ? "System.Double[]" : "System.Object[]";
+                    return I("il2cpp::il2cpp_linq_group_by_full_key", count, true, true, false, dCasts,
+                        returnTypeName: dRetType, appendLiterals: dLiterals, argOrder: dArgOrder);
+                }
             }
         }
 
