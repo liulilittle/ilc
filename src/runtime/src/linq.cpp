@@ -35,6 +35,9 @@
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
+#include "decimal.h"      // P0LINQ1: runtime::Il2CppDecimal (the zip value result)
+#include "il2cpp_time.h"  // P0LINQ1: runtime::Il2CppDateTime / Il2CppTimeSpan
+#include "guid.h"         // P0LINQ1: Il2CppGuid (the zip value result)
 
 #include <cstdint>
 #include <cstdlib>
@@ -2636,6 +2639,24 @@ void ZipFill(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
             // are the float's own bits (il2cpp_linq_select_wide, resKind 3).
             *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
                 ZipCall<T1, T2, double>(d, a, b);
+        else if (resKind == 13)
+        {
+            // System.Decimal result: the 16-byte struct returned by value.
+            const runtime::Il2CppDecimal r = ZipCall<T1, T2, runtime::Il2CppDecimal>(d, a, b);
+            std::memcpy(il2cpp_array_get_elem_ptr(out, i), &r, sizeof(r));
+        }
+        else if (resKind == 14)
+        {
+            // System.DateTime / System.TimeSpan result: the 8-byte value struct.
+            const runtime::Il2CppDateTime r = ZipCall<T1, T2, runtime::Il2CppDateTime>(d, a, b);
+            std::memcpy(il2cpp_array_get_elem_ptr(out, i), &r, sizeof(r));
+        }
+        else if (resKind == 15)
+        {
+            // System.Guid result: the 16-byte raw guid image.
+            const Il2CppGuid r = ZipCall<T1, T2, Il2CppGuid>(d, a, b);
+            std::memcpy(il2cpp_array_get_elem_ptr(out, i), &r, sizeof(r));
+        }
         else
             // int32 and uint32 share the 4-byte cell (the caller typed it);
             // the uint32 thunk returns uint32_t, ABI-identical to int32_t.
@@ -2700,6 +2721,26 @@ void ZipFillMixed(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
         else if (resKind == 5)
             *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
                 static_cast<int32_t>(ZipCall<T1, T2, uint32_t>(d, a, b));
+        else if (resKind == 13)
+        {
+            // System.Decimal result: the selector returns the 16-byte struct by
+            // value; copy it into the cell (the decimal T3 contract).
+            const runtime::Il2CppDecimal r = ZipCall<T1, T2, runtime::Il2CppDecimal>(d, a, b);
+            std::memcpy(il2cpp_array_get_elem_ptr(out, i), &r, sizeof(r));
+        }
+        else if (resKind == 14)
+        {
+            // System.DateTime / System.TimeSpan result: the 8-byte runtime value
+            // struct returned by value.
+            const runtime::Il2CppDateTime r = ZipCall<T1, T2, runtime::Il2CppDateTime>(d, a, b);
+            std::memcpy(il2cpp_array_get_elem_ptr(out, i), &r, sizeof(r));
+        }
+        else if (resKind == 15)
+        {
+            // System.Guid result: the 16-byte raw guid image returned by value.
+            const Il2CppGuid r = ZipCall<T1, T2, Il2CppGuid>(d, a, b);
+            std::memcpy(il2cpp_array_get_elem_ptr(out, i), &r, sizeof(r));
+        }
         else if (resKind >= 7)
         {
             // A narrow result: the CLR widens a narrow return to the int32
@@ -2732,15 +2773,23 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
     const int32_t n = first->length < second->length ? first->length : second->length;
     int32_t resSize = 4;
     int32_t resElemKind = 1;
+    bool valResult = false; // a 16/8-byte VALUE cell (decimal / DateTime / Guid)
     switch (resKind)
     {
         case 2: resSize = 8; resElemKind = 2; break;
         case 3: resSize = 8; resElemKind = 3; break; // float -> double carrier
         case 4: resSize = 8; resElemKind = 4; break;
         case 5: resSize = 4; resElemKind = 5; break; // uint32
+        // 13 System.Decimal (16-byte) / 14 DateTime|TimeSpan (8-byte) /
+        // 15 Guid (16-byte): the selector returns the struct by value.
+        case 13: valResult = true; resSize = 16; resElemKind = 0; break;
+        case 14: valResult = true; resSize = 8; resElemKind = 0; break;
+        case 15: valResult = true; resSize = 16; resElemKind = 0; break;
         default: resSize = 4; resElemKind = 1; break;
     }
-    Il2CppArray* out = il2cpp_array_new_typed(resSize, resElemKind, n);
+    Il2CppArray* out = valResult
+        ? il2cpp_array_new(nullptr, resSize, false, n)
+        : il2cpp_array_new_typed(resSize, resElemKind, n);
     roots.Add(reinterpret_cast<void**>(&out));
 
     const int32_t c1 = ZipSideWidthCode(firstSide);
@@ -2799,6 +2848,7 @@ Il2CppArray* il2cpp_linq_zip_mixed(Il2CppArray* first, Il2CppArray* second,
     int32_t resSize = 4;
     int32_t resElemKind = 1;
     bool refResult = false;
+    bool valResult = false; // a 16/8-byte VALUE cell (decimal / DateTime / Guid)
     switch (resKind)
     {
         case 2: resSize = 8; resElemKind = 2; break;
@@ -2808,11 +2858,17 @@ Il2CppArray* il2cpp_linq_zip_mixed(Il2CppArray* first, Il2CppArray* second,
         case 6: refResult = true; resSize = 8; resElemKind = 0; break;
         case 7: case 8: case 12: resSize = 1; resElemKind = 0; break;
         case 9: case 10: case 11: resSize = 2; resElemKind = 0; break;
+        // 13 System.Decimal (16-byte cell) / 14 DateTime|TimeSpan (8-byte) /
+        // 15 Guid (16-byte): the selector returns the struct by value.
+        case 13: valResult = true; resSize = 16; resElemKind = 0; break;
+        case 14: valResult = true; resSize = 8; resElemKind = 0; break;
+        case 15: valResult = true; resSize = 16; resElemKind = 0; break;
         default: resSize = 4; resElemKind = 1; break;
     }
     Il2CppArray* out = refResult
         ? il2cpp_array_new(nullptr, resSize, true, n)
-        : il2cpp_array_new_typed(resSize, resElemKind, n);
+        : (valResult ? il2cpp_array_new(nullptr, resSize, false, n)
+                     : il2cpp_array_new_typed(resSize, resElemKind, n));
     roots.Add(reinterpret_cast<void**>(&out));
 
     // The value side's ZIP width code (-1 for a reference side, which reads

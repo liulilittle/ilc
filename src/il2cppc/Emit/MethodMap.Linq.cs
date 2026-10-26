@@ -1,4 +1,4 @@
-﻿using System.Reflection.Metadata;
+using System.Reflection.Metadata;
 
 namespace Il2Cpp.Transpiler.Emit;
 
@@ -897,7 +897,7 @@ public static partial class MethodRefResolver
         if (listKind == null && LinqWideNarrowKind(linqSrcFam, genArgs) is { } wk)
         {
             var wideDispatch = TryMapLinqWide(md, sigHandle, name, count, genArgs, wk, linqSrcFam,
-                TwoArg, OneArg);
+                TwoArg, OneArg, genArgNames);
             if (wideDispatch != null) return wideDispatch;
         }
 
@@ -1580,14 +1580,14 @@ public static partial class MethodRefResolver
                 // reads the element as Il2CppObject* and calls the selector
                 // through the statically declared ABI); the result cell may be a
                 // reference array (6) or a narrow 1/2-byte cell (7..12).
-                string? zResKind = LinqZipResKindOfElemByte(ztRes);
+                string? zResKind = LinqZipResKindOfElemByte(ztRes, genArgNames, 2);
                 if (zResKind == null)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(ztFirst)},{GenericArgTypeName(ztSecond)}," +
                         $"{GenericArgTypeName(ztRes)}> not wired: no result cell ABI for this TResult " +
                         "(see docs/audit/b5-gaps.md)");
                 return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
-                    new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(ztRes),
+                    new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(ztRes, genArgNames, 2),
                     appendLiterals: new[] { zFirstKind, zSecondKind, zResKind });
             }
             case "Reverse":
@@ -2310,6 +2310,48 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
+    // The zip RESULT family code for a 0x11 VALUE TYPE (the byte alone cannot
+    // tell System.Decimal / System.DateTime / System.TimeSpan / System.Guid
+    // apart -- they share the valuetype byte). The cell widths differ:
+    //   13 System.Decimal (16-byte cell)
+    //   14 System.DateTime / System.TimeSpan (8-byte cell)
+    //   15 System.Guid (16-byte cell)
+    // or null when the name is not one of the four (a user struct has no zip
+    // result cell ABI).
+    private static string? LinqZipResKindOfValueTypeName(string? name)
+    {
+        if (name is null) return null;
+        var n = name.StartsWith("V:", StringComparison.Ordinal) ? name[2..] : name;
+        return n switch
+        {
+            "System.Decimal" => "13",
+            "System.DateTime" or "System.TimeSpan" => "14",
+            "System.Guid" => "15",
+            _ => null,
+        };
+    }
+
+    // The zip RESULT cell ABI code of an element type BYTE, name-resolved for the
+    // 0x11 value types (see LinqZipResKindOfValueTypeName).
+    private static string? LinqZipResKindOfElemByte(byte b, string[]? genArgNames, int index) =>
+        b == 0x11 && genArgNames is { Length: > 0 }
+            ? LinqZipResKindOfValueTypeName(index < genArgNames.Length ? genArgNames[index] : null)
+            : LinqZipResKindOfElemByte(b);
+
+    // The EXACT tracked array type name of a zip RESULT element: the 0x11 value
+    // types need the generic-argument NAME (System.Decimal[] / System.DateTime[]
+    // / System.TimeSpan[] / System.Guid[]).
+    private static string LinqArrayTypeNameExact(byte b, string[]? genArgNames, int index)
+    {
+        if (b == 0x11 && genArgNames is { Length: > 0 } && index < genArgNames.Length)
+        {
+            var n = genArgNames[index];
+            if (n is { Length: > 0 } && n != "?")
+                return n.StartsWith("V:", StringComparison.Ordinal) ? n[2..] + "[]" : n + "[]";
+        }
+        return LinqArrayTypeNameExact(b);
+    }
+
     // The List<T> element-kind literal (linq_list.h IL2CPP_LIST_KIND_*) of an
     // element TYPE BYTE, or null when the byte is not a value family (a
     // reference element has no cell ABI of its own). This is the ONLY mapping
@@ -2674,7 +2716,7 @@ public static partial class MethodRefResolver
                 // reads the element as Il2CppObject* and calls the selector
                 // through the statically declared ABI); the result cell may be a
                 // reference array (6) or a narrow 1/2-byte cell (7..12).
-                string? resKind = LinqZipResKindOfElemByte(tRes);
+                string? resKind = LinqZipResKindOfElemByte(tRes, genArgNames, 2);
                 if (resKind == null)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
@@ -2687,7 +2729,7 @@ public static partial class MethodRefResolver
                         "over a List not wired: the second source's element family has no cell ABI " +
                         "(see docs/audit/b5-gaps.md)");
                 return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
-                    new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
+                    new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes, genArgNames, 2),
                     appendLiterals: new[] { K, secondKind, resKind });
             }
             case "SequenceEqual":
@@ -2846,7 +2888,8 @@ public static partial class MethodRefResolver
     // entry reads the element at its REAL cell width.
     //--------------------------------------------------------------------------
     private static ResolvedMethod? TryMapLinqWide(MetadataReader md, BlobHandle sigHandle, string name,
-        int count, byte[]? genArgs, string kindCode, string srcFam, string[] TwoArg, string[] OneArg)
+        int count, byte[]? genArgs, string kindCode, string srcFam, string[] TwoArg, string[] OneArg,
+        string[]? genArgNames = null)
     {
         bool narrow = srcFam == "narrow";
         string suffix = srcFam switch { "i8" => "i8", "f" => "f", "d" => "d", _ => "narrow" };
@@ -3092,14 +3135,14 @@ public static partial class MethodRefResolver
                 // reads the element as Il2CppObject* and calls the selector
                 // through the statically declared ABI); the result cell may be a
                 // reference array (6) or a narrow 1/2-byte cell (7..12).
-                string? resKind = LinqZipResKindOfElemByte(tRes);
+                string? resKind = LinqZipResKindOfElemByte(tRes, genArgNames, 2);
                 if (resKind == null)
                     throw new NotSupportedException(
                         $"Enumerable.Zip<{GenericArgTypeName(tFirst)},{GenericArgTypeName(tSecond)}," +
                         $"{GenericArgTypeName(tRes)}> not wired: no result cell ABI for this TResult " +
                         "(see docs/audit/b5-gaps.md)");
                 return I("il2cpp::il2cpp_linq_zip_family", 3, true, true, false,
-                    new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes),
+                    new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(tRes, genArgNames, 2),
                     appendLiterals: new[] { firstKind, secondKind, resKind });
             }
             // D-LINQ-FAM (source-only): Single / SingleOrDefault over the

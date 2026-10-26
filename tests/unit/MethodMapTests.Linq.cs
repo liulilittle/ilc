@@ -918,6 +918,21 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { firstKind, secondKind, resKind }, resolved.AppendLiterals);
     }
 
+    // Zip's 0x11 VALUE-TYPE result cell ABI: the generic-argument NAME selects
+    // the cell (13 decimal / 14 DateTime|TimeSpan / 15 Guid).
+    [Theory]
+    [InlineData("System.Decimal", "13")]
+    [InlineData("System.DateTime", "14")]
+    [InlineData("System.TimeSpan", "14")]
+    [InlineData("System.Guid", "15")]
+    public void Resolve_Zip_ValueTypeResult_MapsResultCellAbi(string resTypeName, string resKind)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeZipValResult(0x08, 0x08, resTypeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_zip_family", resolved.CppName);
+        Assert.Equal(new[] { "0", "0", resKind }, resolved.AppendLiterals);
+    }
+
     // Zip<TSource,TSecond,TResult>(IEnumerable<TSource>, IEnumerable<TSecond>,
     // Func<TSource,TSecond,TResult>): the signature the Zip branch reads.
     private static MemoryStream SynthesizeZip(byte tFirst, byte tSecond, byte tRes)
@@ -961,6 +976,61 @@ public class MethodMapTestsLinq
         spec.WriteByte(tFirst);
         spec.WriteByte(tSecond);
         spec.WriteByte(tRes);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // Zip with a 0x11 VALUE-TYPE result: the byte alone cannot name the type, so
+    // the MethodSpec's third argument is a named VALUETYPE TypeRef (the
+    // transpiler resolves System.Decimal / System.DateTime / System.TimeSpan /
+    // System.Guid to the result cell ABI 13 / 14 / 15).
+    private static MemoryStream SynthesizeZipValResult(byte tFirst, byte tSecond, string resTypeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        var iEnum = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        var func3 = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"),
+            mdb.GetOrAddString("Func`3"));
+        var lastDot = resTypeName.LastIndexOf('.');
+        var resNs = lastDot > 0 ? resTypeName[..lastDot] : "";
+        var resName = lastDot > 0 ? resTypeName[(lastDot + 1)..] : resTypeName;
+        var resRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(resNs), mdb.GetOrAddString(resName));
+        var resCoded = (MetadataTokens.GetRowNumber(resRef) << 2) | 1;
+        var bb = new BlobBuilder();
+        bb.WriteByte(0x10);
+        bb.WriteCompressedInteger(3);
+        bb.WriteCompressedInteger(3);
+        WriteGenericInstArg(bb, iEnum, 1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(2);
+        WriteGenericInstArg(bb, iEnum, 1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(0);
+        WriteGenericInstArg(bb, iEnum, 1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(1);
+        WriteGenericInstArg(bb, func3, 3);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(0);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(1);
+        bb.WriteByte(0x13);
+        bb.WriteCompressedInteger(2);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Zip"),
+            mdb.GetOrAddBlob(bb.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(3);
+        spec.WriteByte(tFirst);
+        spec.WriteByte(tSecond);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger(resCoded);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }
