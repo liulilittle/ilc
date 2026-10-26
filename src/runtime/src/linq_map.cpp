@@ -633,6 +633,36 @@ Il2CppGuid InvokeSelI4GuidKey(Il2CppDelegate* d, int32_t v)
         : reinterpret_cast<SelI4GuidKeyFn>(d->methodPtr)(v);
 }
 
+// p0grp: the same wide KEY-selector ABIs over a REFERENCE source element (the
+// Func<Il2CppObject*,TKey> leaf ABI -- the ref-source GroupBy key selector).
+typedef runtime::Il2CppDecimal (*SelRefDecKeyFn)(Il2CppObject*);
+typedef runtime::Il2CppDecimal (*SelRefDecKeyThisFn)(Il2CppObject*, Il2CppObject*);
+typedef runtime::Il2CppDateTime (*SelRefDtKeyFn)(Il2CppObject*);
+typedef runtime::Il2CppDateTime (*SelRefDtKeyThisFn)(Il2CppObject*, Il2CppObject*);
+typedef Il2CppGuid (*SelRefGuidKeyFn)(Il2CppObject*);
+typedef Il2CppGuid (*SelRefGuidKeyThisFn)(Il2CppObject*, Il2CppObject*);
+
+runtime::Il2CppDecimal InvokeSelRefDecKey(Il2CppDelegate* d, Il2CppObject* o)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefDecKeyThisFn>(d->methodPtr)(d->target, o)
+        : reinterpret_cast<SelRefDecKeyFn>(d->methodPtr)(o);
+}
+
+runtime::Il2CppDateTime InvokeSelRefDtKey(Il2CppDelegate* d, Il2CppObject* o)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefDtKeyThisFn>(d->methodPtr)(d->target, o)
+        : reinterpret_cast<SelRefDtKeyFn>(d->methodPtr)(o);
+}
+
+Il2CppGuid InvokeSelRefGuidKey(Il2CppDelegate* d, Il2CppObject* o)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefGuidKeyThisFn>(d->methodPtr)(d->target, o)
+        : reinterpret_cast<SelRefGuidKeyFn>(d->methodPtr)(o);
+}
+
 // The 2-arg int32 selector family (D-LINQZ-1 Zip, the Func<TSource,TSecond,
 // TResult> ABI): int32_t(*)(int32_t, int32_t) for a STATIC leaf;
 // int32_t(*)(Il2CppObject*, int32_t, int32_t) for an INSTANCE leaf (target in
@@ -3680,7 +3710,13 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     RequireArray(src);
     Il2CppDelegate* kd = RequireCallback(keySel, "keySelector");
     Il2CppDelegate* ed = elemSel != nullptr ? RequireCallback(elemSel, "elementSelector") : nullptr;
-    RequireInt32Family(src);
+    // p0grp: a REFERENCE-element source reads its elements as Il2CppObject*
+    // (the key/element selectors take the reference); an int32-cell source reads
+    // I4At. The bucket storage for both is the Ref family when the source is a
+    // reference array (the element selector projects a reference).
+    const bool refSource = src->isRefElem != 0;
+    if (refSource) RequireRefFamily(src);
+    else RequireInt32Family(src);
     if (elemSel == nullptr && cmp == nullptr)
     {
         // Nothing extra to validate.
@@ -3702,6 +3738,11 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     roots.Add(reinterpret_cast<void**>(&src));
     roots.Add(reinterpret_cast<void**>(&cmp));
     roots.Add(reinterpret_cast<void**>(&elemRef));
+    // p0grp: the reference-source element is re-read from the rooted source each
+    // iteration (the key selector may allocate -> collect), so the local copy is
+    // rooted too.
+    Il2CppObject* srcElem = nullptr;
+    roots.Add(reinterpret_cast<void**>(&srcElem));
 
     Il2CppObject* result = il2cpp_object_new(&g_groupingResultClass);
     roots.Add(reinterpret_cast<void**>(&result));
@@ -3717,7 +3758,12 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
 
     for (int32_t i = 0; i < src->length; ++i)
     {
-        const int32_t v = I4At(src, i);
+        // p0grp: a reference source element crosses as Il2CppObject*; an int32
+        // source element as the 4-byte cell value.
+        const int32_t v = refSource ? 0 : I4At(src, i);
+        srcElem = refSource
+            ? *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(src, i))
+            : nullptr;
         // BATCH4: the key is a 16-byte carrier split low64 -> keyLo, high64 ->
         // keyHi. int32-slot keys (keyKind 0..6) ride keyLo; an int64 key
         // (keyKind 7) is the 64-bit value in keyLo; a 16-byte struct key
@@ -3726,6 +3772,40 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         // pointers from the rooted result (never caches a raw pointer).
         int64_t keyLo = 0;
         int64_t keyHi = 0;
+        if (refSource)
+        {
+            // The reference-source key selector takes Il2CppObject* (the
+            // InvokeSelRef* ABIs).
+            switch (keyKind)
+            {
+                case 7: keyLo = InvokeSelRefI8(kd, srcElem); break;
+                case 8:
+                {
+                    const runtime::Il2CppDecimal k = InvokeSelRefDecKey(kd, srcElem);
+                    std::memcpy(&keyLo, &k, sizeof(keyLo));
+                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+                    break;
+                }
+                case 9:
+                {
+                    const runtime::Il2CppDateTime k = InvokeSelRefDtKey(kd, srcElem);
+                    keyLo = k.ticks;
+                    keyHi = k.kind;
+                    break;
+                }
+                case 10:
+                {
+                    const Il2CppGuid k = InvokeSelRefGuidKey(kd, srcElem);
+                    std::memcpy(&keyLo, &k, sizeof(keyLo));
+                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+                    break;
+                }
+                default:
+                    keyLo = NarrowKey(InvokeSelRefI4(kd, srcElem), keyKind);
+                    break;
+            }
+        }
+        else
         switch (keyKind)
         {
             case 7:
@@ -3769,6 +3849,18 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         double elemD = 0;
         if (ed != nullptr)
         {
+            if (refSource)
+            {
+                // The reference-source element selector takes Il2CppObject*.
+                switch (kind)
+                {
+                    case GroupElemKind::Int32: elemI4 = InvokeSelRefI4(ed, srcElem); break;
+                    case GroupElemKind::Ref: elemRef = InvokeSelRefRef(ed, srcElem); break;
+                    case GroupElemKind::I8: elemI8 = InvokeSelRefI8(ed, srcElem); break;
+                    case GroupElemKind::D: elemD = InvokeSelRefD(ed, srcElem); break;
+                }
+            }
+            else
             switch (kind)
             {
                 case GroupElemKind::Int32: elemI4 = InvokeSelI4I4(ed, v); break;
@@ -3780,6 +3872,12 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         else if (kind == GroupElemKind::Int32)
         {
             elemI4 = v;
+        }
+        else if (refSource && kind == GroupElemKind::Ref)
+        {
+            // p0grp: the key-only reference-source overload -- the bucket
+            // element IS the source reference.
+            elemRef = srcElem;
         }
 
         res = AsGroupingResult(result);
@@ -4153,7 +4251,10 @@ Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keyS
     }
     if (elemSel == nullptr)
     {
-        elemKind = 0; // key-only: the element IS the source int32
+        // key-only: the element IS the source element. An int32 source keeps
+        // the int32 bucket; a REFERENCE source keeps the reference bucket (the
+        // element is the source Il2CppObject*).
+        elemKind = (src->isRefElem != 0) ? 1 : 0;
     }
     GroupElemKind kind = GroupElemKind::Int32;
     switch (elemKind)

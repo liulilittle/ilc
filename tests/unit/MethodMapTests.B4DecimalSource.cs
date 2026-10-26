@@ -62,17 +62,16 @@ public class MethodMapTestsB4DecimalSource
         Assert.Equal(new[] { "8" }, resolved.AppendLiterals);
     }
 
-    // The GroupBy LOUD list must name the operator: otherwise a shape that is
-    // not wired here falls back to the resolver's phantom "no BCL mapping in
-    // M5" message instead of the real gate.
+    // p0grp: a REFERENCE-element source (TSource = System.String) now routes to
+    // the reference-source grouping surface (il2cpp_linq_group_by_full_key,
+    // elemKind 1) instead of the old LOUD rejection.
     [Fact]
-    public void GroupBy_ReferenceSource_StaysLoudWithSelfDescribingMessage()
+    public void GroupBy_ReferenceSource_MapsToGroupingFullKey()
     {
-        var ex = Assert.Throws<NotSupportedException>(
-            () => ResolveMethodSpec(SynthesizeGroupBy(0x08, sourceByte: 0x0E, sourceName: "String")));
+        var resolved = ResolveMethodSpec(SynthesizeGroupBy(0x08, sourceByte: 0x0E, sourceName: "String"));
 
-        Assert.Contains("Enumerable.GroupBy", ex.Message);
-        Assert.DoesNotContain("has no BCL mapping in M5", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
+        Assert.Equal(new[] { "1", "0", "0" }, resolved.AppendLiterals);
     }
 
     // GroupBy<TSource,TKey>(IEnumerable<TSource>, Func<TSource,TKey>): the

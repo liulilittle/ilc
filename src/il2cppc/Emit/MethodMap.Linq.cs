@@ -886,10 +886,81 @@ public static partial class MethodRefResolver
                 // instantiation of System.Linq.Enumerable.GroupBy has no BCL
                 // mapping in M5" instead of the real reason.
                 case "GroupBy":
-                    throw new NotSupportedException(
-                        $"Enumerable.GroupBy<{(genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?")},...> " +
-                        "over a reference-element source is not wired: the runtime grouping kernel reads " +
-                        "int32 cells or 16-byte System.Decimal cells only (see docs/audit/b4-gaps.md)");
+                {
+                    // p0grp: GroupBy over a REFERENCE-element array source. The
+                    // runtime grouping kernel reads int32 cells (BuildGroups /
+                    // I4At), 16-byte System.Decimal cells
+                    // (il2cpp_linq_group_by_dec_key) OR reference cells
+                    // (elemKind 1 -- BuildGroups' Ref family), so the
+                    // reference-element family is served here.
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    int refKeyKind = KeyKindForNamed(genArgs[1], genArgNames, 1);
+                    if (refKeyKind < 0)
+                    {
+                        string refElemArgType = GenericArgTypeName(genArgs[0]);
+                        string refKeyArgType = genArgNames is { Length: >= 2 } && genArgNames[1] != "?"
+                            ? genArgNames[1] : GenericArgTypeName(genArgs[1]);
+                        throw new NotSupportedException(
+                            $"Enumerable.GroupBy<{refElemArgType},{refKeyArgType}> over a reference-element " +
+                            "source is not wired: the reference-source grouping surface buckets by a key " +
+                            "carrier of int32-slot (int/bool/char/sbyte/byte/short/ushort/uint), int64 " +
+                            "(long/ulong) or 16-byte struct (System.Decimal/System.DateTime/System.Guid); " +
+                            $"{DescribeRejectedKey(genArgs[1], refKeyArgType)} has no runtime key carrier " +
+                            "(see docs/audit/b5-gaps.md)");
+                    }
+                    var refParams = LinqEncodedParamTypes(md, sigHandle);
+                    int refElemArg = -1, refCmpArg = -1, refResArg = -1;
+                    for (int pi = 2; pi < refParams.Length; pi++)
+                    {
+                        var rdef = GenericDefNameOf(refParams[pi]);
+                        if (rdef == "System.Func`2") refElemArg = pi;
+                        else if (rdef == "System.Func`3") refResArg = pi;
+                        else if (rdef == "System.Collections.Generic.IEqualityComparer`1") refCmpArg = pi;
+                    }
+                    byte? refElemByte = refElemArg >= 0 && genArgs.Length >= 3 ? genArgs[2] : null;
+                    byte? refResByte = refResArg >= 0 && genArgs.Length >= 3
+                        ? (genArgs.Length >= 4 ? genArgs[3] : genArgs[2]) : null;
+                    string RefElemFamily(byte b) => b switch
+                    {
+                        0x08 => "0",
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
+                        0x0A or 0x0B => "2",
+                        0x0D => "3",
+                        0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
+                        _ => "",
+                    };
+                    string RefResultFamily(byte b) => b switch
+                    {
+                        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                        0x0A or 0x0B => "3",
+                        0x0D => "4",
+                        0x0C => "5",
+                        _ => "2",
+                    };
+                    string refEk = refElemByte is { } reb ? RefElemFamily(reb) : "1";
+                    if (refEk.Length == 0)
+                        throw new NotSupportedException(
+                            $"Enumerable.GroupBy TElement '{GenericArgTypeName(refElemByte!.Value)}' " +
+                            "is not a supported element family");
+                    string refRk = refResByte is { } rrb ? RefResultFamily(rrb) : "0";
+                    int refElemIdx = refElemArg >= 0 ? refElemArg : -1;
+                    int refCmpIdx = refCmpArg >= 0 ? refCmpArg : -1;
+                    int refResIdx = refResArg >= 0 ? refResArg : -1;
+                    var refArgOrder = new[] { 0, 1, refElemIdx, refCmpIdx, refResIdx };
+                    var refCasts = new[] { "a", "", "", "", "" };
+                    var refLiterals = new[] { refEk, refRk,
+                        refKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+                    var refRetType = refRk == "0"
+                        ? "System.Linq.IGroupingResult"
+                        : refRk == "1" ? "System.Int32[]"
+                        : refRk == "3" ? "System.Int64[]"
+                        : refRk == "4" ? "System.Double[]"
+                        : refRk == "5" ? "System.Double[]" : "System.Object[]";
+                    return I("il2cpp::il2cpp_linq_group_by_full_key", count, true, true, false, refCasts,
+                        returnTypeName: refRetType, appendLiterals: refLiterals,
+                        argOrder: refArgOrder);
+                }
                 default:
                     break;
             }
