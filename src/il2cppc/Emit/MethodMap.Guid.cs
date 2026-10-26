@@ -22,21 +22,19 @@ namespace Il2Cpp.Transpiler.Emit;
 // matrix4 cmake_build stage). The emitter no longer blanket-casts: the
 // Guid byte-slot cast is carried explicitly by this "g" code.
 //
-// SLOT-TYPE GAP (documented, out of scope): the generated-code type for a
-// Guid value slot does not exist yet -- no TypeCppName entry and no temp
-// kind (DateTime/TimeSpan got the "dt"/"ts" kinds the same way). NewGuid's
-// result carries the "guid" kind marker so that future slot wiring can
-// recognize it; until the slot type lands, calls through these mappings
-// fail loudly at C++ compilation instead of silently truncating.
+// SLOT MODEL (wired): a Guid value slot is the 16-byte
+// il2cpp::Il2CppGuid VALUE struct (guid.h) -- the same type the method
+// signature and fields name. NewGuid/Parse/ctor write through the slot
+// ADDRESS (the "g" cast renders `(uint8_t*)`), so a "guid"-kind call
+// reaching an expression position rejects LOUDLY (the CodeGenerator guard).
 //
-// Known-unwireable members throw NotSupportedException (LOUD):
-//   * ToString(format)       -- guid.h implements the "D" form only; a
-//     format argument would be silently ignored.
-//   * Equals(object)/CompareTo(object) -- a boxed Guid has no runtime box
-//     class (the emitter's box table rejects it), so the boxed value
-//     cannot reach the icall.
-//   * .ctor(byte[])          -- guid.h has no from-bytes icall (surface:
-//     new_guid / parse / to_string / equals / compare only).
+// The full net48 surface is wired: NewGuid / Parse / TryParse / the
+// byte[] + string + 11-component ctors / ToString(format) /
+// ToString(format, provider) / Equals(Guid) / CompareTo(Guid) /
+// op_Equality / op_Inequality / GetHashCode. The boxed-value members
+// (Equals(object) / CompareTo(object)) route through the value-vs-object
+// helpers il2cpp_guid_equals_object / il2cpp_guid_compare_object (the
+// System_Guid_class box exists -- metadata.cpp + icall_box_guid).
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -109,16 +107,12 @@ public static partial class MethodRefResolver
             case "Equals":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_guid_equals", 1, true, false, true, new[] { "g", "g" });
-                // NOTE (boxwire): the box class DOES exist now
-                // (System_Guid_class, metadata.cpp + icall_box_guid); only the
-                // boxed-EQUALS helper for a VALUE receiver is missing --
-                // icall_boxed_equals_ext2 takes two OBJECTS, and the receiver
-                // here is the 16-byte value slot. net48 Guid.Equals(object)
-                // semantics (null -> false, non-Guid -> false, Guid box ->
-                // byte equality) need a value-vs-object helper, which the
-                // runtime does not have yet. Stays LOUD (no silent wrong).
+                // boxwire: net48 Guid.Equals(object) (guid.cs:930) -- the value
+                // slot against a boxed Guid (the System_Guid_class box exists).
+                // null -> false, a non-Guid object -> false, a Guid box ->
+                // 16-byte equality.
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException("Guid.Equals(object) not wired: the runtime has no value-vs-object Guid equality helper (icall_boxed_equals_ext2 takes two box objects)");
+                    return I("il2cpp::il2cpp_guid_equals_object", 1, true, false, true, new[] { "g", "" });
                 return null;
             // boxwire (nullable GN-2 follow-up): Guid.GetHashCode -- the value
             // hash icall (guid.h il2cpp_guid_get_hash_code, the ORACLE-probed
@@ -131,8 +125,12 @@ public static partial class MethodRefResolver
             case "CompareTo":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_guid_compare", 1, true, false, true, new[] { "g", "g" });
+                // boxwire: net48 Guid.CompareTo(object) (guid.cs:1001) -- the
+                // value slot against a boxed Guid. null -> 1, a non-Guid
+                // object throws ArgumentException, a Guid box -> the
+                // field-wise compare.
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException("CompareTo(object) not wired: a boxed Guid has no runtime box class, so the boxed value cannot reach the icall");
+                    return I("il2cpp::il2cpp_guid_compare_object", 1, true, false, true, new[] { "g", "" });
                 return null;
             case ".ctor":
                 if (ps.Length == 1 && ps[0] == 0x1D)
@@ -147,10 +145,21 @@ public static partial class MethodRefResolver
                 // transpiler's in-place vctor call shape (slot, string).
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_guid_ctor_string", 1, true, false, true, new[] { "g", "s" });
-                // NOTE (icallwide): the 11-arg component ctor needs a Guid
-                // VALUE-SLOT newobj path (uint8_t[16] in-place init) that the
-                // emitter does not have yet -- fixtures construct via
-                // Guid.Parse instead. Loud until that emitter work lands.
+                // net48 Guid(int a, short b, short c, byte d..k) (guid.cs:115)
+                // and Guid(uint a, ushort b, ushort c, byte d..k) (guid.cs:72)
+                // -- the 11-component ctors. The runtime kernel
+                // il2cpp_guid_ctor_components writes the 16-byte value slot;
+                // the emitter's vctor_ path addresses the slot through
+                // GuidValueBytePtr (the il2cpp_guid_ctor* precedent) and passes
+                // the 11 component values straight through (the kernel takes
+                // int32_t for every field, masking each to a byte).
+                if (ps.Length == 11 && ps[3] == 0x05 && ps[4] == 0x05 && ps[5] == 0x05
+                    && ps[6] == 0x05 && ps[7] == 0x05 && ps[8] == 0x05 && ps[9] == 0x05
+                    && ps[10] == 0x05
+                    && ((ps[0] == 0x08 && ps[1] == 0x06 && ps[2] == 0x06)
+                        || (ps[0] == 0x09 && ps[1] == 0x07 && ps[2] == 0x07)))
+                    return I("il2cpp::il2cpp_guid_ctor_components", 11, false, false, true,
+                        new[] { "g", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i" });
                 return null;
             default: return null;
         }

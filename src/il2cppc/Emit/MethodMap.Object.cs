@@ -50,6 +50,17 @@ public static partial class MethodRefResolver
                     // the boxed path today).
                     if (receiverType == "System.Uri")
                         return I("il2cpp::runtime::icall_uri_equals", 1, true, false, true);
+                    // boxwire: Roslyn emits `callvirt Object::Equals(object)`
+                    // for the Guid override (the same shape as the Uri arm
+                    // above). The receiver is the Guid VALUE slot (the emitter
+                    // addresses it), so route to the value-vs-object helper
+                    // (il2cpp_guid_equals_object) -- the generic
+                    // icall_boxed_equals_ext2 below takes two Il2CppObject*
+                    // and cannot accept the Il2CppGuid* value address. A
+                    // BOXED Guid receiver (receiverIsAddress == false) keeps
+                    // the generic boxed path.
+                    if (receiverType == "System.Guid" && receiverIsAddress)
+                        return I("il2cpp::il2cpp_guid_equals_object", 1, true, false, true, new[] { "g", "" });
                     // .NET object.Equals -- the runtime boxed-value equality dispatches
                     // on the box classes (bool/char/int/double/long/...) and falls back
                     // to reference equality, mirroring Object.Equals semantics.

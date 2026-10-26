@@ -103,6 +103,78 @@ public class GuidSlotWiringTests
         }
     }
 
+    [Fact]
+    public void Generate_GuidComponentCtor_EmitsValueSlotAddressAndComponents()
+    {
+        // Cases.GenGuidCtor.Main: 11 constants -> newobj
+        // Guid::.ctor(int,int,int,byte[8]); pop; ret. The vctor_ emission must
+        // address the value slot (GuidValueBytePtr) and pass the 11 component
+        // values straight through to il2cpp_guid_ctor_components (guid.h).
+        var tmp = Path.Combine(Path.GetTempPath(), "il2cpp_guid_ctor_" + Guid.NewGuid().ToString("N") + ".dll");
+        File.WriteAllBytes(tmp, SynthesizeComponentCtor().ToArray());
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var types = MetadataLoader.LoadAssembly(tmp);
+            CodeGenerator.Generate(types, dir, tmp);
+            var generated = File.ReadAllText(Path.Combine(dir, "src", "Cases_GenGuidCtor.cpp"));
+
+            // The ctor call writes the slot ADDRESS (never `t = fn(...)` -- the
+            // icall returns void and takes the raw uint8_t bytes[16]).
+            Assert.Contains("il2cpp::il2cpp_guid_ctor_components(", generated);
+            Assert.Contains("reinterpret_cast<uint8_t*>", generated);
+            // The 11 component values pass through (the net48 byte layout:
+            // int32 a/b/c, int16 d/e, then the 8 Data4 bytes).
+            Assert.Contains("1LL, 2LL, 3LL, 4LL, 5LL, 6LL, 7LL, 8LL, 9LL, 10LL, 11LL", generated);
+        }
+        finally
+        {
+            File.Delete(tmp);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    // The 11-component ctor MemberRef: void .ctor(int32, int16, int16,
+    // uint8 x8) -- the net48 guid.cs:115 signature (int a, short b, short c,
+    // byte d..k). The body pushes 11 int32 constants and newobj's.
+    private static MemoryStream SynthesizeComponentCtor()
+    {
+        var mdb = NewBuilder();
+        var guidRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb), mdb.GetOrAddString("System"), mdb.GetOrAddString("Guid"));
+        var ctorSig = new BlobBuilder();
+        ctorSig.WriteByte(0x20); // HASTHIS (instance)
+        ctorSig.WriteCompressedInteger(11);
+        ctorSig.WriteByte(0x01); // void return
+        ctorSig.WriteByte(0x08); // int32 a
+        ctorSig.WriteByte(0x06); // int16 b
+        ctorSig.WriteByte(0x06); // int16 c
+        for (var i = 0; i < 8; ++i) ctorSig.WriteByte(0x05); // uint8 d..k
+        var ctor = mdb.AddMemberReference(guidRef, mdb.GetOrAddString(".ctor"), mdb.GetOrAddBlob(ctorSig));
+
+        var il = new BlobBuilder();
+        var encoder = new InstructionEncoder(il);
+        for (var v = 1; v <= 11; ++v)
+        {
+            encoder.LoadConstantI4(v);
+        }
+        encoder.OpCode(ILOpCode.Newobj);
+        encoder.Token(MetadataTokens.GetToken(ctor));
+        encoder.OpCode(ILOpCode.Pop);
+        encoder.OpCode(ILOpCode.Ret);
+        il.Align(4);
+        var stream = new MethodBodyStreamEncoder(il);
+        var bodyOffset = stream.AddMethodBody(encoder, 11, default(StandaloneSignatureHandle), MethodBodyAttributes.None);
+        var main = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            mdb.GetOrAddString("Main"),
+            mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }), bodyOffset, default(ParameterHandle));
+        var objRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb), mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        _ = mdb.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.Abstract,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("GenGuidCtor"), objRef, default, main);
+        return Serialize(mdb, il);
+    }
+
     // TypeRef row 1 = System.Guid (coded index 0x05 in the signature blobs);
     // MemberRef row 1 = Guid::NewGuid (sig 00 00 11 05 -- static, 0 params,
     // ret valuetype coded 0x05), row 2 = Guid::Parse(string) (sig

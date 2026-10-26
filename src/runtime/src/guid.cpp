@@ -427,4 +427,35 @@ int32_t il2cpp_guid_compare(const uint8_t a[16], const uint8_t b[16])
     return 0;
 }
 
+bool il2cpp_guid_equals_object(const uint8_t a[16], Il2CppObject* obj)
+{
+    // net48 Guid.Equals(object) (guid.cs:930): null -> false, a non-Guid
+    // object -> false, a Guid box -> 16-byte equality. The box payload sits
+    // right after the object header (offset sizeof(void*)).
+    if (obj == nullptr || obj->klass != &System_Guid_class)
+    {
+        return false;
+    }
+    Il2CppGuid g;
+    std::memcpy(&g, reinterpret_cast<const char*>(obj) + sizeof(void*), sizeof(g));
+    return il2cpp_guid_equals(a, g.b);
+}
+
+int32_t il2cpp_guid_compare_object(const uint8_t a[16], Il2CppObject* obj)
+{
+    // net48 Guid.CompareTo(object) (guid.cs:1001): null -> 1, a non-Guid
+    // object throws ArgumentException, a Guid box -> the field-wise compare.
+    if (obj == nullptr)
+    {
+        return 1;
+    }
+    if (obj->klass != &System_Guid_class)
+    {
+        il2cpp_throw_argument_exception("Object must be of type System.Guid.");
+    }
+    Il2CppGuid g;
+    std::memcpy(&g, reinterpret_cast<const char*>(obj) + sizeof(void*), sizeof(g));
+    return il2cpp_guid_compare(a, g.b);
+}
+
 } // namespace il2cpp

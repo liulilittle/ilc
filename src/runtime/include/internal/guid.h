@@ -44,6 +44,8 @@
 
 #include "il2cpp_array.h"
 #include "il2cpp_string.h"
+#include "il2cpp_metadata.h" // System_Guid_class (the box identity)
+#include "il2cpp_object.h"   // Il2CppObject (the object-typed argument)
 
 #include <cstdint>
 
@@ -143,5 +145,16 @@ int32_t il2cpp_guid_get_hash_code(const uint8_t bytes[16]);
 // Data3 (unsigned LE int16), then Data4 bytes (unsigned); the first differing
 // field decides (see header comment for the unsigned-compare consequence).
 int32_t il2cpp_guid_compare(const uint8_t a[16], const uint8_t b[16]);
+
+// Boxed-value members (net48 guid.cs:930 / :1001). The System_Guid_class box
+// exists (metadata.cpp + icall_box_guid); these helpers compare a VALUE slot
+// against a BOXED Guid:
+//   * il2cpp_guid_equals_object: null -> false, a non-Guid object -> false, a
+//     Guid box -> 16-byte equality (net48 Equals(object)).
+//   * il2cpp_guid_compare_object: null -> 1, a non-Guid object throws
+//     ArgumentException, a Guid box -> the field-wise compare (net48
+//     CompareTo(object)).
+bool il2cpp_guid_equals_object(const uint8_t a[16], Il2CppObject* obj);
+int32_t il2cpp_guid_compare_object(const uint8_t a[16], Il2CppObject* obj);
 
 } // namespace il2cpp

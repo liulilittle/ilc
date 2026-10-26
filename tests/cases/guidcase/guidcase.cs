@@ -50,5 +50,23 @@ namespace Cases { public static class GuidCase {
         Console.WriteLine(small.CompareTo(big) < 0);
         Console.WriteLine(big.CompareTo(small) > 0);
         Console.WriteLine(small == big);
+
+        // 11-component ctor (net48 guid.cs:115): the byte layout is
+        // deterministic, so the D-form string pins byte-for-byte.
+        Guid c = new Guid(0x00112233, 0x4455, 0x6677, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff);
+        Console.WriteLine(c.ToString() == "00112233-4455-6677-8899-aabbccddeeff");
+        Console.WriteLine(c.Equals(c));
+        Console.WriteLine(c.CompareTo(c) == 0);
+
+        // Boxed-value members (net48 guid.cs:930 / :1001).
+        Console.WriteLine(g1.Equals((object)g1));
+        Console.WriteLine(g1.Equals((object)g2));
+        Console.WriteLine(g1.Equals(null));
+        Console.WriteLine(g1.Equals((object)"not-a-guid"));
+        Console.WriteLine(g1.CompareTo((object)g1) == 0);
+        Console.WriteLine(g1.CompareTo(null) == 1);
+        bool cmpAne = false;
+        try { g1.CompareTo((object)"x"); } catch (ArgumentException) { cmpAne = true; }
+        Console.WriteLine(cmpAne);
     }
 }}

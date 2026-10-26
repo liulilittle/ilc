@@ -174,12 +174,18 @@ public class MethodMapGuidTests
     }
 
     [Fact]
-    public void Resolve_Guid_EqualsObject_ThrowsLoud()
+    public void Resolve_Guid_EqualsObject_MapsToEqualsObjectIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Guid", "Equals", Sig(0x02, 0x1C)), "Equals"));
+        // boxwire: net48 Guid.Equals(object) -- the value slot against a boxed
+        // Guid (the System_Guid_class box exists). bool ret (0x02), object
+        // (0x1C) param.
+        var resolved = ResolveMember(Synthesize("System", "Guid", "Equals", Sig(0x02, 0x1C)), "Equals");
 
-        Assert.Contains("System.Guid::Equals", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_guid_equals_object", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "g", "" }, resolved.ParamTypeNames);
     }
 
     [Fact]
@@ -198,12 +204,17 @@ public class MethodMapGuidTests
     }
 
     [Fact]
-    public void Resolve_Guid_CompareToObject_ThrowsLoud()
+    public void Resolve_Guid_CompareToObject_MapsToCompareObjectIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Guid", "CompareTo", Sig(0x08, 0x1C)), "CompareTo"));
+        // boxwire: net48 Guid.CompareTo(object) -- the value slot against a
+        // boxed Guid. int32 ret (0x08), object (0x1C) param.
+        var resolved = ResolveMember(Synthesize("System", "Guid", "CompareTo", Sig(0x08, 0x1C)), "CompareTo");
 
-        Assert.Contains("System.Guid::CompareTo", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_guid_compare_object", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "g", "" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
@@ -263,6 +274,32 @@ public class MethodMapGuidTests
         Assert.False(resolved.ReturnsValue);
         Assert.Equal(1, resolved.ParamCount);
         Assert.Equal(new[] { "g", "a" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // .ctor(int, short, short, byte[8]) -- the net48 11-component ctor
+    // (guid.cs:115). The runtime kernel il2cpp_guid_ctor_components writes the
+    // 16-byte value slot; the emitter's vctor_ path addresses the slot through
+    // GuidValueBytePtr (the il2cpp_guid_ctor* precedent) and passes the 11
+    // component values straight through.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Guid_CtorComponents_MapsToCtorComponentsIcall()
+    {
+        // void .ctor(int32, int16, int16, uint8 x8): ret void, params
+        // 0x08 / 0x06 / 0x06 / 0x05 x8.
+        var resolved = ResolveMember(Synthesize("System", "Guid", ".ctor",
+            Sig(0x01, 0x08, 0x06, 0x06, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05)), ".ctor");
+
+        Assert.Equal("il2cpp::il2cpp_guid_ctor_components", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(11, resolved.ParamCount);
+        // Receiver byte-pointer "g" + the 11 component values.
+        Assert.Equal(
+            new[] { "g", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i" },
+            resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
