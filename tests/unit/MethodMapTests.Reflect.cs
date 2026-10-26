@@ -1,4 +1,4 @@
-using System.Reflection.Metadata;
+﻿using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Il2Cpp.Transpiler.Emit;
@@ -133,8 +133,9 @@ public class MethodMapTestsReflect
 
     //--------------------------------------------------------------------------
     // Type.GetType with an arity the runtime wrapper does not cover -- only
-    // the 1/2/3-param (string[, bool[, bool]]) overloads are wired, so any
-    // other shape stays LOUD.
+    // the 1/2/3-param (string[, bool[, bool]]) overloads and the three
+    // delegate-resolver overloads (string, Func[, Func[, bool[, bool]]]) are
+    // wired, so any other shape stays LOUD.
     //--------------------------------------------------------------------------
     [Fact]
     public void Resolve_Type_GetTypeUnwiredArity_ThrowsLoud()
@@ -144,6 +145,71 @@ public class MethodMapTestsReflect
                 new byte[] { 0x00, 0x04, 0x12, 0x05, 0x0E, 0x02, 0x02, 0x02 }), "GetType")); // (string, bool, bool, bool)
 
         Assert.Contains("System.Type::GetType", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
+    // Type.GetType delegate-resolver overloads (net48 type.cs:110/120/131):
+    //   GetType(string, Func<AssemblyName,Assembly>, Func<Assembly,string,bool,Type>)
+    //   GetType(string, Func<...>, Func<...>, bool throwOnError)
+    //   GetType(string, Func<...>, Func<...>, bool throwOnError, bool ignoreCase)
+    // The two Func parameters are GENERICINST (0x15) class signatures; the
+    // AOT model drops the resolver delegates (the binder-dropping doctrine)
+    // and resolves through the registry with the explicit throwOnError /
+    // ignoreCase slots. The common case (null resolvers) is byte-identical
+    // to the plain GetType overloads.
+    //--------------------------------------------------------------------------
+    // Func<AssemblyName,Assembly> = 15 12 05 02 12 05 12 05
+    // Func<Assembly,string,bool,Type> = 15 12 05 04 12 05 0E 02 12 05
+    private static readonly byte[] FuncAssemblyNameAssembly = { 0x15, 0x12, 0x05, 0x02, 0x12, 0x05, 0x12, 0x05 };
+    private static readonly byte[] FuncAssemblyStringBoolType = { 0x15, 0x12, 0x05, 0x04, 0x12, 0x05, 0x0E, 0x02, 0x12, 0x05 };
+
+    private static byte[] Concat(params byte[][] parts)
+    {
+        var total = 0;
+        foreach (var p in parts) total += p.Length;
+        var outArr = new byte[total];
+        var off = 0;
+        foreach (var p in parts) { Array.Copy(p, 0, outArr, off, p.Length); off += p.Length; }
+        return outArr;
+    }
+
+    [Fact]
+    public void Resolve_Type_GetTypeDelegateResolver3_MapsToGetType()
+    {
+        var sig = Concat(new byte[] { 0x00, 0x03, 0x12, 0x05, 0x0E },
+            FuncAssemblyNameAssembly, FuncAssemblyStringBoolType);
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetType", sig), "GetType");
+
+        Assert.Equal("il2cpp::il2cpp_type_get_type", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.Equal(3, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetTypeDelegateResolver4_MapsToGetTypeEx()
+    {
+        var sig = Concat(new byte[] { 0x00, 0x04, 0x12, 0x05, 0x0E },
+            FuncAssemblyNameAssembly, FuncAssemblyStringBoolType, new byte[] { 0x02 });
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetType", sig), "GetType");
+
+        Assert.Equal("il2cpp::il2cpp_type_get_type_ex", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.Equal(4, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_Type_GetTypeDelegateResolver5_MapsToGetTypeEx()
+    {
+        var sig = Concat(new byte[] { 0x00, 0x05, 0x12, 0x05, 0x0E },
+            FuncAssemblyNameAssembly, FuncAssemblyStringBoolType, new byte[] { 0x02, 0x02 });
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetType", sig), "GetType");
+
+        Assert.Equal("il2cpp::il2cpp_type_get_type_ex", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.Equal(5, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------
@@ -303,3 +369,4 @@ public class MethodMapTestsReflect
         return new MemoryStream(blob.ToArray());
     }
 }
+

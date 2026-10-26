@@ -66,7 +66,23 @@ public static partial class MethodRefResolver
                 // Absolute parses, RelativeOrAbsolute falls back.
                 if (count == 2 && ps[0] == 0x0E && ps[1] is 0x08 or 0x11)
                     return I("il2cpp::runtime::icall_uri_ctor_2", 2, false, false, true, new[] { "", "", "i" });
-                throw new NotSupportedException($"Uri ctor with {count} param(s) not wired (only the single-string and (string, UriKind) forms have runtime entry points)");
+                // URI-BASE: Uri(Uri baseUri, string relativeUri) -- net48
+                // base+relative resolution (System_net_System_URI.cs:452). The
+                // base is a CLASS (0x12) Uri VALUE (an Il2CppObject*), the
+                // relative rides as a managed string. The runtime combines the
+                // base scheme/host with the base directory + relative text
+                // (an absolute relative is stored verbatim).
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x0E)
+                    return I("il2cpp::runtime::icall_uri_ctor_base_s", 2, false, false, true,
+                        new[] { "", "", "" });
+                // URI-BASE: Uri(Uri baseUri, Uri relativeUri) -- net48
+                // (System_net_System_URI.cs:504). Both operands are Uri CLASS
+                // values (0x12); the runtime reads the relative Uri's stored
+                // absolute form through the object slots.
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
+                    return I("il2cpp::runtime::icall_uri_ctor_base_u", 2, false, false, true,
+                        new[] { "", "", "" });
+                throw new NotSupportedException($"Uri ctor with {count} param(s) not wired (only the single-string / (string, UriKind) / (Uri, string) / (Uri, Uri) forms have runtime entry points)");
             case "get_Scheme":
                 return I("il2cpp::runtime::icall_uri_get_scheme", 0, true, true, true);
             case "get_Host":

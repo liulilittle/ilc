@@ -1,4 +1,4 @@
-namespace Il2Cpp.Transpiler.Emit;
+﻿namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.SortedList -- System.Collections.SortedList icall mappings
@@ -48,15 +48,16 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapSortedList(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null,
+        string? paramTypes = null)
     {
         var instTag = instName ?? receiverType;
         if (instTag is "System.Collections.Generic.SortedList`2_string_int")
-            return TryMapSortedListSi(name, ps, count);
+            return TryMapSortedListSi(name, ps, count, paramTypes);
         // sorte1: the int-key/string-value mirror of the string_int expansion
         // (sortedlistis_obj.h -- box the int key at the C++ boundary).
         if (instTag is "System.Collections.Generic.SortedList`2_int_string")
-            return TryMapSortedListIs(name, ps, count);
+            return TryMapSortedListIs(name, ps, count, paramTypes);
         if (instTag is not (null or "System.Collections.SortedList"))
             return null;
 
@@ -65,12 +66,36 @@ public static partial class MethodRefResolver
             case ".ctor":
                 // Parameterless ctor -> create(self, 0) (the injected 0 lands
                 // AFTER the receiver -- AppendZeroArg); capacity ctor ->
-                // create(self, capacity). No other SortedList ctor is wired.
+                // create(self, capacity).
                 if (count == 0)
                     return I("il2cpp::runtime::il2cpp_sortedlist_create", 0, false, false, true, null, null, appendZero: true);
-                if (count == 1)
+                if (count == 1 && ps[0] == 0x08)
                     return I("il2cpp::runtime::il2cpp_sortedlist_create", 1, false, false, true, new[] { "", "i" });
-                throw new NotSupportedException($"SortedList ctor with {count} arg(s) not wired (runtime has only the parameterless / capacity create icalls)");
+                // SL-CTOR: the net48 (IComparer) / (IComparer, int) /
+                // (IDictionary) / (IDictionary, IComparer) ctor overloads
+                // (collections_sortedlist.cs:129/143/154/166). Both interface
+                // parameter kinds carry the CLASS byte 0x12, so the DECODED
+                // parameter-type text is the discriminator (the
+                // SortedSetParamDefName precedent). The generic SortedList`2
+                // rides the same non-generic sorted-array object, so its
+                // (IComparer<TKey>) / (IComparer<TKey>, int) ctors reuse the
+                // same icalls.
+                var p0 = SortedSetParamDefName(paramTypes, 0);
+                var p1 = SortedSetParamDefName(paramTypes, 1);
+                if (count == 1 && ps[0] == 0x12 && p0 == "System.Collections.IComparer")
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", 1, false, false, true,
+                        new[] { "", "", "" }, appendLiterals: new[] { "0" });
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x08 && p0 == "System.Collections.IComparer")
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", 2, false, false, true,
+                        new[] { "", "", "i" });
+                if (count == 1 && ps[0] == 0x12 && p0 == "System.Collections.IDictionary")
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create_from_dict", 1, false, false, true,
+                        new[] { "", "", "" }, appendLiterals: new[] { "nullptr" });
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12
+                    && p0 == "System.Collections.IDictionary" && p1 == "System.Collections.IComparer")
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create_from_dict", 2, false, false, true,
+                        new[] { "", "", "" });
+                throw new NotSupportedException($"SortedList ctor with {count} arg(s) not wired (the parameterless / capacity / (IComparer) / (IComparer,int) / (IDictionary) / (IDictionary,IComparer) forms map to the sortedlist create icalls; the decoded param kinds were [{string.Join(", ", paramTypes ?? "")}])");
             case "Add": return I("il2cpp::runtime::il2cpp_sortedlist_add", 2, false, false, true, new[] { "", "", "" });
             case "set_Item": return I("il2cpp::runtime::il2cpp_sortedlist_set_by_key", 2, false, false, true, new[] { "", "", "" });
             case "get_Item": return I("il2cpp::runtime::il2cpp_sortedlist_get_by_key", 1, true, true, true, new[] { "", "" });
@@ -106,16 +131,30 @@ public static partial class MethodRefResolver
     // get_Item key overload (the dictsi get_Item precedent), while the
     // int-index overload carries a concrete 0x08 param byte.
     //--------------------------------------------------------------------------
-    private static ResolvedMethod? TryMapSortedListSi(string name, byte[] ps, int count)
+    private static ResolvedMethod? TryMapSortedListSi(string name, byte[] ps, int count, string? paramTypes = null)
     {
         switch (name)
         {
             case ".ctor":
                 if (count == 0)
                     return I("il2cpp::runtime::il2cpp_sortedlist_create", 0, false, false, true, null, null, appendZero: true);
-                if (count == 1)
+                if (count == 1 && ps[0] == 0x08)
                     return I("il2cpp::runtime::il2cpp_sortedlist_create", 1, false, false, true, new[] { "", "i" });
-                throw new NotSupportedException($"SortedList ctor with {count} arg(s) not wired (runtime has only the parameterless / capacity create icalls)");
+                // SL-CTOR: the generic SortedList<string,int> (IComparer<string>)
+                // / (IComparer<string>, int) ctors (collections_sortedlist.cs
+                // generic overloads). The comparer is a GENERICINST class
+                // signature (0x15) -- the decoded parameter-type text names
+                // System.Collections.Generic.IComparer`1. The generic list rides
+                // the SAME non-generic sorted-array object, so the comparer
+                // icall is shared.
+                var p0 = SortedSetParamDefName(paramTypes, 0);
+                if (count == 1 && ps[0] == 0x15 && p0 == "System.Collections.Generic.IComparer`1")
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", 1, false, false, true,
+                        new[] { "", "", "" }, appendLiterals: new[] { "0" });
+                if (count == 2 && ps[0] == 0x15 && ps[1] == 0x08 && p0 == "System.Collections.Generic.IComparer`1")
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", 2, false, false, true,
+                        new[] { "", "", "i" });
+                throw new NotSupportedException($"SortedList<string,int> ctor with {count} arg(s) not wired (the parameterless / capacity / (IComparer<string>) / (IComparer<string>,int) forms map to the sortedlist create icalls; the decoded param kinds were [{string.Join(", ", paramTypes ?? "")}])");
             case "Add":
                 if (count != 2) return null;
                 return I("il2cpp::runtime::icall_sortedlist_si_add", 2, false, false, true, new[] { "", "", "i" });
@@ -208,16 +247,26 @@ public static partial class MethodRefResolver
     // string_int expansion (sortedlistis_obj.h). The key crosses as int32 ("i"),
     // the value is a managed string reference ("").
     //--------------------------------------------------------------------------
-    private static ResolvedMethod? TryMapSortedListIs(string name, byte[] ps, int count)
+    private static ResolvedMethod? TryMapSortedListIs(string name, byte[] ps, int count, string? paramTypes = null)
     {
         switch (name)
         {
             case ".ctor":
                 if (count == 0)
                     return I("il2cpp::runtime::il2cpp_sortedlist_create", 0, false, false, true, null, null, appendZero: true);
-                if (count == 1)
+                if (count == 1 && ps[0] == 0x08)
                     return I("il2cpp::runtime::il2cpp_sortedlist_create", 1, false, false, true, new[] { "", "i" });
-                throw new NotSupportedException($"SortedList<int,string> ctor with {count} arg(s) not wired");
+                // SL-CTOR: the generic SortedList<int,string> (IComparer<int>)
+                // / (IComparer<int>, int) ctors -- the int-key mirror of the
+                // string_int expansion (same shared sorted-array object).
+                var p0 = SortedSetParamDefName(paramTypes, 0);
+                if (count == 1 && ps[0] == 0x15 && p0 == "System.Collections.Generic.IComparer`1")
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", 1, false, false, true,
+                        new[] { "", "", "" }, appendLiterals: new[] { "0" });
+                if (count == 2 && ps[0] == 0x15 && ps[1] == 0x08 && p0 == "System.Collections.Generic.IComparer`1")
+                    return I("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", 2, false, false, true,
+                        new[] { "", "", "i" });
+                throw new NotSupportedException($"SortedList<int,string> ctor with {count} arg(s) not wired (the parameterless / capacity / (IComparer<int>) / (IComparer<int>,int) forms map to the sortedlist create icalls; the decoded param kinds were [{string.Join(", ", paramTypes ?? "")}])");
             case "Add":
                 if (count != 2) return null;
                 return I("il2cpp::runtime::icall_sortedlist_is_add", 2, false, false, true, new[] { "", "i", "" });
@@ -253,12 +302,13 @@ public static partial class MethodRefResolver
     // null -> generated-name fallback (loud at link).
     //--------------------------------------------------------------------------
     private static ResolvedMethod? TryMapSortedDictionary(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string? instName = null,
+        string? paramTypes = null)
     {
         var instTag = instName ?? receiverType;
         if (instTag is not "System.Collections.Generic.SortedDictionary`2_string_int")
             return null;
-        return TryMapSortedListSi(name, ps, count);
+        return TryMapSortedListSi(name, ps, count, paramTypes);
     }
 
     //--------------------------------------------------------------------------
@@ -462,3 +512,5 @@ public static partial class MethodRefResolver
         return null;
     }
 }
+
+

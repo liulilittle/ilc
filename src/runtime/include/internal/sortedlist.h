@@ -119,6 +119,24 @@ void il2cpp_sortedlist_create(Il2CppObject* self, int32_t capacity);
 // write barrier (the container may already be old when the comparer is young).
 void il2cpp_sortedlist_set_comparer(Il2CppObject* self, Il2CppObject* comparer);
 
+// SortedList(IComparer comparer) / SortedList(IComparer comparer, int
+// capacity) -- allocate the items array (capacity defaults to the minimum when
+// omitted) and install the comparer (nullptr = the default boxed-value order).
+// This is the net48 (IComparer[, int]) ctor pair (collections_sortedlist.cs:
+// 129/143) folded into one self-mutating icall.
+void il2cpp_sortedlist_create_with_comparer(Il2CppObject* self, Il2CppObject* comparer,
+                                            int32_t capacity);
+
+// SortedList(IDictionary d) / SortedList(IDictionary d, IComparer comparer) --
+// allocate the items array with the dictionary's count, install the comparer
+// (nullptr = the default order), then copy every key/value pair from the
+// dictionary. The non-generic IDictionary is modelled as a Hashtable object
+// (the same representation the interface's Count / indexer icalls use), so the
+// copy reads the Hashtable's Keys/Values snapshots (same order). A null
+// dictionary raises ArgumentNullException (net48).
+void il2cpp_sortedlist_create_from_dict(Il2CppObject* self, Il2CppObject* dict,
+                                        Il2CppObject* comparer);
+
 // Add(key, value) -- insert a new pair, keeping the array sorted. A null key
 // raises ArgumentNullException; a duplicate key (per the sorting contract)
 // raises ArgumentException and leaves the list unchanged. Null values are

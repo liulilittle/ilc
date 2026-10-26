@@ -1262,6 +1262,52 @@ bool ManagedStringEquals(const Il2CppString* x, const Il2CppString* y)
 // were zeroed by il2cpp_object_new, so a partially initialized object is
 // GC-safe -- but a store to the moved-out OLD address would be silently
 // lost (stackqueue2 e2e, 2026-08-13).
+// net48 base+relative combination (System_net_System_URI.cs:452/504). An
+// ABSOLUTE relative reference (a scheme-bearing form) is stored verbatim; a
+// relative one is combined with the base: scheme/host come from the base, and
+// the path is the base directory (the base path up to and including its last
+// '/') followed by the relative text -- a leading '/' makes the result
+// root-relative (the base directory is dropped). Documented simplification:
+// no dot-segment ("."/"..") removal, no query/fragment merging, and the base
+// scheme/host are taken verbatim (no case normalization).
+bool CombineUriWithBase(const Il2CppUriObject* baseU, const std::string& relative,
+                        il2cpp_uri_t* out)
+{
+    il2cpp_uri_t parsed;
+    if (il2cpp_uri_try_create(relative.c_str(), &parsed))
+    {
+        *out = std::move(parsed);
+        return true;
+    }
+    const std::string scheme = ManagedToAscii(baseU->scheme);
+    const std::string host = ManagedToAscii(baseU->host);
+    const std::string basePath = ManagedToAscii(baseU->path);
+    std::string dir = "/";
+    const std::size_t slash = basePath.rfind('/');
+    if (slash != std::string::npos)
+    {
+        dir = basePath.substr(0, slash + 1);
+    }
+    il2cpp_uri_t combined;
+    combined.scheme = scheme;
+    combined.host = host;
+    combined.path = (!relative.empty() && relative[0] == '/') ? relative : (dir + relative);
+    combined.isOpaque = false;
+    *out = std::move(combined);
+    return true;
+}
+
+// The canonical text stored as OriginalString for a combined Uri (net48's
+// OriginalString for Uri(base, relative) is the combined absolute form).
+std::string RebuildCombinedText(const il2cpp_uri_t& parsed)
+{
+    if (parsed.isOpaque)
+    {
+        return parsed.scheme + ":" + parsed.opaque;
+    }
+    return parsed.scheme + "://" + parsed.host + parsed.path;
+}
+
 void StoreAbsoluteFromParsed(Il2CppObject* self, const il2cpp_uri_t& parsed, const char* originalAscii)
 {
     GcRoot<Il2CppObject*> root(self, "StoreAbsoluteFromParsed");
@@ -1375,6 +1421,70 @@ void icall_uri_ctor_2(Il2CppObject* self, Il2CppObject* input, int32_t kind)
         return;
     }
     il2cpp_throw_argument_exception(kInvalidUriMessage);
+}
+
+// Uri(Uri baseUri, string relativeUri) -- net48 base+relative resolution (see
+// icall_uri_ctor_base_u for the Uri-relative form).
+void icall_uri_ctor_base_s(Il2CppObject* self, Il2CppObject* baseUri, Il2CppObject* relative)
+{
+    ThrowIfNullReceiver(self);
+    if (baseUri == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("baseUri");
+    }
+    if (relative == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("relativeUri");
+    }
+    const Il2CppUriObject* baseU = AsUri(baseUri);
+    if (baseU->isAbsolute == 0)
+    {
+        il2cpp_throw_argument_exception("Invalid URI: This operation is not supported for a relative URI.");
+    }
+    std::string rel;
+    if (!UriAsciiFromManaged(reinterpret_cast<Il2CppString*>(relative), &rel))
+    {
+        il2cpp_throw_argument_exception(kInvalidUriMessage);
+    }
+    il2cpp_uri_t parsed;
+    if (!CombineUriWithBase(baseU, rel, &parsed))
+    {
+        il2cpp_throw_argument_exception(kInvalidUriMessage);
+    }
+    StoreAbsoluteFromParsed(self, parsed, RebuildCombinedText(parsed).c_str());
+}
+
+// Uri(Uri baseUri, Uri relativeUri) -- the relative Uri's stored absolute form
+// (a relative Uri keeps its verbatim OriginalString, an absolute one its
+// rebuilt absolute text) is resolved against the base.
+void icall_uri_ctor_base_u(Il2CppObject* self, Il2CppObject* baseUri, Il2CppObject* relativeUri)
+{
+    ThrowIfNullReceiver(self);
+    if (baseUri == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("baseUri");
+    }
+    if (relativeUri == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("relativeUri");
+    }
+    const Il2CppUriObject* baseU = AsUri(baseUri);
+    if (baseU->isAbsolute == 0)
+    {
+        il2cpp_throw_argument_exception("Invalid URI: This operation is not supported for a relative URI.");
+    }
+    const Il2CppUriObject* relU = AsUri(relativeUri);
+    const std::string rel = (relU->isAbsolute != 0)
+        ? RebuildCombinedText(il2cpp_uri_t{ ManagedToAscii(relU->scheme), ManagedToAscii(relU->host),
+                                           ManagedToAscii(relU->path), relU->opaque != nullptr,
+                                           relU->opaque != nullptr ? ManagedToAscii(relU->opaque) : std::string() })
+        : ManagedToAscii(relU->original);
+    il2cpp_uri_t parsed;
+    if (!CombineUriWithBase(baseU, rel, &parsed))
+    {
+        il2cpp_throw_argument_exception(kInvalidUriMessage);
+    }
+    StoreAbsoluteFromParsed(self, parsed, RebuildCombinedText(parsed).c_str());
 }
 
 Il2CppObject* icall_uri_get_scheme(Il2CppObject* self)

@@ -66,13 +66,64 @@ public class MethodMapTestsSortedList
     [Fact]
     public void Resolve_SortedList_CtorTwoArgs_ThrowsLoud()
     {
-        // .ctor(IDictionary) (2-arg) is not wired -- LOUD, not silently
-        // mis-mapped. (The two object params stand in for the IDictionary ctor
-        // shape -- the dispatch throws on COUNT before inspecting types.)
+        // .ctor(object, object) is not a net48 SortedList overload -- LOUD.
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize(".ctor", Blob(0x20, 0x02, 0x01, 0x1C, 0x1C)), ".ctor"));
 
         Assert.Contains("SortedList ctor", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
+    // SL-CTOR: the net48 (IComparer) / (IComparer,int) / (IDictionary) /
+    // (IDictionary,IComparer) ctor overloads. Both interface kinds carry the
+    // CLASS byte 0x12, so the DECODED parameter-type text discriminates (the
+    // synthesized PE adds the IComparer / IDictionary TypeRefs as rows 2 / 3).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_SortedList_CtorIComparer_MapsToCreateWithComparer()
+    {
+        // .ctor(IComparer): 20 01 01 12 09 (TypeRef row 2 = IComparer)
+        var resolved = ResolveMember(SynthesizeCtor(".ctor", Blob(0x20, 0x01, 0x01, 0x12, 0x09)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "0" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_SortedList_CtorIComparerCapacity_MapsToCreateWithComparer()
+    {
+        // .ctor(IComparer, int): 20 02 01 12 09 08
+        var resolved = ResolveMember(SynthesizeCtor(".ctor", Blob(0x20, 0x02, 0x01, 0x12, 0x09, 0x08)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_SortedList_CtorIDictionary_MapsToCreateFromDict()
+    {
+        // .ctor(IDictionary): 20 01 01 12 0D (TypeRef row 3 = IDictionary)
+        var resolved = ResolveMember(SynthesizeCtor(".ctor", Blob(0x20, 0x01, 0x01, 0x12, 0x0D)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_sortedlist_create_from_dict", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "nullptr" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_SortedList_CtorIDictionaryIComparer_MapsToCreateFromDict()
+    {
+        // .ctor(IDictionary, IComparer): 20 02 01 12 0D 12 09
+        var resolved = ResolveMember(SynthesizeCtor(".ctor", Blob(0x20, 0x02, 0x01, 0x12, 0x0D, 0x12, 0x09)), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_sortedlist_create_from_dict", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
@@ -281,6 +332,24 @@ public class MethodMapTestsSortedList
             new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
         var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections"),
             mdb.GetOrAddString("SortedList"));
+        mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
+        return Serialize(mdb);
+    }
+
+    // A ctor MemberRef whose CLASS parameters name the IComparer (TypeRef row 2)
+    // / IDictionary (TypeRef row 3) interfaces, so MethodSignatureCoder's
+    // decoded parameter types resolve the (IComparer) vs (IDictionary) overload.
+    private static MemoryStream SynthesizeCtor(string memberName, byte[] signature)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections"),
+            mdb.GetOrAddString("SortedList"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections"), mdb.GetOrAddString("IComparer"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections"), mdb.GetOrAddString("IDictionary"));
         mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
         return Serialize(mdb);
     }

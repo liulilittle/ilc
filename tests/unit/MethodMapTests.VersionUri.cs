@@ -329,6 +329,45 @@ public class MethodMapVersionUriTests
     }
 
     //--------------------------------------------------------------------------
+    // URI-BASE: Uri(Uri baseUri, string relativeUri) -> icall_uri_ctor_base_s
+    // (instance, void). Both operands are CLASS signatures: the base Uri is
+    // 0x12 + TypeDefOrRef (0x05), the relative is 0x0E (string). net48
+    // System_net_System_URI.cs:452.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Uri_CtorBaseUriRelativeString_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "Uri", ".ctor",
+            new byte[] { 0x00, 0x02, 0x01, 0x12, 0x05, 0x0E }), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_uri_ctor_base_s", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(2, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+        Assert.False(m.ReturnsRef);
+        Assert.Equal(new[] { "", "", "" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // URI-BASE: Uri(Uri baseUri, Uri relativeUri) -> icall_uri_ctor_base_u
+    // (instance, void). Both operands are Uri CLASS values (0x12 + 0x05).
+    // net48 System_net_System_URI.cs:504.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Uri_CtorBaseUriRelativeUri_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "Uri", ".ctor",
+            new byte[] { 0x00, 0x02, 0x01, 0x12, 0x05, 0x12, 0x05 }), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_uri_ctor_base_u", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(2, m.ParamCount);
+        Assert.False(m.ReturnsValue);
+        Assert.False(m.ReturnsRef);
+        Assert.Equal(new[] { "", "", "" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
     // URI-FIX P1: new getters -> icall_uri_get_* (instance, returns string)
     //--------------------------------------------------------------------------
     [Theory]

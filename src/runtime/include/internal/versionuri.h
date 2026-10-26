@@ -337,6 +337,22 @@ Il2CppObject* icall_uri_to_string(Il2CppObject* self);
 // (net48 throws UriFormatException -- recorded deviation, URI-FIX P1).
 void icall_uri_ctor_2(Il2CppObject* self, Il2CppObject* input, int32_t kind);
 
+// Uri(Uri baseUri, string relativeUri) (net48 System_net_System_URI.cs:452):
+// resolve the relative reference against the ABSOLUTE base. An absolute
+// relative reference is stored verbatim; a relative one combines the base
+// scheme/host with the base directory (the base path up to and including its
+// last '/') plus the relative text (a leading '/' makes it root-relative).
+// A null base/relative -> ArgumentNullException; a relative base or an
+// unparseable relative -> ArgumentException (net48 throws InvalidOperationException
+// for a relative base -- recorded deviation).
+void icall_uri_ctor_base_s(Il2CppObject* self, Il2CppObject* baseUri, Il2CppObject* relative);
+
+// Uri(Uri baseUri, Uri relativeUri) (net48 System_net_System_URI.cs:504): the
+// same combination over the relative Uri's stored absolute form (its
+// OriginalString when relative, its rebuilt absolute form when absolute). The
+// relative Uri is read through the object slots (never null once constructed).
+void icall_uri_ctor_base_u(Il2CppObject* self, Il2CppObject* baseUri, Il2CppObject* relativeUri);
+
 // OriginalString: the verbatim input text (net48 returns the exact user
 // string). Never null once the object is initialized.
 Il2CppObject* icall_uri_get_originalstring(Il2CppObject* self);

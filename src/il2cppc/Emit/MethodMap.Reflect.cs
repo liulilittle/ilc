@@ -422,7 +422,31 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x02 && ps[2] == 0x02)
                     return I("il2cpp::il2cpp_type_get_type_ex", 3, true, true, false,
                         new[] { "", "i", "i" }, returnTypeName: "System.Type");
-                throw new NotSupportedException($"Type.GetType with {ps.Length} parameter(s) not wired in RF-REFL -- the (string typeName) / (string, bool throwOnError) / (string, bool throwOnError, bool ignoreCase) overloads map to il2cpp_type_get_type(_ex)");
+                // RF-REFL-DR: the three net48 DELEGATE-RESOLVER overloads
+                // (type.cs:110/120/131):
+                //   GetType(string, Func<AssemblyName,Assembly>,
+                //            Func<Assembly,string,bool,Type>[, bool throwOnError
+                //            [, bool ignoreCase]])
+                // Both Func parameters are GENERICINST class signatures
+                // (leading byte 0x15). The AOT build models no assembly/type
+                // resolver delegates -- the same binder-dropping doctrine the
+                // BindingFlags/Binder arms use -- so the delegates are dropped
+                // and the registry query runs with the explicit throwOnError /
+                // ignoreCase slots. The common case (null resolvers, the
+                // net48 default-resolution path) is byte-identical to the plain
+                // GetType overloads.
+                if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x15 && ps[2] == 0x15)
+                    return I("il2cpp::il2cpp_type_get_type", 3, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Type", argOrder: new[] { 0 });
+                if (ps.Length == 4 && ps[0] == 0x0E && ps[1] == 0x15 && ps[2] == 0x15 && ps[3] == 0x02)
+                    return I("il2cpp::il2cpp_type_get_type_ex", 4, true, true, false,
+                        new[] { "", "i" }, returnTypeName: "System.Type",
+                        appendLiterals: new[] { "0" }, argOrder: new[] { 0, 3 });
+                if (ps.Length == 5 && ps[0] == 0x0E && ps[1] == 0x15 && ps[2] == 0x15 && ps[3] == 0x02 && ps[4] == 0x02)
+                    return I("il2cpp::il2cpp_type_get_type_ex", 5, true, true, false,
+                        new[] { "", "i", "i" }, returnTypeName: "System.Type",
+                        argOrder: new[] { 0, 3, 4 });
+                throw new NotSupportedException($"Type.GetType with {ps.Length} parameter(s) not wired in RF-REFL -- the (string typeName) / (string, bool throwOnError) / (string, bool throwOnError, bool ignoreCase) / (string, Func<AssemblyName,Assembly>, Func<Assembly,string,bool,Type>[, bool throwOnError[, bool ignoreCase]]) overloads map to il2cpp_type_get_type(_ex)");
             default:
                 return null;
         }

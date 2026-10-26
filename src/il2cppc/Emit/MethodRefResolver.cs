@@ -1336,6 +1336,14 @@ public static partial class MethodRefResolver
         var dtParamTypes = owner == "System.DateTime"
             ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
             : null;
+        // SortedList: the (IComparer) / (IDictionary) / (IComparer,int) /
+        // (IDictionary,IComparer) ctor overloads all carry CLASS parameter
+        // bytes (0x12) -- the decoded parameter-type text ("r:System.Collections.
+        // IComparer" vs "r:System.Collections.IDictionary") is the authoritative
+        // discriminator (the SortedSetParamDefName precedent).
+        string? sortedListParamTypes = owner == "System.Collections.SortedList"
+            ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
+            : null;
         // LOUD P0-19: System.Math's decimal overloads. A decimal PARAMETER
         // (ldarg) is not tracked by StackFold's objTypes, so arg0Type stays
         // null and the 0x11 signature byte alone cannot name the type
@@ -2141,9 +2149,9 @@ var userRecvLike = receiverType ?? arg0Type;
             // (sortedlist.h). Currently wires the indexer SET (set_Item ->
             // il2cpp_sortedlist_set_by_key); the remaining surface is listed
             // in MethodMap.SortedList.cs for follow-up wiring agents.
-            case "System.Collections.SortedList": return TryMapSortedList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
-            case "System.Collections.Generic.SortedList`2": return TryMapSortedList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
-            case "System.Collections.Generic.SortedDictionary`2": return TryMapSortedDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            case "System.Collections.SortedList": return TryMapSortedList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, paramTypes: sortedListParamTypes);
+            case "System.Collections.Generic.SortedList`2": return TryMapSortedList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName, paramTypes: sortedListParamTypes);
+            case "System.Collections.Generic.SortedDictionary`2": return TryMapSortedDictionary(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName, paramTypes: sortedListParamTypes);
             // G4 residual (g4sorteddict): the SortedDictionary KeyCollection
             // enumeration pattern (nested owners; the frozen String[] Keys
             // snapshot enumerator -- see TryMapSortedDictionaryKeyCollection).
@@ -3715,4 +3723,5 @@ var userRecvLike = receiverType ?? arg0Type;
         _ => false,
     };
 }
+
 

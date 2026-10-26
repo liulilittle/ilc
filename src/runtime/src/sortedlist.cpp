@@ -47,6 +47,7 @@
 #include "il2cpp_exception_ext.h"
 #include "arraysort.h"       // FindVirtualSlotByNameAndSignature (nb9: SortedSet comparers)
 #include "genericcomparer_obj.h" // nb9: Comparer<T>.Create dispatch
+#include "il2cpp_hashtable.h" // nb9: the non-generic IDictionary representation
 #include "il2cpp_gcroot.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
@@ -675,6 +676,55 @@ void il2cpp_sortedlist_set_comparer(Il2CppObject* self, Il2CppObject* comparer)
     Il2CppSortedList* sl = AsSortedList(self);
     il2cpp_write_barrier(reinterpret_cast<void**>(&sl->comparer), comparer);
     sl->comparer = comparer;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_sortedlist_create_with_comparer -- the net48 (IComparer) /
+// (IComparer, int capacity) ctor pair (collections_sortedlist.cs:129/143).
+// create() allocates the items array (a compacting collection may MOVE the
+// fresh list), so the receiver is rooted and re-read across the allocation.
+//------------------------------------------------------------------------------
+void il2cpp_sortedlist_create_with_comparer(Il2CppObject* self, Il2CppObject* comparer, int32_t capacity)
+{
+    ThrowIfNullReceiver(self);
+    GcRoot<Il2CppObject*> root(self, "il2cpp_sortedlist_create_with_comparer");
+    il2cpp_sortedlist_create(root.Get(), capacity);
+    il2cpp_sortedlist_set_comparer(root.Get(), comparer);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_sortedlist_create_from_dict -- the net48 (IDictionary) /
+// (IDictionary, IComparer) ctor pair (collections_sortedlist.cs:154/166). The
+// non-generic IDictionary is modelled as a Hashtable object; the copy reads
+// its Keys/Values snapshots (index-aligned, same enumeration order) and Add()s
+// each pair (Add sorts, so the source order does not matter). Every allocating
+// step (create, the two snapshot arrays, each grow) may compact, so the
+// receiver / dictionary / snapshots are rooted and re-read throughout.
+//------------------------------------------------------------------------------
+void il2cpp_sortedlist_create_from_dict(Il2CppObject* self, Il2CppObject* dict, Il2CppObject* comparer)
+{
+    ThrowIfNullReceiver(self);
+    if (dict == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("d");
+    }
+    GcRoot<Il2CppObject*> selfRoot(self, "il2cpp_sortedlist_create_from_dict.self");
+    GcRoot<Il2CppObject*> dictRoot(dict, "il2cpp_sortedlist_create_from_dict.dict");
+    il2cpp_sortedlist_create(selfRoot.Get(), il2cpp::runtime::icall_hashtable_get_count(dictRoot.Get()));
+    il2cpp_sortedlist_set_comparer(selfRoot.Get(), comparer);
+    Il2CppObject* keys = il2cpp::runtime::icall_hashtable_get_keys(dictRoot.Get());
+    Il2CppObject* values = il2cpp::runtime::icall_hashtable_get_values(dictRoot.Get());
+    GcRoot<Il2CppObject*> keysRoot(keys, "il2cpp_sortedlist_create_from_dict.keys");
+    GcRoot<Il2CppObject*> valuesRoot(values, "il2cpp_sortedlist_create_from_dict.values");
+    Il2CppArray* keyArr = reinterpret_cast<Il2CppArray*>(keysRoot.Get());
+    Il2CppArray* valueArr = reinterpret_cast<Il2CppArray*>(valuesRoot.Get());
+    const int32_t n = keyArr->length;
+    Il2CppObject** keySlots = reinterpret_cast<Il2CppObject**>(keyArr->data);
+    Il2CppObject** valueSlots = reinterpret_cast<Il2CppObject**>(valueArr->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        il2cpp_sortedlist_add(selfRoot.Get(), keySlots[i], valueSlots[i]);
+    }
 }
 
 //------------------------------------------------------------------------------
