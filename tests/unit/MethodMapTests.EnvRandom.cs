@@ -184,15 +184,22 @@ public class MethodMapTestsEnvRandom
     }
 
     //--------------------------------------------------------------------------
-    // Random Extra gate -- the protected sample hook rejects LOUD
+    // Random Extra gate -- the protected sample hook
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Random_Sample_ThrowsLoud()
+    public void Resolve_Random_Sample_MapsToNextDoubleIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Random", "Sample", Sig(0x0D)), "Sample"));
+        // net48 Random.Sample() == NextDouble(): InternalSample() scaled by
+        // 1/Int32.MaxValue (the runtime's Sample helper -- the exact
+        // icall_random_next_double implementation).
+        var resolved = ResolveMember(Synthesize("System", "Random", "Sample", Sig(0x0D)), "Sample");
 
-        Assert.Contains("System.Random::Sample", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_random_next_double", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal("d", resolved.ResultKind);
     }
 
     //--------------------------------------------------------------------------
