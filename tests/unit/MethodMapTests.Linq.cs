@@ -1170,6 +1170,27 @@ public class MethodMapTestsLinq
     }
 
     //--------------------------------------------------------------------------
+    // The List<T> selector aggregate with a DECIMAL projection (net48
+    // Sum/Min/Max/Average(source, selector) over a decimal selector): the
+    // 16-byte decimal result rides an explicit result slot (the decimal T3
+    // contract -- the slot is the FIRST icall parameter and ResultKind "dec"
+    // prepends it). Before this change the decimal projection LOUD-rejected.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ListInt_SumDecimalProjection_MapsToDecimalResultSlotKernel()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericListAggDecimalProjection("Sum", "System.Decimal"),
+            receiverType: "System.Collections.Generic.List`1_int");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_sum_sel_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+        Assert.NotNull(resolved.AppendLiterals);
+        Assert.Equal("0", resolved.AppendLiterals![0]);
+    }
+
+    //--------------------------------------------------------------------------
     // The INDEX overloads over a List<T> (net48 Func<TSource,int,bool> /
     // Func<TSource,int,TResult>): the callback receives the element AND its
     // zero-based source index. Before this change both LOUD-rejected ("the
@@ -2214,7 +2235,9 @@ public class MethodMapTestsLinq
         sig.WriteByte(0x11); sig.WriteCompressedInteger(coded);
         sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
         sig.WriteByte(srcByte);
-        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0B);
+        // Func`2 is TypeRef row 3 -> TypeDefOrRef coded (3<<2)|1 = 0x0D (a tag-3
+        // byte would decode as a ModuleDefinition handle and throw in M2).
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D);
         sig.WriteByte(indexForm ? (byte)0x03 : (byte)0x02);
         sig.WriteByte(0x13); sig.WriteByte(0x00);
         sig.WriteByte(srcByte);
@@ -2228,6 +2251,47 @@ public class MethodMapTestsLinq
         spec.WriteByte(srcByte);
         spec.WriteByte(0x11);
         spec.WriteCompressedInteger(coded);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // List<T> selector-aggregate helper: TSource is int32 (0x08) and the
+    // projection is a named VALUETYPE TypeRef (System.Decimal). The Func`2
+    // carries exactly TWO arguments (TSource, TResult) so the MethodSignature
+    // Decode path (LinqSelectorProjectionType) parses it.
+    private static MemoryStream SynthesizeGenericListAggDecimalProjection(string methodName, string resTypeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var lastDot = resTypeName.LastIndexOf('.');
+        var resNs = lastDot > 0 ? resTypeName[..lastDot] : "";
+        var resName = lastDot > 0 ? resTypeName[(lastDot + 1)..] : resTypeName;
+        var resRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(resNs), mdb.GetOrAddString(resName));
+        var resCoded = (MetadataTokens.GetRowNumber(resRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x01);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x08);                                        // return int32
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x08);                                        // IEnumerable<int32>
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x08);                                        // Func<int32, ...> arg1
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(resCoded);  // arg2 (the value type)
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(1);
+        spec.WriteByte(0x08);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

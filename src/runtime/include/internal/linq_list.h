@@ -30,6 +30,7 @@
 
 #include "il2cpp_array.h"
 #include "il2cpp_object.h"
+#include "decimal.h"      // runtime::Il2CppDecimal (the decimal-projection aggregates)
 
 #include <cstdint>
 
@@ -274,6 +275,20 @@ float   il2cpp_linq_list_sum_sel_f(Il2CppObject* list, Il2CppObject* sel, int32_
 float   il2cpp_linq_list_min_sel_f(Il2CppObject* list, Il2CppObject* sel, int32_t kind);
 float   il2cpp_linq_list_max_sel_f(Il2CppObject* list, Il2CppObject* sel, int32_t kind);
 float   il2cpp_linq_list_average_sel_f(Il2CppObject* list, Il2CppObject* sel, int32_t kind);
+
+// Selector aggregates with a DECIMAL projection (net48 Sum/Min/Max/Average(
+// source, selector) over a decimal-selector). The 16-byte decimal result rides
+// an explicit result slot (the decimal T3 contract: the slot is the FIRST
+// parameter), exactly like the array-side decimal aggregates. The element is
+// read at the LIST element kind and widened into the selector's first slot.
+void il2cpp_linq_list_sum_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
+                                  Il2CppObject* sel, int32_t kind);
+void il2cpp_linq_list_min_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
+                                  Il2CppObject* sel, int32_t kind);
+void il2cpp_linq_list_max_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
+                                  Il2CppObject* sel, int32_t kind);
+void il2cpp_linq_list_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
+                                      Il2CppObject* sel, int32_t kind);
 
 //------------------------------------------------------------------------------
 // Aggregate (no seed / int32 seed / int64 seed / double seed) over the list.

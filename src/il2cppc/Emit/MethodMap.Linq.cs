@@ -2720,6 +2720,15 @@ public static partial class MethodRefResolver
                 }
                 // Selector form: the projection type decides the entry suffix.
                 var proj = LinqSelectorProjectionType(md, sigHandle);
+                // A DECIMAL projection rides the 16-byte result-slot kernels (the
+                // decimal T3 contract: the slot is the FIRST icall parameter and
+                // ResultKind "dec" prepends it). The encoded name carries the
+                // value-type marker ("V:System.Decimal").
+                if (proj is "System.Decimal" or "V:System.Decimal")
+                {
+                    return I($"il2cpp::il2cpp_linq_list_{shortName}_sel_dec", 2, true, false, false,
+                        L2, resultKind: "dec", appendLiterals: new[] { K });
+                }
                 string psuffix = proj switch
                 {
                     "l" => "i8",
@@ -2731,7 +2740,7 @@ public static partial class MethodRefResolver
                 if (psuffix.Length == 0)
                     throw new NotSupportedException(
                         $"Enumerable.{name} with selector projection '{proj}' over a List source is not wired " +
-                        "(the list selector-aggregate surface covers int32/int64/double/float projections)");
+                        "(the list selector-aggregate surface covers int32/int64/double/float/decimal projections)");
                 string? prk = name == "Average" ? "d" : psuffix == "i8" ? "l" : psuffix is "f" or "d" ? "d" : null;
                 return I($"il2cpp::il2cpp_linq_list_{shortName}_sel_{psuffix}", 2, true, false, false,
                     L2, resultKind: prk, appendLiterals: new[] { K });

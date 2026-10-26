@@ -229,6 +229,26 @@ typedef Il2CppObject* (*SelI4RefThisFn)(Il2CppObject*, int32_t);
 typedef Il2CppObject* (*SelRefRefFn)(Il2CppObject*);
 typedef Il2CppObject* (*SelRefRefThisFn)(Il2CppObject*, Il2CppObject*);
 
+// Selector ABIs for the WIDE source families (the element crosses in its OWN
+// slot: int64 for an i8 source, double for a float/double source) -- the
+// selector-aggregate projections.
+typedef int32_t (*SelI8I4Fn)(int64_t);
+typedef int32_t (*SelI8I4ThisFn)(Il2CppObject*, int64_t);
+typedef int64_t (*SelI8I8Fn)(int64_t);
+typedef int64_t (*SelI8I8ThisFn)(Il2CppObject*, int64_t);
+typedef double (*SelI8DFn)(int64_t);
+typedef double (*SelI8DThisFn)(Il2CppObject*, int64_t);
+typedef float (*SelI8FFn)(int64_t);
+typedef float (*SelI8FThisFn)(Il2CppObject*, int64_t);
+typedef int32_t (*SelDI4Fn)(double);
+typedef int32_t (*SelDI4ThisFn)(Il2CppObject*, double);
+typedef int64_t (*SelDI8Fn)(double);
+typedef int64_t (*SelDI8ThisFn)(Il2CppObject*, double);
+typedef double (*SelDDFn)(double);
+typedef double (*SelDDThisFn)(Il2CppObject*, double);
+typedef float (*SelDFFn)(double);
+typedef float (*SelDFThisFn)(Il2CppObject*, double);
+
 // Index-predicate ABI (net48 Func<TSource,int,bool>): the predicate receives
 // the element AND its zero-based source index.
 typedef bool (*PredI4IdxFn)(int32_t, int32_t);
@@ -461,6 +481,770 @@ int64_t il2cpp_linq_list_long_count(Il2CppObject* list)
 {
     RequireList(list);
     return static_cast<int64_t>(il2cpp_list_obj_get_count(list));
+}
+
+//------------------------------------------------------------------------------
+// Source-only aggregates (Sum/Min/Max/Average) over a List<T>. The result
+// family follows the list kind: i4 (int32 -- the narrow families widen into the
+// int32 slot), i8 (int64), f (float), d (double). Average is double for the
+// integer/double families and float for the float family (net48
+// Enumerable.Average overloads). Sum is CHECKED for the integer families
+// (net48), Min/Max/Average throw InvalidOperationException on an empty
+// sequence.
+// GC SAFETY: no callback runs, so the list and the snapshot are rooted across
+// the single snapshot allocation.
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_list_sum_i4(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    int32_t sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = ReadI4(snap, i, kind);
+        if ((elem > 0 && sum > INT32_MAX - elem) || (elem < 0 && sum < INT32_MIN - elem))
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        sum += elem;
+    }
+    return sum;
+}
+
+int32_t il2cpp_linq_list_min_i4(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int32_t best = ReadI4(snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const int32_t elem = ReadI4(snap, i, kind);
+        if (elem < best) best = elem;
+    }
+    return best;
+}
+
+int32_t il2cpp_linq_list_max_i4(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int32_t best = ReadI4(snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const int32_t elem = ReadI4(snap, i, kind);
+        if (elem > best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_list_average_i4(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int64_t sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += ReadI4(snap, i, kind);
+    return static_cast<double>(sum) / static_cast<double>(n);
+}
+
+int64_t il2cpp_linq_list_sum_i8(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    int64_t sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int64_t elem = ReadI8(snap, i);
+        if ((elem > 0 && sum > INT64_MAX - elem) || (elem < 0 && sum < INT64_MIN - elem))
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        sum += elem;
+    }
+    return sum;
+}
+
+int64_t il2cpp_linq_list_min_i8(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int64_t best = ReadI8(snap, 0);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const int64_t elem = ReadI8(snap, i);
+        if (elem < best) best = elem;
+    }
+    return best;
+}
+
+int64_t il2cpp_linq_list_max_i8(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int64_t best = ReadI8(snap, 0);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const int64_t elem = ReadI8(snap, i);
+        if (elem > best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_list_average_i8(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int64_t sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += ReadI8(snap, i);
+    return static_cast<double>(sum) / static_cast<double>(n);
+}
+
+float il2cpp_linq_list_sum_f(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    double sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += ReadD(snap, i);
+    return static_cast<float>(sum);
+}
+
+float il2cpp_linq_list_min_f(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double best = ReadD(snap, 0);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const double elem = ReadD(snap, i);
+        if (elem < best) best = elem;
+    }
+    return static_cast<float>(best);
+}
+
+float il2cpp_linq_list_max_f(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double best = ReadD(snap, 0);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const double elem = ReadD(snap, i);
+        if (elem > best) best = elem;
+    }
+    return static_cast<float>(best);
+}
+
+float il2cpp_linq_list_average_f(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += ReadD(snap, i);
+    return static_cast<float>(sum / static_cast<double>(n));
+}
+
+double il2cpp_linq_list_sum_d(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    double sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += ReadD(snap, i);
+    return sum;
+}
+
+double il2cpp_linq_list_min_d(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double best = ReadD(snap, 0);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const double elem = ReadD(snap, i);
+        if (elem < best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_list_max_d(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double best = ReadD(snap, 0);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const double elem = ReadD(snap, i);
+        if (elem > best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_list_average_d(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += ReadD(snap, i);
+    return sum / static_cast<double>(n);
+}
+
+//------------------------------------------------------------------------------
+// Selector aggregates (Sum/Min/Max/Average(source, selector)) over a List<T>.
+// The PROJECTION family is the entry suffix (i4/i8/d/f); the element is read at
+// the LIST element kind and widened into the selector's first parameter slot.
+// GC SAFETY: the list and the snapshot are rooted across every callback.
+//------------------------------------------------------------------------------
+static int32_t SelAggI4(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<SelI8I4ThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelI8I4Fn>(d->methodPtr)(v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<SelDI4ThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelDI4Fn>(d->methodPtr)(v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<SelI4I4ThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelI4I4Fn>(d->methodPtr)(v);
+        }
+    }
+}
+
+static int64_t SelAggI8(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<SelI8I8ThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelI8I8Fn>(d->methodPtr)(v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<SelDI8ThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelDI8Fn>(d->methodPtr)(v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<SelI4I8ThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelI4I8Fn>(d->methodPtr)(v);
+        }
+    }
+}
+
+static double SelAggD(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<SelI8DThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelI8DFn>(d->methodPtr)(v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<SelDDThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelDDFn>(d->methodPtr)(v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<SelI4DThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelI4DFn>(d->methodPtr)(v);
+        }
+    }
+}
+
+static float SelAggF(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<SelI8FThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelI8FFn>(d->methodPtr)(v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<SelDFThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelDFFn>(d->methodPtr)(v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<SelI4FThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelI4FFn>(d->methodPtr)(v);
+        }
+    }
+}
+
+int32_t il2cpp_linq_list_sum_sel_i4(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    int32_t sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t elem = SelAggI4(d, snap, i, kind);
+        if ((elem > 0 && sum > INT32_MAX - elem) || (elem < 0 && sum < INT32_MIN - elem))
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        sum += elem;
+    }
+    return sum;
+}
+
+int32_t il2cpp_linq_list_min_sel_i4(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int32_t best = SelAggI4(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const int32_t elem = SelAggI4(d, snap, i, kind);
+        if (elem < best) best = elem;
+    }
+    return best;
+}
+
+int32_t il2cpp_linq_list_max_sel_i4(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int32_t best = SelAggI4(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const int32_t elem = SelAggI4(d, snap, i, kind);
+        if (elem > best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_list_average_sel_i4(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int64_t sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += SelAggI4(d, snap, i, kind);
+    return static_cast<double>(sum) / static_cast<double>(n);
+}
+
+int64_t il2cpp_linq_list_sum_sel_i8(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    int64_t sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int64_t elem = SelAggI8(d, snap, i, kind);
+        if ((elem > 0 && sum > INT64_MAX - elem) || (elem < 0 && sum < INT64_MIN - elem))
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        sum += elem;
+    }
+    return sum;
+}
+
+int64_t il2cpp_linq_list_min_sel_i8(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int64_t best = SelAggI8(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const int64_t elem = SelAggI8(d, snap, i, kind);
+        if (elem < best) best = elem;
+    }
+    return best;
+}
+
+int64_t il2cpp_linq_list_max_sel_i8(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int64_t best = SelAggI8(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const int64_t elem = SelAggI8(d, snap, i, kind);
+        if (elem > best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_list_average_sel_i8(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    int64_t sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += SelAggI8(d, snap, i, kind);
+    return static_cast<double>(sum) / static_cast<double>(n);
+}
+
+double il2cpp_linq_list_sum_sel_d(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    double sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += SelAggD(d, snap, i, kind);
+    return sum;
+}
+
+double il2cpp_linq_list_min_sel_d(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double best = SelAggD(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const double elem = SelAggD(d, snap, i, kind);
+        if (elem < best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_list_max_sel_d(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double best = SelAggD(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const double elem = SelAggD(d, snap, i, kind);
+        if (elem > best) best = elem;
+    }
+    return best;
+}
+
+double il2cpp_linq_list_average_sel_d(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += SelAggD(d, snap, i, kind);
+    return sum / static_cast<double>(n);
+}
+
+float il2cpp_linq_list_sum_sel_f(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    double sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += SelAggF(d, snap, i, kind);
+    return static_cast<float>(sum);
+}
+
+float il2cpp_linq_list_min_sel_f(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double best = SelAggF(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const double elem = SelAggF(d, snap, i, kind);
+        if (elem < best) best = elem;
+    }
+    return static_cast<float>(best);
+}
+
+float il2cpp_linq_list_max_sel_f(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double best = SelAggF(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const double elem = SelAggF(d, snap, i, kind);
+        if (elem > best) best = elem;
+    }
+    return static_cast<float>(best);
+}
+
+float il2cpp_linq_list_average_sel_f(Il2CppObject* list, Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double sum = 0;
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i) sum += SelAggF(d, snap, i, kind);
+    return static_cast<float>(sum / static_cast<double>(n));
+}
+
+//------------------------------------------------------------------------------
+// Selector aggregates with a DECIMAL projection (net48 Sum/Min/Max/Average(
+// source, selector) over a decimal selector). The 16-byte decimal result rides
+// an explicit result slot (the decimal T3 contract: the slot is the FIRST
+// parameter). The element is read at the LIST element kind and widened into the
+// selector's first slot; the decimal arithmetic uses the runtime's checked
+// icall_decimal_* authority (net48 OverflowException on overflow).
+// GC SAFETY: the list and the snapshot are rooted across every callback.
+//------------------------------------------------------------------------------
+typedef runtime::Il2CppDecimal (*ListSelI4ToDecFn)(int32_t);
+typedef runtime::Il2CppDecimal (*ListSelI4ToDecThisFn)(Il2CppObject*, int32_t);
+typedef runtime::Il2CppDecimal (*ListSelI8ToDecFn)(int64_t);
+typedef runtime::Il2CppDecimal (*ListSelI8ToDecThisFn)(Il2CppObject*, int64_t);
+typedef runtime::Il2CppDecimal (*ListSelDToDecFn)(double);
+typedef runtime::Il2CppDecimal (*ListSelDToDecThisFn)(Il2CppObject*, double);
+
+static runtime::Il2CppDecimal SelAggDec(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<ListSelI8ToDecThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<ListSelI8ToDecFn>(d->methodPtr)(v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<ListSelDToDecThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<ListSelDToDecFn>(d->methodPtr)(v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<ListSelI4ToDecThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<ListSelI4ToDecFn>(d->methodPtr)(v);
+        }
+    }
+}
+
+void il2cpp_linq_list_sum_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
+                                  Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const runtime::Il2CppDecimal elem = SelAggDec(d, snap, i, kind);
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+}
+
+void il2cpp_linq_list_min_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
+                                  Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best = SelAggDec(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = SelAggDec(d, snap, i, kind);
+        if (runtime::icall_decimal_compare(&elem, &best) < 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_list_max_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
+                                  Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best = SelAggDec(d, snap, 0, kind);
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = SelAggDec(d, snap, i, kind);
+        if (runtime::icall_decimal_compare(&elem, &best) > 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_list_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
+                                      Il2CppObject* sel, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const runtime::Il2CppDecimal elem = SelAggDec(d, snap, i, kind);
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+    runtime::Il2CppDecimal count;
+    std::memset(&count, 0, sizeof(runtime::Il2CppDecimal));
+    runtime::icall_decimal_ctor_int32(&count, n);
+    runtime::icall_decimal_div(result, result, &count);
 }
 
 //------------------------------------------------------------------------------
@@ -1872,91 +2656,12 @@ Il2CppArray* il2cpp_linq_list_then_by_key_desc_i4(Il2CppObject* list, Il2CppObje
     return il2cpp_linq_then_by_key_desc_i4(snap, k1, k2);
 }
 
-//------------------------------------------------------------------------------
-// Source-only aggregates: snapshot, then the matching array kernel.
-//------------------------------------------------------------------------------
-// A narrow snapshot (1/2/4-byte cells) is widened into an int32[] first, so
-// the i4 kernels read real int32 cells (never a 4-byte over-read).
-Il2CppArray* WidenToI4(Il2CppArray* snap, int32_t kind)
-{
-    if (kind == IL2CPP_LIST_KIND_I4) return snap;
-    Il2CppArray* out = il2cpp_array_new_typed(4, 1, snap->length);
-    for (int32_t i = 0; i < snap->length; ++i)
-    {
-        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = ReadI4(snap, i, kind);
-    }
-    return out;
-}
-
-#define LINQ_LIST_AGG(SHORT, SUFFIX, CTYPE, ARRAYFN)                              \
-    CTYPE il2cpp_linq_list_##SHORT##_##SUFFIX(Il2CppObject* list, int32_t kind)   \
-    {                                                                             \
-        RequireList(list);                                                        \
-        if (kind == IL2CPP_LIST_KIND_REF)                                         \
-        {                                                                         \
-            il2cpp_throw_not_supported_exception(                                 \
-                "Numeric aggregates over a reference-element List are not wired."); \
-        }                                                                         \
-        return ARRAYFN(SnapshotOf(list, kind));                                   \
-    }
-
-#define LINQ_LIST_AGG_I4(SHORT, CTYPE, ARRAYFN)                                   \
-    CTYPE il2cpp_linq_list_##SHORT##_i4(Il2CppObject* list, int32_t kind)         \
-    {                                                                             \
-        RequireList(list);                                                        \
-        if (kind == IL2CPP_LIST_KIND_REF)                                         \
-        {                                                                         \
-            il2cpp_throw_not_supported_exception(                                 \
-                "Numeric aggregates over a reference-element List are not wired."); \
-        }                                                                         \
-        return ARRAYFN(WidenToI4(SnapshotOf(list, kind), kind));                  \
-    }
-
-LINQ_LIST_AGG_I4(sum, int32_t, il2cpp_linq_sum_i4)
-LINQ_LIST_AGG_I4(min, int32_t, il2cpp_linq_min_i4)
-LINQ_LIST_AGG_I4(max, int32_t, il2cpp_linq_max_i4)
-LINQ_LIST_AGG_I4(average, double, il2cpp_linq_average_i4)
-LINQ_LIST_AGG(sum, i8, int64_t, il2cpp_linq_sum_i8)
-LINQ_LIST_AGG(min, i8, int64_t, il2cpp_linq_min_i8)
-LINQ_LIST_AGG(max, i8, int64_t, il2cpp_linq_max_i8)
-LINQ_LIST_AGG(average, i8, double, il2cpp_linq_average_i8)
-LINQ_LIST_AGG(sum, d, double, il2cpp_linq_sum_d)
-LINQ_LIST_AGG(min, d, double, il2cpp_linq_min_d)
-LINQ_LIST_AGG(max, d, double, il2cpp_linq_max_d)
-LINQ_LIST_AGG(average, d, double, il2cpp_linq_average_d)
-LINQ_LIST_AGG(sum, f, float, il2cpp_linq_sum_f)
-LINQ_LIST_AGG(min, f, float, il2cpp_linq_min_f)
-LINQ_LIST_AGG(max, f, float, il2cpp_linq_max_f)
-LINQ_LIST_AGG(average, f, float, il2cpp_linq_average_f)
-
-#undef LINQ_LIST_AGG
-
-#define LINQ_LIST_SEL_AGG(SHORT, SUFFIX, CTYPE, ARRAYFN)                            \
-    CTYPE il2cpp_linq_list_##SHORT##_sel_##SUFFIX(Il2CppObject* list,               \
-                                                  Il2CppObject* sel, int32_t kind)  \
-    {                                                                               \
-        RequireList(list);                                                          \
-        return ARRAYFN(SnapshotOf(list, kind), sel);                                \
-    }
-
-LINQ_LIST_SEL_AGG(sum, i4, int32_t, il2cpp_linq_sum_sel_i4)
-LINQ_LIST_SEL_AGG(min, i4, int32_t, il2cpp_linq_min_sel_i4)
-LINQ_LIST_SEL_AGG(max, i4, int32_t, il2cpp_linq_max_sel_i4)
-LINQ_LIST_SEL_AGG(average, i4, double, il2cpp_linq_average_sel_i4)
-LINQ_LIST_SEL_AGG(sum, i8, int64_t, il2cpp_linq_sum_sel_i8)
-LINQ_LIST_SEL_AGG(min, i8, int64_t, il2cpp_linq_min_sel_i8)
-LINQ_LIST_SEL_AGG(max, i8, int64_t, il2cpp_linq_max_sel_i8)
-LINQ_LIST_SEL_AGG(average, i8, double, il2cpp_linq_average_sel_i8)
-LINQ_LIST_SEL_AGG(sum, d, double, il2cpp_linq_sum_sel_d)
-LINQ_LIST_SEL_AGG(min, d, double, il2cpp_linq_min_sel_d)
-LINQ_LIST_SEL_AGG(max, d, double, il2cpp_linq_max_sel_d)
-LINQ_LIST_SEL_AGG(average, d, double, il2cpp_linq_average_sel_d)
-LINQ_LIST_SEL_AGG(sum, f, float, il2cpp_linq_sum_sel_f)
-LINQ_LIST_SEL_AGG(min, f, float, il2cpp_linq_min_sel_f)
-LINQ_LIST_SEL_AGG(max, f, float, il2cpp_linq_max_sel_f)
-LINQ_LIST_SEL_AGG(average, f, float, il2cpp_linq_average_sel_f)
-
-#undef LINQ_LIST_SEL_AGG
+// The List<T> aggregate family is implemented explicitly above (and below):
+// the source-only entries read the snapshot at the LIST element kind, and the
+// selector entries dispatch the selector ABI on that same kind. The earlier
+// macro forms delegated to the ARRAY kernels, which assume the snapshot's own
+// family matches the projection -- reading a List<int> snapshot as int64 for a
+// long projection (a silent wrong value). The explicit forms fix that.
 
 //------------------------------------------------------------------------------
 // Aggregate
