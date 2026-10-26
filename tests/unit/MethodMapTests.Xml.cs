@@ -167,6 +167,136 @@ public class MethodMapXmlTests
     }
 
     //--------------------------------------------------------------------------
+    // xml-b23 residual: the XmlNode member surface.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_XmlDocument_GetDocumentElement_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Xml", "XmlDocument", "get_DocumentElement", Sig(0x1C)), "get_DocumentElement");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_get_document_element", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal("System.Xml.XmlElement", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_XmlNode_GetFirstChild_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Xml", "XmlNode", "get_FirstChild", Sig(0x1C)), "get_FirstChild");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_get_first_child", m.CppName);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal(new[] { "node" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_XmlNode_GetName_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Xml", "XmlNode", "get_Name", Sig(0x0E)), "get_Name");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_get_name", m.CppName);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal(new[] { "node" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_XmlNode_GetNodeType_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Xml", "XmlNode", "get_NodeType", Sig(0x08)), "get_NodeType");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_get_node_type", m.CppName);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal(new[] { "node" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // xml-b23 residual: the XmlWriter member surface (WriteStartDocument /
+    // WriteFullEndElement / WriteCData / WriteComment / WriteWhitespace /
+    // WriteEntityRef / WriteRaw / get_WriteState).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_XmlWriter_WriteStartDocument0_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Xml", "XmlWriter", "WriteStartDocument", Sig(0x01)), "WriteStartDocument");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_writer_write_start_document", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.Equal(new[] { "0" }, m.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_XmlWriter_WriteStartDocumentBool_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Xml", "XmlWriter", "WriteStartDocument", Sig(0x01, 0x02)), "WriteStartDocument");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_writer_write_start_document", m.CppName);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", "i" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_XmlWriter_WriteFullEndElement_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Xml", "XmlWriter", "WriteFullEndElement", Sig(0x01)), "WriteFullEndElement");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_writer_write_full_end_element", m.CppName);
+        Assert.True(m.IsInstance);
+    }
+
+    [Theory]
+    [InlineData("WriteCData", "il2cpp::runtime::il2cpp_xml_writer_write_cdata")]
+    [InlineData("WriteComment", "il2cpp::runtime::il2cpp_xml_writer_write_comment")]
+    [InlineData("WriteWhitespace", "il2cpp::runtime::il2cpp_xml_writer_write_whitespace")]
+    [InlineData("WriteEntityRef", "il2cpp::runtime::il2cpp_xml_writer_write_entity_ref")]
+    [InlineData("WriteRaw", "il2cpp::runtime::il2cpp_xml_writer_write_raw")]
+    public void Resolve_XmlWriter_ContentMembers_MapToIcall(string name, string cppName)
+    {
+        var m = ResolveMember(Synthesize("System.Xml", "XmlWriter", name, Sig(0x01, 0x0E)), name);
+
+        Assert.Equal(cppName, m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", "s" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_XmlWriter_GetWriteState_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Xml", "XmlWriter", "get_WriteState", Sig(0x08)), "get_WriteState");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_writer_get_write_state", m.CppName);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal(new[] { "" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // XmlWriter.Create target overloads (StringBuilder / StringWriter).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_XmlWriter_CreateStringBuilder_MapsToIcall()
+    {
+        var m = ResolveMemberArg0(Synthesize("System.Xml", "XmlWriter", "Create",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x12, 0x05 }), "Create", "System.Text.StringBuilder");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_writer_create", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.Equal("System.Xml.XmlWriter", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_XmlWriter_CreateStringWriter_MapsToIcall()
+    {
+        var m = ResolveMemberArg0(Synthesize("System.Xml", "XmlWriter", "Create",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x12, 0x05 }), "Create", "System.IO.StringWriter");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_xml_writer_create_sw", m.CppName);
+        Assert.Equal("System.Xml.XmlWriter", m.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // Unwired members hit the default -> LOUD "member not wired"
     //--------------------------------------------------------------------------
     [Fact]
@@ -191,6 +321,17 @@ public class MethodMapXmlTests
         var md = reader.GetMetadataReader();
         var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
         return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>());
+    }
+
+    // A resolution carrying the tracked type of the FIRST argument (the
+    // XmlWriter.Create target-kind discriminator).
+    private static ResolvedMethod ResolveMemberArg0(MemoryStream pe, string memberName, string? arg0Type)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+            null, false, arg0Type, null);
     }
 
     // Signature blob: header 0x00 (DEFAULT, non-generic), param count, return

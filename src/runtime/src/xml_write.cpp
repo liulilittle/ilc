@@ -29,6 +29,7 @@
 #include "il2cpp_object.h"       // il2cpp_null_check (NRE baseline)
 #include "il2cpp_string.h"       // il2cpp_string_new (flush output string)
 #include "il2cpp_stringbuilder.h" // icall_stringbuilder_append_s (target append)
+#include "stringrw.h"             // Il2CppStringWriterObject (Create(StringWriter))
 
 #include <cstdint>
 #include <cstdio>
@@ -201,6 +202,19 @@ void EmitEndTag(XmlWriterImpl* w, const std::u16string& name)
     w->out.push_back(u'>');
 }
 
+// The XML declaration text (net48 StringBuilder-target shape: utf-16). The
+// standalone flag adds ` standalone="yes"` before the `?>`.
+void EmitDeclaration(XmlWriterImpl* w, bool standalone)
+{
+    w->out += u"<?xml version=\"1.0\" encoding=\"utf-16\"";
+    if (standalone)
+    {
+        w->out += u" standalone=\"yes\"";
+    }
+    w->out += u"?>";
+    w->wrote_decl = true;
+}
+
 } // namespace
 
 namespace il2cpp { namespace runtime {
@@ -244,6 +258,18 @@ Il2CppObject* il2cpp_xml_writer_create_s(Il2CppObject* target, Il2CppObject* set
     return reinterpret_cast<Il2CppObject*>(w);
 }
 
+Il2CppObject* il2cpp_xml_writer_create_sw(Il2CppObject* target)
+{
+    return il2cpp_xml_writer_create(
+        reinterpret_cast<il2cpp::Il2CppStringWriterObject*>(target)->builder);
+}
+
+Il2CppObject* il2cpp_xml_writer_create_sw_s(Il2CppObject* target, Il2CppObject* settings)
+{
+    return il2cpp_xml_writer_create_s(
+        reinterpret_cast<il2cpp::Il2CppStringWriterObject*>(target)->builder, settings);
+}
+
 void il2cpp_xml_writer_write_start_element(Il2CppObject* writer, Il2CppString* name)
 {
     XmlWriterImpl* w = AsWriter(writer);
@@ -251,8 +277,7 @@ void il2cpp_xml_writer_write_start_element(Il2CppObject* writer, Il2CppString* n
     // The declaration is emitted before the FIRST element (net48 lazy emit).
     if (!w->wrote_decl && !w->omit_declaration)
     {
-        w->out += u"<?xml version=\"1.0\" encoding=\"utf-16\"?>";
-        w->wrote_decl = true;
+        EmitDeclaration(w, false);
     }
     CloseStartTag(w);
     if (!w->stack.empty())
@@ -336,6 +361,116 @@ void il2cpp_xml_writer_write_end_element(Il2CppObject* writer)
         // Text content keeps the end tag on the same line: `<x>v</x>`.
         EmitEndTag(w, frame.name);
     }
+}
+
+void il2cpp_xml_writer_write_start_document(Il2CppObject* writer, int32_t standalone)
+{
+    XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
+    // net48: WriteStartDocument is idempotent and a no-op when the declaration
+    // is omitted.
+    if (w->wrote_decl || w->omit_declaration)
+    {
+        return;
+    }
+    EmitDeclaration(w, standalone != 0);
+}
+
+void il2cpp_xml_writer_write_full_end_element(Il2CppObject* writer)
+{
+    XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
+    if (w->stack.empty())
+    {
+        return;
+    }
+    const XmlWriterFrame frame = w->stack.back();
+    w->stack.pop_back();
+    // Close the open start tag with '>' (never the self-closing form), then
+    // emit the FULL end tag.
+    CloseStartTag(w);
+    if (frame.has_child_element && w->indent)
+    {
+        WriteIndent(w, w->stack.size());
+    }
+    EmitEndTag(w, frame.name);
+}
+
+void il2cpp_xml_writer_write_cdata(Il2CppObject* writer, Il2CppString* text)
+{
+    XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
+    CloseStartTag(w);
+    w->out += u"<![CDATA[";
+    if (text != nullptr)
+    {
+        w->out.append(text->chars, static_cast<size_t>(text->length));
+    }
+    w->out += u"]]>";
+}
+
+void il2cpp_xml_writer_write_comment(Il2CppObject* writer, Il2CppString* text)
+{
+    XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
+    CloseStartTag(w);
+    WriteIndent(w, w->stack.size());
+    w->out += u"<!--";
+    if (text != nullptr)
+    {
+        w->out.append(text->chars, static_cast<size_t>(text->length));
+    }
+    w->out += u"-->";
+}
+
+void il2cpp_xml_writer_write_whitespace(Il2CppObject* writer, Il2CppString* ws)
+{
+    XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
+    CloseStartTag(w);
+    if (ws != nullptr)
+    {
+        w->out.append(ws->chars, static_cast<size_t>(ws->length));
+    }
+}
+
+void il2cpp_xml_writer_write_entity_ref(Il2CppObject* writer, Il2CppString* name)
+{
+    XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
+    CloseStartTag(w);
+    w->out.push_back(u'&');
+    AppendName(w->out, name);
+    w->out.push_back(u';');
+}
+
+void il2cpp_xml_writer_write_raw(Il2CppObject* writer, Il2CppString* data)
+{
+    XmlWriterImpl* w = AsWriter(writer);
+    ThrowIfClosed(w);
+    CloseStartTag(w);
+    if (data != nullptr)
+    {
+        w->out.append(data->chars, static_cast<size_t>(data->length));
+    }
+}
+
+int32_t il2cpp_xml_writer_get_write_state(Il2CppObject* writer)
+{
+    XmlWriterImpl* w = AsWriter(writer);
+    if (w->closed)
+    {
+        return 5; // WriteState.Closed
+    }
+    if (w->stack.empty())
+    {
+        return w->wrote_decl ? 1 : 0; // Prolog / Start
+    }
+    if (w->start_tag_open)
+    {
+        return 2; // Element (a start tag is open -- attributes may follow)
+    }
+    return 4; // Content
 }
 
 void il2cpp_xml_writer_write_end_document(Il2CppObject* writer)

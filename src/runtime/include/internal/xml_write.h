@@ -69,6 +69,15 @@ Il2CppObject* il2cpp_xml_writer_create(Il2CppObject* target);
 // settings arg behaves like default settings.
 Il2CppObject* il2cpp_xml_writer_create_s(Il2CppObject* target, Il2CppObject* settings);
 
+// XmlWriter.Create(StringWriter) / (StringWriter, XmlWriterSettings): the
+// TextWriter target. The StringWriter owns a backing StringBuilder (the sole
+// content store), so the writer targets THAT builder; StringWriter.ToString()
+// then returns the written markup. A null target -> the icall dereferences
+// null (the resolver never passes null for the 1-arg form's StringBuilder
+// contract -- the generated null-check covers it).
+Il2CppObject* il2cpp_xml_writer_create_sw(Il2CppObject* target);
+Il2CppObject* il2cpp_xml_writer_create_sw_s(Il2CppObject* target, Il2CppObject* settings);
+
 // WriteStartElement(string): opens a start tag (attributes may follow);
 // writes the xml declaration first (unless omitted) and the indentation.
 void il2cpp_xml_writer_write_start_element(Il2CppObject* writer, Il2CppString* name);
@@ -91,6 +100,34 @@ void il2cpp_xml_writer_write_string(Il2CppObject* writer, Il2CppString* text);
 // content, `<name></name>` when no content was written). With Indent, the
 // end tag of an element that CONTAINS child elements goes on its own line.
 void il2cpp_xml_writer_write_end_element(Il2CppObject* writer);
+
+// WriteStartDocument([bool standalone]): emit the XML declaration eagerly
+// (the lazy declaration in WriteStartElement is suppressed once this runs).
+// A true standalone adds ` standalone="yes"` (net48). Idempotent.
+void il2cpp_xml_writer_write_start_document(Il2CppObject* writer, int32_t standalone);
+
+// WriteFullEndElement(): like WriteEndElement but ALWAYS writes the full
+// `<name></name>` end tag (never the self-closing `<name />` form).
+void il2cpp_xml_writer_write_full_end_element(Il2CppObject* writer);
+
+// WriteCData(string): append `<![CDATA[...]]>` (raw content, no escaping).
+void il2cpp_xml_writer_write_cdata(Il2CppObject* writer, Il2CppString* text);
+
+// WriteComment(string): append `<!--...-->` (raw content).
+void il2cpp_xml_writer_write_comment(Il2CppObject* writer, Il2CppString* text);
+
+// WriteWhitespace(string): append the whitespace verbatim.
+void il2cpp_xml_writer_write_whitespace(Il2CppObject* writer, Il2CppString* ws);
+
+// WriteEntityRef(string): append `&name;`.
+void il2cpp_xml_writer_write_entity_ref(Il2CppObject* writer, Il2CppString* name);
+
+// WriteRaw(string): append the markup verbatim (no escaping).
+void il2cpp_xml_writer_write_raw(Il2CppObject* writer, Il2CppString* data);
+
+// get_WriteState: the net48 System.Xml.WriteState value (Start 0 / Prolog 1 /
+// Element 2 / Attribute 3 / Content 4 / Closed 5 / Error 6).
+int32_t il2cpp_xml_writer_get_write_state(Il2CppObject* writer);
 
 // WriteEndDocument(): closes every still-open element (WriteEndElement until
 // the stack is empty).

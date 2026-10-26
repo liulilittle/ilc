@@ -129,6 +129,24 @@ Il2CppObject* il2cpp_xml_get_inner_text(const il2cpp::XmlNode* node);
 // ArgumentNullException for null 'node'.
 Il2CppObject* il2cpp_xml_get_inner_xml(const il2cpp::XmlNode* node);
 
+// XmlDocument.get_DocumentElement(): the tree root node (the parser produces a
+// single root element, so the document handle IS the root element in the
+// handle-gap model). Returns nullptr for a null document.
+il2cpp::XmlNode* il2cpp_xml_get_document_element(const il2cpp::XmlNode* root);
+
+// XmlNode.getFirstChild(): the first child node of an element, or nullptr
+// (a null node / a node without children).
+il2cpp::XmlNode* il2cpp_xml_get_first_child(const il2cpp::XmlNode* node);
+
+// XmlNode.getName(): the node name -- the element tag name for an element
+// node; "#text" / "#cdata-section" / "#comment" for the other kinds; the
+// document handle's own name is "#document" (net48 XmlDocument.Name).
+Il2CppObject* il2cpp_xml_get_name(const il2cpp::XmlNode* node);
+
+// XmlNode.getNodeType(): the net48 System.Xml.XmlNodeType value (Document 9 /
+// Element 1 / Text 3 / CDATA 4 / Comment 8).
+int32_t il2cpp_xml_get_node_type(const il2cpp::XmlNode* node);
+
 // Release a tree root returned by il2cpp_xml_load_xml. Null-safe.
 void il2cpp_xml_node_free(il2cpp::XmlNode* root);
 

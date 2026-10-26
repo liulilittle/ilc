@@ -551,6 +551,67 @@ Il2CppObject* il2cpp_xml_get_inner_xml(const il2cpp::XmlNode* node)
     return ManagedFromUtf8(out);
 }
 
+il2cpp::XmlNode* il2cpp_xml_get_document_element(const il2cpp::XmlNode* root)
+{
+    // The parser produces a single root element, so the document handle IS the
+    // root element (the handle-gap model). Null-safe.
+    return const_cast<il2cpp::XmlNode*>(root);
+}
+
+il2cpp::XmlNode* il2cpp_xml_get_first_child(const il2cpp::XmlNode* node)
+{
+    if (node == nullptr || node->children.empty())
+    {
+        return nullptr;
+    }
+    return const_cast<il2cpp::XmlNode*>(&node->children.front());
+}
+
+Il2CppObject* il2cpp_xml_get_name(const il2cpp::XmlNode* node)
+{
+    if (node == nullptr)
+    {
+        ThrowArgNull("node");
+    }
+    std::string name;
+    switch (node->kind)
+    {
+        case il2cpp::XmlNodeKind::Element:
+            name = node->name;
+            break;
+        case il2cpp::XmlNodeKind::Text:
+            name = "#text";
+            break;
+        case il2cpp::XmlNodeKind::CDATA:
+            name = "#cdata-section";
+            break;
+        case il2cpp::XmlNodeKind::Comment:
+            name = "#comment";
+            break;
+    }
+    return ManagedFromUtf8(name);
+}
+
+int32_t il2cpp_xml_get_node_type(const il2cpp::XmlNode* node)
+{
+    if (node == nullptr)
+    {
+        ThrowArgNull("node");
+    }
+    switch (node->kind)
+    {
+        case il2cpp::XmlNodeKind::Element:
+            return 1; // XmlNodeType.Element
+        case il2cpp::XmlNodeKind::Text:
+            return 3; // XmlNodeType.Text
+        case il2cpp::XmlNodeKind::CDATA:
+            return 4; // XmlNodeType.CDATA
+        case il2cpp::XmlNodeKind::Comment:
+            return 8; // XmlNodeType.Comment
+    }
+    return 0;
+}
+
 void il2cpp_xml_node_free(il2cpp::XmlNode* root)
 {
     delete root;

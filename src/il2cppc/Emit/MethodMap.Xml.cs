@@ -1,4 +1,4 @@
-namespace Il2Cpp.Transpiler.Emit;
+﻿namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.Xml -- System.Xml.XmlDocument basic-domain mappings
@@ -142,6 +142,30 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::il2cpp_xml_get_inner_xml", 0, true, true, true,
                         new[] { "node" });
                 return null;
+            // ---- xml-b23 residual: the XmlNode member surface ----
+            // get_DocumentElement: the tree root (the document handle IS the
+            // root element -- handle-gap). get_FirstChild / get_Name /
+            // get_NodeType: the node predicates.
+            case "get_DocumentElement":
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_xml_get_document_element", 0, true, true, true,
+                        new[] { "node" }, returnTypeName: "System.Xml.XmlElement");
+                return null;
+            case "get_FirstChild":
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_xml_get_first_child", 0, true, true, true,
+                        new[] { "node" }, returnTypeName: "System.Xml.XmlNode");
+                return null;
+            case "get_Name":
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_xml_get_name", 0, true, true, true,
+                        new[] { "node" });
+                return null;
+            case "get_NodeType":
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_xml_get_node_type", 0, true, false, true,
+                        new[] { "node" });
+                return null;
             default:
                 throw new NotSupportedException(
                     "System.Xml.XmlDocument member not wired: the basic domain covers " +
@@ -213,16 +237,25 @@ public static partial class MethodRefResolver
                     if (arg0Type == "System.Text.StringBuilder")
                         return I("il2cpp::runtime::il2cpp_xml_writer_create", 1, true, true, false,
                             new[] { "" }, returnTypeName: "System.Xml.XmlWriter");
+                    // The StringWriter target: the runtime writes into the
+                    // StringWriter's backing StringBuilder (the sole content
+                    // store), so StringWriter.ToString() returns the markup.
+                    if (arg0Type == "System.IO.StringWriter")
+                        return I("il2cpp::runtime::il2cpp_xml_writer_create_sw", 1, true, true, false,
+                            new[] { "" }, returnTypeName: "System.Xml.XmlWriter");
                     throw new NotSupportedException(
-                        $"XmlWriter.Create target type '{arg0Type ?? "untracked"}' not wired: only a StringBuilder target exists in the minimal face (TextWriter targets are a recorded gap)");
+                        $"XmlWriter.Create target type '{arg0Type ?? "untracked"}' not wired: only a StringBuilder / StringWriter target exists in the minimal face");
                 }
                 if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
                 {
                     if (arg1Type == "System.Text.StringBuilder")
                         return I("il2cpp::runtime::il2cpp_xml_writer_create_s", 2, true, true, false,
                             new[] { "", "" }, returnTypeName: "System.Xml.XmlWriter");
+                    if (arg1Type == "System.IO.StringWriter")
+                        return I("il2cpp::runtime::il2cpp_xml_writer_create_sw_s", 2, true, true, false,
+                            new[] { "", "" }, returnTypeName: "System.Xml.XmlWriter");
                     throw new NotSupportedException(
-                        $"XmlWriter.Create target type '{arg1Type ?? "untracked"}' not wired: only a StringBuilder target exists in the minimal face (TextWriter targets are a recorded gap)");
+                        $"XmlWriter.Create target type '{arg1Type ?? "untracked"}' not wired: only a StringBuilder / StringWriter target exists in the minimal face");
                 }
                 return null;
             case "WriteStartElement":
@@ -244,6 +277,53 @@ public static partial class MethodRefResolver
                 if (count == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::il2cpp_xml_writer_write_string", 1, false, false, true,
                         new[] { "", "s" });
+                return null;
+            case "WriteStartDocument":
+                // WriteStartDocument() / WriteStartDocument(bool standalone):
+                // emit the XML declaration eagerly (the lazy declaration in
+                // WriteStartElement is suppressed). The standalone flag rides
+                // the int32 carrier; the 0-arg form appends 0.
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_xml_writer_write_start_document", 0, false, false, true,
+                        new[] { "" }, appendLiterals: new[] { "0" });
+                if (count == 1 && ps[0] == 0x02)
+                    return I("il2cpp::runtime::il2cpp_xml_writer_write_start_document", 1, false, false, true,
+                        new[] { "", "i" });
+                return null;
+            case "WriteFullEndElement":
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_xml_writer_write_full_end_element", 0, false, false, true,
+                        new[] { "" });
+                return null;
+            case "WriteCData":
+                if (count == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::il2cpp_xml_writer_write_cdata", 1, false, false, true,
+                        new[] { "", "s" });
+                return null;
+            case "WriteComment":
+                if (count == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::il2cpp_xml_writer_write_comment", 1, false, false, true,
+                        new[] { "", "s" });
+                return null;
+            case "WriteWhitespace":
+                if (count == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::il2cpp_xml_writer_write_whitespace", 1, false, false, true,
+                        new[] { "", "s" });
+                return null;
+            case "WriteEntityRef":
+                if (count == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::il2cpp_xml_writer_write_entity_ref", 1, false, false, true,
+                        new[] { "", "s" });
+                return null;
+            case "WriteRaw":
+                if (count == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::il2cpp_xml_writer_write_raw", 1, false, false, true,
+                        new[] { "", "s" });
+                return null;
+            case "get_WriteState":
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_xml_writer_get_write_state", 0, true, false, true,
+                        new[] { "" });
                 return null;
             case "WriteEndElement":
                 if (count == 0)
@@ -274,3 +354,4 @@ public static partial class MethodRefResolver
         }
     }
 }
+
