@@ -30,7 +30,15 @@ namespace Cases
     public class R2 : R2Base
     {
         public int FPub;
-        public int PP { get; set; }
+        private int pp;
+        // Computed accessors (non-foldable bodies) so the transpiler emits real
+        // get_PP/set_PP functions -- a folded auto-property accessor carries a
+        // null fnPtr (the runtime-unreachable boundary documented in rf-props).
+        public int PP { get { return GetPp(); } set { SetPp(value); } }
+        private int GetPp() { return pp; }
+        private void SetPp(int v) { pp = v; }
+
+        public void MDirect() { }
     }
 
     public static class Rest2Refl
@@ -75,6 +83,21 @@ namespace Cases
             {
                 Console.WriteLine("[agt.throw]=" + ex.GetType().Name);
             }
+
+            // ---- PropertyInfo.SetValue binder arity (6-param) ----
+            // The accessor is materialized by a direct call first (the runtime's
+            // reflection Invoke only reaches AOT-compiled methods).
+            var target = new R2();
+            target.PP = 7;
+            var pi = typeof(R2).GetProperty("PP");
+            pi.SetValue(target, 42, BindingFlags.SetProperty, null, null, null);
+            Console.WriteLine("[psv.val]=" + target.PP);
+
+            // ---- MethodInfo.Invoke binder arity (5-param) ----
+            var mi = typeof(R2).GetMethod("MDirect");
+            target.MDirect();
+            mi.Invoke(target, BindingFlags.InvokeMethod, null, null, null);
+            Console.WriteLine("[minv.ok]=done");
         }
     }
 }

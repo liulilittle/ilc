@@ -109,8 +109,24 @@ public static partial class MethodRefResolver
                 if (owner == "System.Reflection.FieldInfo" && ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x1C)
                     return I("il2cpp::il2cpp_typeinfo_field_set_value", 2, true, false, true,
                         new[] { "", "", "" });
+                // REFL-ARITY: PropertyInfo.SetValue(object, object,
+                // BindingFlags, Binder, object[], CultureInfo) / FieldInfo.
+                // SetValue(object, object, BindingFlags, Binder, CultureInfo) --
+                // net48's 6/5-param forms (reflection_propertyinfo.cs:84 /
+                // reflection_fieldinfo.cs:134). The BindingFlags/Binder/
+                // CultureInfo are dropped (this AOT build models no binder --
+                // the same doctrine the Type.GetMethod binder-arity arms use);
+                // the target/value/index slots keep their positions.
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 6
+                    && ps[0] == 0x1C && ps[1] == 0x1C && ps[2] == 0x11 && ps[3] == 0x12 && ps[4] == 0x1D && ps[5] == 0x12)
+                    return I("il2cpp::il2cpp_typeinfo_property_set_value", 6, true, false, true,
+                        new[] { "", "", "", "a" }, argOrder: new[] { 0, 1, 2, 4 });
+                if (owner == "System.Reflection.FieldInfo" && ps.Length == 5
+                    && ps[0] == 0x1C && ps[1] == 0x1C && ps[2] == 0x11 && ps[3] == 0x12 && ps[4] == 0x12)
+                    return I("il2cpp::il2cpp_typeinfo_field_set_value", 5, true, false, true,
+                        new[] { "", "", "" }, argOrder: new[] { 0, 1, 2 });
                 throw new NotSupportedException(
-                    $"{owner}::SetValue with {ps.Length} parameter(s) not wired in RF-N2 -- FieldInfo.SetValue(object, object) maps to il2cpp_typeinfo_field_set_value; PropertyInfo.SetValue(object, object) / SetValue(object, object, object[]) map to il2cpp_typeinfo_property_set_value");
+                    $"{owner}::SetValue with {ps.Length} parameter(s) not wired in RF-N2/refl-arity -- FieldInfo.SetValue(object, object) / (object, object, BindingFlags, Binder, CultureInfo) map to il2cpp_typeinfo_field_set_value; PropertyInfo.SetValue(object, object) / SetValue(object, object, object[]) / (object, object, BindingFlags, Binder, object[], CultureInfo) map to il2cpp_typeinfo_property_set_value");
             // GAP-3 (P1): PropertyInfo.GetGetMethod()/GetSetMethod() -- the
             // accessor-surface unfreeze (reflprop2 D-PRP2-1's parked group).
             // The receiver is the PROPERTY-NAME string (the simplified member
@@ -157,6 +173,16 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_methodinfo_invoke", 2, true, true, true,
                         new[] { "", "", "a" }, returnTypeName: "System.Object",
                         argOrder: new[] { 0, 1, 2 });
+                // REFL-ARITY: MethodBase.Invoke(object, BindingFlags, Binder,
+                // object[], CultureInfo) -- net48's 5-param form
+                // (reflection_methodinfo.cs:710). The BindingFlags/Binder/
+                // CultureInfo are dropped (no binder model); the parameters
+                // array keeps its slot.
+                if ((owner == "System.Reflection.MethodInfo" || owner == "System.Reflection.MethodBase")
+                    && ps.Length == 5 && ps[0] == 0x1C && ps[1] == 0x11 && ps[2] == 0x12 && ps[3] == 0x1D && ps[4] == 0x12)
+                    return I("il2cpp::il2cpp_methodinfo_invoke", 5, true, true, true,
+                        new[] { "", "", "a" }, returnTypeName: "System.Object",
+                        argOrder: new[] { 0, 1, 3 });
                 // GAP-5 (P1): ConstructorInfo.Invoke(object[] parameters) --
                 // the 1-param ctor-invocation overload (no obj target; the
                 // ctor CREATES the instance). The receiver is the ctor MEMBER

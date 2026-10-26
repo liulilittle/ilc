@@ -631,6 +631,61 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
+    // REFL-ARITY -- PropertyInfo.SetValue(object, object, BindingFlags, Binder,
+    // object[], CultureInfo) / FieldInfo.SetValue(object, object, BindingFlags,
+    // Binder, CultureInfo): net48's 6/5-param forms (reflection_propertyinfo.cs:
+    // 84 / reflection_fieldinfo.cs:134). The BindingFlags/Binder/CultureInfo are
+    // dropped (the AOT build models no binder -- the same doctrine the
+    // Type.GetMethod binder-arity arms use); the index array keeps its slot.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_PropertyInfo_SetValueBinderArity_MapsToPropertySetIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "PropertyInfo", "SetValue",
+            new byte[] { 0x00, 0x06, 0x01, 0x1C, 0x1C, 0x11, 0x05, 0x12, 0x05, 0x1D, 0x1C, 0x12, 0x05 }),
+            "SetValue"); // (object, object, BindingFlags, Binder, object[], CultureInfo)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_property_set_value", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(6, resolved.ParamCount);
+        Assert.Equal(new[] { 0, 1, 2, 4 }, resolved.ArgOrder);
+    }
+
+    [Fact]
+    public void Resolve_FieldInfo_SetValueBinderArity_MapsToFieldSetIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "FieldInfo", "SetValue",
+            new byte[] { 0x00, 0x05, 0x01, 0x1C, 0x1C, 0x11, 0x05, 0x12, 0x05, 0x12, 0x05 }),
+            "SetValue"); // (object, object, BindingFlags, Binder, CultureInfo)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_field_set_value", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(5, resolved.ParamCount);
+        Assert.Equal(new[] { 0, 1, 2 }, resolved.ArgOrder);
+    }
+
+    //--------------------------------------------------------------------------
+    // REFL-ARITY -- MethodBase.Invoke(object, BindingFlags, Binder, object[],
+    // CultureInfo): net48's 5-param form (reflection_methodinfo.cs:710). The
+    // BindingFlags/Binder/CultureInfo are dropped (no binder model); the
+    // parameters array keeps its slot.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_MethodBase_InvokeBinderArity_MapsToInvokeIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "MethodBase", "Invoke",
+            new byte[] { 0x00, 0x05, 0x12, 0x05, 0x1C, 0x11, 0x05, 0x12, 0x05, 0x1D, 0x1C, 0x12, 0x05 }),
+            "Invoke"); // (object, BindingFlags, Binder, object[], CultureInfo)
+
+        Assert.Equal("il2cpp::il2cpp_methodinfo_invoke", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Object", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(5, resolved.ParamCount);
+        Assert.Equal(new[] { 0, 1, 3 }, resolved.ArgOrder);
+    }
+
+    //--------------------------------------------------------------------------
     // R3 -- MethodInfo.Invoke(object, object[]): the receiver is the METHOD-NAME
     // string (the simplified member model); the runtime joins the declaring
     // type from the target (klass join) and dispatches through
