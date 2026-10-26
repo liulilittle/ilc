@@ -607,6 +607,51 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_where_dec", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Decimal[]");
             }
+            // p0grp: the DECIMAL-source element operators (net48 First / Last /
+            // ElementAt / Contains / Reverse / Take / Skip). The element-returning
+            // entries return the decimal BY VALUE (ResultKind "dec"); the range
+            // entries materialize a fresh decimal[].
+            if (name == "First" && count < 2)
+                return I("il2cpp::il2cpp_linq_first_dec", 1, true, false, false, OneArg, resultKind: "dec");
+            if (name == "Last" && count < 2)
+                return I("il2cpp::il2cpp_linq_last_dec", 1, true, false, false, OneArg, resultKind: "dec");
+            if (name == "ElementAt")
+                return I("il2cpp::il2cpp_linq_element_at_dec", 2, true, false, false,
+                    new[] { "a", "i" }, resultKind: "dec");
+            if (name == "Contains")
+                return I("il2cpp::il2cpp_linq_contains_dec", 2, true, false, false,
+                    new[] { "a", "" });
+            if (name == "Reverse")
+                return I("il2cpp::il2cpp_linq_reverse_dec", 1, true, true, false, OneArg,
+                    returnTypeName: "System.Decimal[]");
+            if (name == "Take")
+                return I("il2cpp::il2cpp_linq_take_dec", 2, true, true, false,
+                    new[] { "a", "i" }, returnTypeName: "System.Decimal[]");
+            if (name == "Skip")
+                return I("il2cpp::il2cpp_linq_skip_dec", 2, true, true, false,
+                    new[] { "a", "i" }, returnTypeName: "System.Decimal[]");
+            // p0grp: OrderBy / OrderByDescending over a DECIMAL source (net48
+            // OrderBy<decimal,TKey>). The int32-key family rides the decimal
+            // source sort; the result is a fresh decimal[].
+            if (name == "OrderBy" || name == "OrderByDescending")
+            {
+                bool desc = name == "OrderByDescending";
+                byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                string? decKeyFam = keyByte switch
+                {
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+                    _ => null,
+                };
+                if (decKeyFam == null)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name}<System.Decimal,{GenericArgTypeName(keyByte)}> not wired: the " +
+                        "decimal-source keyed sort covers int32/int64/double/decimal keys only " +
+                        "(see docs/audit/b5-gaps.md)");
+                return I(desc
+                        ? "il2cpp::il2cpp_linq_order_by_key_desc_dec_i4"
+                        : "il2cpp::il2cpp_linq_order_by_key_dec_i4",
+                    2, true, true, false, TwoArg, returnTypeName: "System.Decimal[]");
+            }
             // p0grp: GroupBy over a DateTime[] SOURCE (net48
             // GroupBy<TSource,TKey> with TSource = System.DateTime). The
             // DateTime element crosses as the 8-byte runtime value struct BY
@@ -1026,7 +1071,7 @@ public static partial class MethodRefResolver
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                         throw new NotSupportedException(
                             "Enumerable.OrderBy with a (element, index) key selector over a reference-element " +
-                            "source is not wired: LOUD whitelist ④ -- net48 has no (element, index) key " +
+                            "source is not wired: LOUD whitelist 鈶?-- net48 has no (element, index) key " +
                             "selector overload. MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the " +
                             "net48 Reference Source System.Core/System/Linq/Enumerable.cs list only " +
                             "OrderBy<TSource,TKey>(IEnumerable<TSource>, Func<TSource,TKey>) and " +
@@ -3376,7 +3421,7 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over an int64-element source with an (element, index) key selector " +
-                        "is not wired: LOUD whitelist ④ -- net48 has no (element, index) key selector overload. " +
+                        "is not wired: LOUD whitelist 鈶?-- net48 has no (element, index) key selector overload. " +
                         "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +

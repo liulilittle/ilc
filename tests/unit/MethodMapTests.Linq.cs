@@ -1430,6 +1430,20 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "6", "0", "0", "4" }, resolved.AppendLiterals);
     }
 
+    // OrderBy / OrderByDescending over a DECIMAL source with an int32 TKey (net48
+    // OrderBy<decimal,int>): the decimal-source keyed sort.
+    [Theory]
+    [InlineData("OrderBy", "il2cpp::il2cpp_linq_order_by_key_dec_i4")]
+    [InlineData("OrderByDescending", "il2cpp::il2cpp_linq_order_by_key_desc_dec_i4")]
+    public void Resolve_OrderBy_DecimalSource_MapsToDecKeySort(string name, string cpp)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeOrderByDec(name, 0x08));
+
+        Assert.Equal(cpp, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
     // GroupBy over a DECIMAL source with an ELEMENT selector (net48
     // GroupBy<decimal,int,int>): the decimal-source grouping surface with the
     // projected int32 element family.
@@ -2817,6 +2831,47 @@ public class MethodMapTestsLinq
         spec.WriteByte(0x0A);
         spec.WriteCompressedInteger(2);
         spec.WriteByte(0x11); spec.WriteCompressedInteger(guidCoded);   // TSource = System.Guid
+        spec.WriteByte(tKey);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // OrderBy / OrderByDescending over a DECIMAL source (net48
+    // OrderBy<decimal,TKey>): the decimal-source keyed sort.
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11)
+    private static MemoryStream SynthesizeOrderByDec(string methodName, byte tKey)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // return TKey (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0 (TSource)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   VAR 1
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
         spec.WriteByte(tKey);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
