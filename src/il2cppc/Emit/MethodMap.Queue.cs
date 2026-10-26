@@ -63,7 +63,9 @@ public static partial class MethodRefResolver
                 // is dropped).
                 if (count == 1 && ps[0] == 0x08)
                     return I("il2cpp::il2cpp_queue_create_with_capacity", 1, true, true, true, new[] { "drop", "i" });
-                throw new NotSupportedException($"Queue ctor with {count} arg(s) not wired (only the parameterless and int-capacity shapes exist)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Queue ctor arity {count} -- net48 has only Queue(), Queue(int) " +
+                    "and Queue(ICollection) [Reference Source collections_queue.cs:44,51,75]");
             case "Enqueue":
                 if (intReceiver)
                     return I("il2cpp::runtime::icall_queue_int_enqueue", 1, false, false, true, new[] { "", "i" });

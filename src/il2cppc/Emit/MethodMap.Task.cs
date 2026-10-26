@@ -127,9 +127,12 @@ namespace Il2Cpp.Transpiler.Emit
                 // VALUETYPE struct).
                 if (isValuetype)
                     throw new NotSupportedException(
-                        $"Task<T> carrier for VALUETYPE T (instName '{instName ?? ""}', receiver '{receiverType ?? ""}') " +
-                        "has no box helper in M3 -- only the decimal 16-byte carrier is built; the " +
-                        "primitive/ref carriers (int/long/double/float/string/object/ulong/bool/char/class/array) exist");
+                        $"LOUD whitelist (no runtime descriptor/model): Task<T> carrier for VALUETYPE T " +
+                        $"(instName '{instName ?? ""}', receiver '{receiverType ?? ""}') -- the runtime builds only the " +
+                        "decimal 16-byte carrier (icall_task_from_result_dec / icall_task_get_result_dec); the Guid / " +
+                        "DateTime / TimeSpan / DateTimeOffset carriers do not exist, and the primitive/ref carriers " +
+                        "(int/long/double/float/string/object/ulong/bool/char/class/array) cover every other T " +
+                        "[Reference Source: net48 mscorlib System.Threading.Tasks.Task`1]");
                 return isRef ? ("_s", "")
                     : isFloat ? ("_f", "d")
                     : isUlong ? ("_u", "l")

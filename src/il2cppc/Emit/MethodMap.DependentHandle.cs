@@ -90,10 +90,10 @@ public static partial class MethodRefResolver
                     new[] { "" });
             default:
                 throw new NotSupportedException(
-                    $"DependentHandle::{name} not wired: the runtime surface covers GetPrimary / " +
+                    $"LOUD whitelist (net48 has no such member): DependentHandle::{name} -- the runtime surface covers GetPrimary / " +
                     "SetPrimaryAndSecondary / Free / nInitialize / nGetPrimary / nGetPrimaryAndSecondary / nFree " +
-                    "(il2cpp_dependhandle.h); get_IsAllocated and GetHashCode are pure-managed " +
-                    "(handle != 0 / IntPtr hash)");
+                    "(il2cpp_dependhandle.h); get_IsAllocated and GetHashCode are pure-managed (handle != 0 / IntPtr hash) " +
+                    "[Reference Source: net48 mscorlib System.Runtime.DependentHandle]");
         }
     }
 }

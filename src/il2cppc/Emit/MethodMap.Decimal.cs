@@ -43,12 +43,13 @@ namespace Il2Cpp.Transpiler.Emit;
 // BEFORE any decimal-using test case is enabled -- the mapping is dormant
 // (no current e2e case exercises decimal; fmtchain.cs:16 stays excluded).
 //
+// WIRED boxed-decimal members (the System_Decimal_class box exists):
+//   * Equals(object) / CompareTo(object) -- net48 decimal.cs:930 / :1001; the
+//     value slot against a boxed Decimal (null -> false / 1, a non-Decimal
+//     object -> false / ArgumentException). icall_decimal_equals_object /
+//     icall_decimal_compare_object (boxingext2.cpp).
 // Known-unwireable members throw NotSupportedException (LOUD):
 //   * ToString(IFormatProvider) -- no icall shape (TryMapFormat's guard).
-//   * Equals(object)/CompareTo(object) -- a boxed decimal needs the runtime
-//     box class (System_Decimal_class, T1 boxingext2) -- unwired until the
-//     box icalls land (CodeGenerator box/unbox tables already route them).
-//   * .ctor(float/double), ToDouble/ToSingle -- VarDecFromR4/R8 deferred (v1).
 //   * ToString() on a BOXED decimal receiver routes through
 //     icall_object_to_string (valuesemantics.cpp klass dispatch, T2 arm).
 //------------------------------------------------------------------------------
@@ -196,19 +197,24 @@ public static partial class MethodRefResolver
             case "CompareTo":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_decimal_compare", 1, true, false, true, new[] { "dec", "dec" });
+                // net48 CompareTo(object) (decimal.cs:1001): null -> 1, a non-
+                // Decimal object throws ArgumentException, a boxed Decimal -> the
+                // 16-byte value compare (icall_decimal_compare_object). The
+                // receiver is the decimal VALUE slot ("dec"); the object
+                // argument passes through "".
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException(
-                        "LOUD whitelist (③ no runtime descriptor): Decimal.CompareTo(object) needs the runtime " +
-                        "System_Decimal box class (unmaterialized BCL value type) [Reference Source decimal.cs:404]");
+                    return I("il2cpp::runtime::icall_decimal_compare_object", 1, true, false, true, new[] { "dec", "" });
                 return null;
             // bool Equals(decimal) -- instance, receiver address uncast.
             case "Equals":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_decimal_equals", 1, true, false, true, new[] { "dec", "dec" });
+                // net48 Equals(object) (decimal.cs:930): null -> false, a non-
+                // Decimal object -> false, a boxed Decimal -> 16-byte VALUE
+                // equality (icall_decimal_equals_object). The receiver is the
+                // decimal VALUE slot ("dec"); the object argument passes "".
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException(
-                        "LOUD whitelist (③ no runtime descriptor): Decimal.Equals(object) needs the runtime " +
-                        "System_Decimal box class (unmaterialized BCL value type) [Reference Source decimal.cs:449]");
+                    return I("il2cpp::runtime::icall_decimal_equals_object", 1, true, false, true, new[] { "dec", "" });
                 return null;
             case "GetHashCode":
                 if (ps.Length == 0)

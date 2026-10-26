@@ -398,7 +398,10 @@ public static partial class MethodRefResolver
 
     private static ResolvedMethod Loud(string? instTag, string name, byte[] ps) =>
         throw new NotSupportedException(
-            $"HashSet`1 member '{name}' is not a wired expansion (receiver '{instTag ?? "<untracked>"}', ps [{BitConverter.ToString(ps)}])");
+            $"LOUD whitelist (no runtime descriptor/model): HashSet`1 member '{name}' is not a wired expansion " +
+            $"(receiver '{instTag ?? "<untracked>"}', ps [{BitConverter.ToString(ps)}]) -- only the int32/long/double/string/decimal/" +
+            "DateTime/TimeSpan/Guid/tuple and user-class instantiations have a runtime domain " +
+            "[Reference Source: net48 mscorlib System.Collections.Generic.HashSet`1]");
 
     //--------------------------------------------------------------------------
     // HashSetParamDefName -- the generic DEFINITION name of an encoded

@@ -170,9 +170,9 @@ public class MethodMapTestsMathExtra
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System", "Math", "ModF", Sig(0x0D, 0x0D)), "ModF"));
 
-        Assert.Contains("System.Math::ModF", ex.Message);
+        Assert.Contains("Math.ModF", ex.Message);
         Assert.Contains("LOUD whitelist", ex.Message);
-        Assert.Contains("net48", ex.Message);
+        Assert.Contains("net48 has no such overload", ex.Message);
     }
 
     //--------------------------------------------------------------------------

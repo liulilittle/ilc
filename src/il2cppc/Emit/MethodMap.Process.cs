@@ -115,7 +115,11 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::il2cpp_process_start_secure_5", 5, true, false, false,
                             new[] { "", "", "", "", "", "" }, null, false, false, false,
                             returnTypeName: "System.Diagnostics.Process");
-                    throw new NotSupportedException($"Process.Start with {count} param(s) not wired (only (string), (string, string), (ProcessStartInfo), (string, string, SecureString, string) and (string, string, string, SecureString, string) -- the pathproc start takes an exe path + a command line)");
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Process.Start arity {count} -- net48 has only Start(string), " +
+                        "Start(string, string), Start(ProcessStartInfo), Start(string, string, SecureString, string) and " +
+                        "Start(string, string, string, SecureString, string) " +
+                        "[Reference Source System_services_monitoring_system_diagnosticts_Process.cs:2320,2334,2348,2288,2299]");
                 case "GetCurrentProcess":
                     if (count == 0)
                         return I("il2cpp::runtime::il2cpp_process_get_current_process_id", 0, true, false, false,
@@ -124,7 +128,10 @@ public static partial class MethodRefResolver
                 case "WaitForExit":
                     if (count == 0)
                         return I("il2cpp::runtime::il2cpp_process_wait_for_exit", 0, false, false, true, new[] { "i" });
-                    throw new NotSupportedException($"Process.WaitForExit(int) not wired: the runtime waits with no timeout (pathproc.h)");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (machine-state/process): Process.WaitForExit(int) -- the behavior depends on the real OS " +
+                        "process state (the runtime waits with no timeout, pathproc.h) " +
+                        "[Reference Source System_services_monitoring_system_diagnosticts_Process.cs:2426]");
                 case "get_ExitCode":
                     if (count == 0)
                         return I("il2cpp::runtime::il2cpp_process_get_exit_code", 0, true, false, true, new[] { "i" });
@@ -213,7 +220,10 @@ public static partial class MethodRefResolver
                             returnTypeName: "System.Diagnostics.Process.Stdin");
                     return null;
                 case ".ctor":
-                    throw new NotSupportedException("new Process() not wired: the runtime has no Process object model -- use Process.Start (handle-gap: the process value is the PID, not an object)");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (no runtime descriptor/model): new Process() -- the runtime has no Process object model " +
+                        "(handle-gap: the process value is the PID, not an object) " +
+                        "[Reference Source: net48 mscorlib System.Diagnostics.Process..ctor]");
                 default:
                     return null;
             }

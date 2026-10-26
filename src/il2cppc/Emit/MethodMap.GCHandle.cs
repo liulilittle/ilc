@@ -47,7 +47,9 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_gchandle_alloc_normal", 1, true, false, false, new[] { "" });
                 if (count == 2 && ps[0] == 0x1C && ps[1] == 0x11)
                     return I("il2cpp::runtime::icall_gchandle_alloc", 2, true, false, false, new[] { "", "i" });
-                throw new NotSupportedException($"GCHandle.Alloc with {count} param(s) not wired (alloc expects object[, GCHandleType])");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): GCHandle.Alloc arity {count} -- net48 has only Alloc(object) and " +
+                    "Alloc(object, GCHandleType) [Reference Source runtime_interopservices_gchandle.cs:91,97]");
             case "Free":
                 if (count != 0) return null;
                 return I("il2cpp::runtime::icall_gchandle_free", 0, false, false, true,
@@ -97,8 +99,9 @@ public static partial class MethodRefResolver
                     2, true, false, false, new[] { "", "" });
             default:
                 throw new NotSupportedException(
-                    $"System.Runtime.InteropServices.GCHandle::{name} not wired: the runtime surface covers " +
-                    "Alloc/Free/Target/AddrOfPinnedObject/IsAllocated (il2cpp_gchandle.h)");
+                    $"LOUD whitelist (net48 has no such member): System.Runtime.InteropServices.GCHandle::{name} -- the runtime " +
+                    "surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated/ToIntPtr/FromIntPtr/op_Equality/op_Inequality " +
+                    "[Reference Source runtime_interopservices_gchandle.cs:91-264]");
         }
     }
 }

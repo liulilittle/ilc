@@ -524,8 +524,9 @@ public class MethodMapProcessTests
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Diagnostics", "Process", ".ctor", Sig(0x01)), ".ctor"));
 
-        Assert.Contains("System.Diagnostics.Process::.ctor", ex.Message);
-        Assert.Contains("Process.Start", ex.Message);
+        Assert.Contains("new Process()", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
+        Assert.Contains("no runtime descriptor/model", ex.Message);
     }
 
     [Fact]

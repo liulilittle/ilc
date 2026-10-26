@@ -145,7 +145,10 @@ public static partial class MethodRefResolver
                 // Il2CppObject*); maxStackSize is ignored (M-stage model).
                 if (count == 2 && ps[0] == 0x12 && ps[1] == 0x08)
                     return I("il2cpp::runtime::icall_threadobj_ctor", 2, false, false, true, new[] { "", "drop" });
-                throw new NotSupportedException($"Thread ctor with {count} param(s) not wired");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Thread ctor arity {count} -- net48 has only " +
+                    "Thread(ThreadStart), Thread(ThreadStart, int), Thread(ParameterizedThreadStart) and " +
+                    "Thread(ParameterizedThreadStart, int) [Reference Source threading_thread.cs:230,239,249,258]");
             case "Start":
                 if (count == 0)
                     return I("il2cpp::runtime::icall_threadobj_start", 0, false, false, true);

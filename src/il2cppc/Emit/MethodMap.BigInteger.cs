@@ -170,13 +170,19 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_biginteger_compare", 1, true, false, true, new[] { "deref:bi", "" });
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException("CompareTo(object) not wired: a boxed BigInteger has no runtime box class");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (no runtime descriptor/model): BigInteger.CompareTo(object) -- a boxed BigInteger has no " +
+                        "runtime box class (System.Numerics.BigInteger_class is not materialized) " +
+                        "[Reference Source: net48 mscorlib System.Numerics.BigInteger.CompareTo]");
                 return null;
             case "Equals":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_biginteger_equals", 1, true, false, true, new[] { "deref:bi", "" });
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException("Equals(object) not wired: a boxed BigInteger has no runtime box class");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (no runtime descriptor/model): BigInteger.Equals(object) -- a boxed BigInteger has no " +
+                        "runtime box class (System.Numerics.BigInteger_class is not materialized) " +
+                        "[Reference Source: net48 mscorlib System.Numerics.BigInteger.Equals]");
                 return null;
             // string ToString(): the receiver is an ldloca ADDRESS.
             case "ToString":

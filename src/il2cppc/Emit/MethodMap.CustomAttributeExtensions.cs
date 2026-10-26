@@ -45,7 +45,9 @@ public static partial class MethodRefResolver
                     appendLiterals: new[] { tLit, "1" });
             }
             throw new NotSupportedException(
-                $"{owner}::{name} with {ps.Length} parameter(s) not wired in REFL3 -- only the generic (MemberInfo element) forms map to the _single/_custom_ex_named registry via genArgNames[0]");
+                $"LOUD whitelist (net48 has no such overload): {owner}::{name} arity {ps.Length} -- net48 has only the generic " +
+                "GetCustomAttribute<T>(MemberInfo) / GetCustomAttributes<T>(MemberInfo) extension forms " +
+                "[Reference Source: net48 mscorlib System.Reflection.CustomAttributeExtensions]");
         }
         // REFL3 (item 3): CustomAttributeExtensions.IsDefined(MemberInfo
         // element, Type attributeType) -- the 1-arg STATIC extension (net48
@@ -60,7 +62,9 @@ public static partial class MethodRefResolver
                 new[] { "", "" }, appendLiterals: new[] { "1" });
         if (name == "IsDefined")
             throw new NotSupportedException(
-                $"{owner}::IsDefined with {ps.Length} parameter(s) not wired in REFL3 -- the net48 (MemberInfo element, Type attributeType) extension maps to il2cpp_attribute_is_defined_named");
+                $"LOUD whitelist (net48 has no such overload): {owner}::IsDefined arity {ps.Length} -- net48 has only " +
+                "IsDefined(MemberInfo element, Type attributeType) " +
+                "[Reference Source: net48 mscorlib System.Reflection.CustomAttributeExtensions.IsDefined]");
         return null;
     }
 }

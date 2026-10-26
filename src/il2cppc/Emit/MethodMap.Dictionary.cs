@@ -100,7 +100,11 @@ public static partial class MethodRefResolver
         var tupleValueKind = valueTypeName is "int" or "System.Int32" ? "1" : "0";
         var tupleKeyCast = tupleReceiver ? "box:vt:" + tupleKinds! : "";
         ResolvedMethod Loud() => throw new NotSupportedException(
-            $"Dictionary`2 member '{name}' is not a wired expansion (receiver '{receiverType ?? "<untracked>"}', instName '{instName ?? "<null>"}', keyType '{keyTypeName ?? "<null>"}', ps [{BitConverter.ToString(ps)}]) -- only the string->int32 dictsi domain, the dictgen domains (int32->string, string->string, Uri->string) and value-type tuple keys are wired");
+            $"LOUD whitelist (no runtime descriptor/model): Dictionary`2 member '{name}' is not a wired expansion " +
+            $"(receiver '{receiverType ?? "<untracked>"}', instName '{instName ?? "<null>"}', keyType '{keyTypeName ?? "<null>"}', " +
+            $"ps [{BitConverter.ToString(ps)}]) -- only the string->int32 dictsi domain, the dictgen domains (int32->string, " +
+            "string->string, Uri->string) and value-type tuple keys are wired " +
+            "[Reference Source: net48 mscorlib System.Collections.Generic.Dictionary`2]");
 
         switch (name)
         {

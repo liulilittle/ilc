@@ -495,7 +495,10 @@ public static partial class MethodRefResolver
             0 => I("il2cpp::runtime::icall_value_type_get_hash_code", 0, true, false, true, new[] { "" },
                 prependCount: true, prependZero: true),
             _ => throw new NotSupportedException(
-                $"System.ValueType::GetHashCode for receiver type {receiverType}: unclassified first-field kind {kind}"),
+                $"LOUD whitelist (no runtime descriptor/model): System.ValueType::GetHashCode for receiver type " +
+                $"{receiverType}: unclassified first-field kind {kind} -- the classifier (ClassifyValueTypeFirstField) covers the " +
+                "int32/uint32/bool/char/narrow, int64/uint64, float/double, GC-reference and nested-struct first-field kinds only " +
+                "[Reference Source: net48 mscorlib System.ValueType.GetHashCode]"),
         };
     }
 
@@ -541,12 +544,18 @@ public static partial class MethodRefResolver
                     // M-scope divergence, not a silent truncation.)
                     0x13 or 0x1E => 1,
                     _ => throw new NotSupportedException(
-                        $"System.ValueType::GetHashCode for receiver type {receiverType}: unsupported first-field element byte 0x{elem:X2}"),
+                        $"LOUD whitelist (no runtime descriptor/model): System.ValueType::GetHashCode for receiver type " +
+                        $"{receiverType}: unsupported first-field element byte 0x{elem:X2} -- a pointer / function-pointer / native-int / " +
+                        "byref first field has no value-hash descriptor (the netcore ValueTypeOverride boxes and hashes it) " +
+                        "[Reference Source: net48 mscorlib System.ValueType.GetHashCode]"),
                 };
             }
             return 0; // the struct has fields but none are instance fields
         }
         throw new NotSupportedException(
-            $"System.ValueType::GetHashCode for receiver type {receiverType}: no TypeDef found to classify its first instance field (only user structs route here -- BCL structs override GetHashCode)");
+            $"LOUD whitelist (no runtime descriptor/model): System.ValueType::GetHashCode for receiver type {receiverType}: no " +
+            "TypeDef found to classify its first instance field -- a BCL struct (which overrides GetHashCode) or a nested struct whose " +
+            "full name is not recovered by GetFullName routes here; only a top-level user struct has a classified first field " +
+            "[Reference Source: net48 mscorlib System.ValueType.GetHashCode]");
     }
 }

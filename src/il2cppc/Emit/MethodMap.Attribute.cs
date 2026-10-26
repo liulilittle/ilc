@@ -172,12 +172,16 @@ public static partial class MethodRefResolver
         }
         if (name == "IsDefined")
             throw new NotSupportedException(
-                $"System.Attribute::IsDefined with {ps.Length} parameter(s) not wired in REFL3 -- the net48 member-element overloads IsDefined(MemberInfo, Type[, bool]) map to il2cpp_attribute_is_defined_named");
+                $"LOUD whitelist (net48 has no such overload): System.Attribute::IsDefined arity {ps.Length} -- net48 has only " +
+                "IsDefined(MemberInfo, Type) and IsDefined(MemberInfo, Type, bool) " +
+                "[Reference Source: net48 mscorlib System.Attribute.IsDefined]");
         // Known instance surface: there is no managed Attribute object model
         // in the runtime (instances are registry objects owned by the
         // generated code) -- LOUD, per the BCL wiring convention.
         if (name is "get_TypeId" or "Match")
-            throw new NotSupportedException("instance Attribute members are not wired (attribute instances are registry objects without a managed model)");
+            throw new NotSupportedException(
+                "LOUD whitelist (no runtime descriptor/model): instance Attribute members are not wired -- attribute instances " +
+                "are registry objects without a managed model [Reference Source: net48 mscorlib System.Attribute]");
         return null;
     }
 }

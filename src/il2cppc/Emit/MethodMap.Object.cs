@@ -381,7 +381,9 @@ public static partial class MethodRefResolver
                         new[] { "", "", "i" }, returnTypeName: "System.Object[]");
                 if (name == "GetCustomAttributes")
                     throw new NotSupportedException(
-                        $"System.Reflection.MemberInfo::GetCustomAttributes with {ps.Length} parameter(s) not wired in RF-N6 -- only the net48 (bool inherit) and (Type attributeType, bool inherit) overloads map to il2cpp_attribute_member_get_custom(_named)");
+                        $"LOUD whitelist (net48 has no such overload): System.Reflection.MemberInfo::GetCustomAttributes arity {ps.Length} -- " +
+                        "net48 has only GetCustomAttributes(bool inherit) and GetCustomAttributes(Type attributeType, bool inherit) " +
+                        "[Reference Source reflection_memberinfo.cs:54,56]");
                 // REFL3 (item 1): MemberInfo.IsDefined(Type attributeType, bool
                 // inherit) -- net48 bool. The receiver rides the simplified
                 // member VALUE (for a Type receiver -- the probe shape -- the
@@ -404,7 +406,9 @@ public static partial class MethodRefResolver
                         new[] { "" }, appendLiterals: new[] { "1" });
                 if (name == "IsDefined")
                     throw new NotSupportedException(
-                        $"System.Reflection.MemberInfo::IsDefined with {ps.Length} parameter(s) not wired in REFL3 -- only the net48 (Type attributeType, bool inherit) overload maps to il2cpp_attribute_is_defined_named");
+                        $"LOUD whitelist (net48 has no such overload): System.Reflection.MemberInfo::IsDefined arity {ps.Length} -- " +
+                        "net48 has only IsDefined(Type attributeType, bool inherit) " +
+                        "[Reference Source reflection_memberinfo.cs:58]");
                 // REFL4 (item 1): MemberInfo.get_MemberType -- the six-state
                 // kind label. The receiver is the MEMBER-VALUE string (a
                 // member NAME, the simplified member model, OR a Type VALUE

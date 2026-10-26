@@ -60,6 +60,7 @@
 #include "guid.h"              // Il2CppGuid (the Guid box payload, nullable GN-2)
 #include "il2cpp_time.h"       // icall_datetime_equals / icall_timespan_equals
 #include "il2cpp_exception.h"
+#include "il2cpp_exception_ext.h" // il2cpp_throw_argument_exception (decimal object-compare)
 #include "il2cpp_metadata.h"
 #include "il2cpp_object.h"
 #include "il2cpp_runtime.h" // il2cpp_class_by_name / il2cpp_is_instance /
@@ -579,6 +580,42 @@ Il2CppDecimal icall_unbox_decimal(Il2CppObject* obj)
     std::memcpy(&value, reinterpret_cast<char*>(obj) + kBoxPayloadOffset,
                 sizeof(value));
     return value;
+}
+
+//------------------------------------------------------------------------------
+// icall_decimal_equals_object / icall_decimal_compare_object -- the boxed-
+// decimal member surface (net48 decimal.cs:930 / :1001). The decimal receiver
+// is pointer-shaped ("dec"); the object argument is the boxed System.Decimal
+// (or any object). The box payload sits right after the object header (the
+// same offset the icall_box_decimal / icall_unbox_decimal pair uses).
+//------------------------------------------------------------------------------
+bool icall_decimal_equals_object(const Il2CppDecimal* value, Il2CppObject* obj)
+{
+    // net48 Decimal.Equals(object) (decimal.cs:930): null -> false, a non-
+    // Decimal object -> false, a Decimal box -> 16-byte VALUE equality.
+    if (obj == nullptr || obj->klass != &g_decimalBoxClass)
+    {
+        return false;
+    }
+    const Il2CppDecimal other = icall_unbox_decimal(obj);
+    return icall_decimal_equals(value, &other);
+}
+
+int32_t icall_decimal_compare_object(const Il2CppDecimal* value, Il2CppObject* obj)
+{
+    // net48 Decimal.CompareTo(object) (decimal.cs:1001): null -> 1, a non-
+    // Decimal object throws ArgumentException, a Decimal box -> the value
+    // compare.
+    if (obj == nullptr)
+    {
+        return 1;
+    }
+    if (obj->klass != &g_decimalBoxClass)
+    {
+        il2cpp_throw_argument_exception("Object must be of type System.Decimal.");
+    }
+    const Il2CppDecimal other = icall_unbox_decimal(obj);
+    return icall_decimal_compare(value, &other);
 }
 
 //------------------------------------------------------------------------------

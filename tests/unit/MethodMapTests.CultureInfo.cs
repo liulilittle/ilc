@@ -74,7 +74,8 @@ public class MethodMapCultureInfoTests
             ResolveMember(Synthesize("System.Globalization", "CultureInfo", "GetCultureInfo",
                 new byte[] { 0x00, 0x03, 0x12, 0x05, 0x0E, 0x0E, 0x0E }), "GetCultureInfo"));
 
-        Assert.Contains("CultureInfo.GetCultureInfo with 3 param(s)", ex.Message);
+        Assert.Contains("CultureInfo.GetCultureInfo arity 3", ex.Message);
+        Assert.Contains("LOUD whitelist", ex.Message);
     }
 
     [Fact]

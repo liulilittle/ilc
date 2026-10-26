@@ -82,7 +82,10 @@ public static partial class MethodRefResolver
                 if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
                     return I("il2cpp::runtime::icall_uri_ctor_base_u", 2, false, false, true,
                         new[] { "", "", "" });
-                throw new NotSupportedException($"Uri ctor with {count} param(s) not wired (only the single-string / (string, UriKind) / (Uri, string) / (Uri, Uri) forms have runtime entry points)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Uri ctor arity {count} -- net48 has only Uri(string), " +
+                    "Uri(string, UriKind), Uri(Uri, string) and Uri(Uri, Uri) " +
+                    "[Reference Source System_net_System_URI.cs:395,436,452,504]");
             case "get_Scheme":
                 return I("il2cpp::runtime::icall_uri_get_scheme", 0, true, true, true);
             case "get_Host":
@@ -119,11 +122,10 @@ public static partial class MethodRefResolver
                 return null;
             default:
                 throw new NotSupportedException(
-                    "System.Uri member not wired: the object icalls cover " +
-                    ".ctor(string)/.ctor(string,UriKind)/get_Scheme/get_Host/" +
-                    "get_AbsolutePath/get_OriginalString/get_AbsoluteUri/" +
-                    "get_IsAbsoluteUri/Equals/GetHashCode/ToString only " +
-                    "(see versionuri.h)");
+                    "LOUD whitelist (no runtime descriptor/model): System.Uri member not wired -- the versionuri.h object icalls " +
+                    "cover .ctor(string)/.ctor(string,UriKind)/get_Scheme/get_Host/get_AbsolutePath/get_OriginalString/" +
+                    "get_AbsoluteUri/get_IsAbsoluteUri/Equals/GetHashCode/ToString only " +
+                    "[Reference Source System_net_System_URI.cs:395-504]");
         }
     }
 }

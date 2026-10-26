@@ -91,7 +91,8 @@ public static partial class MethodRefResolver
             case "get_HasShutdownStarted":
             case "get_StackTrace":
                 throw new NotSupportedException(
-                    $"System.Environment.{name} not wired: the runtime has no matching icall in il2cpp_environment.h");
+                    $"LOUD whitelist (net48 has no such member): System.Environment.{name} -- the runtime has no matching icall in " +
+                    "il2cpp_environment.h [Reference Source: net48 mscorlib System.Environment]");
             default: return null;
         }
     }

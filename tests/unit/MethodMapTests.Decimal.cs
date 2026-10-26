@@ -32,12 +32,9 @@ using Xunit;
 // generated-code slot type is Il2CppDecimal -- TypeCppName entry + "dec"
 // temp kind, CodeGenerator).
 //
-// Known-unwireable overloads reject LOUDLY (NotSupportedException with the
-// "{owner}::{name}" prefix -- see BclResolve's wrap):
-//   * op_LessThan/op_GreaterThan/op_LessThanOrEqual/op_GreaterThanOrEqual
-//     -- the emitter cannot stack comparisons on icall_decimal_compare.
-//   * Equals(object)/CompareTo(object) -- no runtime box class yet (T1).
-//   * .ctor(float/double), ToDouble/ToSingle -- VarDecFromR4/R8 deferred.
+// Boxed-decimal members map to the box-class icalls:
+//   * Equals(object) / CompareTo(object) -- icall_decimal_equals_object /
+//     icall_decimal_compare_object (the System_Decimal_class box exists).
 //
 // The PEs are synthesized with System.Reflection.Metadata's own writer (the
 // same reader pipeline the transpiler uses); valuetype (0x11) params carry
@@ -371,12 +368,34 @@ public class MethodMapDecimalTests
     }
 
     [Fact]
-    public void Resolve_Decimal_EqualsObject_ThrowsLoud()
+    public void Resolve_Decimal_EqualsObject_MapsToObjectEqualsIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Decimal", "Equals", Sig(0x02, 0x1C)), "Equals"));
+        // net48 Decimal.Equals(object) (decimal.cs:930): null -> false, a
+        // non-Decimal object -> false, a boxed Decimal -> 16-byte value
+        // equality. The receiver is the decimal VALUE slot ("dec"); the object
+        // argument passes through "".
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "Equals", Sig(0x02, 0x1C)), "Equals");
 
-        Assert.Contains("System.Decimal::Equals", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_decimal_equals_object", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "dec", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Decimal_CompareToObject_MapsToCompareObjectIcall()
+    {
+        // net48 Decimal.CompareTo(object) (decimal.cs:1001): null -> 1, a
+        // non-Decimal object throws ArgumentException, a boxed Decimal -> the
+        // value compare. The receiver is the decimal VALUE slot ("dec"); the
+        // object argument passes through "".
+        var resolved = ResolveMember(Synthesize("System", "Decimal", "CompareTo",
+            new byte[] { 0x00, 0x01, 0x08, 0x1C }), "CompareTo");
+
+        Assert.Equal("il2cpp::runtime::icall_decimal_compare_object", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "dec", "" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

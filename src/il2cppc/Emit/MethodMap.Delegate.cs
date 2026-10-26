@@ -94,7 +94,10 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_createdelegate_loud", 2, true, true, false,
                         new[] { "", "" }, returnTypeName: "System.Delegate");
                 throw new NotSupportedException(
-                    $"Delegate.CreateDelegate with {ps.Length} parameter(s) not wired in RF-N7 -- only the net48 (Type, MethodInfo) overload maps to the LOUD stub il2cpp_createdelegate_loud");
+                    $"LOUD whitelist (no runtime descriptor/model): Delegate.CreateDelegate arity {ps.Length} -- binding a delegate to " +
+                    "a runtime MethodInfo has no AOT support (no runtime method-binding table); only the (Type, MethodInfo) form maps " +
+                    "to the LOUD stub il2cpp_createdelegate_loud " +
+                    "[Reference Source: net48 mscorlib System.Delegate.CreateDelegate]");
             // P6: Delegate internal helpers -- the BCL calls these for delegate
             // infrastructure but the ILC runtime reimplements delegates natively.
             // Stubs return sensible defaults.

@@ -66,7 +66,10 @@ public static partial class MethodRefResolver
                 // fixed by the runtime, so the net48 value is unchanged.
                 "System.Decimal" => I("il2cpp::runtime::icall_decimal_to_string", 1, true, true, true,
                     new[] { receiverIsAddress ? "decaddr" : "dec", "drop" }),
-                _ => throw new NotSupportedException("ToString(IFormatProvider) not wired: icall_format_*_custom takes a format string and the M-stage emitter cannot inject a null format (culture is fixed anyway)"),
+                _ => throw new NotSupportedException(
+                    "LOUD whitelist (net48 has no such overload): ToString(IFormatProvider) on an owner outside the wired numeric " +
+                    "set (Int32/Int64/UInt32/UInt64/Double/Single/Byte/SByte/Int16/UInt16/Decimal) -- the M-stage emitter cannot inject " +
+                    "a null format [Reference Source: net48 mscorlib System.IFormattable.ToString]"),
             };
         return owner switch
         {

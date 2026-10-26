@@ -162,6 +162,16 @@ double icall_unbox_float(Il2CppObject* obj);
 //                         parameter surface, which is pointer-shaped)
 Il2CppDecimal icall_unbox_decimal(Il2CppObject* obj);
 
+//   icall_decimal_equals_object / icall_decimal_compare_object : the boxed-
+//                         decimal member surface (net48 decimal.cs:930 / :1001).
+//                         The decimal receiver is pointer-shaped ("dec"); the
+//                         object argument is the boxed System.Decimal (or any
+//                         object). null -> false / 1, a non-Decimal object ->
+//                         false / ArgumentException, a Decimal box -> the
+//                         16-byte value compare.
+bool icall_decimal_equals_object(const Il2CppDecimal* value, Il2CppObject* obj);
+int32_t icall_decimal_compare_object(const Il2CppDecimal* value, Il2CppObject* obj);
+
 //   il2cpp_unbox_user_struct : returns the ADDRESS of the boxed user-struct
 //                        payload (the box's klass must be a user-struct
 //                        descriptor; the caller casts the void* payload and

@@ -44,7 +44,9 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_processstartinfo_ctor_fn_args", 2, false, false, true,
                         new[] { "", "", "" });
                 throw new NotSupportedException(
-                    $"ProcessStartInfo ctor with {count} param(s) not wired (only (), (string), (string, string))");
+                    $"LOUD whitelist (net48 has no such overload): ProcessStartInfo ctor arity {count} -- net48 has only " +
+                    "(), (string) and (string, string) " +
+                    "[Reference Source System_services_monitoring_system_diagnosticts_ProcessStartInfo.cs:69,80,89]");
 
             case "get_FileName":
                 if (count == 0)

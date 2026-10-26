@@ -49,7 +49,10 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_version_ctor_3", 3, false, false, true, new[] { "", "i", "i", "i" });
                 if (count == 4)
                     return I("il2cpp::runtime::icall_version_ctor_4", 4, false, false, true, new[] { "", "i", "i", "i", "i" });
-                throw new NotSupportedException($"Version ctor with {count} param(s) not wired");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Version ctor arity {count} -- net48 has only Version(), " +
+                    "Version(string), Version(int,int), Version(int,int,int) and Version(int,int,int,int) " +
+                    "[Reference Source version.cs:103,91,79,62,42]");
             case "get_Major":
                 return I("il2cpp::runtime::icall_version_get_major", 0, true, false, true);
             case "get_Minor":
@@ -114,10 +117,9 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_version_get_hash_code", 0, true, false, true);
             default:
                 throw new NotSupportedException(
-                    "System.Version member not wired: the object icalls cover " +
-                    ".ctor/get_Major/get_Minor/get_Build/get_Revision/ToString/" +
-                    "ToString(int)/CompareTo/Equals/Parse/op_Equality/op_Inequality only " +
-                    "(see versionuri.h)");
+                    "LOUD whitelist (no runtime descriptor/model): System.Version member not wired -- the versionuri.h object " +
+                    "icalls cover .ctor/get_Major/get_Minor/get_Build/get_Revision/ToString/ToString(int)/CompareTo/Equals/Parse/" +
+                    "op_Equality/op_Inequality only [Reference Source version.cs:42-263]");
         }
     }
 }

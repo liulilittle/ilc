@@ -143,7 +143,11 @@ public static partial class MethodRefResolver
                 // runtime side table; read it back through the runtime icall.
                 if (IsExceptionReceiverType(receiverType))
                     return I("il2cpp::runtime::icall_exception_get_message", 0, true, true, true, new[] { "" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Exception.get_Message on receiver '{receiverType}' not wired: only catch variables (tracked as the exception entry, in scope with the DotNetException carrier __il2cpp_ex) and the modelled exception hierarchy (Exception/SystemException/Argument*) carry a message in the M3 carrier model");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (no runtime descriptor/model): Exception.get_Message on receiver '{receiverType}' -- only catch " +
+                    "variables (tracked as the exception entry, in scope with the DotNetException carrier __il2cpp_ex) and the " +
+                    "modelled exception hierarchy (Exception/SystemException/Argument*) carry a message in the M3 carrier model " +
+                    "[Reference Source: net48 mscorlib System.Exception.get_Message]");
             case ".ctor":
                 // excmsg: the Argument*Exception ctors capture the net48
                 // Message/ParamName semantics into the runtime side table so a

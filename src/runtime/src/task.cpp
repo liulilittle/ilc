@@ -656,8 +656,10 @@ void icall_async_builder_await_unsupported(Il2CppObject* self)
 {
     (void)self;
     il2cpp::il2cpp_throw_not_supported_exception(
-        "async continuation (AwaitUnsafeOnCompleted) is unreachable in the minimal "
-        "synchronous Task surface: every awaited task must be completed (Task.FromResult).");
+        "LOUD whitelist (machine-state/thread-scheduling): the async continuation "
+        "(AwaitUnsafeOnCompleted / OnCompleted / UnsafeOnCompleted) is unreachable in the minimal "
+        "synchronous Task surface -- every awaited task must be completed (Task.FromResult), so the "
+        "state machine never suspends [Reference Source: net48 mscorlib System.Threading.Tasks.Task]");
 }
 
 } // namespace il2cpp::runtime

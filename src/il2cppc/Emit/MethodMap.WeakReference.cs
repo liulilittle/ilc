@@ -41,7 +41,9 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_weakref_ctor", 1, false, false, true);
                 if (count == 2 && ps[0] == 0x1C && ps[1] == 0x02)
                     return I("il2cpp::runtime::icall_weakref_ctor_track", 2, false, false, true, new[] { "", "", "b" });
-                throw new NotSupportedException($"WeakReference ctor with {count} param(s) not wired");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): WeakReference ctor arity {count} -- net48 has only " +
+                    "WeakReference(object) and WeakReference(object, bool) [Reference Source weakreference.cs:45,51]");
             case "get_TrackResurrection":
                 if (count == 0)
                     return I("il2cpp::runtime::icall_weakref_get_track_resurrection", 0, true, false, true);
@@ -72,8 +74,9 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_weak_reference_finalize", 0, false, false, true);
             default:
                 throw new NotSupportedException(
-                    "System.WeakReference member not wired: the object icalls cover .ctor(object)/IsAlive/Target " +
-                    "(see il2cpp_gc_ext.h)");
+                    "LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h " +
+                    "object icalls cover .ctor(object)/IsAlive/Target/TrackResurrection/TryGetTarget/SetTarget/Finalize only " +
+                    "[Reference Source weakreference.cs:45-110]");
         }
     }
 }

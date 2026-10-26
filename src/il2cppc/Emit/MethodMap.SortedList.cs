@@ -95,7 +95,11 @@ public static partial class MethodRefResolver
                     && p0 == "System.Collections.IDictionary" && p1 == "System.Collections.IComparer")
                     return I("il2cpp::runtime::il2cpp_sortedlist_create_from_dict", 2, false, false, true,
                         new[] { "", "", "" });
-                throw new NotSupportedException($"SortedList ctor with {count} arg(s) not wired (the parameterless / capacity / (IComparer) / (IComparer,int) / (IDictionary) / (IDictionary,IComparer) forms map to the sortedlist create icalls; the decoded param kinds were [{string.Join(", ", paramTypes ?? "")}])");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): SortedList ctor arity {count} -- net48 has only (), (int), " +
+                    "(IComparer), (IComparer, int), (IDictionary) and (IDictionary, IComparer) " +
+                    $"(decoded param kinds: [{string.Join(", ", paramTypes ?? "")}]) " +
+                    "[Reference Source collections_sortedlist.cs:92,110,129,143,154,166]");
             case "Add": return I("il2cpp::runtime::il2cpp_sortedlist_add", 2, false, false, true, new[] { "", "", "" });
             case "set_Item": return I("il2cpp::runtime::il2cpp_sortedlist_set_by_key", 2, false, false, true, new[] { "", "", "" });
             case "get_Item": return I("il2cpp::runtime::il2cpp_sortedlist_get_by_key", 1, true, true, true, new[] { "", "" });
@@ -154,7 +158,11 @@ public static partial class MethodRefResolver
                 if (count == 2 && ps[0] == 0x15 && ps[1] == 0x08 && p0 == "System.Collections.Generic.IComparer`1")
                     return I("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", 2, false, false, true,
                         new[] { "", "", "i" });
-                throw new NotSupportedException($"SortedList<string,int> ctor with {count} arg(s) not wired (the parameterless / capacity / (IComparer<string>) / (IComparer<string>,int) forms map to the sortedlist create icalls; the decoded param kinds were [{string.Join(", ", paramTypes ?? "")}])");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): SortedList<string,int> ctor arity {count} -- net48 has only (), " +
+                    "(int) and (IComparer<string>) / (IComparer<string>, int) " +
+                    $"(decoded param kinds: [{string.Join(", ", paramTypes ?? "")}]) " +
+                    "[Reference Source collections_sortedlist.cs:92,110,129,143,154,166]");
             case "Add":
                 if (count != 2) return null;
                 return I("il2cpp::runtime::icall_sortedlist_si_add", 2, false, false, true, new[] { "", "", "i" });
@@ -266,7 +274,11 @@ public static partial class MethodRefResolver
                 if (count == 2 && ps[0] == 0x15 && ps[1] == 0x08 && p0 == "System.Collections.Generic.IComparer`1")
                     return I("il2cpp::runtime::il2cpp_sortedlist_create_with_comparer", 2, false, false, true,
                         new[] { "", "", "i" });
-                throw new NotSupportedException($"SortedList<int,string> ctor with {count} arg(s) not wired (the parameterless / capacity / (IComparer<int>) / (IComparer<int>,int) forms map to the sortedlist create icalls; the decoded param kinds were [{string.Join(", ", paramTypes ?? "")}])");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): SortedList<int,string> ctor arity {count} -- net48 has only (), " +
+                    "(int) and (IComparer<int>) / (IComparer<int>, int) " +
+                    $"(decoded param kinds: [{string.Join(", ", paramTypes ?? "")}]) " +
+                    "[Reference Source collections_sortedlist.cs:92,110,129,143,154,166]");
             case "Add":
                 if (count != 2) return null;
                 return I("il2cpp::runtime::icall_sortedlist_is_add", 2, false, false, true, new[] { "", "i", "" });

@@ -64,7 +64,10 @@ public static partial class MethodRefResolver
                 // ParseExact provider-drop precedent).
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x12)
                     return I("il2cpp::il2cpp_guid_to_string_format", 2, true, true, true, new[] { "g", "s", "drop" });
-                throw new NotSupportedException("ToString(format) not wired: only the 0-arg, (string) and (string, IFormatProvider) shapes exist");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Guid.ToString arity {ps.Length} -- net48 has only ToString(), " +
+                    "ToString(string) and ToString(string, IFormatProvider) " +
+                    "[Reference Source guid.cs:1156,1194]");
             // static Guid Parse(string): the runtime STRICT parse wrapper
             // (il2cpp_guid_parse_strict) throws ArgumentNullException on a
             // null string and FormatException on any other invalid input --

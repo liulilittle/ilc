@@ -88,7 +88,10 @@ public static partial class MethodRefResolver
             case "CompareTo":
                 if (ps.Length != 1) return null;
                 if (ps[0] == 0x1C)
-                    throw new NotSupportedException("CompareTo(object) not wired: the icall takes an intptr_t argument and a boxed pointer cannot reach it in the M-stage");
+                    throw new NotSupportedException(
+                        "LOUD whitelist (no runtime descriptor/model): IntPtr.CompareTo(object) -- the icall takes an intptr_t " +
+                        "argument and a boxed pointer has no runtime box class " +
+                        "[Reference Source: net48 mscorlib System.IntPtr.CompareTo]");
                 if (!IsIntPtrByte(ps[0])) return null;
                 return I("il2cpp::runtime::il2cpp_intptr_compare", 1, true, false, true,
                     new[] { receiverIsAddress ? "deref:v" : "", "" });

@@ -92,7 +92,9 @@ public static partial class MethodRefResolver
             case "System.Net.WebClient":
                 return TryMapWebClient(name, ps, count);
             default:
-                throw new NotSupportedException($"{owner} is not a System.Net owner wired by MethodMap.Net.cs (IPAddress / Socket / WebClient only)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such member): {owner} is not a System.Net owner wired by MethodMap.Net.cs " +
+                    "(IPAddress / Socket / WebClient only) [Reference Source: net48 mscorlib System.Net]");
         }
     }
 
@@ -152,10 +154,10 @@ public static partial class MethodRefResolver
                 return null;
             default:
                 throw new NotSupportedException(
-                    "System.Net.IPAddress member not wired: the ipaddr.h parse layer covers " +
-                    "Parse(string)/ToString()/GetAddressBytes()/GetHashCode()/Equals(object) " +
-                    "(get_AddressFamily/ScopeId/MapToIPv4 stay LOUD; the icall_ip_* object layer " +
-                    "of net-domain.md section 4.3 is runtime work)");
+                    "LOUD whitelist (no runtime descriptor/model): System.Net.IPAddress member not wired -- the ipaddr.h parse " +
+                    "layer covers Parse(string)/ToString()/GetAddressBytes()/GetHashCode()/Equals(object); the icall_ip_* object " +
+                    "layer (net-domain.md section 4.3) is runtime work " +
+                    "[Reference Source: net48 mscorlib System.Net.IPAddress]");
         }
     }
 

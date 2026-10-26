@@ -35,7 +35,10 @@ public static partial class MethodRefResolver
                 // bool compacting) rides the same drop shape.
                 if (count == 3) return I("il2cpp::runtime::icall_gc_collect", 3, false, false, false, new[] { "drop", "drop", "drop" });
                 if (count == 4) return I("il2cpp::runtime::icall_gc_collect", 4, false, false, false, new[] { "drop", "drop", "drop", "drop" });
-                throw new NotSupportedException($"GC.Collect with {count} argument(s) not wired: the runtime has only the parameterless icall");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): GC.Collect arity {count} -- net48 has only Collect(), " +
+                    "Collect(int), Collect(int, GCCollectionMode) and Collect(int, GCCollectionMode, bool) " +
+                    "[Reference Source gc.cs:200,193,206,212]");
             // nb1 GC-LEAK: AddMemoryPressure(long) / RemoveMemoryPressure(long)
             // -- net48 CLR memory-pressure counters. The simplified collector
             // has no pressure-based collection trigger, so the icalls are

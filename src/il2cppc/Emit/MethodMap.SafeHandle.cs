@@ -42,7 +42,9 @@ public static partial class MethodRefResolver
                 // the BYREF marker so ps carries the element byte (0x02 = bool).
                 if (count == 1 && ps.Length == 1 && ps[0] == 0x02)
                     return I("il2cpp::runtime::icall_safehandle_dangerous_add_ref", 1, false, false, true, new[] { "", "addr:i" });
-                throw new NotSupportedException($"SafeHandle.DangerousAddRef with {count} param(s) not wired: the icall takes (ref bool success)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): SafeHandle.DangerousAddRef arity {count} -- net48 has only " +
+                    "DangerousAddRef(ref bool success) [Reference Source runtime_interopservices_safehandle.cs:308]");
             case "DangerousRelease":
                 if (count == 0)
                     return I("il2cpp::runtime::icall_safehandle_dangerous_release", 0, false, false, true);

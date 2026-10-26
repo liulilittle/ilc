@@ -58,7 +58,9 @@ public static partial class MethodRefResolver
                 // is dropped).
                 if (count == 1 && ps[0] == 0x08)
                     return I("il2cpp::il2cpp_stack_create_with_capacity", 1, true, true, true, new[] { "drop", "i" });
-                throw new NotSupportedException($"Stack ctor with {count} arg(s) not wired (only the parameterless and int-capacity shapes exist)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Stack ctor arity {count} -- net48 has only Stack(), Stack(int) " +
+                    "and Stack(ICollection) [Reference Source collections_stack.cs:39,47,61]");
             case "Push":
                 if (intReceiver)
                     return I("il2cpp::runtime::icall_stack_int_push", 1, false, false, true, new[] { "", "i" });

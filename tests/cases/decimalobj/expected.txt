@@ -1,0 +1,10 @@
+eq_same=True
+eq_scale=True
+eq_diff=False
+eq_null=False
+eq_nonobj=False
+cmp_same=0
+cmp_scale=0
+cmp_diff=-1
+cmp_null=1
+cmp_nonobj=ArgumentException

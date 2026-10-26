@@ -126,10 +126,9 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_math_round_digits_mode_d", 3, true, false, false,
                         new[] { "d", "i", "i" }, "d");
                 throw new NotSupportedException(
-                    $"LOUD whitelist (net48 has no such overload): Math.Round overload (arity {ps.Length}) -- " +
-                    "net48 has exactly the 4 double forms (Round(double), Round(double,int), Round(double,MidpointRounding), " +
-                    "Round(double,int,MidpointRounding)) and the 4 decimal forms, all wired " +
-                    "[Reference Source math.cs:131-167]");
+                    $"LOUD whitelist (net48 has no such overload): Math.Round arity {ps.Length} -- net48 has exactly 8 forms " +
+                    "(Round(double), Round(double,int), Round(double,MidpointRounding), Round(double,int,MidpointRounding) and the " +
+                    "four decimal forms) [Reference Source math.cs:131,133,141,145,155,159,163,167]");
             case "Truncate":
                 if (ps.Length == 1 && IsMathDecimalParam(ps, 0, arg0Type))
                     return I("il2cpp::runtime::icall_decimal_truncate", 1, true, false, false, new[] { "dec" }, "dec");

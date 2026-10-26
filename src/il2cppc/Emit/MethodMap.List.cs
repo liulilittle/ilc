@@ -176,7 +176,10 @@ public static partial class MethodRefResolver
             : guidReceiver ? "guid"
             : null;
         ResolvedMethod Loud() => throw new NotSupportedException(
-            $"List`1 member '{name}' is not the List<int32> AOT expansion (receiver '{receiverType ?? "<untracked>"}', ps [{BitConverter.ToString(ps)}]) -- only il2cpp_list_i4_* is wired");
+            $"LOUD whitelist (no runtime descriptor/model): List`1 member '{name}' is not a wired instantiation " +
+            $"(receiver '{receiverType ?? "<untracked>"}', ps [{BitConverter.ToString(ps)}]) -- only the List<int32> (listi4.h) " +
+            "and the listobj reference/value-box instantiations (listobj.h) have a runtime domain " +
+            "[Reference Source: net48 mscorlib System.Collections.Generic.List`1]");
 
         switch (name)
         {
@@ -205,7 +208,9 @@ public static partial class MethodRefResolver
                 // managed reference slot (""), not the int32 capacity.
                 if (count == 1 && ps.Length == 1 && ps[0] != 0x08 && i4Receiver)
                     return I("il2cpp::il2cpp_list_i4_create_with_collection", 1, false, false, true, new[] { "", "" });
-                throw new NotSupportedException($"List`1 ctor with {count} arg(s) not wired (the runtime has only the parameterless il2cpp_list_i4_create, the capacity ctor and the collection ctor)");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): List`1 ctor arity {count} -- net48 has only List(), List(int) " +
+                    "and List(IEnumerable<T>) [Reference Source collections_generic_list.cs:52,60,74]");
             case "get_Count":
                 // ilistException: the reference instantiation reads the
                 // element-count through the listobj domain (same value

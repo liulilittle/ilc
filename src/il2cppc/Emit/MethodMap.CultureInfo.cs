@@ -69,7 +69,10 @@ public static partial class MethodRefResolver
                 if (count == 2 && ps[0] == 0x0E && ps[1] == 0x0E)
                     return I("il2cpp::runtime::il2cpp_culture_get_culture_info_alt", 2, true, true, false,
                         returnTypeName: "System.Globalization.CultureInfo");
-                throw new NotSupportedException($"CultureInfo.GetCultureInfo with {count} param(s) not wired (expected (string), (int culture) or (string, string))");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): CultureInfo.GetCultureInfo arity {count} -- net48 has only " +
+                    "GetCultureInfo(string), GetCultureInfo(int culture) and GetCultureInfo(string, string) " +
+                    "[Reference Source globalization_cultureinfo.cs:1910,1887,1932]");
             case "get_TwoLetterISOLanguageName":
                 // nb2 CULT-GET: the culture-name carrier's primary segment,
                 // mapped through the ISO 639-1 code table ("en-US" -> "en";
@@ -85,7 +88,10 @@ public static partial class MethodRefResolver
                 // surface (net48 returns the localized display name, e.g.
                 // "英语(美国)" on zh-CN). Explicit LOUD instead of a silent
                 // phantom / fold mis-resolution.
-                throw new NotSupportedException("CultureInfo.DisplayName is not wired: the runtime has no culture display-name table");
+                throw new NotSupportedException(
+                    "LOUD whitelist (machine-state/culture): CultureInfo.DisplayName -- the runtime has no culture display-name " +
+                    "table (net48 returns the localized display name, e.g. the OS culture's own label) " +
+                    "[Reference Source globalization_cultureinfo.cs:1129]");
             // P6: CultureInfo internal methods (stubs).
             case "nativeGetLocaleInfoEx": return I("il2cpp::runtime::icall_culture_info_native_get_locale_info_ex_int", 1, true, true, false, new[] { "i" });
             case "nativeGetLocaleInfoExInt": return I("il2cpp::runtime::icall_culture_info_native_get_locale_info_ex_int", 1, true, false, false, new[] { "i" });
