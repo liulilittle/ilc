@@ -304,6 +304,56 @@ Il2CppObject* icall_delegate_remove(Il2CppObject* source, Il2CppObject* value)
 }
 
 //------------------------------------------------------------------------------
+// icall_delegate_remove_all -- Delegate.RemoveAll (EVERY occurrence). Same
+// contiguous sub-list match as Remove, but every matching window is dropped
+// (net48 RemoveAll semantics; overlapping windows mark their shared elements).
+// Pure: the source tree is never mutated; absent value -> identity.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_delegate_remove_all(Il2CppObject* source, Il2CppObject* value)
+{
+    if (source == nullptr) return nullptr;
+    if (value == nullptr) return source;
+
+    std::vector<Il2CppDelegate*> src;
+    std::vector<Il2CppDelegate*> val;
+    Flatten(source, src);
+    Flatten(value, val);
+
+    const int32_t n = static_cast<int32_t>(src.size());
+    const int32_t m = static_cast<int32_t>(val.size());
+    if (m == 0 || m > n) return source;
+
+    std::vector<bool> drop(static_cast<size_t>(n), false);
+    for (int32_t i = 0; i + m <= n; ++i)
+    {
+        bool match = true;
+        for (int32_t j = 0; j < m; ++j)
+        {
+            if (!LeafEqual(src[static_cast<size_t>(i) + j], val[static_cast<size_t>(j)]))
+            {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+        {
+            for (int32_t j = 0; j < m; ++j)
+            {
+                drop[static_cast<size_t>(i) + j] = true;
+            }
+        }
+    }
+
+    Il2CppObject* result = nullptr;
+    for (int32_t k = 0; k < n; ++k)
+    {
+        if (drop[static_cast<size_t>(k)]) continue;
+        result = icall_delegate_combine(result, reinterpret_cast<Il2CppObject*>(src[static_cast<size_t>(k)]));
+    }
+    return result;
+}
+
+//------------------------------------------------------------------------------
 // icall_delegate_get_invocation_list -- Delegate.GetInvocationList(): a
 // reference array holding every leaf delegate in invocation order.
 //------------------------------------------------------------------------------

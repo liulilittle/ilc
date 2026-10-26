@@ -54,10 +54,22 @@ public static partial class MethodRefResolver
             // ReturnTypeName stamps the receiver so the chained get_Name /
             // get_TwoLetterISOLanguageName resolve on the tracked type.
             case "GetCultureInfo":
-                if (count == 1)
+                // (string name): the canonical named lookup (nb2 CULT-GET).
+                if (count == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::il2cpp_culture_get_culture_info", 1, true, true, false,
                         returnTypeName: "System.Globalization.CultureInfo");
-                throw new NotSupportedException($"CultureInfo.GetCultureInfo with {count} param(s) not wired (expected (string))");
+                // (int culture): the net48 LCID overload
+                // (globalization_cultureinfo.cs:1887) -- the runtime validates a
+                // positive culture and resolves it through its fixed LCID table.
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::il2cpp_culture_get_culture_info_by_lcid", 1, true, true, false,
+                        returnTypeName: "System.Globalization.CultureInfo");
+                // (string name, string altName): the net48 alias overload
+                // (globalization_cultureinfo.cs:1932).
+                if (count == 2 && ps[0] == 0x0E && ps[1] == 0x0E)
+                    return I("il2cpp::runtime::il2cpp_culture_get_culture_info_alt", 2, true, true, false,
+                        returnTypeName: "System.Globalization.CultureInfo");
+                throw new NotSupportedException($"CultureInfo.GetCultureInfo with {count} param(s) not wired (expected (string), (int culture) or (string, string))");
             case "get_TwoLetterISOLanguageName":
                 // nb2 CULT-GET: the culture-name carrier's primary segment,
                 // mapped through the ISO 639-1 code table ("en-US" -> "en";

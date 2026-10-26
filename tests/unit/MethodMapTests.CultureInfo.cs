@@ -36,13 +36,45 @@ public class MethodMapCultureInfoTests
     }
 
     [Fact]
-    public void Resolve_CultureInfo_GetCultureInfo_2Args_ThrowsLoud()
+    public void Resolve_CultureInfo_GetCultureInfo_Lcid_MapsToLcidIcall()
     {
+        // static CultureInfo GetCultureInfo(int culture) -- the net48 LCID
+        // overload (globalization_cultureinfo.cs:1887). CLASS return, 1 int
+        // param (0x08).
+        var resolved = ResolveMember(Synthesize("System.Globalization", "CultureInfo", "GetCultureInfo",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x08 }), "GetCultureInfo");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_culture_get_culture_info_by_lcid", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.False(resolved.IsInstance);
+        Assert.Equal("System.Globalization.CultureInfo", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_CultureInfo_GetCultureInfo_NameAltName_MapsToAltIcall()
+    {
+        // static CultureInfo GetCultureInfo(string name, string altName) -- the
+        // net48 alias overload (globalization_cultureinfo.cs:1932). CLASS
+        // return, 2 string params.
+        var resolved = ResolveMember(Synthesize("System.Globalization", "CultureInfo", "GetCultureInfo",
+            new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x0E }), "GetCultureInfo");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_culture_get_culture_info_alt", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("System.Globalization.CultureInfo", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_CultureInfo_GetCultureInfo_UnsupportedArity_ThrowsLoud()
+    {
+        // No net48 GetCultureInfo overload with 3+ params -- LOUD.
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System.Globalization", "CultureInfo", "GetCultureInfo",
-                new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x0E }), "GetCultureInfo"));
+                new byte[] { 0x00, 0x03, 0x12, 0x05, 0x0E, 0x0E, 0x0E }), "GetCultureInfo"));
 
-        Assert.Contains("CultureInfo.GetCultureInfo with 2 param(s)", ex.Message);
+        Assert.Contains("CultureInfo.GetCultureInfo with 3 param(s)", ex.Message);
     }
 
     [Fact]

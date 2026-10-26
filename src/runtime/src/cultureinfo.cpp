@@ -305,6 +305,96 @@ Il2CppString* il2cpp_culture_get_culture_info(Il2CppObject* name)
         il2cpp_string_new(s->chars, s->length));
 }
 
+//------------------------------------------------------------------------------
+// CultureInfo.GetCultureInfo(int culture) -- the net48 LCID overload
+// (globalization_cultureinfo.cs:1887).
+//
+// net48: culture <= 0 raises ArgumentOutOfRangeException; an LCID with no
+// registered culture raises CultureNotFoundException. The runtime's culture
+// table is a FIXED subset of the common LCIDs (the handle-gap carrier is the
+// culture NAME string, so the chained get_Name / get_TwoLetterISOLanguageName
+// resolve exactly as the named overload's result). An unknown LCID returns
+// null -- the documented M3 deviation shared with the named overload (the
+// runtime has no CultureNotFoundException carrier).
+//------------------------------------------------------------------------------
+
+struct CultureLcidEntry
+{
+    int32_t     lcid;
+    const char* name;
+};
+
+const CultureLcidEntry kCultureLcidTable[] = {
+    {127,  ""},        // 0x007F invariant
+    {1028, "zh-TW"},
+    {1029, "cs-CZ"},
+    {1030, "da-DK"},
+    {1031, "de-DE"},
+    {1032, "el-GR"},
+    {1033, "en-US"},
+    {1035, "fi-FI"},
+    {1036, "fr-FR"},
+    {1038, "hu-HU"},
+    {1040, "it-IT"},
+    {1041, "ja-JP"},
+    {1042, "ko-KR"},
+    {1043, "nl-NL"},
+    {1045, "pl-PL"},
+    {1046, "pt-BR"},
+    {1049, "ru-RU"},
+    {1053, "sv-SE"},
+    {1054, "th-TH"},
+    {1055, "tr-TR"},
+    {2052, "zh-CN"},
+    {2070, "pt-PT"},
+    {3082, "es-ES"},
+};
+
+Il2CppString* il2cpp_culture_get_culture_info_by_lcid(int32_t culture)
+{
+    if (culture <= 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "culture", "culture must be a positive number.");
+    }
+    for (const auto& e : kCultureLcidTable)
+    {
+        if (e.lcid == culture)
+        {
+            return Intern(e.name);
+        }
+    }
+    return nullptr; // unknown LCID -- M3 deviation (see the block comment)
+}
+
+//------------------------------------------------------------------------------
+// CultureInfo.GetCultureInfo(string name, string altName) -- the net48
+// (name, altName) overload (globalization_cultureinfo.cs:1932). The altName
+// is a legacy alias: net48 returns the culture for 'name' when it resolves,
+// otherwise the culture for 'altName'. Both a null name/altName raise
+// ArgumentNullException (net48). The runtime resolves 'name' through the same
+// canonical table as the single-name overload; an unresolvable name falls back
+// to 'altName' (the net48 alias semantics), and an unresolvable altName
+// returns null (the documented M3 deviation).
+//------------------------------------------------------------------------------
+Il2CppString* il2cpp_culture_get_culture_info_alt(Il2CppObject* name, Il2CppObject* altName)
+{
+    if (name == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("name");
+    }
+    if (altName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("altName");
+    }
+    Il2CppString* primary = il2cpp_culture_get_culture_info(name);
+    if (primary != nullptr)
+    {
+        return primary;
+    }
+    return il2cpp_culture_get_culture_info(altName);
+}
+
 Il2CppString* il2cpp_culture_get_two_letter_from_name(Il2CppObject* name)
 {
     if (name == nullptr)

@@ -104,10 +104,16 @@ bool il2cpp_datetime_try_parse_exact_multi(Il2CppObject* input, Il2CppArray* for
 
 // DateTime.Parse(string input): parses 'input' against the documented
 // invariant-culture subset above and returns the DateTime value. Throws
-// ArgumentNullException / FormatException per the header contract. (Not yet
-// wired in MethodMap.TimeExt2.cs -- transpiled code reaches it once the
-// mapping lands.)
+// ArgumentNullException / FormatException per the header contract.
 Il2CppDateTime il2cpp_datetime_parse(Il2CppObject* input);
+
+// DateTime.Parse(string input, IFormatProvider, DateTimeStyles) -- the 3-arg
+// net48 overload (datetime.cs:1305). The provider is invariant-culture only
+// (dropped by the transpiler); the styles flags ride the subset's documented
+// behavior (whitespace is already trimmed by the subset; NoCurrentDateDefault
+// and the timezone flags are no-ops on the invariant subset -- a documented
+// deviation).
+Il2CppDateTime il2cpp_datetime_parse_styles(Il2CppObject* input, int32_t styles);
 
 // TimeSpan.Parse(string input) / TryParse(string, out TimeSpan): the net48
 // invariant "c" grammar (whitespace, optional sign, d.hh:mm:ss.fffffff with

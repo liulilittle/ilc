@@ -160,6 +160,13 @@ int32_t icall_delegate_get_hash_code(Il2CppObject* d);
 // empty; the single remaining delegate when one element survives.
 Il2CppObject* icall_delegate_remove(Il2CppObject* source, Il2CppObject* value);
 
+// Delegate.RemoveAll: remove EVERY occurrence of value's invocation list
+// (net48 RemoveAll semantics -- a contiguous sub-list match at each position,
+// methodPtr + target per element). Returns the original source object when
+// nothing matches; null when the result is empty; the single remaining
+// delegate when one element survives.
+Il2CppObject* icall_delegate_remove_all(Il2CppObject* source, Il2CppObject* value);
+
 // Delegate.GetInvocationList: a reference array (Il2CppObject* elements)
 // holding every leaf delegate in invocation order. Returns a 1-element
 // array for a single-cast delegate; null for null input.

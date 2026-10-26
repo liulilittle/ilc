@@ -217,6 +217,24 @@ public class MethodMapTestsTimeExt2
     }
 
     [Fact]
+    public void Resolve_DateTime_ParseWithProviderAndStyles_MapsToStylesIcall()
+    {
+        // DateTime.Parse(string, IFormatProvider, DateTimeStyles): the 3-arg
+        // net48 overload (datetime.cs:1305). The provider is dropped; the
+        // styles enum (0x11 VALUETYPE + its TypeHandle byte 0x05) rides the
+        // "i" cast.
+        var resolved = ResolveMember(Synthesize("System", "DateTime", "Parse",
+            new byte[] { 0x00, 0x03, 0x0A, 0x0E, 0x12, 0x05, 0x11, 0x05 }), "Parse");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_datetime_parse_styles", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal("dt", resolved.ResultKind);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "drop", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
     public void Resolve_DateTime_OpEquality_MapsToTicksCompare()
     {
         // icallwide: op_Equality wires to the pure-ticks comparator.

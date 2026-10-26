@@ -99,6 +99,12 @@ Il2CppString* il2cpp_culture_get_two_letter_iso_language_name();
 // transpiler stamps the result as a CultureInfo so chained get_Name/
 // get_TwoLetterISOLanguageName fold on the tracked type.
 Il2CppString* il2cpp_culture_get_culture_info(Il2CppObject* name);
+// net48 GetCultureInfo(int culture) / GetCultureInfo(string, string) overloads
+// (globalization_cultureinfo.cs:1887 / :1932). The LCID overload validates a
+// positive culture and resolves it through the runtime's fixed LCID table; the
+// (name, altName) overload resolves 'name' and falls back to 'altName'.
+Il2CppString* il2cpp_culture_get_culture_info_by_lcid(int32_t culture);
+Il2CppString* il2cpp_culture_get_culture_info_alt(Il2CppObject* name, Il2CppObject* altName);
 
 // CultureInfo.TwoLetterISOLanguageName on the culture-name carrier: the
 // primary (first '-' segment) mapped through the ISO 639-1 code table

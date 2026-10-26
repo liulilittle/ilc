@@ -934,6 +934,17 @@ Il2CppDateTime il2cpp_datetime_parse(Il2CppObject* input)
     return ComposeDateTime(fields);
 }
 
+// DateTime.Parse(string input, IFormatProvider, DateTimeStyles): the 3-arg
+// net48 overload. The provider is invariant-culture only (dropped by the
+// transpiler); the styles flags ride the subset's documented behavior (the
+// whitespace trimming is already applied; NoCurrentDateDefault and the timezone
+// flags are no-ops on the invariant subset -- a documented deviation).
+Il2CppDateTime il2cpp_datetime_parse_styles(Il2CppObject* input, int32_t styles)
+{
+    (void)styles; // see the header contract
+    return il2cpp_datetime_parse(input);
+}
+
 Il2CppTimeSpan il2cpp_timespan_parse(Il2CppString* input)
 {
     if (input == nullptr)

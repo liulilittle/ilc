@@ -51,7 +51,11 @@ public static partial class MethodRefResolver
                 // instance Delegate.Equals(object): receiver + argument.
                 return ps.Length == 1 ? I("il2cpp::runtime::icall_delegate_equals", 1, true, false, true) : null;
             case "RemoveAll":
-                throw new NotSupportedException("Delegate.RemoveAll not wired: the runtime has only Remove");
+                // Delegate.RemoveAll(Delegate, Delegate): net48 removes EVERY
+                // occurrence of the value's invocation list (the runtime's
+                // Remove removes only the LAST). Same delegate-type result
+                // tracking as Remove (the LAST-arg hint carries the type).
+                return I("il2cpp::runtime::icall_delegate_remove_all", 2, true, true, false, returnTypeName: arg0Type);
             // M7 delegate2 (2026-08-08): Delegate.get_Method -- the runtime
             // delegate (il2cpp_delegate.h) stores only a raw methodPtr, and
             // the name registry (delegateext.cpp icall_delegate_get_method_name,

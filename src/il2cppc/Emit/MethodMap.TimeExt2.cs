@@ -56,7 +56,14 @@ public static partial class MethodRefResolver
                     // this shape (CultureInfo.InvariantCulture folds to null
                     // at the call site either way).
                     return I("il2cpp::runtime::il2cpp_datetime_parse", 2, true, false, false, new[] { "", "drop" }, "dt");
-                throw new NotSupportedException($"DateTime.Parse with {ps.Length} arg(s) not wired: the runtime has only the (string) icall (no provider+styles overloads)");
+                // DateTime.Parse(string, IFormatProvider, DateTimeStyles): the
+                // 3-arg net48 overload (datetime.cs:1305). The provider is
+                // dropped; the styles enum (0x11 VALUETYPE) rides the "i"
+                // cast (the subset's whitespace trimming is already applied).
+                if (ps.Length == 3 && ps[1] == 0x12 && ps[2] == 0x11)
+                    return I("il2cpp::runtime::il2cpp_datetime_parse_styles", 3, true, false, false,
+                        new[] { "", "drop", "i" }, "dt");
+                throw new NotSupportedException($"DateTime.Parse with {ps.Length} arg(s) not wired: the runtime has the (string), (string, IFormatProvider) and (string, IFormatProvider, DateTimeStyles) forms");
             case "ParseExact":
                 // ParseExact(string input, string format) -> DateTime.
                 if (ps.Length == 2)

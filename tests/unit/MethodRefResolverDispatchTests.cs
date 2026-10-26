@@ -581,12 +581,18 @@ public class MethodRefResolverDispatchTests
     }
 
     [Fact]
-    public void Resolve_Delegate_RemoveAll_ThrowsLoud()
+    public void Resolve_Delegate_RemoveAll_MapsToRemoveAllIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Delegate", "RemoveAll", Sig(0x1C, 0x0E, 0x0E)), "RemoveAll"));
+        // RemoveAll(Delegate, Delegate) -> icall_delegate_remove_all (net48
+        // removes EVERY occurrence of the value's invocation list; the runtime's
+        // Remove removes only the LAST). Previously a LOUD rejection.
+        var resolved = ResolveMember(Synthesize("System", "Delegate", "RemoveAll", Sig(0x1C, 0x1C, 0x1C)), "RemoveAll");
 
-        Assert.Contains("System.Delegate::RemoveAll", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_delegate_remove_all", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(2, resolved.ParamCount);
     }
 
     //--------------------------------------------------------------------------

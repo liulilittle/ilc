@@ -74,6 +74,8 @@ public class MethodMapNetTests
 
     //--------------------------------------------------------------------------
     // IPAddress.GetAddressBytes() -> il2cpp_ipaddress_get_address_bytes
+    //--------------------------------------------------------------------------
+    // IPAddress.GetAddressBytes() -> il2cpp_ipaddress_get_address_bytes
     // (instance, returns byte[]; the receiver IS the ip4 value slot, the "g"
     // byte-slot cast).
     //--------------------------------------------------------------------------
@@ -91,6 +93,7 @@ public class MethodMapNetTests
         Assert.True(m.ReturnsValue);
         Assert.True(m.ReturnsRef);
         Assert.Equal("g", m.ParamTypeNames![0]);
+        Assert.Equal("System.Byte[]", m.ReturnTypeName);
     }
 
     //--------------------------------------------------------------------------

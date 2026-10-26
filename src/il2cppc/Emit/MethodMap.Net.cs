@@ -129,7 +129,8 @@ public static partial class MethodRefResolver
             // the ip4 value slot ("g" byte-slot cast).
             case "GetAddressBytes":
                 if (ps.Length == 0)
-                    return I("il2cpp::runtime::il2cpp_ipaddress_get_address_bytes", 0, true, true, true, new[] { "g" });
+                    return I("il2cpp::runtime::il2cpp_ipaddress_get_address_bytes", 0, true, true, true,
+                        new[] { "g" }, returnTypeName: "System.Byte[]");
                 return null;
             // IPAddress.GetHashCode() (net48 IPv4): unchecked((int)m_Address)
             // -- the little-endian fold of the four address bytes. Roslyn
