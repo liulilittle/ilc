@@ -163,6 +163,11 @@ public static partial class MethodRefResolver
             // transpiled case could call it. ps == [0x08, 0x08] (two int32),
             // result kind "l" (int64).
             case "BigMul":
+                // net48 exposes ONLY long BigMul(int, int) (verified against
+                // the net48 reference assembly -- the unsigned
+                // BigMul(uint, uint) is a .NET Core addition, unreachable from
+                // net48 IL). A non-int32 pair is not the net48 overload ->
+                // the MathExtra gate keeps it LOUD.
                 if (ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x08)
                     return I("il2cpp::runtime::icall_math_bigmul", 2, true, false, false, new[] { "i", "i" }, "l");
                 return null;

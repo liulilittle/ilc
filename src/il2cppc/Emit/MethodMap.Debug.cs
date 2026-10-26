@@ -61,8 +61,14 @@ public static partial class MethodRefResolver
                             return I("il2cpp::runtime::il2cpp_debug_assert", 1, false, false, false, new[] { "b" });
                         if (ps.Length == 2 && ps[0] == 0x02 && ps[1] == 0x0E)
                             return I("il2cpp::runtime::il2cpp_debug_assert", 2, false, false, false, new[] { "b", "s" });
-                        if (ps.Length == 3)
-                            throw new NotSupportedException("Debug.Assert(bool, string, string): the runtime stub il2cpp_debug_assert takes (condition, message) only -- no detail-message parameter");
+                        // Debug.Assert(bool condition, string message, string
+                        // detailMessage): the net48 detail-message overload. The
+                        // runtime stub il2cpp_debug_assert takes (condition,
+                        // message) only -- the detail message is dropped at
+                        // emission (the stub never renders a detail message, so
+                        // dropping it is observable-exact).
+                        if (ps.Length == 3 && ps[0] == 0x02 && ps[1] == 0x0E && ps[2] == 0x0E)
+                            return I("il2cpp::runtime::il2cpp_debug_assert", 3, false, false, false, new[] { "b", "s", "drop" });
                         return null;
                     case "WriteLine":
                         if (ps.Length == 1 && ps[0] == 0x0E)

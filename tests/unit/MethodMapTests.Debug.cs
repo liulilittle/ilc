@@ -61,15 +61,20 @@ public class MethodMapDebugTests
     }
 
     [Fact]
-    public void Resolve_Debug_AssertBoolStringString_ThrowsLoud()
+    public void Resolve_Debug_AssertBoolStringString_MapsToAssertIcallDroppingDetail()
     {
-        // The runtime stub takes (condition, message) only -- the detail
-        // message has no parameter -> LOUD NotSupportedException (never the
-        // confusing generated-name fallback).
-        var ex = Assert.Throws<NotSupportedException>(
-            () => ResolveMember(Synthesize("System.Diagnostics", "Debug", "Assert", Sig(0x01, 0x02, 0x0E, 0x0E)), "Assert"));
+        // Debug.Assert(bool, string, string): the net48 detail-message
+        // overload. The runtime stub takes (condition, message) only -- the
+        // detail message is dropped at emission ("drop" cast); the stub never
+        // renders a detail message, so the drop is observable-exact.
+        var resolved = ResolveMember(
+            Synthesize("System.Diagnostics", "Debug", "Assert", Sig(0x01, 0x02, 0x0E, 0x0E)), "Assert");
 
-        Assert.Contains("System.Diagnostics.Debug::Assert", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_debug_assert", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "b", "s", "drop" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

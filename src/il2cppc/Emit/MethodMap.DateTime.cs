@@ -12,7 +12,8 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapDateTime(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
+        string? paramTypes = null)
     {
         switch (name)
         {
@@ -121,10 +122,21 @@ public static partial class MethodRefResolver
             case "GetHashCode":
                 return I("il2cpp::runtime::icall_datetime_get_hash_code", 0, true, false, true, new[] { "deref:dt" });
             case "Subtract":
-                // DateTime.Subtract(DateTime) -> TimeSpan.
-                return ps.Length == 1
-                    ? I("il2cpp::runtime::icall_datetime_subtract", 1, true, false, true, new[] { "deref:dt", "" }, "ts")
-                    : throw new NotSupportedException("DateTime.Subtract(TimeSpan) not wired in M5: the runtime has only the (DateTime, DateTime) -> TimeSpan icall");
+                // DateTime.Subtract(DateTime) -> TimeSpan; DateTime.Subtract(
+                // TimeSpan) -> DateTime. Both ride a single VALUETYPE (0x11)
+                // parameter byte, so the decoded parameter-type text
+                // disambiguates (the DateTimeOffset precedent): the TimeSpan
+                // operand subtracts ticks (icall_datetime_subtract_ticks, the
+                // timeext2 surface); the DateTime operand is the (DateTime,
+                // DateTime) -> TimeSpan difference.
+                if (ps.Length == 1)
+                {
+                    if ((paramTypes ?? arg0Type ?? "").Contains("System.TimeSpan", StringComparison.Ordinal))
+                        return I("il2cpp::runtime::il2cpp_datetime_subtract_ticks", 1, true, false, true,
+                            new[] { "deref:dt", "" }, "dt");
+                    return I("il2cpp::runtime::icall_datetime_subtract", 1, true, false, true, new[] { "deref:dt", "" }, "ts");
+                }
+                throw new NotSupportedException("DateTime.Subtract not wired: the runtime has only the (DateTime, DateTime) -> TimeSpan icall and the (DateTime, TimeSpan) -> DateTime tick subtraction");
             case "op_Subtraction":
                 // DateTime - DateTime -> TimeSpan (static).
                 return I("il2cpp::runtime::icall_datetime_subtract", 2, true, false, false, new[] { "", "" }, "ts");

@@ -130,7 +130,11 @@ public static partial class MethodRefResolver
                 return null;
             case ".ctor":
                 if (ps.Length == 1 && ps[0] == 0x1D)
-                    throw new NotSupportedException(".ctor(byte[]) not wired: guid.h has no from-bytes icall (the surface is new_guid/parse/to_string/equals/compare only)");
+                    // Guid(byte[] b) -- the net48 from-bytes ctor. The runtime
+                    // kernel il2cpp_guid_ctor_bytes validates the input (null ->
+                    // ArgumentNullException, length != 16 -> ArgumentException)
+                    // and copies the 16 bytes into the value slot.
+                    return I("il2cpp::il2cpp_guid_ctor_bytes", 1, false, false, true, new[] { "g", "a" });
                 // LOUD P0-02/03: new Guid(string) is GUID.Parse semantics
                 // (ArgumentNullException on null, FormatException on invalid).
                 // The wrapper places the 16-byte output slot first to match the

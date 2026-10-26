@@ -150,6 +150,26 @@ void il2cpp_guid_ctor_components(uint8_t bytes[16],
 }
 
 //------------------------------------------------------------------------------
+// Guid(byte[] b) -- the net48 from-bytes ctor. A null array is
+// ArgumentNullException; a length other than 16 is ArgumentException (net48:
+// "The byte array must be exactly 16 bytes long"); otherwise the 16 bytes are
+// copied verbatim (the .NET byte layout IS the storage layout -- see the
+// header).
+//------------------------------------------------------------------------------
+void il2cpp_guid_ctor_bytes(uint8_t bytes[16], Il2CppArray* b)
+{
+    if (b == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("b");
+    }
+    if (b->length != 16)
+    {
+        il2cpp_throw_argument_exception("The byte array must be exactly 16 bytes long.");
+    }
+    std::memcpy(bytes, b->data, 16);
+}
+
+//------------------------------------------------------------------------------
 // Parse -- strict "D" (36-char, dashes at 8/13/18/23) or "N" (32-char, no
 // dashes) form, both net48-accepted (TryParse-style, verify-then-mutate).
 //------------------------------------------------------------------------------

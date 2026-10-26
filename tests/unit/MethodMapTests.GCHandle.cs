@@ -115,13 +115,32 @@ public class MethodMapGCHandleTests
     }
 
     [Fact]
-    public void Resolve_GCHandle_ToIntPtr_ThrowsLoudRuntimeIcallMissing()
+    public void Resolve_GCHandle_ToIntPtr_FoldsToIdentity()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Runtime.InteropServices", "GCHandle", "ToIntPtr", Sig(0x11, 0x05)), "ToIntPtr"));
+        // GCHandle.ToIntPtr(GCHandle value): STATIC in net48 (verified against
+        // the net48 reference assembly). The handle value IS the int32 slot and
+        // an IntPtr rides the SAME slot -- the result is the argument verbatim
+        // (the identity fold).
+        var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "GCHandle", "ToIntPtr", Sig(0x11, 0x05, 0x11, 0x05)), "ToIntPtr");
 
-        Assert.Contains("System.Runtime.InteropServices.GCHandle::ToIntPtr", ex.Message);
-        Assert.Contains("icall_gchandle_to_intptr", ex.Message);
+        Assert.Equal(ResolvedMethod.IdentityMarker, m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal(1, m.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_GCHandle_FromIntPtr_FoldsToIdentity()
+    {
+        // GCHandle.FromIntPtr(IntPtr): the reverse identity -- the IntPtr
+        // value IS the handle (both ride the int32 slot). The result is the
+        // argument.
+        var m = ResolveMember(Synthesize("System.Runtime.InteropServices", "GCHandle", "FromIntPtr", Sig(0x11, 0x05, 0x11, 0x05)), "FromIntPtr");
+
+        Assert.Equal(ResolvedMethod.IdentityMarker, m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal(1, m.ParamCount);
     }
 
     [Fact]

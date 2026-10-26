@@ -230,18 +230,22 @@ public class MethodMapGuidTests
     }
 
     //--------------------------------------------------------------------------
-    // .ctor(byte[]) -- no from-bytes icall on the guid.h surface
+    // .ctor(byte[]) -- the net48 from-bytes ctor (il2cpp_guid_ctor_bytes).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Guid_CtorByteArray_ThrowsLoud()
+    public void Resolve_Guid_CtorByteArray_MapsToCtorBytesIcall()
     {
         // void .ctor(byte[]): void ret, SZARRAY (0x1D) param + element byte
-        // (0x05) -- multi-byte param, hand-built blob.
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Guid", ".ctor",
-                new byte[] { 0x00, 0x01, 0x01, 0x1D, 0x05 }), ".ctor"));
+        // (0x05) -- multi-byte param, hand-built blob. The receiver slot carries
+        // the "g" byte-pointer cast; the byte[] argument the "a" array cast.
+        var resolved = ResolveMember(Synthesize("System", "Guid", ".ctor",
+            new byte[] { 0x00, 0x01, 0x01, 0x1D, 0x05 }), ".ctor");
 
-        Assert.Contains("System.Guid::.ctor", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_guid_ctor_bytes", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "g", "a" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

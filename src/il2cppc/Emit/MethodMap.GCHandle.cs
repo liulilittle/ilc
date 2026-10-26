@@ -21,11 +21,10 @@ namespace Il2Cpp.Transpiler.Emit;
 //   get_Target / set_Target        -> icall_gchandle_get_target / set_target
 //   get_IsAllocated                -> icall_gchandle_is_allocated
 //   AddrOfPinnedObject()           -> icall_gchandle_addr_of_pinned (intptr)
-//   ToIntPtr/FromIntPtr            -> LOUD (the report's icall_gchandle_to_
-//                                     intptr/from_intptr do NOT exist in the
-//                                     runtime -- section 4.4 lists them as conditional
-//                                     runtime additions; wired LOUD, never a
-//                                     fabricated API)
+//   ToIntPtr/FromIntPtr            -> the int32-slot identity folds (both are
+//                                     STATIC 1-arg in net48; the handle value
+//                                     IS the int32 slot and an IntPtr rides the
+//                                     same slot -- no runtime icall needed)
 //   op_Equality/op_Inequality      -> il2cpp_intptr_op_equality/inequality
 //                                     (the raw handle-value comparison, the
 //                                     IntPtr domain precedent)
@@ -70,18 +69,21 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_gchandle_is_allocated", 0, true, false, true,
                     new[] { receiverIsAddress ? "deref:i" : "" });
             case "ToIntPtr":
-                // GCHandle -> IntPtr would be the identity (the handle value
-                // IS the int32); the report's icall_gchandle_to_intptr is a
-                // conditional runtime addition that does NOT exist -- LOUD.
-                throw new NotSupportedException(
-                    "GCHandle.ToIntPtr not wired: the runtime has no icall_gchandle_to_intptr (gchandle-b23 report section 4.4 lists it as a conditional addition)");
+                // GCHandle.ToIntPtr(GCHandle value): STATIC in net48 (verified
+                // against the net48 reference assembly). The handle value IS
+                // the int32 slot and an IntPtr rides the SAME slot (intptr.h),
+                // so the result is the argument verbatim -- the identity fold.
+                return I(ResolvedMethod.IdentityMarker, 1, true, false, false);
             case "InternalGetHandleType":
                 if (count == 1 && IsIntPtrByte(ps[0]))
                     return I("il2cpp::runtime::icall_gchandle_get_handle_type", 1, true, false, false, new[] { "" });
                 return null;
             case "FromIntPtr":
-                throw new NotSupportedException(
-                    "GCHandle.FromIntPtr not wired: the runtime has no icall_gchandle_from_intptr (gchandle-b23 report section 4.4 lists it as a conditional addition)");
+                // GCHandle.FromIntPtr(IntPtr): the reverse identity -- the
+                // IntPtr value IS the handle (both ride the int32 slot). The
+                // result is the argument (the identity fold on the first
+                // parameter).
+                return I(ResolvedMethod.IdentityMarker, 1, true, false, false);
             case "op_Equality":
             case "op_Inequality":
                 // static bool op_Equality(GCHandle, GCHandle): the raw handle

@@ -27,6 +27,24 @@ public static partial class MethodRefResolver
         if (owner != "System.DateTime") return null;
         switch (name)
         {
+            // DateTime.ToLocalTime() / ToUniversalTime() -- the instance
+            // converters. The runtime (timezone.h) applies the machine zone's
+            // current offset in both directions (il2cpp_datetime_to_local /
+            // il2cpp_datetime_from_local, the SAME entries TimeZoneInfo's
+            // converters use). The receiver is the DateTime VALUE (deref:dt);
+            // the result is a DateTime ("dt" kind, ReturnTypeName for chained
+            // Year/Month/... resolution). net48 on the same host is byte-exact
+            // (the single-zone doctrine).
+            case "ToLocalTime":
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::il2cpp_datetime_to_local", 0, true, false, true,
+                        new[] { "deref:dt" }, "dt", returnTypeName: "System.DateTime");
+                return null;
+            case "ToUniversalTime":
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::il2cpp_datetime_from_local", 0, true, false, true,
+                        new[] { "deref:dt" }, "dt", returnTypeName: "System.DateTime");
+                return null;
             case "get_Ticks":
             case "get_Date":
             case "get_TimeOfDay":
@@ -63,9 +81,7 @@ public static partial class MethodRefResolver
             case "ToLongDateString":
             case "ToShortTimeString":
             case "ToLongTimeString":
-            case "ToLocalTime":
-            case "ToUniversalTime":
-                throw new NotSupportedException($"DateTime.{name} not wired: no runtime icall (the wired surface is construction, Now/UtcNow, Year..Second/DayOfWeek, AddDays/Hours/Minutes, AddTicks, Subtract, Compare/CompareTo, ToString, ParseExact, ToFileTime(Utc)/FromFileTime(Utc), GetHashCode)");
+                throw new NotSupportedException($"DateTime.{name} not wired: no runtime icall (the wired surface is construction, Now/UtcNow, Year..Second/DayOfWeek, AddDays/Hours/Minutes, AddTicks, Subtract(DateTime/TimeSpan), Compare/CompareTo, ToString, ParseExact, ToFileTime(Utc)/FromFileTime(Utc), ToLocalTime/ToUniversalTime, GetHashCode)");
             default: return null;
         }
     }

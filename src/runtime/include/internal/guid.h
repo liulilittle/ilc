@@ -42,6 +42,7 @@
 // top of that core.
 //------------------------------------------------------------------------------
 
+#include "il2cpp_array.h"
 #include "il2cpp_string.h"
 
 #include <cstdint>
@@ -89,6 +90,14 @@ bool il2cpp_guid_parse(Il2CppString* s, uint8_t bytes[16]);
 // FormatException. On success writes the 16 bytes (the core's
 // verify-then-mutate leaves them untouched on failure).
 void il2cpp_guid_parse_strict(Il2CppString* s, uint8_t bytes[16]);
+
+// Guid(byte[] b) -- the net48 from-bytes ctor. A null array is
+// ArgumentNullException; a length other than 16 is ArgumentException; otherwise
+// the 16 bytes are copied verbatim (the .NET byte layout IS the storage
+// layout). The icall writes the receiver's 16-byte value slot (the emitter
+// passes &slot, ResultIsReceiver-style -- the il2cpp_guid_ctor_string
+// precedent).
+void il2cpp_guid_ctor_bytes(uint8_t bytes[16], Il2CppArray* b);
 
 // new Guid(string): the managed ctor is Guid.Parse (strict); this wrapper
 // puts the 16-byte output slot FIRST to match the transpiler's in-place

@@ -1330,6 +1330,12 @@ public static partial class MethodRefResolver
         var dtoParamTypes = owner == "System.DateTimeOffset"
             ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
             : null;
+        // DateTime.Subtract(TimeSpan) vs Subtract(DateTime) share the same
+        // VALUETYPE parameter byte (0x11) -- the decoded parameter-type text
+        // disambiguates (the DateTimeOffset precedent above).
+        var dtParamTypes = owner == "System.DateTime"
+            ? MethodSignatureCoder.Decode(md, sigHandle).ParamTypes
+            : null;
         // LOUD P0-19: System.Math's decimal overloads. A decimal PARAMETER
         // (ldarg) is not tracked by StackFold's objTypes, so arg0Type stays
         // null and the 0x11 signature byte alone cannot name the type
@@ -1579,7 +1585,7 @@ public static partial class MethodRefResolver
             case "System.Linq.Expressions.LambdaExpression": return TryMapExprTree(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Array": return TryMapArray(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, arrayParamTypes)
                 ?? TryMapArraySort(owner, name, ps, count, genArgs, genArgNames, receiverType, receiverIsAddress, arg0Type, arg1Type);
-            case "System.DateTime": return TryMapDateTime(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+            case "System.DateTime": return TryMapDateTime(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, dtParamTypes)
                 ?? TryMapTimeExt2(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapDateTimeExtra(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.DateTimeOffset": return TryMapDtoffset(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, dtoParamTypes);
