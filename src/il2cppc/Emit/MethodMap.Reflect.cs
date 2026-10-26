@@ -36,6 +36,33 @@ namespace Il2Cpp.Transpiler.Emit;
 // {name}" prefix -- see BclResolve's wrap), naming the actual net48
 // signatures.
 //------------------------------------------------------------------------------
+//
+// LOUD classification (impl-type2): every remaining NotSupportedException in
+// this file is a WHITELIST guard. The analyzable net48 overloads are wired:
+// GetValue(object[, object[]]), SetValue(object, object[, object[]] +
+// binder arities), GetGetMethod/GetSetMethod([bool]), MethodBase/MethodInfo.
+// Invoke(object, object[] + binder arity), ConstructorInfo.Invoke(object[] +
+// binder arity), AddEventHandler/RemoveEventHandler(object, Delegate),
+// MakeGenericMethod(Type[]) (the explicit LOUD stub), GetParameters(),
+// CreateInstance(Type[, object[][, object[]]] + binder arities) and
+// Type.GetType(string[, bool[, bool]] + delegate-resolver arities). Remaining:
+//   (1) machine state -- Activator.CreateInstance(string[, string[, ...]])
+//       (net48 reflection_activator.cs: the assembly-name/type-name forms load
+//       a type from a NAMED assembly; no runtime support).
+//   (3) no runtime descriptor -- MethodInfo.MakeGenericMethod (net48
+//       reflection_methodinfo.cs:93/917; the explicit LOUD stub
+//       il2cpp_makegenericmethod_loud).
+//   (4) net48-nonexistent arity -- the catch-alls; net48 overload sets:
+//       PropertyInfo.GetValue reflection_propertyinfo.cs:102/109/114;
+//       PropertyInfo.SetValue 84/118/125; FieldInfo.GetValue 130;
+//       FieldInfo.SetValue 134/142; PropertyInfo.GetGetMethod 88/154;
+//       GetSetMethod 90/156; MethodBase.Invoke reflection_methodinfo.cs:710;
+//       EventInfo.AddEventHandler reflection_eventinfo.cs:118;
+//       RemoveEventHandler 138; MethodBase.GetParameters 589;
+//       Activator.CreateInstance reflection_activator.cs (Type/string forms);
+//       Type.GetType type.cs:91/97/103/110/120/131; the ParameterInfo
+//       property guards (reflection_parameterinfo.cs).
+//------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
     // raudit3 (2026-09-13): reflection MEMBER object == / != (the base
@@ -87,8 +114,19 @@ public static partial class MethodRefResolver
                 if (owner == "System.Reflection.FieldInfo" && ps.Length == 1 && ps[0] == 0x1C)
                     return I("il2cpp::il2cpp_typeinfo_field_get_value", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.Object");
+                // REFL-ARITY (impl-type2): PropertyInfo.GetValue(object,
+                // BindingFlags, Binder, object[], CultureInfo) -- net48's
+                // 5-param form (reflection_propertyinfo.cs:114). The
+                // invokeAttr/binder/culture slots are dropped (this AOT build
+                // models no binder -- the SetValue binder-arity precedent);
+                // the target/index slots keep their positions.
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 5
+                    && ps[0] == 0x1C && ps[1] == 0x11 && ps[2] == 0x12 && ps[3] == 0x1D && ps[4] == 0x12)
+                    return I("il2cpp::il2cpp_typeinfo_property_get_value", 5, true, true, true,
+                        new[] { "", "", "a" }, returnTypeName: "System.Object",
+                        argOrder: new[] { 0, 1, 4 });
                 throw new NotSupportedException(
-                    $"{owner}::GetValue with {ps.Length} parameter(s) not wired in RF-N2 -- FieldInfo.GetValue(object) maps to il2cpp_typeinfo_field_get_value; PropertyInfo.GetValue(object) / GetValue(object, object[]) map to il2cpp_typeinfo_property_get_value");
+                    $"{owner}::GetValue with {ps.Length} parameter(s) not wired in RF-N2/refl-arity -- FieldInfo.GetValue(object) maps to il2cpp_typeinfo_field_get_value; PropertyInfo.GetValue(object) / GetValue(object, object[]) / (object, BindingFlags, Binder, object[], CultureInfo) map to il2cpp_typeinfo_property_get_value");
             case "SetValue":
                 // RF-N2: PropertyInfo.SetValue -- the receiver is the
                 // PROPERTY-NAME string; the runtime resolves the property
@@ -193,11 +231,19 @@ public static partial class MethodRefResolver
                 if (owner == "System.Reflection.ConstructorInfo" && ps.Length == 1 && ps[0] == 0x1D)
                     return I("il2cpp::il2cpp_constructorinfo_invoke", 1, true, true, true,
                         new[] { "", "a" }, returnTypeName: "System.Object");
-                if (owner == "System.Reflection.ConstructorInfo" && ps.Length == 3)
-                    throw new NotSupportedException(
-                        "ConstructorInfo::Invoke(BindingFlags, Binder, object[], CultureInfo) is not wired in GAP-5 -- binders are not modeled in this AOT build");
+                // REFL-ARITY (impl-type2): ConstructorInfo.Invoke(BindingFlags,
+                // Binder, object[], CultureInfo) -- net48's 4-param form (the
+                // MethodBase.Invoke binder-arity reflection_methodinfo.cs:710,
+                // overridden by ConstructorInfo). The invokeAttr/binder/
+                // culture slots are dropped; the args array keeps its slot,
+                // reusing il2cpp_constructorinfo_invoke.
+                if (owner == "System.Reflection.ConstructorInfo" && ps.Length == 4
+                    && ps[0] == 0x11 && ps[1] == 0x12 && ps[2] == 0x1D && ps[3] == 0x12)
+                    return I("il2cpp::il2cpp_constructorinfo_invoke", 4, true, true, true,
+                        new[] { "", "a" }, returnTypeName: "System.Object",
+                        argOrder: new[] { 0, 3 });
                 throw new NotSupportedException(
-                    $"{owner}::Invoke with {ps.Length} parameter(s) not wired in R3/GAP-5 -- MethodBase/MethodInfo.Invoke(object, object[]) maps to il2cpp_methodinfo_invoke; ConstructorInfo.Invoke(object[]) maps to il2cpp_constructorinfo_invoke");
+                    $"{owner}::Invoke with {ps.Length} parameter(s) not wired in R3/GAP-5/refl-arity -- MethodBase/MethodInfo.Invoke(object, object[]) maps to il2cpp_methodinfo_invoke; ConstructorInfo.Invoke(object[]) / (BindingFlags, Binder, object[], CultureInfo) map to il2cpp_constructorinfo_invoke");
             // C3-2 (COM-C3): EventInfo.AddEventHandler(object, Delegate) /
             // EventInfo.RemoveEventHandler(object, Delegate) -- instance. The
             // receiver is the EVENT-NAME string (the simplified member model,

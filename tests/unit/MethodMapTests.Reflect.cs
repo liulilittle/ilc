@@ -286,6 +286,46 @@ public class MethodMapTestsReflect
     }
 
     //--------------------------------------------------------------------------
+    // REFL-ARITY (impl-type2) -- the two remaining net48 binder-carrying
+    // overloads: PropertyInfo.GetValue(object, BindingFlags, Binder,
+    // object[], CultureInfo) and ConstructorInfo.Invoke(BindingFlags,
+    // Binder, object[], CultureInfo). Both are net48-real
+    // (reflection_propertyinfo.cs:114 / MethodBase.Invoke
+    // reflection_methodinfo.cs:710); the AOT model drops the
+    // BindingFlags/Binder/CultureInfo tail and reuses the existing runtime
+    // kernels with argOrder.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_PropertyInfo_GetValueBinderArity_MapsToPropertyGetValue()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "PropertyInfo", "GetValue",
+            new byte[] { 0x00, 0x05, 0x12, 0x05, 0x1C, 0x11, 0x05, 0x12, 0x05, 0x1D, 0x1C, 0x12, 0x05 }),
+            "GetValue"); // (object, BindingFlags, Binder, object[], CultureInfo)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_property_get_value", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(5, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "a" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { 0, 1, 4 }, resolved.ArgOrder);
+    }
+
+    [Fact]
+    public void Resolve_ConstructorInfo_InvokeBinderArity_MapsToConstructorInvoke()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "ConstructorInfo", "Invoke",
+            new byte[] { 0x00, 0x04, 0x12, 0x05, 0x11, 0x05, 0x12, 0x05, 0x1D, 0x1C, 0x12, 0x05 }),
+            "Invoke"); // (BindingFlags, Binder, object[], CultureInfo)
+
+        Assert.Equal("il2cpp::il2cpp_constructorinfo_invoke", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "", "a" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { 0, 3 }, resolved.ArgOrder);
+    }
+
+    //--------------------------------------------------------------------------
     // REFL-ARITY -- Activator.CreateInstance(Type, object[] args, object[]
     // activationAttributes): net48's 3-param form. A null/empty
     // activationAttributes behaves like the 2-param form; a non-empty one

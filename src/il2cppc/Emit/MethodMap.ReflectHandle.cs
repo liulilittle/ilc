@@ -31,6 +31,16 @@ namespace Il2Cpp.Transpiler.Emit;
 //
 // All defensive: null/default handles return 0/nullptr, never throw (net48
 // probe). Unknown members -> LOUD with the covered surface.
+//
+// LOUD classification (impl-type2): all three NotSupportedException sites are
+// WHITELIST category (4) -- net48-nonexistent shapes, not statically-analyzable
+// statements. The owners are exactly the three net48 handle value types
+// (System.RuntimeTypeHandle / System.RuntimeMethodHandle /
+// System.RuntimeFieldHandle); the wired surface is get_Value / Equals /
+// GetHashCode plus GetRuntimeType on the TYPE handle only -- net48
+// RuntimeMethodHandle/RuntimeFieldHandle declare NO GetRuntimeType member, and
+// the remaining member catch-all names the wired surface (pinned by the
+// runtime reflecthandle.h contract, which is the authority for this domain).
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {

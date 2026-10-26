@@ -20,6 +20,14 @@ namespace Il2Cpp.Transpiler.Emit;
 //     VALUE IS the name string) -- the CultureInfo.get_Name / MemberInfo.
 //     get_Name string-receiver precedent (MethodMap.CultureInfo.cs /
 //     MethodMap.Object.cs).
+//
+// LOUD classification (impl-type2): the single NotSupportedException is
+// WHITELIST category (4) -- net48-nonexistent shape. System.Reflection.Module.
+// get_Module is a parameterless property (net48
+// mscorlib/system/reflection/module.cs: the Module property on Type/MemberInfo
+// takes no arguments), so a non-zero explicit-arg count cannot be produced by
+// any net48 input assembly; the catch-all is a defensive guard, not a
+// statically-analyzable statement left unimplemented.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {

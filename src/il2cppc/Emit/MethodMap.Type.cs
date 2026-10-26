@@ -17,6 +17,38 @@ namespace Il2Cpp.Transpiler.Emit;
 // objTypes) so later get_Name/GetTypeCode/Equals/IsAssignableFrom calls on
 // it resolve -- the GetType()-linkage the fold already uses.
 //------------------------------------------------------------------------------
+//
+// LOUD classification (impl-type2): every remaining NotSupportedException in
+// this file is a WHITELIST guard -- the arity/signature shape is compile-time
+// known but the member is NOT a net48 overload, or the receiver is a runtime
+// value the registry cannot classify. None is a statically-analyzable net48
+// statement left unimplemented: the analyzable net48 overloads (Equals(Type),
+// GetMember 3-param, GetProperty 4/6-param, GetMethod 5/6-param, GetConstructor
+// 4/5-param, GetNestedTypes(BindingFlags), GetEvent(string, BindingFlags),
+// the instance GetTypeCode(), Assembly.GetName(bool), Assembly.GetType
+// 3-param) are all wired. Categories (Reference Source line numbers):
+//   (1) machine state -- GetTypeFromProgID/GetTypeFromCLSID extra overloads +
+//       InvokeMember 6/7-param (the COM registry; net48 type.cs:167-225/299-311).
+//   (2) runtime type unknown -- Type.Equals(object) with a non-Type/untracked
+//       argument (net48 type.cs:1781) and get_IsGenericTypeDefinition on a
+//       GetType-derived receiver (net48 type.cs:1166 -- the registry cannot
+//       tell a generic definition from its closed clones).
+//   (3) no runtime descriptor -- MakeGenericType (net48 type.cs:1188 region;
+//       the runtime has no generic-argument fabrication, so the (Type[])
+//       overload maps to the explicit LOUD stub il2cpp_makegenerictype_loud).
+//   (4) net48-nonexistent arity -- every other catch-all; the net48 overload
+//       sets are: GetTypeCode type.cs:234; GetProperty 645/656/666/674/684/694/
+//       714; GetMethod 474/492/509/522/535/543; GetField 569/572; GetMethods 561/
+//       565; GetFields 579/582; GetProperties 729/730; GetConstructors 451/456;
+//       GetConstructor 405/422/434; GetInterfaces 595; GetInterface 587/590;
+//       GetNestedTypes 739/744; GetNestedType 749/754; GetMembers 776/779;
+//       GetMember 759/763/768; GetEvents 637/640; GetEvent 629/632;
+//       GetArrayRank 386; MakeArrayType 153/154; MakeByRefType 152;
+//       MakePointerType 150; GetEnumNames 1386; GetEnumValues 1400;
+//       GetEnumName 1535; GetEnumUnderlyingType 1468; GetGenericArguments 1344;
+//       GetGenericTypeDefinition 1362; op_Equality 1800; the Assembly/
+//       AssemblyName property/arity guards (reflection_assembly.cs:720/758).
+//------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapType(string owner, string name, byte[] ps, int count, byte[]? genArgs,

@@ -1,0 +1,2 @@
+﻿prop_get=30
+ctor_inv=42

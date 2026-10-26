@@ -17,6 +17,16 @@ namespace Il2Cpp.Transpiler.Emit;
 //     unchanged); ReturnTypeName "System.Type" keeps every downstream
 //     Type-domain mapping (.Name/.FullName/.IsClass/BaseType/
 //     GetProperty/==) resolving on the Type registry receiver.
+//
+// LOUD classification (impl-type2): all three NotSupportedException sites are
+// WHITELIST. GetTypeCode/IntrospectionExtensions.GetTypeInfo take exactly one
+// (Type) argument in net48 (the arity catch-alls are category (4)
+// net48-nonexistent); the TypeInfo-only surface (DeclaredMethods/
+// DeclaredFields/DeclaredProperties/DeclaredEvents/DeclaredMembers/
+// DeclaredNestedTypes + the GetDeclared* queries) is category (3) -- net48
+// HAS these members (System.Reflection.TypeInfo) but the simplified
+// reflection model has no descriptor to answer them, so they stay LOUD rather
+// than silently resolving to a generated-name symbol.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
