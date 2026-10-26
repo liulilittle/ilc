@@ -723,12 +723,12 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::il2cpp_com_type_from_progid", 1, true, true, false,
                         new[] { "s" }, returnTypeName: "System.Type");
-                throw new NotSupportedException($"Type.GetTypeFromProgID with {ps.Length} parameter(s) not wired in C1 -- only the (string) overload maps to il2cpp_com_type_from_progid");
+                throw new NotSupportedException($"Type.GetTypeFromProgID with {ps.Length} parameter(s) not wired in C1 -- only the (string) overload maps to il2cpp_com_type_from_progid; the remaining net48 overloads ((string, bool throwOnError) / (string, string server) / (string, string, bool)) depend on the COM registry (machine state -- whitelist category 1)");
             case "GetTypeFromCLSID":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::il2cpp_com_type_from_clsid", 1, true, true, false,
                         new[] { "g" }, returnTypeName: "System.Type");
-                throw new NotSupportedException($"Type.GetTypeFromCLSID with {ps.Length} parameter(s) not wired in C1 -- only the (Guid) overload maps to il2cpp_com_type_from_clsid");
+                throw new NotSupportedException($"Type.GetTypeFromCLSID with {ps.Length} parameter(s) not wired in C1 -- only the (Guid) overload maps to il2cpp_com_type_from_clsid; the remaining net48 overloads ((Guid, bool throwOnError) / (Guid, string server) / (Guid, string, bool)) depend on the COM registry (machine state -- whitelist category 1)");
             // C2 (A2): Type.InvokeMember(string, BindingFlags, Binder, object,
             // object[]) on a COM Type -- the ONE-CALL late-bound IDispatch
             // invocation. ParamCount IS THE IL ARITY (5, the fold's stack pop
@@ -744,7 +744,11 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_com_invoke_member", 5, true, true, true,
                         new[] { "", "s", "a" },
                         returnTypeName: "System.Object", argOrder: new[] { 4, 1, 5 });
-                throw new NotSupportedException($"Type.InvokeMember with {ps.Length} parameter(s) not wired in C2 -- only the (string, BindingFlags, Binder, object, object[]) overload maps to icall_com_invoke_member");
+                // REFL-ARITY: the 6-param (with CultureInfo) and 7-param (with
+                // CultureInfo + object[] activationAttributes) forms net48 HAS
+                // remain LOUD -- the COM RCW/IDispatch invocation is the
+                // task's "真不可支持" COM domain (no RCW model).
+                throw new NotSupportedException($"Type.InvokeMember with {ps.Length} parameter(s) not wired in C2 -- only the (string, BindingFlags, Binder, object, object[]) overload maps to icall_com_invoke_member; the CultureInfo/activationAttributes forms are the COM domain (whitelist category 1)");
             default: return null;
         }
     }
