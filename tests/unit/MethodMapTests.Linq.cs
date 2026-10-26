@@ -1444,6 +1444,40 @@ public class MethodMapTestsLinq
         Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
     }
 
+    // The DECIMAL-source set / concat / equality operators (net48 Distinct /
+    // Except / Concat / DefaultIfEmpty / SequenceEqual): the decimal-source
+    // surface.
+    [Theory]
+    [InlineData("Distinct", "il2cpp::il2cpp_linq_distinct_dec", 1)]
+    [InlineData("Except", "il2cpp::il2cpp_linq_except_dec", 2)]
+    [InlineData("Concat", "il2cpp::il2cpp_linq_concat_dec", 2)]
+    [InlineData("SequenceEqual", "il2cpp::il2cpp_linq_sequence_equal_dec", 2)]
+    public void Resolve_DecimalSource_SetOps_MapToDecimalKernels(string name, string cpp, int paramCount)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: paramCount == 1
+                ? new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 }
+                : new byte[] { 0x10, 0x01, 0x02, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x11 }));
+
+        Assert.Equal(cpp, resolved.CppName);
+        Assert.Equal(paramCount, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_DefaultIfEmpty_DecimalSource_MapsToDecimalKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric("DefaultIfEmpty",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00, 0x11 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x11 }));
+
+        Assert.Equal("il2cpp::il2cpp_linq_default_if_empty_dec", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
     // GroupBy over a DECIMAL source with an ELEMENT selector (net48
     // GroupBy<decimal,int,int>): the decimal-source grouping surface with the
     // projected int32 element family.

@@ -2948,6 +2948,246 @@ Il2CppArray* il2cpp_linq_where_dec(Il2CppArray* src, Il2CppObject* pred)
 }
 
 //------------------------------------------------------------------------------
+// p0grp: the DECIMAL-source element operators (net48 First / Last / ElementAt /
+// Contains / Reverse / Take / Skip). Each reads the 16-byte decimal cell; the
+// element-returning entries return the decimal BY VALUE (the decimal T3
+// contract), the range entries materialize a fresh decimal[].
+//------------------------------------------------------------------------------
+void il2cpp_linq_first_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    std::memcpy(result, DecAt(src, 0), sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_last_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    std::memcpy(result, DecAt(src, src->length - 1), sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_element_at_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, int32_t index)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (index < 0 || index >= src->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index",
+            "Index was out of range. Must be non-negative and less than the size of the collection.");
+        return;
+    }
+    std::memcpy(result, DecAt(src, index), sizeof(runtime::Il2CppDecimal));
+}
+
+bool il2cpp_linq_contains_dec(Il2CppArray* src, runtime::Il2CppDecimal value)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (runtime::icall_decimal_compare(DecAt(src, i), &value) == 0)
+            return true;
+    }
+    return false;
+}
+
+Il2CppArray* il2cpp_linq_reverse_dec(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        *reinterpret_cast<runtime::Il2CppDecimal*>(
+            il2cpp_array_get_elem_ptr(out, i)) = *DecAt(src, src->length - 1 - i);
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_take_dec(Il2CppArray* src, int32_t count)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (count < 0) count = 0;
+    if (count > src->length) count = src->length;
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, count);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < count; ++i)
+    {
+        *reinterpret_cast<runtime::Il2CppDecimal*>(
+            il2cpp_array_get_elem_ptr(out, i)) = *DecAt(src, i);
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_skip_dec(Il2CppArray* src, int32_t count)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (count < 0) count = 0;
+    if (count > src->length) count = src->length;
+    const int32_t n = src->length - count;
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        *reinterpret_cast<runtime::Il2CppDecimal*>(
+            il2cpp_array_get_elem_ptr(out, i)) = *DecAt(src, count + i);
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// p0grp: the DECIMAL-source set / concat / equality operators (net48 Distinct /
+// Except / Concat / DefaultIfEmpty / SequenceEqual). The decimal equality is
+// icall_decimal_compare == 0 (net48's decimal.Equals).
+//------------------------------------------------------------------------------
+static bool DecEquals(const runtime::Il2CppDecimal& a, const runtime::Il2CppDecimal& b)
+{
+    return runtime::icall_decimal_compare(&a, &b) == 0;
+}
+
+Il2CppArray* il2cpp_linq_distinct_dec(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    int32_t n = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        bool dup = false;
+        for (int32_t j = 0; j < n; ++j)
+        {
+            if (DecEquals(v, *reinterpret_cast<runtime::Il2CppDecimal*>(
+                    il2cpp_array_get_elem_ptr(out, j))))
+            {
+                dup = true;
+                break;
+            }
+        }
+        if (!dup)
+        {
+            *reinterpret_cast<runtime::Il2CppDecimal*>(
+                il2cpp_array_get_elem_ptr(out, n)) = v;
+            ++n;
+        }
+    }
+    out->length = n;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_except_dec(Il2CppArray* src, Il2CppArray* second)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    RequireArray(second);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&second));
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    int32_t n = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        bool inSecond = false;
+        for (int32_t j = 0; j < second->length; ++j)
+        {
+            if (DecEquals(v, *DecAt(second, j))) { inSecond = true; break; }
+        }
+        if (inSecond) continue;
+        bool dup = false;
+        for (int32_t j = 0; j < n; ++j)
+        {
+            if (DecEquals(v, *reinterpret_cast<runtime::Il2CppDecimal*>(
+                    il2cpp_array_get_elem_ptr(out, j))))
+            {
+                dup = true;
+                break;
+            }
+        }
+        if (!dup)
+        {
+            *reinterpret_cast<runtime::Il2CppDecimal*>(
+                il2cpp_array_get_elem_ptr(out, n)) = v;
+            ++n;
+        }
+    }
+    out->length = n;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_concat_dec(Il2CppArray* src, Il2CppArray* second)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    RequireArray(second);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&second));
+    const int32_t n = src->length + second->length;
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        *reinterpret_cast<runtime::Il2CppDecimal*>(
+            il2cpp_array_get_elem_ptr(out, i)) = *DecAt(src, i);
+    }
+    for (int32_t i = 0; i < second->length; ++i)
+    {
+        *reinterpret_cast<runtime::Il2CppDecimal*>(
+            il2cpp_array_get_elem_ptr(out, src->length + i)) = *DecAt(second, i);
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_default_if_empty_dec(Il2CppArray* src, runtime::Il2CppDecimal defaultValue)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length != 0) return src;
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, 1);
+    *reinterpret_cast<runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(out, 0)) = defaultValue;
+    return out;
+}
+
+bool il2cpp_linq_sequence_equal_dec(Il2CppArray* src, Il2CppArray* second)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    RequireArray(second);
+    if (src->length != second->length) return false;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (!DecEquals(*DecAt(src, i), *DecAt(second, i))) return false;
+    }
+    return true;
+}
+
+//------------------------------------------------------------------------------
 // p0linq4 (D3) follow-up: the INT32-source Select with a DateTime / TimeSpan /
 // Guid result (net48 Select<int,TResult>). The selector returns the struct BY
 // VALUE (the same convention SelectToDecimal relies on) and the output cell

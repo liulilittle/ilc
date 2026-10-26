@@ -342,6 +342,26 @@ Il2CppArray* il2cpp_linq_select_dec_f(Il2CppArray* src, Il2CppObject* sel);
 // a fresh decimal[] with the matching elements.
 Il2CppArray* il2cpp_linq_where_dec(Il2CppArray* src, Il2CppObject* pred);
 
+// p0grp: the DECIMAL-source element operators (net48 First / Last / ElementAt /
+// Contains / Reverse / Take / Skip). The element-returning entries write the
+// decimal through an explicit result slot (the decimal T3 contract); the range
+// entries materialize a fresh decimal[].
+void          il2cpp_linq_first_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+void          il2cpp_linq_last_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+void          il2cpp_linq_element_at_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, int32_t index);
+bool          il2cpp_linq_contains_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
+Il2CppArray*  il2cpp_linq_reverse_dec(Il2CppArray* src);
+Il2CppArray*  il2cpp_linq_take_dec(Il2CppArray* src, int32_t count);
+Il2CppArray*  il2cpp_linq_skip_dec(Il2CppArray* src, int32_t count);
+
+// p0grp: the DECIMAL-source set / concat / equality operators (net48 Distinct /
+// Except / Concat / DefaultIfEmpty / SequenceEqual).
+Il2CppArray*  il2cpp_linq_distinct_dec(Il2CppArray* src);
+Il2CppArray*  il2cpp_linq_except_dec(Il2CppArray* src, Il2CppArray* second);
+Il2CppArray*  il2cpp_linq_concat_dec(Il2CppArray* src, Il2CppArray* second);
+Il2CppArray*  il2cpp_linq_default_if_empty_dec(Il2CppArray* src, runtime::Il2CppDecimal defaultValue);
+bool          il2cpp_linq_sequence_equal_dec(Il2CppArray* src, Il2CppArray* second);
+
 // p0linq4 (D3) follow-up: the INT32-source Select with a DateTime / TimeSpan /
 // Guid result (net48 Select<int,TResult>). The selector returns the struct BY
 // VALUE and the output cell carries the raw struct image.
