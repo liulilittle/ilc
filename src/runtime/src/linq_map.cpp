@@ -52,6 +52,7 @@
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
+#include "il2cpp_value_semantics.h"  // p0grp: icall_object_equals (ref-key equality)
 #include "listi4.h"
 #include "listobj.h"             // GroupBy-result ToList (List<object> carrier)
 #include "sortedlist.h"
@@ -823,6 +824,8 @@ static_assert(offsetof(Il2CppLinqGrouping, count) == 3 * sizeof(void*),
     "Il2CppLinqGrouping: count sits at slot 3 (NOT in the bitmap)");
 static_assert(offsetof(Il2CppLinqGrouping, keyHi) == 4 * sizeof(void*),
     "Il2CppLinqGrouping: keyHi must sit at slot 4 (NOT in the bitmap)");
+static_assert(offsetof(Il2CppLinqGrouping, keyRef) == 5 * sizeof(void*),
+    "Il2CppLinqGrouping: keyRef must sit at slot 5 (bitmap bit 5)");
 static_assert(offsetof(Il2CppLinqGroupingResult, groups) == 1 * sizeof(void*),
     "Il2CppLinqGroupingResult: groups must sit at slot 1 (bitmap bit 1)");
 static_assert(offsetof(Il2CppLinqGroupingResult, count) == 2 * sizeof(void*),
@@ -871,7 +874,7 @@ void ThrowIfNullReceiver(Il2CppObject* self)
 Il2CppClass g_groupingClass = {
     "System.Linq.Grouping",                 // name (runtime-internal descriptor)
     static_cast<int32_t>(sizeof(Il2CppLinqGrouping)), // instanceSize (40: 16-byte key)
-    0b100u,                                 // refFieldBitmap: bit 2 = elements
+    0b100100u,                               // refFieldBitmap: bit 2 = elements, bit 5 = keyRef
     1,                                      // refFieldCount
     nullptr,                                // baseClass
     nullptr,                                // vtable
@@ -3668,8 +3671,25 @@ bool ComparerKeyEqualsLong(Il2CppObject* cmp, int64_t key, int64_t existing)
 }
 
 bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
-                    int64_t keyLo, int64_t keyHi, const Il2CppLinqGrouping* existing)
+                    int64_t keyLo, int64_t keyHi, Il2CppObject* keyRef,
+                    const Il2CppLinqGrouping* existing)
 {
+    if (keyKind == 11)
+    {
+        // A REFERENCE key: the default contract is reference equality (a user
+        // IEqualityComparer over a reference key is not wired).
+        if (cmp != nullptr)
+        {
+            il2cpp_throw_not_supported_exception(
+                "GroupBy with a user IEqualityComparer over a reference key "
+                "(System.String / class / object): the reference key comparer is not "
+                "wired; the default comparer (null) compares by reference.");
+            return false; // unreachable (the factory throws)
+        }
+        return existing->keyRef == keyRef ||
+               (existing->keyRef != nullptr && keyRef != nullptr &&
+                runtime::icall_object_equals(existing->keyRef, keyRef));
+    }
     if (keyKind >= 8)
     {
         // A 16-byte struct key: the default contract compares the raw carrier.
@@ -3794,6 +3814,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         // pointers from the rooted result (never caches a raw pointer).
         int64_t keyLo = 0;
         int64_t keyHi = 0;
+        Il2CppObject* keyRef = nullptr;
         if (decimalSource)
         {
             // The decimal-source key selector takes the 16-byte decimal BY
@@ -3824,6 +3845,10 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                 }
                 default:
                     keyLo = NarrowKey(InvokeSelDecI4(kd, dv), keyKind);
+                    break;
+                case 11:
+                    // A REFERENCE key (System.String / class / object).
+                    keyRef = InvokeSelDecRef(kd, dv);
                     break;
             }
         }
@@ -3857,6 +3882,9 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                 }
                 default:
                     keyLo = NarrowKey(InvokeSelRefI4(kd, srcElem), keyKind);
+                    break;
+                case 11:
+                    keyRef = InvokeSelRefRef(kd, srcElem);
                     break;
             }
         }
@@ -3892,6 +3920,9 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
             default:
                 // B4-1 (P0-04): narrow the selector result to the declared TKey width.
                 keyLo = NarrowKey(InvokeSelI4I4(kd, v), keyKind); // may allocate -> collect
+                break;
+            case 11:
+                keyRef = InvokeSelI4Ref(kd, v);
                 break;
         }
 
@@ -3963,7 +3994,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         {
             Il2CppLinqGroupingResult* cur = AsGroupingResult(result);
             Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(cur->groups->data);
-            if (GroupKeysEqual(cmp, keyKind, keyLo, keyHi, AsGrouping(slots[j])))
+            if (GroupKeysEqual(cmp, keyKind, keyLo, keyHi, keyRef, AsGrouping(slots[j])))
             {
                 found = j;
                 break;
@@ -4035,6 +4066,8 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
             Il2CppLinqGrouping* grp = AsGrouping(ng);
             grp->key = keyLo;
             grp->keyHi = keyHi;
+            grp->keyRef = keyRef;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&grp->keyRef), keyRef);
             grp->elements = nullptr;
             grp->count = 0;
             res = AsGroupingResult(result);
@@ -4429,6 +4462,7 @@ Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySe
         // consumer re-derives its pointers from the rooted result.
         int64_t keyLo = 0;
         int64_t keyHi = 0;
+        Il2CppObject* keyRef = nullptr;
         switch (keyKind)
         {
             case 7:
@@ -4455,6 +4489,10 @@ Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySe
                 std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
                 break;
             }
+            case 11:
+                // A REFERENCE key (System.String / class / object).
+                keyRef = InvokeSelDecRef(kd, v);
+                break;
             default:
                 keyLo = NarrowKey(InvokeSelDecI4(kd, v), keyKind); // may allocate -> collect
                 break;
@@ -4468,7 +4506,7 @@ Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySe
         {
             Il2CppLinqGroupingResult* cur = AsGroupingResult(result);
             Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(cur->groups->data);
-            if (GroupKeysEqual(nullptr, keyKind, keyLo, keyHi, AsGrouping(slots[j])))
+            if (GroupKeysEqual(nullptr, keyKind, keyLo, keyHi, keyRef, AsGrouping(slots[j])))
             {
                 found = j;
                 break;
@@ -4497,6 +4535,8 @@ Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySe
             Il2CppLinqGrouping* grp = AsGrouping(ng);
             grp->key = keyLo;
             grp->keyHi = keyHi;
+            grp->keyRef = keyRef;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&grp->keyRef), keyRef);
             grp->elements = nullptr;
             grp->count = 0;
             res = AsGroupingResult(result);
@@ -4610,6 +4650,13 @@ void il2cpp_linq_grouping_get_key_guid(Il2CppObject* grouping, uint8_t bytes[16]
     const Il2CppLinqGrouping* grp = AsGrouping(grouping);
     std::memcpy(bytes, &grp->key, sizeof(int64_t));
     std::memcpy(bytes + 8, &grp->keyHi, sizeof(int64_t));
+}
+
+// p0grp: the REFERENCE-key accessor (the bucket key is an Il2CppObject*).
+Il2CppObject* il2cpp_linq_grouping_get_key_ref(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return AsGrouping(grouping)->keyRef;
 }
 
 int32_t il2cpp_linq_grouping_get_count(Il2CppObject* grouping)

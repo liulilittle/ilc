@@ -460,6 +460,9 @@ struct Il2CppLinqGrouping
     Il2CppArray* elements;  // INT32 value array: slot i = bucket element i
     int32_t      count;     // number of elements in the bucket
     int64_t      keyHi;     // bucket key: high 64 bits (0 for int32/int64 keys)
+    // p0grp: a REFERENCE bucket key (System.String / class / object) -- a GC
+    // reference (bitmap bit 5). 0 for every value key family.
+    Il2CppObject* keyRef;
 };
 
 // Managed GroupBy() result: the buckets in first-appearance key order.
@@ -803,6 +806,8 @@ void               il2cpp_linq_grouping_get_key_dec(runtime::Il2CppDecimal* resu
 runtime::Il2CppDateTime     il2cpp_linq_grouping_get_key_dt(Il2CppObject* grouping);
 void               il2cpp_linq_grouping_get_key_guid(Il2CppObject* grouping,
                                                      uint8_t bytes[16]);
+// p0grp: the REFERENCE-key accessor (System.String / class / object).
+Il2CppObject*      il2cpp_linq_grouping_get_key_ref(Il2CppObject* grouping);
 
 // IEnumerable.GetEnumerator over the two grouping surfaces (nb9): the
 // result yields its buckets in first-appearance order (reference elements),

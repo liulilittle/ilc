@@ -1377,6 +1377,19 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "1", "0", "0" }, resolved.AppendLiterals);
     }
 
+    // GroupBy with a REFERENCE key (net48 GroupBy<string,string>): the bucket
+    // key rides the keyRef slot (keyKind 11).
+    [Fact]
+    public void Resolve_GroupBy_ReferenceKey_MapsWithKeyKind11()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGroupByRef(0x0E, 0x0E),
+            receiverType: "System.String[]");
+
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "1", "0", "11" }, resolved.AppendLiterals);
+    }
+
     // GroupBy over a DECIMAL source with an ELEMENT selector (net48
     // GroupBy<decimal,int,int>): the decimal-source grouping surface with the
     // projected int32 element family.

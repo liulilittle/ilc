@@ -427,6 +427,9 @@ public static partial class MethodRefResolver
                         new[] { "" }, resultKind: "dt"),
                     "_key_guid" => I("il2cpp::il2cpp_linq_grouping_get_key_guid", 0, true, false, true,
                         new[] { "" }, resultKind: "guid"),
+                    // p0grp: a REFERENCE key (System.String / class / object).
+                    "_key_ref" => I("il2cpp::il2cpp_linq_grouping_get_key_ref", 0, true, true, true,
+                        new[] { "" }),
                     _ => I("il2cpp::il2cpp_linq_grouping_get_key", 0, true, false, true),
                 };
             }
@@ -2230,6 +2233,9 @@ public static partial class MethodRefResolver
             if (n is "System.DateTime" or "DateTime") return 9;
             if (n is "System.Guid" or "Guid") return 10;
         }
+        // p0grp: a REFERENCE key (System.String / class / object) rides the
+        // bucket's keyRef slot (keyKind 11).
+        if (IsRefFamilyByte(keyByte)) return 11;
         return KeyKindFor(keyByte);
     }
 
@@ -2244,6 +2250,8 @@ public static partial class MethodRefResolver
             "System.Decimal" or "decimal" => "_key_dec",
             "System.DateTime" or "DateTime" => "_key_dt",
             "System.Guid" or "Guid" => "_key_guid",
+            // p0grp: a REFERENCE key (System.String / class / object).
+            "string" or "String" or "System.String" => "_key_ref",
             _ => "",
         };
 
