@@ -125,6 +125,7 @@ int32_t NoThrowToInt16D(double v) { return il2cpp::runtime::icall_convert_to_int
 double NoThrowToDoubleString(il2cpp::Il2CppString* s) { return il2cpp::runtime::icall_convert_to_double_string(s); }
 int64_t NoThrowToInt64String(il2cpp::Il2CppString* s) { return il2cpp::runtime::icall_convert_to_int64_string(s); }
 int32_t NoThrowToCharI4(int32_t v) { return il2cpp::runtime::icall_convert_to_char_i4(v); }
+float NoThrowToSingleChar(int32_t v) { return il2cpp::runtime::icall_convert_to_single_char(v); }
 int32_t NoThrowToInt32StringBase(il2cpp::Il2CppString* s, int32_t b) { return il2cpp::runtime::icall_convert_to_int32_string_base(s, b); }
 il2cpp::Il2CppString* NoThrowToStringI4Base(int32_t v, int32_t b) { return il2cpp::runtime::icall_convert_to_string_i4_base(v, b); }
 
@@ -549,6 +550,16 @@ int main()
     ExpectConvertThrows("to_string_i4_base(42, -16) throws ArgumentException",
                         "System.ArgumentException",
                         [] { (void)NoThrowToStringI4Base(42, -16); });
+
+    // --- 13. Convert.ToSingle(char): always InvalidCastException (B7). ---
+    // net48 (probe-pinned for 'A'): char has no IConvertible.ToSingle -- the
+    // implicit char -> float widening exists, but Convert does not expose it.
+    ExpectConvertThrows("to_single_char('A') throws InvalidCastException",
+                        "System.InvalidCastException",
+                        [] { (void)NoThrowToSingleChar('A'); });
+    ExpectConvertThrows("to_single_char('\\uFFFF') throws InvalidCastException",
+                        "System.InvalidCastException",
+                        [] { (void)NoThrowToSingleChar(0xFFFF); });
 
     // --- Report ---
     if (g_failures != 0)

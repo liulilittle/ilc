@@ -178,6 +178,13 @@ struct Il2CppAesObject
 // refs (bits 1,2) + the INLINE expanded key schedule (opaque to callers;
 // no native pointers -- GC-safe) + a decrypt flag. The schedule is built by
 // il2cpp_aes_create at the transform's creation icall.
+//
+// B7 streaming state (net48 RijndaelManagedTransform semantics): the CBC
+// chain ('chain' -- the running IV, updated to the last processed block) and
+// the decrypt-only pending block ('pending'/'hasPending' -- TransformBlock
+// buffers the last ciphertext block so TransformFinalBlock can strip the
+// PKCS7 padding). All three are non-reference bytes, so the refFieldBitmap
+// (bits 1,2) and the key/iv/ctx offsets are unchanged.
 struct Il2CppAesTransformObject
 {
     Il2CppObject obj;            // object header
@@ -185,6 +192,9 @@ struct Il2CppAesTransformObject
     Il2CppArray* iv;             // slot 2 -- GC reference (bitmap bit 2)
     runtime::Il2CppAesContext ctx; // slot 3 -- inline key schedule
     bool decrypt;                // false: encrypt (CBC+PKCS7), true: decrypt
+    uint8_t chain[16];           // B7: the running CBC IV (chain state)
+    uint8_t pending[16];         // B7: decrypt -- the buffered last block
+    bool hasPending;             // B7: decrypt -- a block is buffered
 };
 
 // RNGCryptoServiceProvider: stateless instance (header only -- net48's
@@ -409,6 +419,13 @@ Il2CppObject* icall_aes_create_decryptor(Il2CppObject* self, Il2CppArray* key, I
 Il2CppObject* icall_aes_create_encryptor_self(Il2CppObject* self);
 Il2CppObject* icall_aes_create_decryptor_self(Il2CppObject* self);
 Il2CppObject* icall_aes_transform_final_block(Il2CppObject* self, Il2CppArray* input, int32_t offset, int32_t count);
+// B7: ICryptoTransform.TransformBlock -- the net48 RijndaelManagedTransform
+// streaming entry point. inputCount must be a positive multiple of the block
+// size (16); encryption processes every block (CBC chaining with the running
+// IV) and returns inputCount, decryption buffers the last block and processes
+// the rest (the buffered block is decrypted first on the next call).
+int32_t icall_aes_transform_block(Il2CppObject* self, Il2CppArray* input, int32_t inOffset,
+                                  int32_t inCount, Il2CppArray* output, int32_t outOffset);
 Il2CppObject* icall_aes_generate_key(Il2CppObject* self);
 Il2CppObject* icall_aes_generate_iv(Il2CppObject* self);
 void icall_aes_dispose(Il2CppObject* self);

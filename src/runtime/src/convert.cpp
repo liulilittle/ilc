@@ -802,4 +802,17 @@ void icall_convert_to_decimal_char(Il2CppDecimal* out, int32_t utf16)
                      "Invalid cast from 'Char' to 'Decimal'.");
 }
 
+//------------------------------------------------------------------------------
+// icall_convert_to_single_char -- Convert.ToSingle(char): net48 throws
+// InvalidCastException (char has no IConvertible.ToSingle conversion; the
+// implicit char -> float widening exists but Convert does not expose it).
+// No managed char can be a Single, so the helper always throws.
+//------------------------------------------------------------------------------
+float icall_convert_to_single_char(int32_t utf16)
+{
+    (void)utf16;
+    il2cpp_throw_new("System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+                     "Invalid cast from 'Char' to 'Single'.");
+}
+
 }} // namespace il2cpp::runtime

@@ -149,14 +149,20 @@ public static partial class MethodRefResolver
                             // == 2^64", the net48 oracle pinned in il2cpp_conv.h);
                             // "q" feeds the uint64 param the raw slot pattern.
                             0x0B => I("il2cpp::runtime::icall_conv_d_u8", 1, true, false, false, new[] { "q" }, "d"),
+                            // uint -> double: exact (uint32 fits the 53-bit
+                            // mantissa); "u4" reinterprets the int32 carrier so
+                            // uint >= 2^31 stays positive (batch 7).
+                            0x09 => I("il2cpp::runtime::icall_conv_d_u4", 1, true, false, false, new[] { "u4" }, "d"),
+                            // float -> double: the float source rides an
+                            // already-widened double slot; icall_conv_d_d is the
+                            // bit-exact identity (batch 7).
+                            0x0C => I("il2cpp::runtime::icall_conv_d_d", 1, true, false, false, new[] { "d" }, "d"),
                             // net48 InvalidCastException ALWAYS (unsupported
                             // conversions); no existing icall raises ICE.
                             0x02 or 0x03 => throw new NotSupportedException($"Convert.ToDouble({(ps[0] == 0x02 ? "bool" : "char")}) throws InvalidCastException on net48 and no existing icall raises it"),
-                            // NEEDS-NEW: uint needs a zero-extending _i4-input
-                            // form (the existing d_u4 takes uint32_t and there is
-                            // no unsigned VALUE cast code); float is an identity
-                            // widening of the double slot with no d->d helper.
-                            _ => throw new NotSupportedException($"Convert.ToDouble param type 0x{ps[0]:X2} not wired (uint/float on the edit_convert.md needs-new list)"),
+                            // object / any remaining source: the edit_convert.md
+                            // needs-new list.
+                            _ => throw new NotSupportedException($"Convert.ToDouble param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                         };
                     case "ToString":
                         // M7 (convt2 audit): Convert.ToString(int, toBase) --

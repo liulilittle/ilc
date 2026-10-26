@@ -124,6 +124,12 @@ uint64_t icall_convert_to_uint64_string(Il2CppString* value);
 // double slot (the MathF/_d precedent).
 float icall_convert_to_single_string(Il2CppString* value);
 
+// Convert.ToSingle(char): net48 throws InvalidCastException (char is not
+// IConvertible-convertible to Single; probe-pinned against the net48 oracle --
+// unlike the implicit char -> float widening, which DOES exist). No managed
+// char can be a Single, so the helper always throws.
+float icall_convert_to_single_char(int32_t utf16);
+
 // Convert.ToChar(string): null -> ArgumentNullException (the Convert
 // null-means-zero rule does NOT extend to the char target); a text that is not
 // exactly one UTF-16 unit -> FormatException; otherwise the unit (int32

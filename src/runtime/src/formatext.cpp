@@ -41,6 +41,7 @@
 #include "decimal_format.h"        // icall_decimal_to_string_custom (boxed decimal)
 #include "il2cpp_time_ext.h"       // icall_datetime_to_string_format (boxed DateTime)
 #include "guid.h"                  // il2cpp_guid_to_string_format (boxed Guid)
+#include "enumext.h"               // il2cpp_enum_boxed_to_string_format (boxed enum)
 
 #include <cmath>
 #include <cstdint>
@@ -1986,6 +1987,16 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
                 format != nullptr
                     ? il2cpp_guid_to_string_format(bytes, reinterpret_cast<Il2CppString*>(format))
                     : il2cpp_guid_to_string(bytes));
+        }
+        else if (il2cpp_enum_is_registered(boxed->klass))
+        {
+            // B7 (AppendFormatted<T> over an enum): net48's composite formatting
+            // routes a boxed enum through IFormattable.ToString(format, null),
+            // so the specifier IS honored ("G" -> the member name, "D" -> the
+            // decimal value, "F" -> the flags decomposition, "X" -> hex). A null
+            // format is the "G" default (il2cpp_enum_to_string_format).
+            text = reinterpret_cast<Il2CppString*>(
+                il2cpp_enum_boxed_to_string_format(boxed, format));
         }
         else
         {

@@ -630,7 +630,25 @@ int main()
     Expect(il2cpp::runtime::icall_conv_i8_d(il2cpp::runtime::icall_conv_d_i8(-123456789LL)) == -123456789.0,
            "round trip i8_d o d_i8 (exact)");
     Expect(il2cpp::runtime::icall_conv_i4_d(il2cpp::runtime::icall_conv_d_i4(-2147483647)) == -2147483647.0,
-           "round trip i4_d o d_i4 (exact)");
+            "round trip i4_d o d_i4 (exact)");
+
+    // --- B7: double -> double identity (Convert.ToDouble(float)) ---
+    // The float source rides an already-widened double slot, so the
+    // conversion is a bit-exact pass-through (no rounding, no throw).
+    Expect(il2cpp::runtime::icall_conv_d_d(0.0) == 0.0, "conv.d.d(0.0) == 0.0");
+    Expect(il2cpp::runtime::icall_conv_d_d(1.5) == 1.5, "conv.d.d(1.5) == 1.5");
+    Expect(il2cpp::runtime::icall_conv_d_d(-0.1) == -0.1,
+            "conv.d.d(-0.1) == -0.1 (bit-exact, no rounding)");
+    const double kD = il2cpp::runtime::icall_conv_d_d(0.1);
+    Expect(il2cpp::runtime::icall_conv_d_d(kD) == kD,
+            "conv.d.d is idempotent (round trip)");
+    // B7: conv.r4.u4 zero-extends the uint32 pattern (uint >= 2^31 stays
+    // positive -- a sign-extending route would give a negative float).
+    Expect(il2cpp::runtime::icall_conv_r4_u4(0xFFFFFFFFu) == static_cast<float>(4294967295u),
+            "conv.r4.u4(uint.MaxValue) == (float)4294967295u (positive, zero-extended)");
+    Expect(il2cpp::runtime::icall_conv_r4_u4(0x80000000u) == static_cast<float>(2147483648u),
+            "conv.r4.u4(0x80000000) == (float)2147483648u (positive, zero-extended)");
+
 
     // --- D-I64D-1: int64 unchecked multiply wraps mod 2^64 ---
     // il2cpp_unchecked_mul_64 (IL mul on i8 operands, the C# unchecked

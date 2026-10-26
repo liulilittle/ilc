@@ -170,6 +170,11 @@ double icall_conv_d_u4(uint32_t value);
 // conv.r8: uint64 -> double (correctly rounded, round-to-nearest-even).
 double icall_conv_d_u8(uint64_t value);
 
+// conv.r8: double -> double identity. Convert.ToDouble(float) -- the float
+// source rides an already-widened double slot, so the conversion is a
+// bit-exact pass-through (batch 7).
+double icall_conv_d_d(double value);
+
 // conv.r4: int32 -> float, round-to-nearest-even to single precision.
 float icall_conv_r4_i4(int32_t value);
 

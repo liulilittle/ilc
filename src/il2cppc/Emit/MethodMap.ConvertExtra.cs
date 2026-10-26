@@ -43,9 +43,15 @@ namespace Il2Cpp.Transpiler.Emit;
 //   * char sources of ToByte/ToSByte/ToInt16/ToUInt16: NOW WIRED (batch 6) --
 //     the checked conv.ovf_{u1,i1,i2,u2}_i8 helpers over the "l"-extended char
 //     slot (conv-narrow e2e pins the checked ranges).
-//   * ToSingle(uint)/ToDouble(uint): the existing u4-source helpers take
-//     uint32_t params and there is no unsigned VALUE cast code in
-//     EmitIcallCallArgs (only deref:ui) -- needs an _i4-input helper form.
+//   * ToSingle(uint)/ToDouble(uint): NOW WIRED (batch 7) -- the u4-source
+//     helpers take uint32_t params and the new "u4" cast code in
+//     EmitIcallCallArgs reinterprets the int32 carrier (zero-extension, so
+//     uint >= 2^31 stays positive).
+//   * ToSingle(bool/char): NOW WIRED (batch 7) -- net48 Convert.ToSingle(bool)
+//     is `value ? 1f : 0f` (the bool slot carries int32 0/1 through
+//     icall_conv_r4_i4), while Convert.ToSingle(char) throws
+//     InvalidCastException (char has no IConvertible.ToSingle; the dedicated
+//     icall_convert_to_single_char is the exact net48 contract).
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -114,10 +120,12 @@ public static partial class MethodRefResolver
                     // on the sign-extended slot value (negatives throw).
                     0x04 or 0x05 or 0x06 or 0x07 or 0x08
                         => I("il2cpp::runtime::icall_conv_ovf_u4_i4", 1, true, false, false, new[] { "i" }),
-                    // NEEDS-NEW: uint identity -- no zero-extending u4->u4
-                    // helper exists, and both reuse routes (ovf_u4_i4/_i8 via
-                    // sign extension) would WRONGLY throw for uint >= 2^31.
-                    0x09 => throw new NotSupportedException("Convert.ToUInt32(uint) is an identity conversion with no matching runtime icall (sign-extending routes would wrongly throw for uint >= 2^31; see edit_convert.md)"),
+                    // uint identity: icall_conv_u4_i4 returns the SAME 32-bit
+                    // pattern (int32 -> uint32 is a reinterpret, never a range
+                    // test), so uint >= 2^31 survives bit-exact -- the exact
+                    // net48 identity conversion (a sign-extending route would
+                    // wrongly throw for uint >= 2^31).
+                    0x09 => I("il2cpp::runtime::icall_conv_u4_i4", 1, true, false, false, new[] { "i" }),
                     0x0A => I("il2cpp::runtime::icall_conv_ovf_u4_i8", 1, true, false, false, new[] { "l" }),
                     0x0B => I("il2cpp::runtime::icall_conv_ovf_u4_u8", 1, true, false, false, new[] { "q" }),
                     0x02 => I("il2cpp::runtime::icall_conv_bool_i4", 1, true, false, false),
@@ -184,18 +192,26 @@ public static partial class MethodRefResolver
                         => I("il2cpp::runtime::icall_conv_r4_i4", 1, true, false, false, new[] { "i" }, "d"),
                     0x0A => I("il2cpp::runtime::icall_conv_r4_i8", 1, true, false, false, new[] { "l" }, "d"),
                     0x0B => I("il2cpp::runtime::icall_conv_r4_u8", 1, true, false, false, new[] { "q" }, "d"),
-                    // NEEDS-NEW: the u4-source helper takes uint32_t and there
-                    // is no unsigned VALUE cast code (a sign-extending route
-                    // would produce a negative float for uint >= 2^31).
-                    0x09 => throw new NotSupportedException("Convert.ToSingle(uint) needs an _i4-input helper (zero-extension inside the runtime) or an unsigned value-cast code; see edit_convert.md"),
+                    // uint -> float: icall_conv_r4_u4 takes the raw 32-bit
+                    // pattern ("u4" reinterpret -- a sign-extending route would
+                    // make uint >= 2^31 a negative float); RNE to single.
+                    0x09 => I("il2cpp::runtime::icall_conv_r4_u4", 1, true, false, false, new[] { "u4" }, "d"),
                     // p0conv2 (D2): Convert.ToSingle(decimal) is the exact
                     // VarR4FromDec conversion -- net48 probe confirms it is
                     // bit-identical to the explicit (float)decimal cast
                     // (12.5m and 0.1m both agree), so the existing
                     // decimal->float icall serves it ("d" carrier).
                     0x11 => I("il2cpp::runtime::icall_decimal_to_float", 1, true, false, false, new[] { "dec" }, "d"),
-                    // net48 InvalidCastException ALWAYS (unsupported).
-                    0x02 or 0x03 => throw new NotSupportedException($"Convert.ToSingle({(ps[0] == 0x02 ? "bool" : "char")}) throws InvalidCastException on net48 and no existing icall raises it"),
+                    // bool -> float: net48 Convert.ToSingle(bool) is
+                    // `value ? 1f : 0f`; the bool slot carries int32 0/1, on
+                    // which icall_conv_r4_i4 is exactly 0.0f/1.0f.
+                    0x02 => I("il2cpp::runtime::icall_conv_r4_i4", 1, true, false, false, new[] { "i" }, "d"),
+                    // char -> float: net48 Convert.ToSingle(char) throws
+                    // InvalidCastException (char has no IConvertible.ToSingle;
+                    // the implicit char -> float widening exists but Convert
+                    // does not expose it). The dedicated throwing icall is the
+                    // exact net48 contract (probe-pinned for 'A').
+                    0x03 => I("il2cpp::runtime::icall_convert_to_single_char", 1, true, false, false, new[] { "i" }, "d"),
                     0x0E => I("il2cpp::runtime::icall_convert_to_single_string", 1, true, false, false, new[] { "s" }, "d"),
                     _ => throw new NotSupportedException($"Convert.ToSingle param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };

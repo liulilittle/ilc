@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // test_crypto_obj.cpp -- System.Security.Cryptography OBJECT-layer runtime
 // tests (crypto_obj.h / crypto_obj.cpp -- the T4 object icalls).
 //
@@ -412,6 +412,72 @@ void RunAesSelfCtorTests()
            "Aes disposed Key -> ODE");
 }
 
+//------------------------------------------------------------------------------
+// Aes TransformBlock streaming (batch 7): net48 v2 RijndaelManagedTransform
+// semantics. The fixed key/IV/plaintext below is the aes-transform-block e2e
+// vector (cross-checked against the net48 oracle).
+//------------------------------------------------------------------------------
+void RunAesTransformBlockTests()
+{
+    const char* what = "Aes TransformBlock";
+    uint8_t keyBytes[16];
+    uint8_t ivBytes[16];
+    for (int i = 0; i < 16; ++i)
+    {
+        keyBytes[i] = static_cast<uint8_t>(i + 1);
+        ivBytes[i] = static_cast<uint8_t>(0xA0 + i);
+    }
+    Il2CppArray* key = MakeBytes(keyBytes, 16);
+    Il2CppArray* iv = MakeBytes(ivBytes, 16);
+    const char* plain = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!";
+    Il2CppArray* p1 = MakeBytes(reinterpret_cast<const uint8_t*>(plain), 16);
+    Il2CppArray* p2 = MakeBytes(reinterpret_cast<const uint8_t*>(plain + 16), 16);
+    Il2CppArray* p3 = MakeBytes(reinterpret_cast<const uint8_t*>(plain + 32), 5);
+
+    // Encrypt streaming: 16 + 16 + final 5. The streamed ciphertext must equal
+    // a single TransformFinalBlock of the concatenation (CBC chaining).
+    Il2CppObject* enc = il2cpp::runtime::icall_aes_create_encryptor(nullptr, key, iv);
+    Il2CppArray* o1 = il2cpp_array_new(nullptr, 1, false, 16);
+    Il2CppArray* o2 = il2cpp_array_new(nullptr, 1, false, 16);
+    int32_t n1 = il2cpp::runtime::icall_aes_transform_block(enc, p1, 0, 16, o1, 0);
+    int32_t n2 = il2cpp::runtime::icall_aes_transform_block(enc, p2, 0, 16, o2, 0);
+    Il2CppArray* o3 = AsBytes(il2cpp::runtime::icall_aes_transform_final_block(enc, p3, 0, 5), 16, "o3 len");
+    Expect(n1 == 16 && n2 == 16, "Aes TransformBlock encrypt counts");
+    Il2CppObject* encRef = il2cpp::runtime::icall_aes_create_encryptor(nullptr, key, iv);
+    Il2CppArray* ctRef = AsBytes(
+        il2cpp::runtime::icall_aes_transform_final_block(
+            encRef, MakeBytes(reinterpret_cast<const uint8_t*>(plain), 37), 0, 37),
+        48, "ctRef len");
+    uint8_t streamed[48];
+    std::memcpy(streamed, o1->data, 16);
+    std::memcpy(streamed + 16, o2->data, 16);
+    std::memcpy(streamed + 32, o3->data, 16);
+    Expect(std::memcmp(streamed, ctRef->data, 48) == 0, "Aes TransformBlock streamed ct == single-shot ct");
+    ExpectHex(streamed, 16, "e05e76dd91560fc1b2671bf1e86a1484", what);
+
+    // Decrypt streaming: 16 + 16 + final 16. The first TransformBlock buffers
+    // the block (returns 0); the second decrypts the buffered block (returns
+    // 16); the final decrypts the buffered block + the padding block and
+    // strips the padding.
+    Il2CppObject* dec = il2cpp::runtime::icall_aes_create_decryptor(nullptr, key, iv);
+    Il2CppArray* ct = MakeBytes(
+        "e05e76dd91560fc1b2671bf1e86a1484cec480c75abf25a0b41a9308618d9a3a"
+        "4dcacd9a18ca3bc72f44108a461db26b");
+    Il2CppArray* d1 = il2cpp_array_new(nullptr, 1, false, 16);
+    Il2CppArray* d2 = il2cpp_array_new(nullptr, 1, false, 16);
+    int32_t m1 = il2cpp::runtime::icall_aes_transform_block(dec, ct, 0, 16, d1, 0);
+    int32_t m2 = il2cpp::runtime::icall_aes_transform_block(dec, ct, 16, 16, d2, 0);
+    Il2CppArray* d3 = AsBytes(il2cpp::runtime::icall_aes_transform_final_block(dec, ct, 32, 16), 21, "d3 len");
+    Expect(m1 == 0 && m2 == 16, "Aes TransformBlock decrypt counts");
+    Expect(std::memcmp(d2->data, plain, 16) == 0, "Aes TransformBlock decrypt block 0");
+    Expect(std::memcmp(d3->data, plain + 16, 21) == 0, "Aes TransformBlock decrypt final");
+
+    // Error paths: a non-block-multiple inputCount throws ArgumentException.
+    Expect(ThrowsExactType([&]() { il2cpp::runtime::icall_aes_transform_block(enc, p1, 0, 5, o1, 0); },
+                           "System.ArgumentException"),
+           "Aes TransformBlock non-multiple inputCount -> ArgumentException");
+}
+
 } // namespace
 
 int main()
@@ -792,6 +858,9 @@ int main()
     // --- 7. Aes parameterless CreateEncryptor/Decryptor + disposed ---
     RunAesSelfCtorTests();
 
+    // --- 8. Aes TransformBlock streaming (batch 7) ---
+    RunAesTransformBlockTests();
+
     // --- T7. Crypto/X509 object stubs are LOUD (parity-T7): the CSP/X509
     // models do not exist, so every object-returning helper throws
     // NotSupportedException instead of returning a silent nullptr.
@@ -818,3 +887,4 @@ int main()
     std::printf("all runtime crypto_obj tests passed\n");
     return 0;
 }
+

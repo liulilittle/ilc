@@ -255,6 +255,17 @@ double icall_conv_d_u8(uint64_t value)
 }
 
 //------------------------------------------------------------------------------
+// double -> double identity (conv.r8): the float source rides a double slot
+// already widened to the exact float value, so Convert.ToDouble(float) is a
+// bit-exact pass-through (no d->d helper existed; the float arm of the
+// Convert.ToDouble switch was LOUD before batch 7).
+//------------------------------------------------------------------------------
+double icall_conv_d_d(double value)
+{
+    return value;
+}
+
+//------------------------------------------------------------------------------
 // int/uint -> float and double -> float (conv.r4): round-to-nearest-even to
 // single precision. The net48 JIT uses the hardware cvtsi2ss / cvttsd2ss
 // (RNE), which every targeted compiler reproduces with a plain static_cast.

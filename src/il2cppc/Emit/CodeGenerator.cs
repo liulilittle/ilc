@@ -10782,6 +10782,34 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     private static string GuidValueBytePtr(string code) =>
         $"reinterpret_cast<uint8_t*>(const_cast<il2cpp::Il2CppGuid*>(&static_cast<const il2cpp::Il2CppGuid&>({code})))";
 
+    // B7 (AppendFormatted<T> user struct/enum): the box expression for a USER
+    // value type. The GC-safety gate mirrors the box_ IL arm: a user struct
+    // with GC reference fields is REJECTED (icall_box_user_struct copies the
+    // payload into a box whose mark scan indexes refFieldBitmap from the header
+    // -- a ref field at slot 1 would be miscounted as a pure header). An enum
+    // has no ref fields and boxes through icall_box_enum (the width-aware int64
+    // payload); the composite engine renders it with the format specifier.
+    internal static string EmitUserStructBoxCast(string fullName, string code, IReadOnlyList<TypeDef> types)
+    {
+        var def = types.FirstOrDefault(x => x.MatchesFullName(fullName));
+        if (def == null || !def.IsValueType)
+        {
+            throw new NotSupportedException(
+                $"box of {fullName} not supported -- no generated descriptor (a BCL value type or an unresolved type; only user structs/enums are boxable)");
+        }
+        if (def.BaseTypeName == "System.Enum" || KnownBclEnumNames.Contains(fullName))
+        {
+            return $"il2cpp::runtime::icall_box_enum({BoxClassDescriptorCpp(fullName)}, static_cast<int64_t>({code}))";
+        }
+        if (def.RefFieldCount > 0)
+        {
+            throw new NotSupportedException(
+                $"box of {fullName} not supported -- user structs with GC reference fields are not yet boxable (P25b reference-free MVP)");
+        }
+        var cpp = TypeEmitter.TypeCppName(def);
+        return $"il2cpp::runtime::icall_box_user_struct(&{cpp}_class, &({code}), sizeof({cpp}))";
+    }
+
     private static string? EmitIcallCallArgs(ResolvedMethod r, List<Expr> args, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
         if (r.CppName == "il2cpp::runtime::il2cpp_object_ctor_nop")
@@ -10913,6 +10941,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "c" => $"static_cast<char16_t>({code})",
                 "b" => $"static_cast<bool>({code})",
                 "q" => $"static_cast<uint64_t>({code})",
+                // B7 convert (ToSingle(uint)): "u4" -- the uint32 slot holds
+                // the raw 32-bit pattern in an int32 carrier; the unsigned
+                // reinterpret reaches icall_conv_r4_u4's uint32_t param
+                // without sign-extension (a sign-extending route would make
+                // uint >= 2^31 a negative float). Same bit-pattern carrier
+                // convention as "q".
+                "u4" => $"static_cast<uint32_t>({code})",
                 // M4.5: "p" -- a P/Invoke IntPtr carrier reaching a
                 // pointer-typed icall param (PtrToStringAnsi's const char*):
                 // the cast is EXPLICIT -- an int32_t -> pointer implicit
@@ -11263,6 +11298,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "box:dt" => $"il2cpp::runtime::icall_box_date_time({code})",
                 "box:guid" => $"il2cpp::runtime::icall_box_guid(&({code}))",
                 "box:ts" => $"il2cpp::runtime::icall_box_time_span({code})",
+                // B7: a USER value type (a struct or enum TypeDef in the input
+                // assembly) -- the AppendFormatted<T> value slot is boxed for the
+                // composite engine. The SAME GC-safety gate as the box_ IL arm:
+                // a user struct with GC reference fields is rejected (a ref
+                // field would be placed at slot 1 and the boxed mark scan
+                // indexes refFieldBitmap from the object header -- a ref field
+                // would be miscounted as a pure header, a GC-safety leak).
+                var usBox when usBox.StartsWith("box:us:", StringComparison.Ordinal)
+                    => EmitUserStructBoxCast(usBox["box:us:".Length..], code, types),
                 // Value-type tuple KEY box (Dictionary`2 / HashSet`1 tuple key):
                 // box the tuple struct into a GC carrier whose payload holds the
                 // struct bytes; the runtime reads the payload structurally (the

@@ -37,12 +37,12 @@ namespace Il2Cpp.Transpiler.Emit;
 // (Il2CppObject* -> Il2CppArray*); the runtime extracts the payload.
 //
 // LOUD rejections (known-but-unwireable members must not be silent, the
-// MethodMap manual convention): HashAlgorithm.Create (CryptoConfig) and the
-// RNG CspParameters ctor. The hash family's Hash / Clear / Dispose /
-// Initialize / ComputeHash(Stream) / TransformBlock / TransformFinalBlock, the
-// Aes parameterless CreateEncryptor()/CreateDecryptor() and the RNG
-// string/byte[] ctors are wired. Everything else falls back to the
-// generated-name path (return null).
+// MethodMap manual convention): HashAlgorithm.Create (CryptoConfig). The hash
+// family's Hash / Clear / Dispose / Initialize / ComputeHash(Stream) /
+// TransformBlock / TransformFinalBlock, the Aes parameterless
+// CreateEncryptor()/CreateDecryptor(), the Aes TransformBlock/TransformFinalBlock
+// streaming surface and the RNG string/byte[]/CspParameters ctors are wired.
+// Everything else falls back to the generated-name path (return null).
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -96,9 +96,21 @@ public static partial class MethodRefResolver
             case "TransformBlock":
                 // The AES transform's streaming entry point arrives under the
                 // ICryptoTransform INTERFACE owner (CreateEncryptor's result is
-                // typed ICryptoTransform in user code).
+                // typed ICryptoTransform in user code). net48 v2 semantics
+                // (RijndaelManagedTransform): inputCount is a positive multiple
+                // of the block size, encryption chains every block, decryption
+                // buffers the last block for TransformFinalBlock.
                 if (owner == "System.Security.Cryptography.ICryptoTransform")
-                    throw new NotSupportedException("Aes incremental block streaming (TransformBlock) is not wired (v2)");
+                {
+                    if (count == 5 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
+                        && ps[3] == 0x1D && ps[4] == 0x08)
+                        // ReturnsRef = false: the return is a plain int (the
+                        // number of bytes written); a ref-typed result would
+                        // break consumers that use the value as an int.
+                        return I("il2cpp::runtime::icall_aes_transform_block", 5, true, false, true,
+                            new[] { "", "a", "i", "i", "a", "i" }, resultKind: "i");
+                    throw new NotSupportedException("Aes incremental block streaming (TransformBlock) overload not wired (v2)");
+                }
                 // The HASH family implements ICryptoTransform on HashAlgorithm /
                 // KeyedHashAlgorithm (hashalgorithm.cs): TransformBlock feeds the
                 // inline context, sets State=1, copies the input to the output
@@ -327,14 +339,19 @@ public static partial class MethodRefResolver
         if (algo == "rng")
         {
             if (count == 0) return I("il2cpp::runtime::icall_rng_ctor", 0, false, false, true);
-            // net48 RNGCryptoServiceProvider(string) / (byte[]) delegate to
-            // this((CspParameters) null) -- a no-op (the OS CSPRNG is used
-            // regardless of the name; the CspParameters ctor is the unwireable
-            // one). The name argument is dropped.
-            if (count == 1 && (ps[0] == 0x0E || ps[0] == 0x1D))
-                return I("il2cpp::runtime::icall_rng_ctor", 0, false, false, true, new[] { "", "drop" });
+            // net48 RNGCryptoServiceProvider(string) / (byte[]) / (CspParameters)
+            // all delegate to this((CspParameters) null) -- a no-op (the OS
+            // CSPRNG is used regardless of the name/container). The argument is
+            // dropped at the call site. ParamCount is the EXPLICIT IL arity
+            // (1 -- the MethodMap.String.cs convention): the fold pops one IL
+            // argument off its shadow stack even though the "drop" cast keeps
+            // it out of the emitted icall (a ParamCount of 0 left the value on
+            // the fold stack, desyncing the next join -- "fall-through stack
+            // height 0 != join slots 2" for any method that also has a loop).
+            if (count == 1 && (ps[0] == 0x0E || ps[0] == 0x1D || ps[0] == 0x12))
+                return I("il2cpp::runtime::icall_rng_ctor", 1, false, false, true, new[] { "", "drop" });
             throw new NotSupportedException(
-                "Named-CSP / CspParameters RNGCryptoServiceProvider constructors are not supported");
+                $"RNGCryptoServiceProvider ctor with {count} param(s) not wired (net48 has the parameterless / string / byte[] / CspParameters forms only)");
         }
         if (algo == "aes") return null; // Aes is abstract -- no direct ctor
         if (algo.StartsWith("hmac-", StringComparison.Ordinal))

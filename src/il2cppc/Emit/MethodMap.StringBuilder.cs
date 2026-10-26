@@ -305,17 +305,21 @@ public static partial class MethodRefResolver
                 if (vk == 0x11)
                 {
                     var vtypeName = genArgNames != null && genArgNames.Length > 0 ? genArgNames[0] : null;
+                    // The BCL value types keep their dedicated box helpers; a USER
+                    // struct or enum boxes through the "box:us:<name>" cast (the
+                    // emitter resolves the TypeDef and applies the GC-safety gate:
+                    // a user struct with GC reference fields is rejected, an enum
+                    // boxes through icall_box_enum).
                     var valCast = vtypeName switch
                     {
                         "System.Decimal" => "box:dec",
                         "System.DateTime" => "box:dt",
                         "System.Guid" => "box:guid",
                         "System.TimeSpan" => "box:ts",
-                        _ => null,
+                        null => throw new NotSupportedException(
+                            "DefaultInterpolatedStringHandler.AppendFormatted value type has no MethodSpec generic-arg name (M5)"),
+                        _ => "box:us:" + vtypeName,
                     };
-                    if (valCast == null)
-                        throw new NotSupportedException(
-                            $"DefaultInterpolatedStringHandler.AppendFormatted value type '{vtypeName ?? "0x11"}' not wired in M5");
                     if (count == 1)
                         return I("il2cpp::runtime::icall_stringbuilder_append_o", 1, false, false, true,
                             new[] { "deref:r", valCast });

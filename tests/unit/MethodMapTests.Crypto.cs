@@ -28,10 +28,11 @@ using Xunit;
 //                          algorithm icalls (crypto-domain.md §4.4)
 //
 // Known-unwireable members MUST be LOUD (NotSupportedException):
-// HashAlgorithm.Create(string) (CryptoConfig), the RNG CspParameters ctor and
-// Aes.TransformBlock (v2). The hash TransformBlock/TransformFinalBlock,
-// ComputeHash(Stream), the Aes parameterless CreateEncryptor/CreateDecryptor
-// and the RNG named-CSP ctors are wired (batch 6).
+// HashAlgorithm.Create(string) (CryptoConfig). The hash TransformBlock/
+// TransformFinalBlock, ComputeHash(Stream), the Aes parameterless
+// CreateEncryptor/CreateDecryptor, the Aes TransformBlock/TransformFinalBlock
+// streaming surface and the RNG named-CSP / CspParameters ctors are wired
+// (batch 6 + batch 7).
 public class MethodMapTestsCrypto
 {
     [Fact]
@@ -327,13 +328,18 @@ public class MethodMapTestsCrypto
     }
 
     [Fact]
-    public void Resolve_TransformBlock_ICryptoTransform_ThrowsLoud()
+    public void Resolve_TransformBlock_ICryptoTransform_MapsToAesTransformBlock()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("ICryptoTransform", "TransformBlock",
-                Sig(B(0x08), B(0x1D, 0x08), B(0x08), B(0x08), B(0x1D, 0x08), B(0x08))), "TransformBlock"));
+        // batch 7: aes.CreateEncryptor(k, iv).TransformBlock(...) -- the
+        // callvirt owner is the ICryptoTransform INTERFACE; net48 v2
+        // RijndaelManagedTransform streaming semantics.
+        var resolved = ResolveMember(Synthesize("ICryptoTransform", "TransformBlock",
+                Sig(B(0x08), B(0x1D, 0x08), B(0x08), B(0x08), B(0x1D, 0x08), B(0x08))), "TransformBlock");
 
-        Assert.Contains("TransformBlock", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_aes_transform_block", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(new[] { "", "a", "i", "i", "a", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]
@@ -470,6 +476,21 @@ public class MethodMapTestsCrypto
         // this((CspParameters) null) -- a no-op (the OS CSPRNG is used).
         var resolved = ResolveMember(Synthesize("RNGCryptoServiceProvider", ".ctor",
                 Sig(B(0x00), B(0x0E))), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_rng_ctor", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(new[] { "", "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Ctor_RngCspParameters_MapsToRngCtor()
+    {
+        // batch 7: RNGCryptoServiceProvider(CspParameters) -- the CLASS param
+        // (0x12) delegates to this((CspParameters) null) too: the OS CSPRNG is
+        // used regardless of the container name, so the argument is dropped.
+        var resolved = ResolveMember(Synthesize("RNGCryptoServiceProvider", ".ctor",
+                Sig(B(0x00), B(0x12, 0x05))), ".ctor");
 
         Assert.Equal("il2cpp::runtime::icall_rng_ctor", resolved.CppName);
         Assert.True(resolved.IsInstance);

@@ -10,6 +10,7 @@
 #include "crypto_obj.h"
 
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_* / not_supported / throw_new
+#include "il2cpp_gcroot.h"        // GcRoot (GC-safe output buffer across a trim alloc)
 #include "il2cpp_runtime.h"       // il2cpp_object_new / il2cpp_class_register
 #include "il2cpp_streamio.h"      // icall_stream_read_bytes (ComputeHash(Stream))
 #include "rng.h"                  // il2cpp_rng_fill (Aes.GenerateKey/IV + RNG icalls)
@@ -418,8 +419,20 @@ Il2CppObject* CreateAesTransform(Il2CppArray* key, Il2CppArray* iv, bool decrypt
     t->key = key;
     t->iv = iv;
     t->decrypt = decrypt;
+    // B7: prime the CBC chain with the original IV and clear the decrypt buffer
+    // (net48 RijndaelManagedTransform's construction state).
+    std::memcpy(t->chain, iv->data, 16);
+    t->hasPending = false;
     il2cpp_aes_create(&t->ctx, key->data, key->length);
     return reinterpret_cast<Il2CppObject*>(t);
+}
+
+// B7: net48 RijndaelManagedTransform.Reset -- the CBC chain returns to the
+// original IV and the decrypt buffer is cleared (CanReuseTransform is true).
+void AesTransformReset(il2cpp::Il2CppAesTransformObject* t)
+{
+    std::memcpy(t->chain, t->iv->data, 16);
+    t->hasPending = false;
 }
 
 // net48 SymmetricAlgorithm.CreateEncryptor()/CreateDecryptor() (parameterless):
@@ -1147,32 +1160,203 @@ Il2CppObject* icall_aes_transform_final_block(Il2CppObject* self, Il2CppArray* i
     }
     auto* t = reinterpret_cast<il2cpp::Il2CppAesTransformObject*>(self);
     const uint8_t* src = reinterpret_cast<const uint8_t*>(input->data) + offset;
-    const uint8_t* iv = reinterpret_cast<const uint8_t*>(t->iv->data);
     const uint8_t* key = reinterpret_cast<const uint8_t*>(t->key->data);
     const int32_t keyLen = t->key->length;
 
     if (!t->decrypt)
     {
-        // CBC encrypt + PKCS7 pad: output length is count rounded up to a
-        // block (block-aligned inputs gain a full 0x10 pad block).
+        // CBC encrypt + PKCS7 pad over the RUNNING chain (the IV for the first
+        // block of this final segment -- the chain advanced through the
+        // TransformBlock calls). Output length is count rounded up to a block
+        // (block-aligned inputs gain a full 0x10 pad block).
         const int32_t outLen = count + (16 - count % 16);
         Il2CppArray* out = il2cpp_array_new(nullptr, 1, false, outLen);
-        il2cpp_aes_encrypt_cbc(key, keyLen, iv, src, count, out->data);
+        il2cpp_aes_encrypt_cbc(key, keyLen, t->chain, src, count, out->data);
+        AesTransformReset(t);
         return reinterpret_cast<Il2CppObject*>(out);
     }
 
-    // CBC decrypt + PKCS7 strip: decrypt in place (the array holds count
-    // bytes >= the plaintext length), then trim to the plaintext length.
-    // Invalid padding -> CryptographicException (aes.h).
-    Il2CppArray* out = il2cpp_array_new(nullptr, 1, false, count);
-    const int32_t plain = il2cpp_aes_decrypt_cbc(key, keyLen, iv, src, count, out->data);
-    if (plain != count)
+    // Decrypt: the input must be a multiple of the block size (net48
+    // RijndaelManagedTransform.TransformFinalBlock).
+    if (count % 16 != 0)
     {
-        Il2CppArray* trimmed = il2cpp_array_new(nullptr, 1, false, plain);
-        std::memcpy(trimmed->data, out->data, static_cast<size_t>(plain));
-        return reinterpret_cast<Il2CppObject*>(trimmed);
+        il2cpp_throw_new(kCryptoChain, "The input data is not a complete block.");
     }
+    // The buffered block (if any) precedes the final input; the chain is the IV
+    // for the buffered block.
+    const int32_t total = t->hasPending ? (16 + count) : count;
+    Il2CppArray* out = il2cpp_array_new(nullptr, 1, false, total);
+    uint8_t* buf = nullptr;
+    {
+        // Root 'out' across the decrypt + trim allocation: a compacting GC
+        // moves it, so re-read the (possibly rewritten) slot for every access.
+        il2cpp::GcRoot<Il2CppArray*> rootedOut(out, "aes_transform_final");
+        buf = reinterpret_cast<uint8_t*>(rootedOut.Get()->data);
+        if (t->hasPending)
+        {
+            std::memcpy(buf, t->pending, 16);
+            if (count > 0)
+            {
+                std::memcpy(buf + 16, src, static_cast<size_t>(count));
+            }
+        }
+        else if (count > 0)
+        {
+            std::memcpy(buf, src, static_cast<size_t>(count));
+        }
+        // Block-by-block CBC decrypt IN PLACE. The ciphertext block must be
+        // saved before the plaintext is written: il2cpp_aes_decrypt_cbc's
+        // single-buffer path reads the overwritten plaintext as the next IV
+        // when total >= 32.
+        uint8_t chain[16];
+        std::memcpy(chain, t->chain, 16);
+        uint8_t ct[16];
+        uint8_t pt[16];
+        for (int32_t off = 0; off < total; off += 16)
+        {
+            std::memcpy(ct, buf + off, 16);
+            il2cpp_aes_decrypt_block(&t->ctx, ct, pt);
+            for (uint32_t j = 0; j < 16; ++j)
+            {
+                pt[j] = static_cast<uint8_t>(pt[j] ^ chain[j]);
+            }
+            std::memcpy(buf + off, pt, 16);
+            std::memcpy(chain, ct, 16);
+        }
+        // Validate + strip the PKCS7 padding on the last block (net48).
+        const uint8_t* last = buf + total - 16;
+        const uint32_t padLen = last[15];
+        bool padOk = padLen >= 1u && padLen <= 16u;
+        if (padOk)
+        {
+            for (uint32_t j = 0; j < padLen; ++j)
+            {
+                if (last[15u - j] != padLen)
+                {
+                    padOk = false;
+                    break;
+                }
+            }
+        }
+        if (!padOk)
+        {
+            il2cpp_throw_new(kCryptoChain, "Padding is invalid and cannot be removed.");
+        }
+        const int32_t plain = total - static_cast<int32_t>(padLen);
+        if (plain != total)
+        {
+            Il2CppArray* trimmed = il2cpp_array_new(nullptr, 1, false, plain);
+            std::memcpy(trimmed->data, rootedOut.Get()->data, static_cast<size_t>(plain));
+            AesTransformReset(t);
+            return reinterpret_cast<Il2CppObject*>(trimmed);
+        }
+    }
+    AesTransformReset(t);
     return reinterpret_cast<Il2CppObject*>(out);
+}
+
+//------------------------------------------------------------------------------
+// B7: ICryptoTransform.TransformBlock -- the net48 RijndaelManagedTransform
+// streaming entry point (v2 semantics):
+//   * inputCount must be a positive multiple of the block size (16) and within
+//     the input array; the output must have room for inputCount bytes.
+//   * Encrypt: every block is CBC-encrypted with the running chain (updated to
+//     the last ciphertext block); returns inputCount.
+//   * Decrypt: the LAST block is buffered (the padding can only be stripped
+//     once the stream ends); the rest is CBC-decrypted with the running chain.
+//     The first call returns inputCount - 16, later calls return
+//     16 + (inputCount - 16) = inputCount.
+//------------------------------------------------------------------------------
+int32_t icall_aes_transform_block(Il2CppObject* self, Il2CppArray* input, int32_t inOffset,
+                                  int32_t inCount, Il2CppArray* output, int32_t outOffset)
+{
+    if (input == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("inputBuffer");
+    }
+    if (output == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("outputBuffer");
+    }
+    if (inOffset < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("inputOffset",
+            "Value must be greater than or equal to 0.");
+    }
+    if (inCount <= 0 || (inCount % 16) != 0 || inCount > input->length)
+    {
+        il2cpp_throw_argument_exception("Value does not fall within the expected range.");
+    }
+    if ((input->length - inCount) < inOffset)
+    {
+        il2cpp_throw_argument_exception("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+    }
+    if (outOffset < 0 || (outOffset + inCount) > output->length)
+    {
+        il2cpp_throw_argument_exception("Destination is too short.");
+    }
+    auto* t = reinterpret_cast<il2cpp::Il2CppAesTransformObject*>(self);
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(input->data) + inOffset;
+    uint8_t* dst = reinterpret_cast<uint8_t*>(output->data) + outOffset;
+
+    if (!t->decrypt)
+    {
+        // Encrypt: CBC chain with the running IV.
+        uint8_t block[16];
+        for (int32_t off = 0; off < inCount; off += 16)
+        {
+            for (uint32_t j = 0; j < 16; ++j)
+            {
+                block[j] = static_cast<uint8_t>(src[off + j] ^ t->chain[j]);
+            }
+            il2cpp_aes_encrypt_block(&t->ctx, block, dst + off);
+            std::memcpy(t->chain, dst + off, 16);
+        }
+        return inCount;
+    }
+
+    // Decrypt: buffer the last block, process the rest with the running chain.
+    int32_t produced;
+    if (!t->hasPending)
+    {
+        const int32_t inputToProcess = inCount - 16;
+        uint8_t block[16];
+        for (int32_t off = 0; off < inputToProcess; off += 16)
+        {
+            il2cpp_aes_decrypt_block(&t->ctx, src + off, block);
+            for (uint32_t j = 0; j < 16; ++j)
+            {
+                dst[off + j] = static_cast<uint8_t>(block[j] ^ t->chain[j]);
+            }
+            std::memcpy(t->chain, src + off, 16);
+        }
+        std::memcpy(t->pending, src + inputToProcess, 16);
+        t->hasPending = true;
+        produced = inputToProcess;
+    }
+    else
+    {
+        uint8_t block[16];
+        il2cpp_aes_decrypt_block(&t->ctx, t->pending, block);
+        for (uint32_t j = 0; j < 16; ++j)
+        {
+            dst[j] = static_cast<uint8_t>(block[j] ^ t->chain[j]);
+        }
+        std::memcpy(t->chain, t->pending, 16);
+        const int32_t inputToProcess = inCount - 16;
+        for (int32_t off = 0; off < inputToProcess; off += 16)
+        {
+            il2cpp_aes_decrypt_block(&t->ctx, src + off, block);
+            for (uint32_t j = 0; j < 16; ++j)
+            {
+                dst[16 + off + j] = static_cast<uint8_t>(block[j] ^ t->chain[j]);
+            }
+            std::memcpy(t->chain, src + off, 16);
+        }
+        std::memcpy(t->pending, src + inputToProcess, 16);
+        produced = 16 + inputToProcess;
+    }
+    return produced;
 }
 
 Il2CppObject* icall_aes_generate_key(Il2CppObject* self)

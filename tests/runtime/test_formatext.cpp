@@ -32,6 +32,7 @@
 #include "il2cpp_format_ext.h"
 #include "il2cpp_boxing_ext.h"
 #include "il2cpp_boxing_ext2.h"
+#include "enumext.h"            // il2cpp_enum_register / Il2CppEnumInfo (boxed enum)
 #include "il2cpp_exception.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
@@ -607,6 +608,34 @@ int main()
             Expect(StringIs(reinterpret_cast<il2cpp::Il2CppString*>(s), "   ab"),
                    "composite item {0,5} of a string arg aligns the payload");
         }
+    }
+
+    // --- 8b. composite-format item over a BOXED ENUM (B7: AppendFormatted<T>) ---
+    // net48 routes a boxed enum through IFormattable.ToString(format), so the
+    // specifier IS honored (G -> the member name, D -> the decimal value,
+    // X -> uppercase hex).
+    {
+        using il2cpp::runtime::icall_format_composite_item;
+        const char* names[] = {"Red", "Green", "Blue"};
+        const int64_t values[] = {1, 2, 4};
+        il2cpp::runtime::Il2CppEnumInfo info = {
+            il2cpp::runtime::kEnumUnderlyingInt32, 3, names, values,
+        };
+        il2cpp_enum_register("Cases.Color", &info);
+        il2cpp::Il2CppClass colorClass = {
+            "Cases.Color", 4, 0u, 0, nullptr, nullptr, 0, nullptr, 0,
+        };
+        il2cpp::il2cpp_class_register(&colorClass);
+        il2cpp::Il2CppObject* boxedGreen = il2cpp::runtime::icall_box_enum(&colorClass, 2);
+        Expect(StringIs(reinterpret_cast<il2cpp::Il2CppString*>(
+                   icall_format_composite_item(boxedGreen, nullptr, 0)), "Green"),
+               "composite item of a boxed enum (null format) -> member name");
+        Expect(StringIs(reinterpret_cast<il2cpp::Il2CppString*>(
+                   icall_format_composite_item(boxedGreen, MakeFormat("D"), 0)), "2"),
+               "composite item of a boxed enum honors D");
+        Expect(StringIs(reinterpret_cast<il2cpp::Il2CppString*>(
+                   icall_format_composite_item(boxedGreen, MakeFormat("X"), 0)), "00000002"),
+               "composite item of a boxed enum honors X");
     }
 
     // --- 9. provider routing (saudit4): the invariant culture through the
