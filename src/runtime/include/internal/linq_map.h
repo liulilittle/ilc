@@ -550,7 +550,8 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
 Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keySel,
                                             Il2CppObject* elemSel, Il2CppObject* cmp,
                                             Il2CppObject* resSel, int32_t elemKind,
-                                            int32_t rsKind, int32_t keyKind);
+                                            int32_t rsKind, int32_t keyKind,
+                                            int32_t srcKind = 0);
 
 //------------------------------------------------------------------------------
 // p0grp -- GroupBy over a DECIMAL-element ARRAY source (int32-slot key).

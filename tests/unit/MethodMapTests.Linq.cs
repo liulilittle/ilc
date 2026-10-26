@@ -1374,7 +1374,7 @@ public class MethodMapTestsLinq
 
         Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
-        Assert.Equal(new[] { "1", "0", "0" }, resolved.AppendLiterals);
+        Assert.Equal(new[] { "1", "0", "0", "1" }, resolved.AppendLiterals);
     }
 
     // GroupBy with a REFERENCE key (net48 GroupBy<string,string>): the bucket
@@ -1387,7 +1387,19 @@ public class MethodMapTestsLinq
 
         Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
-        Assert.Equal(new[] { "1", "0", "11" }, resolved.AppendLiterals);
+        Assert.Equal(new[] { "1", "0", "11", "1" }, resolved.AppendLiterals);
+    }
+
+    // GroupBy over a DateTime SOURCE (net48 GroupBy<DateTime,int>): the
+    // DateTime-source grouping surface (srcKind 3, elemKind 5).
+    [Fact]
+    public void Resolve_GroupBy_DateTimeSource_MapsToGroupingFullKey()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGroupByDt(0x08));
+
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "5", "0", "0", "3" }, resolved.AppendLiterals);
     }
 
     // GroupBy over a DECIMAL source with an ELEMENT selector (net48
@@ -1400,7 +1412,7 @@ public class MethodMapTestsLinq
 
         Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
         Assert.Equal(3, resolved.ParamCount);
-        Assert.Equal(new[] { "0", "0", "0" }, resolved.AppendLiterals);
+        Assert.Equal(new[] { "0", "0", "0", "2" }, resolved.AppendLiterals);
     }
 
     // GroupBy over a DECIMAL source with a DECIMAL TElement (net48
@@ -1412,7 +1424,7 @@ public class MethodMapTestsLinq
 
         Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
         Assert.Equal(3, resolved.ParamCount);
-        Assert.Equal(new[] { "4", "0", "0" }, resolved.AppendLiterals);
+        Assert.Equal(new[] { "4", "0", "0", "2" }, resolved.AppendLiterals);
     }
 
     //--------------------------------------------------------------------------
@@ -2700,6 +2712,47 @@ public class MethodMapTestsLinq
         {
             spec.WriteByte(tElem);
         }
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // GroupBy over a DateTime SOURCE (net48 GroupBy<DateTime,int>): the
+    // DateTime-source grouping surface (srcKind 3, elemKind 5).
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: System.DateTime             (coded 0x11)
+    private static MemoryStream SynthesizeGroupByDt(byte tKey)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var dtRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("DateTime"));
+        var dtCoded = (MetadataTokens.GetRowNumber(dtRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // return TKey (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0 (TSource)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   VAR 1
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("GroupBy"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(dtCoded);     // TSource = System.DateTime
+        spec.WriteByte(tKey);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

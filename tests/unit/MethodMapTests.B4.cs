@@ -93,7 +93,7 @@ public class MethodMapTestsB4
 
         Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
-        Assert.Equal(new[] { "0", "0", keyKind }, resolved.AppendLiterals);
+        Assert.Equal(new[] { "0", "0", keyKind, "0" }, resolved.AppendLiterals);
     }
 
     // BATCH4: long (0x0A) / ulong (0x0B) ride the 64-bit key carrier (keyKind 7)
@@ -109,7 +109,7 @@ public class MethodMapTestsB4
             genericSignature: new byte[] { 0x0A, 0x02, 0x08, keyByte }));
 
         Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
-        Assert.Equal(new[] { "0", "0", "7" }, resolved.AppendLiterals);
+        Assert.Equal(new[] { "0", "0", "7", "0" }, resolved.AppendLiterals);
     }
 
     // BATCH4: genArgNames names the 0x11 key -- System.Decimal rides the 16-byte
@@ -120,7 +120,7 @@ public class MethodMapTestsB4
         var resolved = ResolveMethodSpec(SynthesizeGroupByNamedKey("System", "Decimal"));
 
         Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
-        Assert.Equal(new[] { "0", "0", "8" }, resolved.AppendLiterals);
+        Assert.Equal(new[] { "0", "0", "8", "0" }, resolved.AppendLiterals);
     }
 
     // RED pre-fix: ulong TAccumulate hit the empty "unsupported accumulator

@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // linq_map.cpp -- System.Linq filtering / mapping icalls (LINQ T2 card).
 //
 // See linq_map.h for the domain contract. Implementation summary:
@@ -160,6 +160,19 @@ void RequireDecimalFamily(Il2CppArray* src)
     {
         il2cpp_throw_not_supported_exception(
             "Only one-dimensional System.Decimal arrays are supported.");
+    }
+}
+
+// p0grp: a DateTime[] source. The runtime's DateTime array cell is 8 bytes
+// (the ticks; the transpiler's ArrayElementType maps System.DateTime to
+// (8, false)), so the family check uses the CELL width, not sizeof(Il2CppDateTime)
+// (the struct carries the extra kind member and is 16 bytes).
+void RequireDateTimeFamily(Il2CppArray* src)
+{
+    if (src->isRefElem || src->elemSize != 8)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.DateTime arrays are supported.");
     }
 }
 
@@ -531,6 +544,18 @@ runtime::Il2CppDecimal InvokeSelDecDecKey(Il2CppDelegate* d, const runtime::Il2C
         : reinterpret_cast<SelDecDecKeyFn>(d->methodPtr)(v);
 }
 
+// p0grp: the decimal-source element selector returning a DateTime (the bucket
+// DateTime element family).
+typedef runtime::Il2CppDateTime (*SelDecDtElemFn)(runtime::Il2CppDecimal);
+typedef runtime::Il2CppDateTime (*SelDecDtElemThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+
+runtime::Il2CppDateTime InvokeSelDecDtElem(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecDtElemThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecDtElemFn>(d->methodPtr)(v);
+}
+
 // The DECIMAL-source selector returning a double / float result (net48
 // Select<decimal,double> / Select<decimal,float>).
 typedef double (*SelDecDFn)(runtime::Il2CppDecimal);
@@ -640,11 +665,94 @@ runtime::Il2CppDateTime InvokeSelI4DtKey(Il2CppDelegate* d, int32_t v)
         : reinterpret_cast<SelI4DtKeyFn>(d->methodPtr)(v);
 }
 
+// p0grp: the int32-source element selector returning a DateTime (the bucket
+// DateTime element family).
+typedef runtime::Il2CppDateTime (*SelI4DtElemFn)(int32_t);
+typedef runtime::Il2CppDateTime (*SelI4DtElemThisFn)(Il2CppObject*, int32_t);
+
+runtime::Il2CppDateTime InvokeSelI4DtElem(Il2CppDelegate* d, int32_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelI4DtElemThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelI4DtElemFn>(d->methodPtr)(v);
+}
+
+// p0grp: the reference-source element selector returning a DateTime.
+typedef runtime::Il2CppDateTime (*SelRefDtElemFn)(Il2CppObject*);
+typedef runtime::Il2CppDateTime (*SelRefDtElemThisFn)(Il2CppObject*, Il2CppObject*);
+
+runtime::Il2CppDateTime InvokeSelRefDtElem(Il2CppDelegate* d, Il2CppObject* o)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefDtElemThisFn>(d->methodPtr)(d->target, o)
+        : reinterpret_cast<SelRefDtElemFn>(d->methodPtr)(o);
+}
+
 Il2CppGuid InvokeSelI4GuidKey(Il2CppDelegate* d, int32_t v)
 {
     return d->target != nullptr
         ? reinterpret_cast<SelI4GuidKeyThisFn>(d->methodPtr)(d->target, v)
         : reinterpret_cast<SelI4GuidKeyFn>(d->methodPtr)(v);
+}
+
+// p0grp: the wide KEY-selector ABIs over a DateTime source element (the
+// Func<Il2CppDateTime,TKey> leaf ABI -- the DateTime crosses BY VALUE).
+typedef int32_t (*SelDtI4Fn)(runtime::Il2CppDateTime);
+typedef int32_t (*SelDtI4ThisFn)(Il2CppObject*, runtime::Il2CppDateTime);
+typedef int64_t (*SelDtI8Fn)(runtime::Il2CppDateTime);
+typedef int64_t (*SelDtI8ThisFn)(Il2CppObject*, runtime::Il2CppDateTime);
+typedef double (*SelDtDFn)(runtime::Il2CppDateTime);
+typedef double (*SelDtDThisFn)(Il2CppObject*, runtime::Il2CppDateTime);
+typedef Il2CppObject* (*SelDtRefFn)(runtime::Il2CppDateTime);
+typedef Il2CppObject* (*SelDtRefThisFn)(Il2CppObject*, runtime::Il2CppDateTime);
+typedef runtime::Il2CppDecimal (*SelDtDecKeyFn)(runtime::Il2CppDateTime);
+typedef runtime::Il2CppDecimal (*SelDtDecKeyThisFn)(Il2CppObject*, runtime::Il2CppDateTime);
+typedef runtime::Il2CppDateTime (*SelDtDtKeyFn)(runtime::Il2CppDateTime);
+typedef runtime::Il2CppDateTime (*SelDtDtKeyThisFn)(Il2CppObject*, runtime::Il2CppDateTime);
+typedef Il2CppGuid (*SelDtGuidKeyFn)(runtime::Il2CppDateTime);
+typedef Il2CppGuid (*SelDtGuidKeyThisFn)(Il2CppObject*, runtime::Il2CppDateTime);
+
+int32_t InvokeSelDtI4(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDtI4ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDtI4Fn>(d->methodPtr)(v);
+}
+int64_t InvokeSelDtI8(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDtI8ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDtI8Fn>(d->methodPtr)(v);
+}
+double InvokeSelDtD(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDtDThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDtDFn>(d->methodPtr)(v);
+}
+Il2CppObject* InvokeSelDtRef(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDtRefThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDtRefFn>(d->methodPtr)(v);
+}
+runtime::Il2CppDecimal InvokeSelDtDecKey(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDtDecKeyThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDtDecKeyFn>(d->methodPtr)(v);
+}
+runtime::Il2CppDateTime InvokeSelDtDtKey(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDtDtKeyThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDtDtKeyFn>(d->methodPtr)(v);
+}
+Il2CppGuid InvokeSelDtGuidKey(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDtGuidKeyThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDtGuidKeyFn>(d->methodPtr)(v);
 }
 
 // p0grp: the same wide KEY-selector ABIs over a REFERENCE source element (the
@@ -3466,6 +3574,9 @@ enum class GroupElemKind
     // p0grp: a System.Decimal bucket element (16-byte value cell) -- the
     // decimal-source GroupBy with a decimal TElement.
     Decimal = 4,
+    // p0grp: a System.DateTime bucket element (8-byte value cell) -- the
+    // DateTime-source GroupBy with a DateTime TElement.
+    DateTime = 5,
 };
 
 
@@ -3717,6 +3828,8 @@ Il2CppArray* NewGroupElementArray(GroupElemKind kind, int32_t length)
 {
     if (kind == GroupElemKind::Decimal)
         return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, length);
+    if (kind == GroupElemKind::DateTime)
+        return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDateTime)), false, length);
     return kind == GroupElemKind::Int32
         ? il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int32_t)), false, length)
         : il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, length);
@@ -3743,7 +3856,8 @@ int32_t NarrowKey(int32_t raw, int32_t keyKind)
 
 // BuildGroups -- the shared bucketing pass (see the block comment).
 Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* elemSel,
-                          GroupElemKind kind, Il2CppObject* cmp, int32_t keyKind = 0)
+                          GroupElemKind kind, Il2CppObject* cmp, int32_t keyKind = 0,
+                          int32_t srcKind = 0)
 {
     RequireArray(src);
     Il2CppDelegate* kd = RequireCallback(keySel, "keySelector");
@@ -3753,9 +3867,11 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     // I4At. The bucket storage for both is the Ref family when the source is a
     // reference array (the element selector projects a reference).
     const bool refSource = src->isRefElem != 0;
-    const bool decimalSource = !refSource && src->elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDecimal));
+    const bool decimalSource = !refSource && srcKind == 2;
+    const bool dtSource = !refSource && srcKind == 3;
     if (refSource) RequireRefFamily(src);
     else if (decimalSource) RequireDecimalFamily(src);
+    else if (dtSource) RequireDateTimeFamily(src);
     else RequireInt32Family(src);
     if (elemSel == nullptr && cmp == nullptr)
     {
@@ -3801,8 +3917,11 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         // p0grp: a reference source element crosses as Il2CppObject*; a decimal
         // source element as the 16-byte value struct; an int32 source element as
         // the 4-byte cell value.
-        const int32_t v = (refSource || decimalSource) ? 0 : I4At(src, i);
+        const int32_t v = (refSource || decimalSource || dtSource) ? 0 : I4At(src, i);
         const runtime::Il2CppDecimal dv = decimalSource ? *DecAt(src, i) : runtime::Il2CppDecimal();
+        const runtime::Il2CppDateTime dts = dtSource
+            ? runtime::Il2CppDateTime(*reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i)), 0)
+            : runtime::Il2CppDateTime();
         srcElem = refSource
             ? *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(src, i))
             : nullptr;
@@ -3815,7 +3934,43 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         int64_t keyLo = 0;
         int64_t keyHi = 0;
         Il2CppObject* keyRef = nullptr;
-        if (decimalSource)
+        if (dtSource)
+        {
+            // The DateTime-source key selector takes the 8-byte DateTime BY
+            // VALUE (the InvokeSelDt* ABIs).
+            switch (keyKind)
+            {
+                case 7: keyLo = InvokeSelDtI8(kd, dts); break;
+                case 8:
+                {
+                    const runtime::Il2CppDecimal k = InvokeSelDtDecKey(kd, dts);
+                    std::memcpy(&keyLo, &k, sizeof(keyLo));
+                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+                    break;
+                }
+                case 9:
+                {
+                    const runtime::Il2CppDateTime k = InvokeSelDtDtKey(kd, dts);
+                    keyLo = k.ticks;
+                    keyHi = k.kind;
+                    break;
+                }
+                case 10:
+                {
+                    const Il2CppGuid k = InvokeSelDtGuidKey(kd, dts);
+                    std::memcpy(&keyLo, &k, sizeof(keyLo));
+                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+                    break;
+                }
+                case 11:
+                    keyRef = InvokeSelDtRef(kd, dts);
+                    break;
+                default:
+                    keyLo = NarrowKey(InvokeSelDtI4(kd, dts), keyKind);
+                    break;
+            }
+        }
+        else if (decimalSource)
         {
             // The decimal-source key selector takes the 16-byte decimal BY
             // VALUE (the InvokeSelDec* ABIs).
@@ -3934,9 +4089,24 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         int64_t elemI8 = 0;
         double elemD = 0;
         runtime::Il2CppDecimal elemDec{};
+        runtime::Il2CppDateTime elemDt{};
         if (ed != nullptr)
         {
-            if (decimalSource)
+            if (dtSource)
+            {
+                // The DateTime-source element selector takes the 8-byte
+                // DateTime BY VALUE (the InvokeSelDt* ABIs).
+                switch (kind)
+                {
+                    case GroupElemKind::Int32: elemI4 = InvokeSelDtI4(ed, dts); break;
+                    case GroupElemKind::Ref: elemRef = InvokeSelDtRef(ed, dts); break;
+                    case GroupElemKind::I8: elemI8 = InvokeSelDtI8(ed, dts); break;
+                    case GroupElemKind::D: elemD = InvokeSelDtD(ed, dts); break;
+                    case GroupElemKind::Decimal: elemDec = InvokeSelDtDecKey(ed, dts); break;
+                    case GroupElemKind::DateTime: elemDt = InvokeSelDtDtKey(ed, dts); break;
+                }
+            }
+            else if (decimalSource)
             {
                 // The decimal-source element selector takes the 16-byte decimal
                 // BY VALUE (the InvokeSelDec* ABIs).
@@ -3947,6 +4117,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     case GroupElemKind::I8: elemI8 = InvokeSelDecI8(ed, dv); break;
                     case GroupElemKind::D: elemD = InvokeSelDecD(ed, dv); break;
                     case GroupElemKind::Decimal: elemDec = InvokeSelDecDecKey(ed, dv); break;
+                    case GroupElemKind::DateTime: elemDt = InvokeSelDecDtElem(ed, dv); break;
                 }
             }
             else if (refSource)
@@ -3959,6 +4130,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     case GroupElemKind::I8: elemI8 = InvokeSelRefI8(ed, srcElem); break;
                     case GroupElemKind::D: elemD = InvokeSelRefD(ed, srcElem); break;
                     case GroupElemKind::Decimal: elemDec = InvokeSelRefDecKey(ed, srcElem); break;
+                    case GroupElemKind::DateTime: elemDt = InvokeSelRefDtElem(ed, srcElem); break;
                 }
             }
             else
@@ -3969,6 +4141,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                 case GroupElemKind::I8: elemI8 = InvokeSelI4I8(ed, v); break;
                 case GroupElemKind::D: elemD = InvokeSelI4D(ed, v); break;
                 case GroupElemKind::Decimal: elemDec = InvokeSelI4DecKey(ed, v); break;
+                case GroupElemKind::DateTime: elemDt = InvokeSelI4DtElem(ed, v); break;
             }
         }
         else if (kind == GroupElemKind::Int32)
@@ -4057,6 +4230,10 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     *reinterpret_cast<runtime::Il2CppDecimal*>(
                         il2cpp_array_get_elem_ptr(grp->elements, at)) = elemDec;
                     break;
+                case GroupElemKind::DateTime:
+                    *reinterpret_cast<runtime::Il2CppDateTime*>(
+                        il2cpp_array_get_elem_ptr(grp->elements, at)) = elemDt;
+                    break;
             }
             ++grp->count;
         }
@@ -4124,6 +4301,10 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                 case GroupElemKind::Decimal:
                     *reinterpret_cast<runtime::Il2CppDecimal*>(
                         il2cpp_array_get_elem_ptr(grp->elements, 0)) = elemDec;
+                    break;
+                case GroupElemKind::DateTime:
+                    *reinterpret_cast<runtime::Il2CppDateTime*>(
+                        il2cpp_array_get_elem_ptr(grp->elements, 0)) = elemDt;
                     break;
             }
             grp->count = 1;
@@ -4355,7 +4536,8 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, int
 Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keySel,
                                             Il2CppObject* elemSel, Il2CppObject* cmp,
                                             Il2CppObject* resSel, int32_t elemKind,
-                                            int32_t rsKind, int32_t keyKind)
+                                            int32_t rsKind, int32_t keyKind,
+                                            int32_t srcKind)
 {
     if (cmp == nullptr)
     {
@@ -4379,7 +4561,7 @@ Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keyS
         default:
             il2cpp_throw_not_supported_exception("GroupBy: unsupported TElement family code.");
     }
-    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp, keyKind);
+    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp, keyKind, srcKind);
     if (rsKind == 0)
     {
         return result;

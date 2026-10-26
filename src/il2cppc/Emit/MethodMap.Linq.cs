@@ -592,6 +592,74 @@ public static partial class MethodRefResolver
                 return I($"il2cpp::il2cpp_linq_select{(selIdx ? "_idx" : "")}_dec_{vs}",
                     2, true, true, false, TwoArg, returnTypeName: LinqValueResultArrayName(vs));
             }
+            // p0grp: GroupBy over a DateTime[] SOURCE (net48
+            // GroupBy<TSource,TKey> with TSource = System.DateTime). The
+            // DateTime element crosses as the 8-byte runtime value struct BY
+            // VALUE (the InvokeSelDt* ABIs); the bucket stores the DateTime
+            // cells (GroupElemKind::DateTime).
+            if (name == "GroupBy" && genArgs is { Length: >= 1 } && genArgs[0] == 0x11
+                && genArgNames is { Length: >= 1 }
+                && (genArgNames[0] == "System.DateTime" || genArgNames[0] == "V:System.DateTime"))
+            {
+                int dtKeyKind = KeyKindForNamed(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08,
+                    genArgNames, 1);
+                if (genArgs is not { Length: >= 2 } || dtKeyKind < 0)
+                    throw new NotSupportedException(
+                        "Enumerable.GroupBy<System.DateTime,...> not wired: the DateTime-source grouping " +
+                        "surface buckets by a key carrier of int32-slot/int64/16-byte struct/reference " +
+                        "(see docs/audit/b4-gaps.md)");
+                var dtParams = LinqEncodedParamTypes(md, sigHandle);
+                int dtElemArg = -1, dtCmpArg = -1, dtResArg = -1;
+                for (int pi = 2; pi < dtParams.Length; pi++)
+                {
+                    var dtdef = GenericDefNameOf(dtParams[pi]);
+                    if (dtdef == "System.Func`2") dtElemArg = pi;
+                    else if (dtdef == "System.Func`3") dtResArg = pi;
+                    else if (dtdef == "System.Collections.Generic.IEqualityComparer`1") dtCmpArg = pi;
+                }
+                byte? dtElemByte = dtElemArg >= 0 && genArgs.Length >= 3 ? genArgs[2] : null;
+                byte? dtResByte = dtResArg >= 0 && genArgs.Length >= 3
+                    ? (genArgs.Length >= 4 ? genArgs[3] : genArgs[2]) : null;
+                string DtElemFamily(byte b) => b switch
+                {
+                    0x08 => "0",
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
+                    0x0A or 0x0B => "2",
+                    0x0D => "3",
+                    0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
+                    0x11 => "5", // System.DateTime
+                    _ => "",
+                };
+                string DtResultFamily(byte b) => b switch
+                {
+                    0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                    0x0A or 0x0B => "3",
+                    0x0D => "4",
+                    0x0C => "5",
+                    _ => "2",
+                };
+                string dtEk = dtElemByte is { } dtb ? DtElemFamily(dtb) : "5";
+                if (dtEk.Length == 0)
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy TElement '{GenericArgTypeName(dtElemByte!.Value)}' " +
+                        "over a System.DateTime source is not a supported element family");
+                string dtRk = dtResByte is { } dtrb ? DtResultFamily(dtrb) : "0";
+                int dtElemIdx = dtElemArg >= 0 ? dtElemArg : -1;
+                int dtCmpIdx = dtCmpArg >= 0 ? dtCmpArg : -1;
+                int dtResIdx = dtResArg >= 0 ? dtResArg : -1;
+                var dtArgOrder = new[] { 0, 1, dtElemIdx, dtCmpIdx, dtResIdx };
+                var dtCasts = new[] { "a", "", "", "", "" };
+                var dtLiterals = new[] { dtEk, dtRk,
+                    dtKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture), "3" };
+                var dtRetType = dtRk == "0"
+                    ? "System.Linq.IGroupingResult"
+                    : dtRk == "1" ? "System.Int32[]"
+                    : dtRk == "3" ? "System.Int64[]"
+                    : dtRk == "4" ? "System.Double[]"
+                    : dtRk == "5" ? "System.Double[]" : "System.Object[]";
+                return I("il2cpp::il2cpp_linq_group_by_full_key", count, true, true, false, dtCasts,
+                    returnTypeName: dtRetType, appendLiterals: dtLiterals, argOrder: dtArgOrder);
+            }
             // p0grp: GroupBy over a decimal[] SOURCE with an int32-slot key.
             // Before this arm the call fell past the decimal block, past the
             // ref block (no GroupBy there) and into the int32-only gate at
@@ -703,7 +771,7 @@ public static partial class MethodRefResolver
                     var dArgOrder = new[] { 0, 1, dElemIdx, dCmpIdx, dResIdx };
                     var dCasts = new[] { "a", "", "", "", "" };
                     var dLiterals = new[] { dEk, dRk,
-                        decKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+                        decKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture), "2" };
                     var dRetType = dRk == "0"
                         ? "System.Linq.IGroupingResult"
                         : dRk == "1" ? "System.Int32[]"
@@ -1013,7 +1081,7 @@ public static partial class MethodRefResolver
                     var refArgOrder = new[] { 0, 1, refElemIdx, refCmpIdx, refResIdx };
                     var refCasts = new[] { "a", "", "", "", "" };
                     var refLiterals = new[] { refEk, refRk,
-                        refKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+                        refKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture), "1" };
                     var refRetType = refRk == "0"
                         ? "System.Linq.IGroupingResult"
                         : refRk == "1" ? "System.Int32[]"
@@ -1656,7 +1724,8 @@ public static partial class MethodRefResolver
                     var casts = new[] { "a", "", "", "", "" };
                     // B4-1 (P0-04): the THIRD literal is the key family the
                     // runtime narrows the callback result to (KeyKindFor).
-                    var literals = new[] { ek, rk, keyKind.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+                    var literals = new[] { ek, rk,
+                        keyKind.ToString(System.Globalization.CultureInfo.InvariantCulture), "0" };
                     var retType = rk == "0"
                         ? "System.Linq.IGroupingResult"
                         : rk == "1" ? "System.Int32[]"

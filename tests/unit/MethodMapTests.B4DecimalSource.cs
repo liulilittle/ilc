@@ -71,7 +71,7 @@ public class MethodMapTestsB4DecimalSource
         var resolved = ResolveMethodSpec(SynthesizeGroupBy(0x08, sourceByte: 0x0E, sourceName: "String"));
 
         Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
-        Assert.Equal(new[] { "1", "0", "0" }, resolved.AppendLiterals);
+        Assert.Equal(new[] { "1", "0", "0", "1" }, resolved.AppendLiterals);
     }
 
     // GroupBy<TSource,TKey>(IEnumerable<TSource>, Func<TSource,TKey>): the
