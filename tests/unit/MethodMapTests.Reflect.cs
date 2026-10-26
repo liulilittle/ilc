@@ -188,6 +188,38 @@ public class MethodMapTestsReflect
     }
 
     //--------------------------------------------------------------------------
+    // REFL-ARITY -- PropertyInfo.GetGetMethod(bool nonPublic) /
+    // GetSetMethod(bool nonPublic): net48's arity-1 accessor forms. The bool
+    // rides the int32 slot; the runtime admits a non-public accessor when it
+    // is non-zero (the no-arg overloads bind public-only).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_PropertyInfo_GetGetMethodNonPublic_MapsToAccessorExIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "PropertyInfo", "GetGetMethod",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x02 }), "GetGetMethod"); // (bool)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_property_get_accessor_ex", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Reflection.MethodInfo", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_PropertyInfo_GetSetMethodNonPublic_MapsToAccessorExIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "PropertyInfo", "GetSetMethod",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x02 }), "GetSetMethod"); // (bool)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_property_get_accessor_ex", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Reflection.MethodInfo", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
     // Harness -- same synthetic-PE pipeline as MethodMapTests.Type.cs.
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)

@@ -3614,6 +3614,59 @@ Il2CppObject* il2cpp_typeinfo_property_get_accessor(Il2CppObject* propertyName, 
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(accessor));
 }
 
+// REFL-ARITY -- PropertyInfo.GetGetMethod(bool nonPublic) / GetSetMethod(bool
+// nonPublic). Same declaring-property scan and result contract as the no-arg
+// overloads, but the accessor's PUBLIC flag is enforced only when nonPublic ==
+// 0 (net48: the no-arg overloads bind publicOnly=true).
+Il2CppObject* il2cpp_typeinfo_property_get_accessor_ex(Il2CppObject* propertyName, int32_t nonPublic,
+                                                       int32_t dir)
+{
+    if (propertyName == nullptr)
+    {
+        ThrowPropertyNullReceiver();
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(propertyName, nameBuf))
+    {
+        return nullptr;
+    }
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    const Il2CppPropertyInfo* bestProp = nullptr;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info == nullptr || info->properties == nullptr) continue;
+        for (int32_t j = 0; j < info->propertyCount; ++j)
+        {
+            const Il2CppPropertyInfo& p = info->properties[j];
+            if (p.name == nullptr || std::strcmp(p.name, nameBuf) != 0) continue;
+            const int32_t depth = BaseChainDepthFor(info);
+            if (depth > bestDepth)
+            {
+                bestDepth = depth;
+                best = info;
+                bestProp = &p;
+            }
+        }
+    }
+    if (best == nullptr || bestProp == nullptr)
+    {
+        return nullptr; // property not found (defensive query convention)
+    }
+    const char* accessor = dir == 0 ? bestProp->getterName : bestProp->setterName;
+    if (accessor == nullptr)
+    {
+        return nullptr; // the property has no getter/setter of that direction
+    }
+    const Il2CppMethodInfo* acc = il2cpp_type_get_method(best, accessor);
+    if (acc == nullptr || (nonPublic == 0 && (acc->flags & 1) == 0))
+    {
+        return nullptr;
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_cs(accessor));
+}
+
 //------------------------------------------------------------------------------
 // GAP-5 (P1) -- ConstructorInfo: GetConstructor(Type[]) + Invoke(object[]).
 //

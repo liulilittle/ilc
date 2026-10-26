@@ -122,14 +122,26 @@ public static partial class MethodRefResolver
                 if (owner == "System.Reflection.PropertyInfo" && ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_property_get_accessor", 0, true, true, true,
                         new[] { "" }, appendLiterals: new[] { "0" }, returnTypeName: "System.Reflection.MethodInfo");
+                // REFL-ARITY: PropertyInfo.GetGetMethod(bool nonPublic) --
+                // net48's arity-1 form. The bool rides the int32 slot ("i");
+                // dir stays the appended literal (0 = getter). The runtime
+                // admits a non-public accessor when nonPublic != 0.
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 1 && ps[0] == 0x02)
+                    return I("il2cpp::il2cpp_typeinfo_property_get_accessor_ex", 1, true, true, true,
+                        new[] { "", "i" }, appendLiterals: new[] { "0" }, returnTypeName: "System.Reflection.MethodInfo");
                 throw new NotSupportedException(
-                    $"{owner}::GetGetMethod with {ps.Length} parameter(s) not wired in P1 -- the () overload maps to il2cpp_typeinfo_property_get_accessor(_, 0)");
+                    $"{owner}::GetGetMethod with {ps.Length} parameter(s) not wired in P1/refl-arity -- the () overload maps to il2cpp_typeinfo_property_get_accessor(_, 0); the (bool nonPublic) overload to il2cpp_typeinfo_property_get_accessor_ex(_, 0, nonPublic)");
             case "GetSetMethod":
                 if (owner == "System.Reflection.PropertyInfo" && ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_property_get_accessor", 0, true, true, true,
                         new[] { "" }, appendLiterals: new[] { "1" }, returnTypeName: "System.Reflection.MethodInfo");
+                // REFL-ARITY: PropertyInfo.GetSetMethod(bool nonPublic) --
+                // same as GetGetMethod(bool) with dir = 1 (setter).
+                if (owner == "System.Reflection.PropertyInfo" && ps.Length == 1 && ps[0] == 0x02)
+                    return I("il2cpp::il2cpp_typeinfo_property_get_accessor_ex", 1, true, true, true,
+                        new[] { "", "i" }, appendLiterals: new[] { "1" }, returnTypeName: "System.Reflection.MethodInfo");
                 throw new NotSupportedException(
-                    $"{owner}::GetSetMethod with {ps.Length} parameter(s) not wired in P1 -- the () overload maps to il2cpp_typeinfo_property_get_accessor(_, 1)");
+                    $"{owner}::GetSetMethod with {ps.Length} parameter(s) not wired in P1/refl-arity -- the () overload maps to il2cpp_typeinfo_property_get_accessor(_, 1); the (bool nonPublic) overload to il2cpp_typeinfo_property_get_accessor_ex(_, 1, nonPublic)");
             case "Invoke":
                 // MethodBase.Invoke(object obj, object[] parameters) / the
                 // MethodInfo override -- R3. net48 csc emits the BASE

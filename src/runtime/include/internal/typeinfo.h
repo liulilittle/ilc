@@ -623,6 +623,13 @@ void         il2cpp_typeinfo_property_set_value(Il2CppObject* propertyName, Il2C
 // without the accessor or an unregistered property. Null receiver ->
 // NullReferenceException (the net48 null-PropertyInfo chain).
 Il2CppObject* il2cpp_typeinfo_property_get_accessor(Il2CppObject* propertyName, int32_t dir);
+// REFL-ARITY: PropertyInfo.GetGetMethod(bool nonPublic) /
+// GetSetMethod(bool nonPublic) -- the arity-1 forms net48 HAS. The no-arg
+// overloads bind publicOnly=true; nonPublic != 0 admits a non-public accessor
+// too (net48). dir = 0 getter / 1 setter, same result contract (the accessor
+// METHOD-NAME string or nullptr; NRE null receiver).
+Il2CppObject* il2cpp_typeinfo_property_get_accessor_ex(Il2CppObject* propertyName, int32_t nonPublic,
+                                                       int32_t dir);
 
 //------------------------------------------------------------------------------
 // GAP-5 (P1) -- ConstructorInfo: Type.GetConstructor(Type[]) + the ctor

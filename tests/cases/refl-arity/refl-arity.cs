@@ -73,6 +73,12 @@ namespace Cases
             var p = t.GetProperty("Item", typeof(int), new Type[] { typeof(int) }, null);
             Console.WriteLine("prop=" + (p != null ? p.Name : "<null>"));
 
+            // ---- PropertyInfo.GetGetMethod(bool) / GetSetMethod(bool) ----
+            var getter = p != null ? p.GetGetMethod(true) : null;
+            var setter = p != null ? p.GetSetMethod(true) : null;
+            Console.WriteLine("prop_getter=" + (getter != null ? getter.Name : "<null>"));
+            Console.WriteLine("prop_setter=" + (setter != null ? setter.Name : "<null>"));
+
             // ---- Assembly.GetType(string, bool throwOnError) ----
             var asm = typeof(ArityHost).Assembly;
             var a = asm.GetType("Cases.ArityHost", false);
