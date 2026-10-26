@@ -174,6 +174,11 @@ namespace Cases
             float[] cff = Array.ConvertAll(cfa, x => x * 2f);
             Console.WriteLine("ca_f_f=" + (cff.Length == 3 && cff[1] == 5.0f));
 
+            // ---- P. Array.GetValue(long) ----
+            int[] gva = { 10, 20, 30 };
+            Array gvarr = gva;
+            Console.WriteLine("gv_long=" + ((int)gvarr.GetValue(1L) == 20));
+
             // ---- N. ArrayList(int capacity) ----
             ArrayList cap = new ArrayList(8);
             Console.WriteLine("al_cap0=" + cap.Capacity);

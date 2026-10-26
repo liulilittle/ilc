@@ -788,8 +788,8 @@ public static partial class MethodRefResolver
                 if (entry == null)
                     throw new NotSupportedException(
                         $"Array.ConvertAll<TInput,TOutput> generic arguments 0x{ti:X2},0x{to:X2} not wired: " +
-                        "the converter surface covers int32/int64/double and the reference families " +
-                        "(float has no converter icall yet)");
+                        "the converter surface covers int32/int64/double/float and the reference families " +
+                        "(a BCL valuetype or the narrow integrals have no converter icall)");
                 return I(entry, 2, true, true, false, new[] { "a", "" });
             }
             case "Resize":
@@ -886,8 +886,12 @@ public static partial class MethodRefResolver
                 // domain, and a blind static_cast<int32_t> would truncate).
                 if (count == 1 && ps is { Length: >= 1 } && ps[0] == 0x08)
                     return I("il2cpp::il2cpp_array_get_value", 1, true, true, true, new[] { "a", "i" });
+                // arrgen1b: the long-index 1-D form (the index is validated
+                // against the int32 range, then the int-index core runs).
+                if (count == 1 && ps is { Length: >= 1 } && ps[0] == 0x0A)
+                    return I("il2cpp::il2cpp_array_get_value_long", 1, true, true, true, new[] { "a", "l" });
                 throw new NotSupportedException(
-                    $"Array.GetValue with {count} arg(s)/index type 0x{(ps is { Length: >= 1 } gp ? gp[0] : 0):X2} not wired: only the 1-D GetValue(int) shape (arrayextra.h il2cpp_array_get_value)");
+                    $"Array.GetValue with {count} arg(s)/index type 0x{(ps is { Length: >= 1 } gp ? gp[0] : 0):X2} not wired: the 1-D GetValue(int)/GetValue(long) shapes are wired (arrayextra.h); the multi-dimensional index shapes need the multi-dim element kernels");
             case "SetValue":
                 // void SetValue(object value, int index): reference arrays
                 // store the reference (null legal, write barrier always run);
@@ -898,8 +902,12 @@ public static partial class MethodRefResolver
                 // the same truncation reason as GetValue above.
                 if (count == 2 && ps is { Length: >= 2 } && ps[1] == 0x08)
                     return I("il2cpp::il2cpp_array_set_value", 2, false, false, true, new[] { "a", "", "i" });
+                // arrgen1b: the long-index 1-D form (the index is validated
+                // against the int32 range, then the int-index core runs).
+                if (count == 2 && ps is { Length: >= 2 } && ps[1] == 0x0A)
+                    return I("il2cpp::il2cpp_array_set_value_long", 2, false, false, true, new[] { "a", "", "l" });
                 throw new NotSupportedException(
-                    $"Array.SetValue with {count} arg(s)/index type 0x{(ps is { Length: >= 2 } sp ? sp[1] : 0):X2} not wired: only the 1-D SetValue(object, int) shape (arrayextra.h il2cpp_array_set_value)");
+                    $"Array.SetValue with {count} arg(s)/index type 0x{(ps is { Length: >= 2 } sp ? sp[1] : 0):X2} not wired: the 1-D SetValue(object, int)/SetValue(object, long) shapes are wired (arrayextra.h); the multi-dimensional index shapes need the multi-dim element kernels");
             // P6: Array.GetCorElementTypeOfElementType -- returns the CorElementType
             // of the array's element type (stub: returns 4 = ELEMENT_TYPE_I4).
             case "GetCorElementTypeOfElementType": return I("il2cpp::runtime::icall_array_get_cor_element_type_of_element_type", 1, true, false, false);

@@ -146,4 +146,11 @@ Il2CppObject* il2cpp_array_get_value(Il2CppArray* arr, int32_t index);
 // IndexOutOfRangeException.
 void il2cpp_array_set_value(Il2CppArray* arr, Il2CppObject* value, int32_t index);
 
+// arrgen1b: the long-index 1-D forms of GetValue/SetValue. The index is
+// validated against the int32 range (ArgumentOutOfRangeException outside it),
+// then the int-index core runs. A one-dimensional array's valid index range
+// IS int32, so the long form is a validating forwarder.
+Il2CppObject* il2cpp_array_get_value_long(Il2CppArray* arr, int64_t index);
+void il2cpp_array_set_value_long(Il2CppArray* arr, Il2CppObject* value, int64_t index);
+
 } // namespace il2cpp

@@ -513,6 +513,28 @@ public class MethodMapArrayTests
         Assert.Equal(ps, resolved.ParamCount);
     }
 
+    // arrgen1b: the long-index 1-D GetValue/SetValue forms (the index is
+    // validated against the int32 range, then the int-index core runs).
+    [Fact]
+    public void Resolve_Array_GetValueLong_MapsToIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Array", "GetValue", Sig(0x1C, 0x0A)), "GetValue");
+
+        Assert.Equal("il2cpp::il2cpp_array_get_value_long", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "l" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Array_SetValueLong_MapsToIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Array", "SetValue", Sig(0x01, 0x1C, 0x0A)), "SetValue");
+
+        Assert.Equal("il2cpp::il2cpp_array_set_value_long", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "", "l" }, resolved.ParamTypeNames);
+    }
+
     [Fact]
     public void Resolve_Array_EmptyUInt64_MethodSpec_MapsToIcall()
     {

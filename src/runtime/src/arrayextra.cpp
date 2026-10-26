@@ -458,4 +458,30 @@ void il2cpp_array_set_value(Il2CppArray* arr, Il2CppObject* value, int32_t index
     }
 }
 
+//------------------------------------------------------------------------------
+// arrgen1b: the long-index 1-D forms of GetValue/SetValue. net48 Array.GetValue
+// (long)/SetValue(object, long) validate the index against the int32 range and
+// then run the int-index core; a value outside the range raises
+// ArgumentOutOfRangeException.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_array_get_value_long(Il2CppArray* arr, int64_t index)
+{
+    if (index < INT32_MIN || index > INT32_MAX)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "index", "Index was outside the bounds of the array.");
+    }
+    return il2cpp_array_get_value(arr, static_cast<int32_t>(index));
+}
+
+void il2cpp_array_set_value_long(Il2CppArray* arr, Il2CppObject* value, int64_t index)
+{
+    if (index < INT32_MIN || index > INT32_MAX)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "index", "Index was outside the bounds of the array.");
+    }
+    il2cpp_array_set_value(arr, value, static_cast<int32_t>(index));
+}
+
 } // namespace il2cpp
