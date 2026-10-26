@@ -168,6 +168,7 @@ namespace Cases
             Console.WriteLine("w_tostr_u8=" + Convert.ToString(18446744073709551615UL));
             Console.WriteLine("w_tostr_f=" + Convert.ToString(1.5f));
             Console.WriteLine("w_tostr_dec=" + Convert.ToString(3.5m));
+            Console.WriteLine("w_tostr_decp=" + Convert.ToString(3.5m, CultureInfo.InvariantCulture));
             Console.WriteLine("w_tostr_u4p=" + Convert.ToString(4000000000u, CultureInfo.InvariantCulture));
             Console.WriteLine("w_tostr_u8p=" + Convert.ToString(18446744073709551615UL, CultureInfo.InvariantCulture));
             Console.WriteLine("w_tostr_fp=" + Convert.ToString(1.5f, CultureInfo.InvariantCulture));

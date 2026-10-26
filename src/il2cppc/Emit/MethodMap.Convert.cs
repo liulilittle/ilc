@@ -250,6 +250,12 @@ public static partial class MethodRefResolver
                                     new[] { "d", "drop" }),
                                 0x0E => I("il2cpp::runtime::icall_convert_to_string_obj", 2, true, true, false,
                                     new[] { "", "drop" }),
+                                // BATCH 8: decimal -- net48 renders it with the
+                                // provider's NumberFormatInfo; the runtime's
+                                // decimal formatter is the invariant grammar
+                                // (zh-CN's '.'/','), so the provider is dropped.
+                                0x11 => I("il2cpp::runtime::icall_decimal_to_string", 2, true, true, false,
+                                    new[] { "dec", "drop" }),
                                 0x1C => I("il2cpp::runtime::icall_convert_to_string_obj", 2, true, true, false,
                                     new[] { "", "drop" }),
                                 _ => throw new NotSupportedException(
