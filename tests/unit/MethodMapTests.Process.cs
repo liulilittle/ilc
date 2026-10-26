@@ -91,6 +91,41 @@ public class MethodMapProcessTests
         Assert.Equal("System.Diagnostics.Process", m.ReturnTypeName);
     }
 
+    //--------------------------------------------------------------------------
+    // nb8 PROC-SECURE: the net48 SecureString Start forms (Process.cs:2288 /
+    // :2299). The runtime validates the args and launches through the
+    // current-credential path.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Process_StartSecure4_MapsToSecure4Icall()
+    {
+        // Start(fileName, userName, SecureString password, domain): CLASS
+        // return, params string/string/CLASS(SecureString)/string.
+        var m = ResolveMember(Synthesize("System.Diagnostics", "Process", "Start",
+            new byte[] { 0x00, 0x04, 0x12, 0x05, 0x0E, 0x0E, 0x12, 0x05, 0x0E }), "Start");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_process_start_secure_4", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.Equal(4, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal("System.Diagnostics.Process", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_Process_StartSecure5_MapsToSecure5Icall()
+    {
+        // Start(fileName, arguments, userName, SecureString password, domain):
+        // CLASS return, params string x3/CLASS(SecureString)/string.
+        var m = ResolveMember(Synthesize("System.Diagnostics", "Process", "Start",
+            new byte[] { 0x00, 0x05, 0x12, 0x05, 0x0E, 0x0E, 0x0E, 0x12, 0x05, 0x0E }), "Start");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_process_start_secure_5", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.Equal(5, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal("System.Diagnostics.Process", m.ReturnTypeName);
+    }
+
     [Fact]
     public void Resolve_Process_Start_ThreeParams_ThrowsLoud()
     {

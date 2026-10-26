@@ -331,4 +331,28 @@ void icall_processstartinfo_set_createnowindow(Il2CppObject* self, int32_t value
 // on launch failure, -1 for a null input (and unsupported on POSIX).
 int32_t il2cpp_process_start_info(Il2CppObject* psi);
 
+//------------------------------------------------------------------------------
+// nb8 PROC-SECURE: Process.Start(fileName, userName, SecureString password,
+// domain) and Process.Start(fileName, arguments, userName, SecureString
+// password, domain) (net48 Process.cs:2288/2299).
+//
+// The net48 forms build a ProcessStartInfo with UserName/Password/Domain and
+// UseShellExecute=false, then launch: when UserName is EMPTY the launch uses
+// the CURRENT credentials (CreateProcessW); otherwise CreateProcessWithLogonW
+// validates the credentials against the OS account store. This simplified
+// domain implements the CURRENT-CREDENTIAL path through il2cpp_process_start
+// and reports the credential-launch path as a Win32Exception (the SecureString
+// type is not materialized here and credential launch is OS/credential-state
+// dependent -- documented deviation). Null userName/password/domain are
+// accepted (the net48 ProcessStartInfo getters normalize them to "").
+//
+// Returns the child PID (> 0) on success; -1 for a null fileName; 0 on launch
+// failure (and unsupported on POSIX).
+//------------------------------------------------------------------------------
+int32_t il2cpp_process_start_secure_4(Il2CppObject* exePath, Il2CppObject* userName,
+                                      Il2CppObject* password, Il2CppObject* domain);
+int32_t il2cpp_process_start_secure_5(Il2CppObject* exePath, Il2CppObject* args,
+                                      Il2CppObject* userName, Il2CppObject* password,
+                                      Il2CppObject* domain);
+
 }} // namespace il2cpp::runtime

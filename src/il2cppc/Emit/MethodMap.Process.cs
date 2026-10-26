@@ -62,10 +62,14 @@ namespace Il2Cpp.Transpiler.Emit;
 //     throws InvalidOperationException (net48).
 //
 // LOUD rejections (known but unwireable): new Process() (no object model --
-// the newobj path would fabricate an object), Start with 3+ params,
-// WaitForExit(int) (the runtime waits without a timeout), and get_StandardInput
+// the newobj path would fabricate an object), Start with 3 params (no net48
+// overload), WaitForExit(int) (the runtime waits without a timeout), and
+// get_StandardInput
 // (the child is built with NUL stdin -- pathproc.cpp STARTF_USESTDHANDLES;
 // a managed stdin write cannot reach the child: construction order; deferred).
+// The SecureString Start forms (nb8 PROC-SECURE) launch through the
+// current-credential path; the credential-launch path is reported as a
+// Win32Exception (OS/credential-state dependent -- documented deviation).
 // Unlisted members (Refresh, ...) fall through to the generated-name path
 // (the Thread-domain convention). ProcessStartInfo and its members route to
 // MethodMap.ProcessInfo.cs (nb7).
@@ -95,7 +99,23 @@ public static partial class MethodRefResolver
                     if (count == 1 && ps[0] == 0x12)
                         return I("il2cpp::runtime::il2cpp_process_start_info", 1, true, false, false,
                             new[] { "" }, null, false, false, false, returnTypeName: "System.Diagnostics.Process");
-                    throw new NotSupportedException($"Process.Start with {count} param(s) not wired (only (string), (string, string) and (ProcessStartInfo) -- the pathproc start takes an exe path + a command line)");
+                    // nb8 PROC-SECURE: Process.Start(fileName, userName,
+                    // SecureString password, domain) -- the net48 credential
+                    // form (Process.cs:2288). The runtime validates the args
+                    // and launches through the current-credential path.
+                    if (count == 4 && ps[0] == 0x0E && ps[1] == 0x0E && ps[2] == 0x12 && ps[3] == 0x0E)
+                        return I("il2cpp::runtime::il2cpp_process_start_secure_4", 4, true, false, false,
+                            new[] { "", "", "", "", "" }, null, false, false, false,
+                            returnTypeName: "System.Diagnostics.Process");
+                    // nb8 PROC-SECURE: Process.Start(fileName, arguments,
+                    // userName, SecureString password, domain) -- the net48
+                    // credential form (Process.cs:2299).
+                    if (count == 5 && ps[0] == 0x0E && ps[1] == 0x0E && ps[2] == 0x0E
+                        && ps[3] == 0x12 && ps[4] == 0x0E)
+                        return I("il2cpp::runtime::il2cpp_process_start_secure_5", 5, true, false, false,
+                            new[] { "", "", "", "", "", "" }, null, false, false, false,
+                            returnTypeName: "System.Diagnostics.Process");
+                    throw new NotSupportedException($"Process.Start with {count} param(s) not wired (only (string), (string, string), (ProcessStartInfo), (string, string, SecureString, string) and (string, string, string, SecureString, string) -- the pathproc start takes an exe path + a command line)");
                 case "GetCurrentProcess":
                     if (count == 0)
                         return I("il2cpp::runtime::il2cpp_process_get_current_process_id", 0, true, false, false,

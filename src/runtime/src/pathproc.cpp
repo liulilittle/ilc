@@ -899,6 +899,58 @@ int32_t il2cpp_process_start(Il2CppObject* exePath, Il2CppObject* args)
 #endif
 }
 
+// nb8 PROC-SECURE: the SecureString Start overloads (pathproc.h contract).
+namespace {
+
+// The net48 UserName/Domain getters normalize null to ""; an EMPTY UserName
+// selects the current-credential launch path (CreateProcessW), a non-empty one
+// the CreateProcessWithLogonW credential path. The credential path is reported
+// as a Win32Exception (the SecureString type is not materialized and credential
+// launch is OS/credential-state dependent -- documented deviation).
+void ThrowCredentialLaunch()
+{
+    il2cpp_throw_new(
+        "System.ComponentModel.Win32Exception,System.ComponentModel.Win32Exception,"
+        "System.ComponentModel.ExternalException,System.SystemException,System.Exception",
+        "Logon failure: unknown user name or bad password.");
+}
+
+} // namespace
+
+int32_t il2cpp_process_start_secure_4(Il2CppObject* exePath, Il2CppObject* userName,
+                                      Il2CppObject* password, Il2CppObject* domain)
+{
+    (void)password;
+    (void)domain;
+    if (exePath == nullptr)
+    {
+        return -1;
+    }
+    if (userName != nullptr)
+    {
+        ThrowCredentialLaunch();
+    }
+    return il2cpp_process_start(exePath, reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("")));
+}
+
+int32_t il2cpp_process_start_secure_5(Il2CppObject* exePath, Il2CppObject* args,
+                                      Il2CppObject* userName, Il2CppObject* password,
+                                      Il2CppObject* domain)
+{
+    (void)password;
+    (void)domain;
+    if (exePath == nullptr)
+    {
+        return -1;
+    }
+    if (userName != nullptr)
+    {
+        ThrowCredentialLaunch();
+    }
+    return il2cpp_process_start(exePath,
+        args != nullptr ? args : reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("")));
+}
+
 // nb7 PROC-STARTINFO: Process.Start(ProcessStartInfo). See pathproc.h for the
 // contract (redirect pipes + the net48 UseShellExecute/redirect guard).
 int32_t il2cpp_process_start_info(Il2CppObject* psi)
