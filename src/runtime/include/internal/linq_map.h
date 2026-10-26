@@ -304,6 +304,14 @@ void il2cpp_linq_min_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, I
 void il2cpp_linq_max_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
 void il2cpp_linq_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
 
+// P0LINQ1 (D2) follow-up: Aggregate with a DECIMAL accumulator (net48
+// Aggregate<TSource,decimal>(source, seed, Func<decimal,TSource,decimal>)).
+// The 16-byte decimal result rides an explicit result slot (the decimal T3
+// contract -- the slot is the FIRST parameter); the seed crosses as a decimal
+// value slot and the callback returns the decimal BY VALUE.
+void il2cpp_linq_aggregate_seed_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                   const runtime::Il2CppDecimal* seed, Il2CppObject* func);
+
 //------------------------------------------------------------------------------
 // P0LINQ1 (D3) -- Select with TResult = System.Decimal. net48's Select is
 // generic in TResult and decimal is a 16-byte value type, so the selector is

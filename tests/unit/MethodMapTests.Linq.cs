@@ -1202,6 +1202,19 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
     }
 
+    // Aggregate with a DECIMAL accumulator (net48 Aggregate<TSource,decimal>):
+    // the 16-byte result rides an explicit result slot and the seed crosses as a
+    // decimal value slot.
+    [Fact]
+    public void Resolve_AggregateDecimalAccumulator_MapsToDecimalResultSlotKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericAggregateDecimal("Aggregate"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(new[] { "a", "dec", "" }, resolved.ParamTypeNames);
+    }
+
     //--------------------------------------------------------------------------
     // The INDEX overloads over a List<T> (net48 Func<TSource,int,bool> /
     // Func<TSource,int,TResult>): the callback receives the element AND its
@@ -2304,6 +2317,53 @@ public class MethodMapTestsLinq
         spec.WriteByte(0x0A);
         spec.WriteCompressedInteger(1);
         spec.WriteByte(0x08);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // Aggregate<TSource,TAccumulate> with a DECIMAL accumulator (net48
+    // Aggregate<TSource,decimal>(source, seed, Func<decimal,TSource,decimal>)):
+    // genCount 2, paramCount 3, the seed/return are VAR 1 (TAccumulate) and the
+    // Func`3 carries (TAccumulate, TSource, TAccumulate). TSource is int32
+    // (0x08) and TAccumulate is the named System.Decimal VALUETYPE TypeRef.
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`3               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11)
+    private static MemoryStream SynthesizeGenericAggregateDecimal(string methodName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`3"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x03);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // return TAccumulate (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0 (TSource)
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // TAccumulate (VAR 1)
+        // Func`3 is TypeRef row 3 -> TypeDefOrRef coded (3<<2)|1 = 0x0D.
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x03);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   VAR 1
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   VAR 0
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   VAR 1
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x08);                                           // TSource = int32
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TAccumulate = System.Decimal
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

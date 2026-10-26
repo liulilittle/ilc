@@ -2431,6 +2431,37 @@ void il2cpp_linq_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* sr
 }
 
 //------------------------------------------------------------------------------
+// P0LINQ1 (D2) follow-up: Aggregate with a DECIMAL accumulator (net48
+// Aggregate<TSource,decimal>(source, seed, Func<decimal,TSource,decimal>)).
+// The 16-byte decimal result rides an explicit result slot (the decimal T3
+// contract -- the slot is the FIRST parameter); the seed crosses as a decimal
+// value slot and the callback returns the decimal BY VALUE. An empty source
+// returns the seed unchanged (net48).
+// GC SAFETY: the delegate and the source are rooted across every callback.
+//------------------------------------------------------------------------------
+typedef runtime::Il2CppDecimal (*DecAccFn)(runtime::Il2CppDecimal acc, int32_t elem);
+typedef runtime::Il2CppDecimal (*DecAccThisFn)(Il2CppObject* self, runtime::Il2CppDecimal acc, int32_t elem);
+
+void il2cpp_linq_aggregate_seed_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                   const runtime::Il2CppDecimal* seed, Il2CppObject* func)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(func, "func");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    runtime::Il2CppDecimal acc = *seed;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t elem = I4At(src, i);
+        acc = d->target != nullptr
+            ? reinterpret_cast<DecAccThisFn>(d->methodPtr)(d->target, acc, elem)
+            : reinterpret_cast<DecAccFn>(d->methodPtr)(acc, elem);
+    }
+    std::memcpy(result, &acc, sizeof(runtime::Il2CppDecimal));
+}
+
+//------------------------------------------------------------------------------
 // P0LINQ1 (D3) -- Select with TResult = System.Decimal.
 //
 // net48's Select is generic in TResult; decimal is a 16-byte value type, and

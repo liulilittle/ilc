@@ -1666,6 +1666,15 @@ public static partial class MethodRefResolver
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "ref",
                         _ => "",
                     };
+                    if (acc.Length == 0 && accByte == 0x11 && IsDecimalGenArg(genArgNames, 1))
+                    {
+                        // DECIMAL accumulator (net48 Aggregate<TSource,decimal>):
+                        // the 16-byte result rides an explicit result slot (the
+                        // decimal T3 contract) and the seed crosses as a decimal
+                        // value slot.
+                        return I("il2cpp::il2cpp_linq_aggregate_seed_dec", 3, true, false, false,
+                            new[] { "a", "dec", "" }, resultKind: "dec");
+                    }
                     if (acc.Length == 0)
                     {
                         throw new NotSupportedException(

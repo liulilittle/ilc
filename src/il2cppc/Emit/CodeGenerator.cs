@@ -2592,6 +2592,15 @@ public static class CodeGenerator
             // the target falls to the int32 default.
             else if (asf.Value is StaticFieldExpr sg && sg.FieldName == "System.Guid.Empty")
                 locKind[asf.Target] = "guid";
+            // dec3 section 5 Bug1 (follow-up): a decimal static field read
+            // (ldsfld System.Decimal::Zero/One -- the C# compiler folds the 0m/1m
+            // literals to the BCL Zero/One fields) must declare the target
+            // Il2CppDecimal, not int32_t. The generic loop below SKIPS
+            // StaticFieldExpr ("already classified above"), so without this seed
+            // the declaration site (locKind.TryGetValue -> "val") falls to
+            // int32_t and the 16-byte struct copy is ill-typed.
+            else if (asf.Value is StaticFieldExpr sd && sd.FieldName.StartsWith("System.Decimal.", StringComparison.Ordinal))
+                locKind[asf.Target] = "dec";
         }
         // R7-C4244 (winforms1): a static IntPtr/UIntPtr read (storage
         // intptr_t/uintptr_t) assigned to a temp/local must keep the full
