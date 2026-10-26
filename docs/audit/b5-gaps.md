@@ -236,18 +236,40 @@ provider forms were LOUD. Now wired to the new
 `icall_stringbuilder_append_format_{1,3}_provider` (the 2-argument form already
 existed). e2e: `sb-provider-fmt`.
 
+**BATCH 7 follow-up:** the RNG named-CSP ctors (`RNGCryptoServiceProvider(string)`
+/ `(byte[])` / `(CspParameters)`) are now wired too -- see 8f. The
+`CspParameters` ctor maps the CLASS (0x12) argument onto the same no-op
+`icall_rng_ctor` (net48 delegates to `this((CspParameters) null)`; the OS CSPRNG
+is used regardless of the container name). The mapping also fixes a latent
+transpiler fold desync: `ParamCount` now carries the explicit IL arity (the
+dropped argument is popped from the fold's shadow stack), so a method that also
+has a loop no longer fails the fold with "fall-through stack height 0 != join
+slots 2". e2e: `rng-csp-ctor`.
+
 ### 8c. DefaultInterpolatedStringHandler.AppendFormatted<T> over a VALUE type
 
 The primitive slots (int/long/double/bool/char/string) were wired; a generic
 value type `T` (0x11 -- decimal / DateTime / Guid) was LOUD for the 1/2/3-arg
 forms. Now wired: the MethodSpec generic-arg NAME table names the closed type,
-the transpiler boxes the value slot (`box:dec` / `box:dt` / `box:guid`), and the
-runtime renders the box through the composite engine
+the transpiler boxes the value slot (`box:dec` / `box:dt` / `box:guid` /
+`box:ts`), and the runtime renders the box through the composite engine
 (`icall_stringbuilder_append_o[_w/_f/_wf]`). The composite engine also learned
 the DateTime/Guid FORMAT specifier (net48 applies `IFormattable.ToString(format,
 provider)` in `string.Format` too -- probe-pinned: `string.Format("{0:yyyy}",
 dt)` -> "2020"). e2e: `interp-valtype` (net8 oracle -- the handler is a net6+
 lowering).
+
+**BATCH 7 follow-up:** a USER struct/enum now boxes through the new
+`box:us:<name>` cast. `CodeGenerator.EmitUserStructBoxCast` resolves the
+TypeDef and applies the GC-safety gate: an enum boxes through `icall_box_enum`
+(the width-aware int64 payload), a reference-free user struct through
+`icall_box_user_struct`, and a user struct with GC reference fields is REJECTED
+(icall_box_user_struct would place an object reference at slot 1 and the boxed
+mark scan indexes refFieldBitmap from the object header -- a ref field would be
+miscounted as a pure header, a GC-safety leak). The composite engine honors the
+format specifier for a boxed enum (G/D/F/X -- net48 IFormattable.ToString) and
+falls back to the reflected ToString / ValueType name for a user struct. e2e:
+`interp-userstruct`.
 
 ### 8d. HMAC Key property + keyless ctor
 
@@ -270,25 +292,40 @@ text -> FormatException, an out-of-range magnitude or a negative input to an
 unsigned target -> OverflowException, and `ToSingle` throws OverflowException
 beyond Single.MaxValue (not a silent Infinity). e2e: `conv-str-parse`.
 
+**BATCH 7 follow-up:** the value-source residuals are now wired (each with the
+net48 Reference-Source contract):
+* `ToSingle(bool)` -> `icall_conv_r4_i4` (`value ? 1f : 0f`).
+* `ToSingle(char)` -> `icall_convert_to_single_char`, a new throwing icall
+  (net48 char has no `IConvertible.ToSingle`; the implicit char->float widening
+  exists but Convert does not expose it -- probe-pinned against the oracle).
+* `ToSingle(uint)` -> `icall_conv_r4_u4` over the new `"u4"` reinterpret cast.
+* `ToUInt32(uint)` -> `icall_conv_u4_i4` (the identity bit pattern).
+* `ToDouble(uint)` -> `icall_conv_d_u4` over `"u4"` (exact).
+* `ToDouble(float)` -> `icall_conv_d_d`, a new identity helper (the float
+  source rides an already-widened double slot).
+
+The `"u4"` cast code reinterprets the int32 carrier (zero-extension, so
+uint >= 2^31 stays positive). e2e: `conv-b7`.
+
 ### 8f. Still LOUD (unchanged, each with a reason)
 
 * `HashAlgorithm.Create(string)` -- depends on machine-level crypto config
   (CryptoConfig); not statically analyzable from the call site.
-* `TransformBlock` / `TransformFinalBlock` on the hash/HMAC family (v2),
-  `ComputeHash(Stream)` (v2), `Aes` parameterless `CreateEncryptor` /
-  `CreateDecryptor`, RNG named-CSP ctors, `Aes.TransformBlock` (v2).
 * `HashAlgorithm.Hash` -- net48 caches the last ComputeHash digest and returns
   a clone (NullReferenceException before the first call, ObjectDisposedException
   after Clear); this runtime's ComputeHash is stateless per call, so the cached
   value would need a new per-instance ref field (a class-descriptor change).
-* `HashAlgorithm.Clear()` -- net48 disposes the object (a later `Hash` throws
-  ObjectDisposedException); this runtime's Dispose is a no-op and tracks no
-  disposed state.
-* `Convert.ToByte/.../ToSingle` over a `decimal` source, and the
-  `char`-source narrow targets (net48 semantics not pinned).
+  WIRED by batch 6 (the Il2CppHashState hashValue field).
+* `HashAlgorithm.Clear()` -- net48 disposes the object (a later `Hash`
+  throws ObjectDisposedException); this runtime's Dispose is a no-op and tracks
+  no disposed state. WIRED by batch 6 (the disposed flag).
+* `Convert.ToByte/.../ToSingle` over a `decimal` source (the decimal-source
+  narrow targets are wired by batch 6; the `char`-source narrow targets by
+  batch 6 too), and the `object`-source Convert overloads.
 * `DefaultInterpolatedStringHandler.AppendFormatted<T>` over a value type OTHER
-  than decimal/DateTime/Guid (the box helper is per-type; the MethodSpec name
-  table would need a further box cast each).
+  than decimal/DateTime/Guid/TimeSpan and a user struct/enum (batch 7) -- a
+  BCL value type with no generated descriptor (e.g. a `KeyValuePair`) still has
+  no box helper; the cast rejects it LOUD.
 
 ### 8g. HashAlgorithm object surface (HashSize / Initialize) -- WIRED
 
@@ -296,3 +333,15 @@ beyond Single.MaxValue (not a silent Infinity). e2e: `conv-str-parse`.
 SHA-384 384 / SHA-512 512) and `Initialize` (a no-op -- ComputeHash is stateless
 per call) were LOUD. Now wired to `icall_<algo>_get_hash_size` /
 `icall_<algo>_initialize`. e2e: `hash-obj-surface`.
+
+### 8h. Aes.TransformBlock (v2 streaming) -- WIRED (batch 7)
+
+`ICryptoTransform.TransformBlock` on the AES transform was LOUD (v2). Now wired
+to `icall_aes_transform_block` with the net48 `RijndaelManagedTransform`
+semantics: inputCount is a positive multiple of the block size; encryption
+chains every block with the running IV; decryption buffers the last ciphertext
+block (the padding can only be stripped by `TransformFinalBlock`). The
+`Il2CppAesTransformObject` gains the running chain + the decrypt pending block
+(non-reference bytes, so the refFieldBitmap and key/iv/ctx offsets are
+unchanged); `TransformFinalBlock` uses the running chain and resets it (net48
+`Reset`). e2e: `aes-transform-block`.
