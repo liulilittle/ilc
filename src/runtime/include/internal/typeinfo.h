@@ -924,6 +924,14 @@ Il2CppArray* il2cpp_typeinfo_get_members_flags(Il2CppObject* typeName, int32_t b
 Il2CppArray* il2cpp_typeinfo_get_members_flags_name(Il2CppObject* typeName,
                                                     Il2CppObject* memberName,
                                                     int32_t bindingAttr);
+// REFL6A (item C) -- Type.GetMember(string, MemberTypes, BindingFlags): net48's
+// 3-param form (type.cs:768). The same five-slice union + simple-name match,
+// additionally gated by the MemberTypes bit set (Constructor 0x1 / Event 0x2 /
+// Field 0x4 / Method 0x8 / Property 0x10). Same exception contract.
+Il2CppArray* il2cpp_typeinfo_get_members_flags_name_types(Il2CppObject* typeName,
+                                                         Il2CppObject* memberName,
+                                                         int32_t memberTypes,
+                                                         int32_t bindingAttr);
 
 //------------------------------------------------------------------------------
 // REFL6A (item A) -- the System.Type enum surface. The four Type.GetEnum*
@@ -1094,6 +1102,14 @@ Il2CppObject* il2cpp_assemblyinfo_get_type(Il2CppObject* asmName, Il2CppObject* 
 // TypeLoadException (net48), otherwise nullptr (net48's not-found -> null).
 Il2CppObject* il2cpp_assemblyinfo_get_type_ex(Il2CppObject* asmName, Il2CppObject* typeName,
                                               int32_t throwOnError, Il2CppObject* inputAsmName);
+// REFL-ARITY: Assembly.GetType(string, bool throwOnError, bool ignoreCase) --
+// the 3-param form (reflection_assembly.cs:758). Same input-assembly scoping as
+// il2cpp_assemblyinfo_get_type; the extra flag folds ASCII case on the registry
+// key comparison (net48's ignoreCase semantics). Delegates to
+// il2cpp_type_get_type_ex (which already carries the ignoreCase variant).
+Il2CppObject* il2cpp_assemblyinfo_get_type_ex2(Il2CppObject* asmName, Il2CppObject* typeName,
+                                               int32_t throwOnError, int32_t ignoreCase,
+                                               Il2CppObject* inputAsmName);
 Il2CppArray* il2cpp_assemblyinfo_get_types(Il2CppObject* asmName, Il2CppObject* inputAsmName);
 
 //------------------------------------------------------------------------------

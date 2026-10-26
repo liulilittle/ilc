@@ -112,6 +112,18 @@ public static partial class MethodRefResolver
             // (including an untracked one) folds to the constant 0, which is the
             // exact net48 answer and needs no runtime type test.
             case "Equals":
+                // net48 Type declares BOTH Equals(Object o) (type.cs:1781) and
+                // the virtual Equals(Type o) (type.cs:1792). The (Type)
+                // overload rides the CLASS signature byte 0x12 -- distinct from
+                // the Object overload's 0x1C -- so the signature byte alone
+                // identifies it. Both the receiver and the argument are Type
+                // VALUES (full-name strings in the simplified model), so type
+                // identity reduces to ORDINAL name equality (the same
+                // icall_string_equals_static the Type domain's op_Equality
+                // uses); the descriptor-taking icall_type_equals would not
+                // compile against the string receiver.
+                if (ps.Length == 1 && ps[0] == 0x12)
+                    return I("il2cpp::runtime::icall_string_equals_static", 1, true, false, true, new[] { "", "" });
                 if (ps.Length == 1 && arg0Type == "System.Type")
                     return I("il2cpp::runtime::icall_type_equals", 1, true, false, true, new[] { "", "" });
                 if (ps.Length == 1 && ps[0] == 0x1C)
@@ -422,7 +434,15 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_members_flags_name", 2, true, true, true,
                         new[] { "", "", "i" }, returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetMember with {ps.Length} parameter(s) not wired in refl6a -- only the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_members_flags_name");
+                // REFL-ARITY: Type.GetMember(string name, MemberTypes type,
+                // BindingFlags bindingAttr) -- net48's 3-param form
+                // (type.cs:768). MemberTypes and BindingFlags are both int32
+                // enums ("i"); the runtime filters the five-slice union by
+                // BOTH (each slice gated by its dedicated MemberTypes bit).
+                if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x11)
+                    return I("il2cpp::il2cpp_typeinfo_get_members_flags_name_types", 3, true, true, true,
+                        new[] { "", "", "i", "i" }, returnTypeName: "System.String[]");
+                throw new NotSupportedException($"Type.GetMember with {ps.Length} parameter(s) not wired in refl6a/refl-arity -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_members_flags_name; the (string, MemberTypes, BindingFlags) overload to il2cpp_typeinfo_get_members_flags_name_types");
             // RF-N7 (NEXT2-DECISION section 2 RF-N7): Type.MakeGenericType
             // -- explicit LOUD. The runtime has no generic-argument fabrication
             // (no fabrication, the genericArgNames Plan B stays deferred) and no SRE-like
@@ -841,8 +861,16 @@ public static partial class MethodRefResolver
                 if (count == 0)
                     return new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true,
                         Array.Empty<bool>(), true, ReturnTypeName: "System.Reflection.AssemblyName");
+                // REFL-ARITY: Assembly.GetName(bool copiedName) -- net48's
+                // arity-1 form (reflection_assembly.cs:720). The copiedName flag
+                // only selects a defensive copy of the returned AssemblyName;
+                // the simplified model's AssemblyName VALUE is the assembly
+                // simple-name string, so both overloads are the identity.
+                if (count == 1)
+                    return new ResolvedMethod(ResolvedMethod.IdentityMarker, 1, false, true, true,
+                        new[] { false }, true, ReturnTypeName: "System.Reflection.AssemblyName");
                 throw new NotSupportedException(
-                    $"Assembly::GetName with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () overload is identity (the AssemblyName VALUE is the assembly simple-name string)");
+                    $"Assembly::GetName with {count} parameter(s) not wired in p-refl2-gapmatrix/refl-arity -- the () overload and the (bool copiedName) overload are identity (the AssemblyName VALUE is the assembly simple-name string)");
             case "GetType":
                 if (count == 1 && ps[0] == 0x0E)
                     // pc = the EXPLICIT arg count (the receiver is popped
@@ -858,8 +886,16 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_assemblyinfo_get_type_ex", 2, true, true, true,
                         new[] { "", "", "i" }, returnTypeName: "System.Type",
                         appendLiterals: new[] { $"il2cpp::il2cpp_string_intern_literal(\"{asmName}\")" });
+                // REFL-ARITY: Assembly.GetType(string, bool throwOnError, bool
+                // ignoreCase) -- net48's 3-param form (reflection_assembly.cs:
+                // 758). Both bools ride int32 slots; the runtime folds ASCII
+                // case when ignoreCase != 0 (il2cpp_assemblyinfo_get_type_ex2).
+                if (count == 3 && ps[0] == 0x0E && ps[1] == 0x02 && ps[2] == 0x02)
+                    return I("il2cpp::il2cpp_assemblyinfo_get_type_ex2", 3, true, true, true,
+                        new[] { "", "", "i", "i" }, returnTypeName: "System.Type",
+                        appendLiterals: new[] { $"il2cpp::il2cpp_string_intern_literal(\"{asmName}\")" });
                 throw new NotSupportedException(
-                    $"Assembly::GetType with {count} parameter(s) not wired in p-refl2-gapmatrix/refl-arity -- the (string) overload maps to il2cpp_assemblyinfo_get_type; the (string, bool throwOnError) overload to il2cpp_assemblyinfo_get_type_ex");
+                    $"Assembly::GetType with {count} parameter(s) not wired in p-refl2-gapmatrix/refl-arity -- the (string) overload maps to il2cpp_assemblyinfo_get_type; the (string, bool throwOnError) overload to il2cpp_assemblyinfo_get_type_ex; the (string, bool throwOnError, bool ignoreCase) overload to il2cpp_assemblyinfo_get_type_ex2");
             case "GetTypes":
                 if (count == 0)
                     return I("il2cpp::il2cpp_assemblyinfo_get_types", 0, true, true, true,

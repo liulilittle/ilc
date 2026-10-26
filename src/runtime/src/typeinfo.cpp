@@ -2592,6 +2592,112 @@ Il2CppArray* il2cpp_typeinfo_get_members_flags_name(Il2CppObject* typeName,
 }
 
 //------------------------------------------------------------------------------
+// REFL6A (item C) -- Type.GetMember(string, MemberTypes, BindingFlags): net48's
+// 3-param form (type.cs:768). The five-slice union (methods incl. accessors /
+// ctors own-only / properties / events / fields) is filtered by BOTH the
+// BindingFlags AND the MemberTypes bit set; each slice is gated by its
+// dedicated MemberTypes bit (Constructor 0x1 / Event 0x2 / Field 0x4 /
+// Method 0x8 / Property 0x10 -- the .NET Framework enum values). Same
+// name-match + exception contract as il2cpp_typeinfo_get_members_flags_name.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_typeinfo_get_members_flags_name_types(Il2CppObject* typeName,
+                                                         Il2CppObject* memberName,
+                                                         int32_t memberTypes,
+                                                         int32_t bindingAttr)
+{
+    if (memberName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("name");
+    }
+    char nameBuf[kNameBufferSize];
+    if (typeName == nullptr || !AsciiFromManagedString(typeName, nameBuf)) return EmptyStringArray();
+    char want[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, want)) return EmptyStringArray();
+    if (want[0] == '\0') return EmptyStringArray();
+    const Il2CppTypeInfo* info = il2cpp_typeinfo_lookup(nameBuf);
+    if (info == nullptr) return EmptyStringArray();
+    const bool wantMethod = (memberTypes & 0x8) != 0;
+    const bool wantCtor = (memberTypes & 0x1) != 0;
+    const bool wantProp = (memberTypes & 0x10) != 0;
+    const bool wantEvt = (memberTypes & 0x2) != 0;
+    const bool wantField = (memberTypes & 0x4) != 0;
+    int32_t methodN = 0, ctorN = 0, propN = 0, evtN = 0, fieldN = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (wantMethod && scan->methods != nullptr)
+            for (int32_t i = 0; i < scan->methodCount; ++i)
+                if (BindingMethod(scan, scan->methods[i], bindingAttr, scan != info)
+                    && scan->methods[i].name != nullptr
+                    && std::strcmp(scan->methods[i].name, want) == 0) ++methodN;
+        if (wantProp && scan->properties != nullptr)
+            for (int32_t i = 0; i < scan->propertyCount; ++i)
+                if (BindingProperty(scan, scan->properties[i], bindingAttr, scan != info)
+                    && scan->properties[i].name != nullptr
+                    && std::strcmp(scan->properties[i].name, want) == 0) ++propN;
+        if (wantEvt && scan->events != nullptr)
+            for (int32_t i = 0; i < scan->eventCount; ++i)
+                if (BindingEvent(scan, scan->events[i], bindingAttr, scan != info)
+                    && scan->events[i].name != nullptr
+                    && std::strcmp(scan->events[i].name, want) == 0) ++evtN;
+        if (wantField && scan->fields != nullptr)
+            for (int32_t i = 0; i < scan->fieldCount; ++i)
+                if (BindingField(scan, scan->fields[i], bindingAttr, scan != info)
+                    && scan->fields[i].name != nullptr
+                    && std::strcmp(scan->fields[i].name, want) == 0) ++fieldN;
+    }
+    if (wantCtor && info->methods != nullptr)
+        for (int32_t i = 0; i < info->methodCount; ++i)
+            if (BindingCtor(info, info->methods[i], bindingAttr, false)
+                && info->methods[i].name != nullptr
+                && std::strcmp(info->methods[i].name, want) == 0) ++ctorN;
+    Il2CppArray* result = BuildNameArray(methodN + ctorN + propN + evtN + fieldN);
+    int32_t dst = 0;
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (wantMethod && scan->methods != nullptr)
+            for (int32_t i = 0; i < scan->methodCount; ++i)
+                if (BindingMethod(scan, scan->methods[i], bindingAttr, scan != info)
+                    && scan->methods[i].name != nullptr
+                    && std::strcmp(scan->methods[i].name, want) == 0)
+                    StoreName(result, dst++, scan->methods[i].name);
+    }
+    if (wantCtor && info->methods != nullptr)
+        for (int32_t i = 0; i < info->methodCount; ++i)
+            if (BindingCtor(info, info->methods[i], bindingAttr, false)
+                && info->methods[i].name != nullptr
+                && std::strcmp(info->methods[i].name, want) == 0)
+                StoreName(result, dst++, info->methods[i].name);
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (wantProp && scan->properties != nullptr)
+            for (int32_t i = 0; i < scan->propertyCount; ++i)
+                if (BindingProperty(scan, scan->properties[i], bindingAttr, scan != info)
+                    && scan->properties[i].name != nullptr
+                    && std::strcmp(scan->properties[i].name, want) == 0)
+                    StoreName(result, dst++, scan->properties[i].name);
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (wantEvt && scan->events != nullptr)
+            for (int32_t i = 0; i < scan->eventCount; ++i)
+                if (BindingEvent(scan, scan->events[i], bindingAttr, scan != info)
+                    && scan->events[i].name != nullptr
+                    && std::strcmp(scan->events[i].name, want) == 0)
+                    StoreName(result, dst++, scan->events[i].name);
+    }
+    for (const Il2CppTypeInfo* scan = info; scan != nullptr; scan = scan->baseType)
+    {
+        if (wantField && scan->fields != nullptr)
+            for (int32_t i = 0; i < scan->fieldCount; ++i)
+                if (BindingField(scan, scan->fields[i], bindingAttr, scan != info)
+                    && scan->fields[i].name != nullptr
+                    && std::strcmp(scan->fields[i].name, want) == 0)
+                    StoreName(result, dst++, scan->fields[i].name);
+    }
+    return result;
+}
+
+//------------------------------------------------------------------------------
 // REFL6A (item A) -- the System.Type enum surface. Each Type.GetEnum* instance
 // method resolves the receiver (the Type VALUE full-name string) to a
 // REGISTERED ENUM (the enumext name-keyed metadata registry) and then
@@ -5526,6 +5632,18 @@ Il2CppObject* il2cpp_assemblyinfo_get_type_ex(Il2CppObject* asmName, Il2CppObjec
                          "Could not load type.");
     }
     return found;
+}
+
+// REFL-ARITY -- Assembly.GetType(string, bool throwOnError, bool ignoreCase) --
+// the 3-param form (reflection_assembly.cs:758). Same input-assembly scoping;
+// the ignoreCase flag delegates to il2cpp_type_get_type_ex (which folds ASCII
+// case on the registry key comparison -- net48's ignoreCase semantics).
+Il2CppObject* il2cpp_assemblyinfo_get_type_ex2(Il2CppObject* asmName, Il2CppObject* typeName,
+                                               int32_t throwOnError, int32_t ignoreCase,
+                                               Il2CppObject* inputAsmName)
+{
+    if (!NamesEqual(asmName, inputAsmName)) return nullptr;
+    return il2cpp_type_get_type_ex(typeName, throwOnError, ignoreCase);
 }
 
 Il2CppArray* il2cpp_assemblyinfo_get_types(Il2CppObject* asmName, Il2CppObject* inputAsmName)

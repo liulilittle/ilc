@@ -179,6 +179,25 @@ public class MethodMapTestsType
         Assert.Equal(1, resolved.ParamCount);
     }
 
+    [Fact]
+    public void Resolve_Type_Equals_OnTypeOverload_MapsToTypeEqualsIcall()
+    {
+        // net48 Type declares BOTH Equals(Object o) (type.cs:1781) and the
+        // virtual Equals(Type o) (type.cs:1792). The (Type) overload rides the
+        // CLASS signature byte 0x12 -- distinct from the Object overload's
+        // 0x1C -- so the signature byte alone identifies it. Both operands are
+        // Type VALUES (full-name strings), so identity reduces to ordinal name
+        // equality (the descriptor-taking icall_type_equals would not compile
+        // against the string receiver).
+        var resolved = ResolveMember(Synthesize("System", "Type", "Equals",
+            new byte[] { 0x00, 0x01, 0x02, 0x12, 0x05 }), "Equals"); // (Type)
+
+        Assert.Equal("il2cpp::runtime::icall_string_equals_static", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
     //--------------------------------------------------------------------------
     // GetProperty/GetMethod/GetField (string) -- M5.5 typeinfo queries: the
     // receiver is the Type VALUE (full-name string); the runtime resolves
@@ -957,6 +976,61 @@ public class MethodMapTestsType
         Assert.Equal("System.Type", resolved.ReturnTypeName);
         Assert.True(resolved.IsInstance);
         Assert.Equal(2, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // REFL-ARITY -- Assembly.GetType(string, bool throwOnError, bool ignoreCase):
+    // net48's 3-param form (reflection_assembly.cs:758). Both bools ride the
+    // int32 slots; the runtime folds ASCII case when ignoreCase != 0
+    // (il2cpp_assemblyinfo_get_type_ex2).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Assembly_GetTypeThrowOnErrorIgnoreCase_MapsToAssemblyTypeEx2Icall()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "Assembly", "GetType",
+            new byte[] { 0x00, 0x03, 0x12, 0x05, 0x0E, 0x02, 0x02 }), "GetType"); // (string, bool, bool)
+
+        Assert.Equal("il2cpp::il2cpp_assemblyinfo_get_type_ex2", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Type", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(3, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // REFL-ARITY -- Assembly.GetName(bool copiedName): net48's arity-1 form
+    // (reflection_assembly.cs:720). The flag only selects a defensive copy of
+    // the returned AssemblyName; the simplified model's AssemblyName VALUE is
+    // the assembly simple-name string, so both overloads are the identity.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Assembly_GetNameCopiedName_IsIdentity()
+    {
+        var resolved = ResolveMember(Synthesize("System.Reflection", "Assembly", "GetName",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x02 }), "GetName"); // (bool)
+
+        Assert.Equal(ResolvedMethod.IdentityMarker, resolved.CppName);
+        Assert.Equal("System.Reflection.AssemblyName", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // REFL-ARITY -- Type.GetMember(string, MemberTypes, BindingFlags): net48's
+    // 3-param form (type.cs:768). MemberTypes and BindingFlags are both int32
+    // enum carriers ("i"); the runtime filters the five-slice union by BOTH.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Type_GetMemberTypes_MapsToMembersFlagsNameTypesIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Type", "GetMember",
+            new byte[] { 0x00, 0x03, 0x12, 0x05, 0x0E, 0x11, 0x05, 0x11, 0x05 }), "GetMember"); // (string, MemberTypes, BindingFlags)
+
+        Assert.Equal("il2cpp::il2cpp_typeinfo_get_members_flags_name_types", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
     }
 
     //--------------------------------------------------------------------------
