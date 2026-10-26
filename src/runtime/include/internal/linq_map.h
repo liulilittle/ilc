@@ -311,6 +311,23 @@ Il2CppArray* il2cpp_linq_select_d_dec(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_f_dec(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dec_dec(Il2CppArray* src, Il2CppObject* sel);
 
+// The DECIMAL-source Select with a VALUE result (net48 Select<decimal,TResult>
+// with a non-decimal TResult): int32 / int64 / double / float. The element
+// crosses as a 16-byte decimal cell BY VALUE.
+Il2CppArray* il2cpp_linq_select_dec_i4(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_dec_i8(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_dec_d(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_dec_f(Il2CppArray* src, Il2CppObject* sel);
+
+// The DECIMAL-source INDEX Select (net48 Select<decimal,int,TResult>): the
+// selector receives the element AND its 0-based source index. TResult is int32 /
+// int64 / double / float / decimal.
+Il2CppArray* il2cpp_linq_select_idx_dec_i4(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_dec_i8(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_dec_d(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_dec_f(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_dec_dec(Il2CppArray* src, Il2CppObject* sel);
+
 // p0linq4 (D2): Select with an (element, index) selector returning decimal --
 // the Func<TSource,int,decimal> overload over an int32 source. Same 16-byte
 // result-slot contract; the selector is invoked EXACTLY ONCE per element with

@@ -1594,6 +1594,52 @@ public class MethodMapTestsLinq
     }
 
     //==========================================================================
+    // The DECIMAL-source Select with a VALUE result (net48
+    // Select<decimal,TResult> and the (element,index) form): int32 / int64 /
+    // double / float. Before this change the non-decimal results LOUD-rejected
+    // ("the decimal-element source surface covers a System.Decimal result only").
+    //==========================================================================
+    [Theory]
+    [InlineData(0x08, 2, "il2cpp::il2cpp_linq_select_dec_i4", "System.Int32[]")]
+    [InlineData(0x0A, 2, "il2cpp::il2cpp_linq_select_dec_i8", "System.Int64[]")]
+    [InlineData(0x0D, 2, "il2cpp::il2cpp_linq_select_dec_d", "System.Double[]")]
+    [InlineData(0x0C, 2, "il2cpp::il2cpp_linq_select_dec_f", "System.Double[]")]
+    [InlineData(0x08, 3, "il2cpp::il2cpp_linq_select_idx_dec_i4", "System.Int32[]")]
+    [InlineData(0x0A, 3, "il2cpp::il2cpp_linq_select_idx_dec_i8", "System.Int64[]")]
+    [InlineData(0x0D, 3, "il2cpp::il2cpp_linq_select_idx_dec_d", "System.Double[]")]
+    public void Resolve_DecimalSourceSelect_ValueResult_MapsToDecimalValueKernel(
+        byte resByte, int funcArgs, string icall, string retType)
+    {
+        var memberRef = funcArgs == 3
+            ? new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x03, 0x13, 0x00, 0x08, resByte }
+            : new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, resByte };
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource("Select", memberRef, resByte));
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(retType, resolved.ReturnTypeName);
+    }
+
+    // The decimal-source INDEX Select with a decimal result (net48
+    // Select<decimal,int,decimal>).
+    [Fact]
+    public void Resolve_DecimalSourceSelect_IndexDecimal_MapsToSelectIdxDecDec()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource("Select",
+            new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x03, 0x13, 0x00, 0x08, 0x11 },
+            0x11));
+        Assert.Equal("il2cpp::il2cpp_linq_select_idx_dec_dec", resolved.CppName);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
+    //==========================================================================
     // D-LINQ-FAM (loud-linq-fam): the FAMILY-GENERIC element operators over the
     // int64/float/double/narrow array families. The runtime ships ONE kernel per
     // operator (linq_family.h) with the cell code as the trailing literal; the
@@ -2035,6 +2081,48 @@ public class MethodMapTestsLinq
         var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
             mdb.GetOrAddBlob(memberRefSignature));
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
+        return Serialize(mdb);
+    }
+
+        // DECIMAL-source helper: a MethodSpec whose TSource is a VALUETYPE TypeRef
+    // (System.Decimal) so IsDecimalGenArg resolves the name; TResult is the
+    // raw dispatch byte. Carries the IEnumerable`1 / Func`2 / Decimal TypeRefs
+    // so the Decode path can resolve them.
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11)
+    private static MemoryStream SynthesizeGenericDecimalSource(string methodName, byte[] memberRefSignature,
+        byte resByte)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(memberRefSignature));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger((MetadataTokens.GetRowNumber(decRef) << 2) | 1);
+        if (resByte == 0x11)
+        {
+            spec.WriteByte(0x11);
+            spec.WriteCompressedInteger((MetadataTokens.GetRowNumber(decRef) << 2) | 1);
+        }
+        else
+        {
+            spec.WriteByte(resByte);
+        }
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }
 

@@ -517,6 +517,72 @@ runtime::Il2CppDecimal InvokeSelDecDecKey(Il2CppDelegate* d, const runtime::Il2C
         : reinterpret_cast<SelDecDecKeyFn>(d->methodPtr)(v);
 }
 
+// The DECIMAL-source selector returning a double / float result (net48
+// Select<decimal,double> / Select<decimal,float>).
+typedef double (*SelDecDFn)(runtime::Il2CppDecimal);
+typedef double (*SelDecDThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+typedef float (*SelDecFFn)(runtime::Il2CppDecimal);
+typedef float (*SelDecFThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+
+double InvokeSelDecD(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecDThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecDFn>(d->methodPtr)(v);
+}
+
+float InvokeSelDecF(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecFThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDecFFn>(d->methodPtr)(v);
+}
+
+// The DECIMAL-source INDEX selector ABIs (net48 Select<decimal,int,TResult>):
+// the element crosses by value and the zero-based source index as the second
+// argument.
+typedef int32_t (*SelDecIdxI4Fn)(runtime::Il2CppDecimal, int32_t);
+typedef int32_t (*SelDecIdxI4ThisFn)(Il2CppObject*, runtime::Il2CppDecimal, int32_t);
+typedef int64_t (*SelDecIdxI8Fn)(runtime::Il2CppDecimal, int32_t);
+typedef int64_t (*SelDecIdxI8ThisFn)(Il2CppObject*, runtime::Il2CppDecimal, int32_t);
+typedef double (*SelDecIdxDFn)(runtime::Il2CppDecimal, int32_t);
+typedef double (*SelDecIdxDThisFn)(Il2CppObject*, runtime::Il2CppDecimal, int32_t);
+typedef float (*SelDecIdxFFn)(runtime::Il2CppDecimal, int32_t);
+typedef float (*SelDecIdxFThisFn)(Il2CppObject*, runtime::Il2CppDecimal, int32_t);
+typedef runtime::Il2CppDecimal (*SelDecIdxDecFn)(runtime::Il2CppDecimal, int32_t);
+typedef runtime::Il2CppDecimal (*SelDecIdxDecThisFn)(Il2CppObject*, runtime::Il2CppDecimal, int32_t);
+
+int32_t InvokeSelDecIdxI4(Il2CppDelegate* d, const runtime::Il2CppDecimal& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecIdxI4ThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<SelDecIdxI4Fn>(d->methodPtr)(v, index);
+}
+int64_t InvokeSelDecIdxI8(Il2CppDelegate* d, const runtime::Il2CppDecimal& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecIdxI8ThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<SelDecIdxI8Fn>(d->methodPtr)(v, index);
+}
+double InvokeSelDecIdxD(Il2CppDelegate* d, const runtime::Il2CppDecimal& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecIdxDThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<SelDecIdxDFn>(d->methodPtr)(v, index);
+}
+float InvokeSelDecIdxF(Il2CppDelegate* d, const runtime::Il2CppDecimal& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecIdxFThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<SelDecIdxFFn>(d->methodPtr)(v, index);
+}
+runtime::Il2CppDecimal InvokeSelDecIdxDec(Il2CppDelegate* d, const runtime::Il2CppDecimal& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecIdxDecThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<SelDecIdxDecFn>(d->methodPtr)(v, index);
+}
+
 runtime::Il2CppDateTime InvokeSelDecDtKey(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
 {
     return d->target != nullptr
@@ -2377,6 +2443,160 @@ Il2CppArray* il2cpp_linq_select_f_dec(Il2CppArray* src, Il2CppObject* sel)
 Il2CppArray* il2cpp_linq_select_dec_dec(Il2CppArray* src, Il2CppObject* sel)
 {
     return SelectToDecimal(src, sel, 4);
+}
+
+//------------------------------------------------------------------------------
+// The DECIMAL-source Select with a VALUE result (net48
+// Select<decimal,TResult> with a non-decimal TResult): int32 / int64 / double /
+// float. The element crosses as a 16-byte decimal cell BY VALUE.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_select_dec_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(4, kElemKindI4, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) = InvokeSelDecI4(d, *DecAt(src, i));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_dec_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindI8, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = InvokeSelDecI8(d, *DecAt(src, i));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_dec_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindD, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = InvokeSelDecD(d, *DecAt(src, i));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_dec_f(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindF, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+            static_cast<double>(InvokeSelDecF(d, *DecAt(src, i)));
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// The DECIMAL-source INDEX Select (net48 Select<decimal,int,TResult>): the
+// selector receives the element AND its zero-based source index. TResult is
+// int32 / int64 / double / float / decimal.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_select_idx_dec_i4(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(4, kElemKindI4, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+            InvokeSelDecIdxI4(d, *DecAt(src, i), i);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_dec_i8(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindI8, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+            InvokeSelDecIdxI8(d, *DecAt(src, i), i);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_dec_d(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindD, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+            InvokeSelDecIdxD(d, *DecAt(src, i), i);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_dec_f(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new_typed(8, kElemKindF, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+            static_cast<double>(InvokeSelDecIdxF(d, *DecAt(src, i), i));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_select_idx_dec_dec(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal slot = InvokeSelDecIdxDec(d, *DecAt(src, i), i);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot, sizeof(slot));
+    }
+    return out;
 }
 
 //------------------------------------------------------------------------------

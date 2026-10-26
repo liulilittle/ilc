@@ -526,19 +526,28 @@ public static partial class MethodRefResolver
         {
             if (name == "Select")
             {
-                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                    throw new NotSupportedException(
-                        "Enumerable.Select with a (element, index) selector over a decimal-element " +
-                        "source is not wired: the runtime has no il2cpp_linq_select_idx_*_dec entry");
                 if (genArgs is not { Length: >= 2 })
                     return null;
-                if (genArgs[1] != 0x11 || !IsDecimalGenArg(genArgNames, 1))
+                bool selIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
+                // A DECIMAL result (net48 Select<decimal,decimal> /
+                // Select<decimal,int,decimal>): the 16-byte-cell result array.
+                if (genArgs[1] == 0x11 && IsDecimalGenArg(genArgNames, 1))
+                    return I(selIdx
+                            ? "il2cpp::il2cpp_linq_select_idx_dec_dec"
+                            : "il2cpp::il2cpp_linq_select_dec_dec",
+                        2, true, true, false, TwoArg, returnTypeName: "System.Decimal[]");
+                // A VALUE result (net48 Select<decimal,int32/long/double/float>):
+                // the element crosses as a 16-byte decimal cell BY VALUE.
+                string? vs = LinqValueResultSuffix(genArgs[1]);
+                if (vs is null)
                     throw new NotSupportedException(
-                        $"Enumerable.Select<System.Decimal,{GenericArgTypeName(genArgs[1])}> not wired: " +
-                        "the decimal-element source surface covers a System.Decimal result only " +
-                        "(il2cpp_linq_select_dec_dec, linq_map.h)");
-                return I("il2cpp::il2cpp_linq_select_dec_dec", 2, true, true, false, TwoArg,
-                    returnTypeName: "System.Decimal[]");
+                        $"Enumerable.Select<System.Decimal,{GenericArgTypeName(genArgs[1])}> " +
+                        (selIdx ? "with an (element, index) selector " : "") +
+                        "not wired: the decimal-source select surface covers a System.Decimal result " +
+                        "and the int32/int64/double/float VALUE results " +
+                        "(il2cpp_linq_select[_idx]_dec_dec/_i4/_i8/_d/_f)");
+                return I($"il2cpp::il2cpp_linq_select{(selIdx ? "_idx" : "")}_dec_{vs}",
+                    2, true, true, false, TwoArg, returnTypeName: LinqValueResultArrayName(vs));
             }
             // p0grp: GroupBy over a decimal[] SOURCE with an int32-slot key.
             // Before this arm the call fell past the decimal block, past the
