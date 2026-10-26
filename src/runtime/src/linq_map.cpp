@@ -353,6 +353,87 @@ float InvokeSelRefF(Il2CppDelegate* d, Il2CppObject* o)
         : reinterpret_cast<SelRefFFn>(d->methodPtr)(o);
 }
 
+//------------------------------------------------------------------------------
+// The WIDE-source selector ABIs (net48 Sum/Min/Max/Average<TSource,
+// TResult>) with TSource = long / double / float. The element crosses in its
+// OWN slot (int64 for long, the F-stack carrier for float/double), and the
+// selector's result crosses in the int32 / int64 / F-stack slot.
+//------------------------------------------------------------------------------
+typedef int32_t       (*SelI8SrcI4Fn)(int64_t);
+typedef int32_t       (*SelI8SrcI4ThisFn)(Il2CppObject*, int64_t);
+typedef int64_t       (*SelI8SrcI8Fn)(int64_t);
+typedef int64_t       (*SelI8SrcI8ThisFn)(Il2CppObject*, int64_t);
+typedef double        (*SelI8SrcDFn)(int64_t);
+typedef double        (*SelI8SrcDThisFn)(Il2CppObject*, int64_t);
+typedef float         (*SelI8SrcFFn)(int64_t);
+typedef float         (*SelI8SrcFThisFn)(Il2CppObject*, int64_t);
+
+int32_t InvokeSelI8SrcI4(Il2CppDelegate* d, int64_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelI8SrcI4ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelI8SrcI4Fn>(d->methodPtr)(v);
+}
+int64_t InvokeSelI8SrcI8(Il2CppDelegate* d, int64_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelI8SrcI8ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelI8SrcI8Fn>(d->methodPtr)(v);
+}
+double InvokeSelI8SrcD(Il2CppDelegate* d, int64_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelI8SrcDThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelI8SrcDFn>(d->methodPtr)(v);
+}
+float InvokeSelI8SrcF(Il2CppDelegate* d, int64_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelI8SrcFThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelI8SrcFFn>(d->methodPtr)(v);
+}
+
+typedef int32_t       (*SelDSrcI4Fn)(double);
+typedef int32_t       (*SelDSrcI4ThisFn)(Il2CppObject*, double);
+typedef int64_t       (*SelDSrcI8Fn)(double);
+typedef int64_t       (*SelDSrcI8ThisFn)(Il2CppObject*, double);
+typedef double        (*SelDSrcDFn)(double);
+typedef double        (*SelDSrcDThisFn)(Il2CppObject*, double);
+typedef float         (*SelDSrcFFn)(double);
+typedef float         (*SelDSrcFThisFn)(Il2CppObject*, double);
+
+int32_t InvokeSelDSrcI4(Il2CppDelegate* d, double v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDSrcI4ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDSrcI4Fn>(d->methodPtr)(v);
+}
+int64_t InvokeSelDSrcI8(Il2CppDelegate* d, double v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDSrcI8ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDSrcI8Fn>(d->methodPtr)(v);
+}
+double InvokeSelDSrcD(Il2CppDelegate* d, double v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDSrcDThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDSrcDFn>(d->methodPtr)(v);
+}
+float InvokeSelDSrcF(Il2CppDelegate* d, double v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDSrcFThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDSrcFFn>(d->methodPtr)(v);
+}
+
+// A FLOAT source element rides the F-stack carrier (double), so the float-
+// source selector ABIs have the same shape as the double-source ones.
+int32_t InvokeSelFSrcI4(Il2CppDelegate* d, double v) { return InvokeSelDSrcI4(d, v); }
+int64_t InvokeSelFSrcI8(Il2CppDelegate* d, double v) { return InvokeSelDSrcI8(d, v); }
+double InvokeSelFSrcD(Il2CppDelegate* d, double v) { return InvokeSelDSrcD(d, v); }
+float InvokeSelFSrcF(Il2CppDelegate* d, double v) { return InvokeSelDSrcF(d, v); }
+
 // p0grp: the DECIMAL-source KEY-SELECTOR ABI (Func<System.Decimal,int32>).
 // The generated leaf takes the decimal struct BY VALUE and returns int32:
 //   int32_t (*)(il2cpp::runtime::Il2CppDecimal)                    (static)
@@ -4160,6 +4241,196 @@ double il2cpp_linq_average_sel_ref_f(Il2CppArray* src, Il2CppObject* sel)
     }
     return sum / static_cast<double>(src->length);
 }
+
+//------------------------------------------------------------------------------
+// The WIDE-source selector-aggregate family (net48
+// Sum/Min/Max/Average<TSource,TResult> with TSource = long / float / double).
+// The element crosses in its OWN slot (int64 for long, the F-stack carrier for
+// float/double); the selector's result crosses in the int32 / int64 / F-stack
+// slot. Min/Max/Average throw InvalidOperationException on an empty source;
+// Sum returns the identity.
+//------------------------------------------------------------------------------
+static int64_t LinqReadI64Elem(Il2CppArray* a, int32_t i)
+{
+    return *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(a, i));
+}
+
+static double LinqReadDElem(Il2CppArray* a, int32_t i)
+{
+    char* p = il2cpp_array_get_elem_ptr(a, i);
+    // The F-stack carrier: a float CELL is 4 bytes, but this runtime's own
+    // float-result arrays are 8-byte double cells carrying the float's bits in
+    // the low 4 bytes (the same convention as LinqCellReadD).
+    return a->elemSize == 8 ? *reinterpret_cast<double*>(p)
+                            : static_cast<double>(*reinterpret_cast<float*>(p));
+}
+
+template <typename TSource, typename TResult, typename InvokeSel, typename ReadSrc>
+static TResult WideSelSumT(Il2CppArray* src, Il2CppDelegate* d, ReadSrc readSrc, InvokeSel invoke)
+{
+    RequireArray(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    TResult sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += static_cast<TResult>(invoke(d, readSrc(src, i)));
+    }
+    return sum;
+}
+
+template <typename TSource, typename TResult, typename InvokeSel, typename ReadSrc>
+static TResult WideSelMinMaxT(Il2CppArray* src, Il2CppDelegate* d, ReadSrc readSrc,
+                             InvokeSel invoke, bool wantMax)
+{
+    RequireArray(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    TResult best = invoke(d, readSrc(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const TResult v = invoke(d, readSrc(src, i));
+        if (wantMax ? (v > best) : (v < best)) best = v;
+    }
+    return best;
+}
+
+template <typename TSource, typename TResult, typename InvokeSel, typename ReadSrc>
+static double WideSelAverageT(Il2CppArray* src, Il2CppDelegate* d, ReadSrc readSrc, InvokeSel invoke)
+{
+    RequireArray(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += static_cast<double>(invoke(d, readSrc(src, i)));
+    }
+    return sum / static_cast<double>(src->length);
+}
+
+// ---- long (int64) source: Func<long,int32/long/double/float> ----
+int32_t il2cpp_linq_sum_sel_i8src_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<int64_t,int32_t>(src, d, LinqReadI64Elem, InvokeSelI8SrcI4); }
+int64_t il2cpp_linq_sum_sel_i8src_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<int64_t,int64_t>(src, d, LinqReadI64Elem, InvokeSelI8SrcI8); }
+double il2cpp_linq_sum_sel_i8src_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<int64_t,double>(src, d, LinqReadI64Elem, InvokeSelI8SrcD); }
+float il2cpp_linq_sum_sel_i8src_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<int64_t,float>(src, d, LinqReadI64Elem, InvokeSelI8SrcF); }
+
+int32_t il2cpp_linq_min_sel_i8src_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<int64_t,int32_t>(src, d, LinqReadI64Elem, InvokeSelI8SrcI4, false); }
+int64_t il2cpp_linq_min_sel_i8src_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<int64_t,int64_t>(src, d, LinqReadI64Elem, InvokeSelI8SrcI8, false); }
+double il2cpp_linq_min_sel_i8src_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<int64_t,double>(src, d, LinqReadI64Elem, InvokeSelI8SrcD, false); }
+float il2cpp_linq_min_sel_i8src_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<int64_t,float>(src, d, LinqReadI64Elem, InvokeSelI8SrcF, false); }
+
+int32_t il2cpp_linq_max_sel_i8src_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<int64_t,int32_t>(src, d, LinqReadI64Elem, InvokeSelI8SrcI4, true); }
+int64_t il2cpp_linq_max_sel_i8src_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<int64_t,int64_t>(src, d, LinqReadI64Elem, InvokeSelI8SrcI8, true); }
+double il2cpp_linq_max_sel_i8src_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<int64_t,double>(src, d, LinqReadI64Elem, InvokeSelI8SrcD, true); }
+float il2cpp_linq_max_sel_i8src_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<int64_t,float>(src, d, LinqReadI64Elem, InvokeSelI8SrcF, true); }
+
+double il2cpp_linq_average_sel_i8src_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<int64_t,int32_t>(src, d, LinqReadI64Elem, InvokeSelI8SrcI4); }
+double il2cpp_linq_average_sel_i8src_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<int64_t,int64_t>(src, d, LinqReadI64Elem, InvokeSelI8SrcI8); }
+double il2cpp_linq_average_sel_i8src_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<int64_t,double>(src, d, LinqReadI64Elem, InvokeSelI8SrcD); }
+double il2cpp_linq_average_sel_i8src_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<int64_t,float>(src, d, LinqReadI64Elem, InvokeSelI8SrcF); }
+
+// ---- double source: Func<double,int32/long/double/float> ----
+int32_t il2cpp_linq_sum_sel_dsrc_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<double,int32_t>(src, d, LinqReadDElem, InvokeSelDSrcI4); }
+int64_t il2cpp_linq_sum_sel_dsrc_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<double,int64_t>(src, d, LinqReadDElem, InvokeSelDSrcI8); }
+double il2cpp_linq_sum_sel_dsrc_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<double,double>(src, d, LinqReadDElem, InvokeSelDSrcD); }
+float il2cpp_linq_sum_sel_dsrc_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<double,float>(src, d, LinqReadDElem, InvokeSelDSrcF); }
+
+int32_t il2cpp_linq_min_sel_dsrc_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<double,int32_t>(src, d, LinqReadDElem, InvokeSelDSrcI4, false); }
+int64_t il2cpp_linq_min_sel_dsrc_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<double,int64_t>(src, d, LinqReadDElem, InvokeSelDSrcI8, false); }
+double il2cpp_linq_min_sel_dsrc_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<double,double>(src, d, LinqReadDElem, InvokeSelDSrcD, false); }
+float il2cpp_linq_min_sel_dsrc_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<double,float>(src, d, LinqReadDElem, InvokeSelDSrcF, false); }
+
+int32_t il2cpp_linq_max_sel_dsrc_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<double,int32_t>(src, d, LinqReadDElem, InvokeSelDSrcI4, true); }
+int64_t il2cpp_linq_max_sel_dsrc_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<double,int64_t>(src, d, LinqReadDElem, InvokeSelDSrcI8, true); }
+double il2cpp_linq_max_sel_dsrc_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<double,double>(src, d, LinqReadDElem, InvokeSelDSrcD, true); }
+float il2cpp_linq_max_sel_dsrc_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<double,float>(src, d, LinqReadDElem, InvokeSelDSrcF, true); }
+
+double il2cpp_linq_average_sel_dsrc_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<double,int32_t>(src, d, LinqReadDElem, InvokeSelDSrcI4); }
+double il2cpp_linq_average_sel_dsrc_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<double,int64_t>(src, d, LinqReadDElem, InvokeSelDSrcI8); }
+double il2cpp_linq_average_sel_dsrc_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<double,double>(src, d, LinqReadDElem, InvokeSelDSrcD); }
+double il2cpp_linq_average_sel_dsrc_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<double,float>(src, d, LinqReadDElem, InvokeSelDSrcF); }
+
+// ---- float source: Func<float,int32/long/double/float> (the float element
+// rides the F-stack carrier) ----
+int32_t il2cpp_linq_sum_sel_fsrc_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<float,int32_t>(src, d, LinqReadDElem, InvokeSelFSrcI4); }
+int64_t il2cpp_linq_sum_sel_fsrc_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<float,int64_t>(src, d, LinqReadDElem, InvokeSelFSrcI8); }
+double il2cpp_linq_sum_sel_fsrc_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<float,double>(src, d, LinqReadDElem, InvokeSelFSrcD); }
+float il2cpp_linq_sum_sel_fsrc_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelSumT<float,float>(src, d, LinqReadDElem, InvokeSelFSrcF); }
+
+int32_t il2cpp_linq_min_sel_fsrc_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<float,int32_t>(src, d, LinqReadDElem, InvokeSelFSrcI4, false); }
+int64_t il2cpp_linq_min_sel_fsrc_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<float,int64_t>(src, d, LinqReadDElem, InvokeSelFSrcI8, false); }
+double il2cpp_linq_min_sel_fsrc_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<float,double>(src, d, LinqReadDElem, InvokeSelFSrcD, false); }
+float il2cpp_linq_min_sel_fsrc_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<float,float>(src, d, LinqReadDElem, InvokeSelFSrcF, false); }
+
+int32_t il2cpp_linq_max_sel_fsrc_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<float,int32_t>(src, d, LinqReadDElem, InvokeSelFSrcI4, true); }
+int64_t il2cpp_linq_max_sel_fsrc_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<float,int64_t>(src, d, LinqReadDElem, InvokeSelFSrcI8, true); }
+double il2cpp_linq_max_sel_fsrc_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<float,double>(src, d, LinqReadDElem, InvokeSelFSrcD, true); }
+float il2cpp_linq_max_sel_fsrc_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelMinMaxT<float,float>(src, d, LinqReadDElem, InvokeSelFSrcF, true); }
+
+double il2cpp_linq_average_sel_fsrc_i4(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<float,int32_t>(src, d, LinqReadDElem, InvokeSelFSrcI4); }
+double il2cpp_linq_average_sel_fsrc_i8(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<float,int64_t>(src, d, LinqReadDElem, InvokeSelFSrcI8); }
+double il2cpp_linq_average_sel_fsrc_d(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<float,double>(src, d, LinqReadDElem, InvokeSelFSrcD); }
+double il2cpp_linq_average_sel_fsrc_f(Il2CppArray* src, Il2CppObject* sel)
+{ Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<float,float>(src, d, LinqReadDElem, InvokeSelFSrcF); }
 
 double il2cpp_linq_average_sel_i4(Il2CppArray* src, Il2CppObject* sel)
 {

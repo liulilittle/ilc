@@ -226,12 +226,51 @@ public static partial class MethodRefResolver
                     : suffix is "f" or "d" ? "d" : null;
                 return I(entry, 2, true, false, false, TwoArg, resultKind: rk);
             }
-            if (genArgs is not { Length: >= 1 } || genArgs[0] != 0x08)
+            if (genArgs is not { Length: >= 1 })
             {
-                string argType = genArgs is { Length: > 0 } ? GenericArgTypeName(genArgs[0]) : "IEnumerable<non-int32>";
                 throw new NotSupportedException(
-                    $"Enumerable.{name}<{argType}> with a selector not wired: " +
-                    "the stage-1 selector-aggregate surface is int32 (0x08) element-family only");
+                    $"Enumerable.{name} with a selector not wired: the element family is unknown");
+            }
+            if (genArgs[0] != 0x08)
+            {
+                // The WIDE source families (long / float / double): the
+                // selector's RESULT slot picks the kernel, exactly like the
+                // reference family. net48 has every overload, so none stays
+                // LOUD (the stage-1 surface was int32-only here).
+                string? srcSuffix = genArgs[0] switch
+                {
+                    0x0A or 0x0B => "i8src",
+                    0x0C => "fsrc",
+                    0x0D => "dsrc",
+                    _ => null,
+                };
+                string? projSuffix = srcSuffix is null ? null : LinqSelectorProjectionType(md, sigHandle) switch
+                {
+                    "i" or "c" => "i4",
+                    "l" => "i8",
+                    "d" => "d",
+                    "f" => "f",
+                    _ => null,
+                };
+                if (srcSuffix is null || projSuffix is null)
+                {
+                    string argType = GenericArgTypeName(genArgs[0]);
+                    throw new NotSupportedException(
+                        $"Enumerable.{name}<{argType},...> with a selector not wired: " +
+                        "the wide-source selector-aggregate surface covers long/float/double elements " +
+                        "with an int32/int64/double/float projection only");
+                }
+                string entry = name switch
+                {
+                    "Sum" => $"il2cpp::il2cpp_linq_sum_sel_{srcSuffix}_{projSuffix}",
+                    "Min" => $"il2cpp::il2cpp_linq_min_sel_{srcSuffix}_{projSuffix}",
+                    "Max" => $"il2cpp::il2cpp_linq_max_sel_{srcSuffix}_{projSuffix}",
+                    _ => $"il2cpp::il2cpp_linq_average_sel_{srcSuffix}_{projSuffix}",
+                };
+                string? rk = name == "Average" ? "d"
+                    : projSuffix == "i8" ? "l"
+                    : projSuffix is "f" or "d" ? "d" : null;
+                return I(entry, 2, true, false, false, TwoArg, resultKind: rk);
             }
             // nb9 FIX (M21): the SELECTOR forms project every element FIRST
             // and aggregate the projected values. The old mapping ignored

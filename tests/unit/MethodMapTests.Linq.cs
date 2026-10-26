@@ -1499,6 +1499,56 @@ public class MethodMapTestsLinq
     }
 
     //==========================================================================
+    // The WIDE-source selector-aggregate family (net48
+    // Sum/Min/Max/Average<TSource>(Func<TSource,TResult>) with TSource = long /
+    // float / double). Before this change every one of these LOUD-rejected
+    // ("the stage-1 selector-aggregate surface is int32 (0x08) element-family").
+    //==========================================================================
+    [Theory]
+    [InlineData("Sum", 0x0A, 0x0A, "il2cpp::il2cpp_linq_sum_sel_i8src_i8", "l")]
+    [InlineData("Min", 0x0A, 0x0A, "il2cpp::il2cpp_linq_min_sel_i8src_i8", "l")]
+    [InlineData("Max", 0x0A, 0x0A, "il2cpp::il2cpp_linq_max_sel_i8src_i8", "l")]
+    [InlineData("Average", 0x0A, 0x0A, "il2cpp::il2cpp_linq_average_sel_i8src_i8", "d")]
+    [InlineData("Sum", 0x0A, 0x08, "il2cpp::il2cpp_linq_sum_sel_i8src_i4", null)]
+    [InlineData("Average", 0x0A, 0x08, "il2cpp::il2cpp_linq_average_sel_i8src_i4", "d")]
+    [InlineData("Sum", 0x0D, 0x0D, "il2cpp::il2cpp_linq_sum_sel_dsrc_d", "d")]
+    [InlineData("Min", 0x0D, 0x0D, "il2cpp::il2cpp_linq_min_sel_dsrc_d", "d")]
+    [InlineData("Max", 0x0D, 0x0D, "il2cpp::il2cpp_linq_max_sel_dsrc_d", "d")]
+    [InlineData("Sum", 0x0D, 0x08, "il2cpp::il2cpp_linq_sum_sel_dsrc_i4", null)]
+    [InlineData("Average", 0x0D, 0x08, "il2cpp::il2cpp_linq_average_sel_dsrc_i4", "d")]
+    [InlineData("Sum", 0x0C, 0x0C, "il2cpp::il2cpp_linq_sum_sel_fsrc_f", "d")]
+    [InlineData("Average", 0x0C, 0x0C, "il2cpp::il2cpp_linq_average_sel_fsrc_f", "d")]
+    [InlineData("Sum", 0x0C, 0x08, "il2cpp::il2cpp_linq_sum_sel_fsrc_i4", null)]
+    public void Resolve_WideSelectorAggregate_MapsToWideSelectorKernel(
+        string name, byte srcByte, byte projByte, string icall, string? rk)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericSelector(name,
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, srcByte,
+                0x15, 0x12, 0x09, 0x01, srcByte,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, projByte },
+            genericSignature: new byte[] { 0x0A, 0x01, srcByte }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(rk, resolved.ResultKind);
+    }
+
+    // A wide-source selector with an unsupported projection (a reference
+    // result) stays LOUD.
+    [Fact]
+    public void Resolve_WideSelectorAggregate_RefProjection_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGenericSelector("Sum",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x0A,
+                0x15, 0x12, 0x09, 0x01, 0x0A,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x0E },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0A })));
+
+        Assert.Contains("wide-source selector-aggregate surface", ex.Message);
+    }
+
+    //==========================================================================
     // D-LINQ-FAM (loud-linq-fam): the FAMILY-GENERIC element operators over the
     // int64/float/double/narrow array families. The runtime ships ONE kernel per
     // operator (linq_family.h) with the cell code as the trailing literal; the
