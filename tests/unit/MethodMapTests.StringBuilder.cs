@@ -1,4 +1,4 @@
-using System.Reflection.Metadata;
+﻿using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Il2Cpp.Transpiler.Emit;
@@ -283,6 +283,77 @@ public class MethodMapStringBuilderTests
         Assert.Equal("System.Text.StringBuilder", resolved.ReturnTypeName);
     }
 
+    //--------------------------------------------------------------------------
+    // Append/Insert value families (char[], decimal, narrow/unsigned ints,
+    // float, object) and Equals(object).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_AppendCharArray_MapsToAppendCArray()
+    {
+        var m = ResolveMember(Synthesize("System.Text", "StringBuilder", "Append", new byte[] { 0x00, 0x01, 0x1C, 0x1D, 0x03 }), "Append");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_c_array", m.CppName);
+        Assert.Equal(new[] { "", "a" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_AppendDecimal_MapsToAppendObjectBoxedDecimal()
+    {
+        var m = ResolveMember(Synthesize("System.Text", "StringBuilder", "Append",
+            new byte[] { 0x00, 0x01, 0x1C, 0x11, 0x05 }), "Append");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_o", m.CppName);
+        Assert.Equal(new[] { "", "box:dec" }, m.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(0x09, "il2cpp::runtime::icall_stringbuilder_append_u4", "u4")]
+    [InlineData(0x0B, "il2cpp::runtime::icall_stringbuilder_append_u8", "q")]
+    public void Resolve_AppendUnsigned_MapsToUnsignedKernel(byte param, string cppName, string cast)
+    {
+        var m = ResolveMember(Synthesize("System.Text", "StringBuilder", "Append", Sig(0x1C, param)), "Append");
+
+        Assert.Equal(cppName, m.CppName);
+        Assert.Equal(new[] { "", cast }, m.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(0x04, "il2cpp::runtime::icall_stringbuilder_insert_i", "i")]
+    [InlineData(0x05, "il2cpp::runtime::icall_stringbuilder_insert_i", "i")]
+    [InlineData(0x06, "il2cpp::runtime::icall_stringbuilder_insert_i", "i")]
+    [InlineData(0x07, "il2cpp::runtime::icall_stringbuilder_insert_i", "i")]
+    [InlineData(0x09, "il2cpp::runtime::icall_stringbuilder_insert_u4", "u4")]
+    [InlineData(0x0B, "il2cpp::runtime::icall_stringbuilder_insert_u8", "q")]
+    [InlineData(0x0C, "il2cpp::runtime::icall_stringbuilder_insert_d", "d")]
+    [InlineData(0x1D, "il2cpp::runtime::icall_stringbuilder_insert_c_array", "a")]
+    [InlineData(0x1C, "il2cpp::runtime::icall_stringbuilder_insert_o", "")]
+    public void Resolve_InsertValueFamilies_MapToKernels(byte param, string cppName, string cast)
+    {
+        var m = ResolveMember(Synthesize("System.Text", "StringBuilder", "Insert", InsertSig(param)), "Insert");
+
+        Assert.Equal(cppName, m.CppName);
+        Assert.Equal(new[] { "", "i", cast }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_InsertDecimal_MapsToInsertObjectBoxedDecimal()
+    {
+        var m = ResolveMember(Synthesize("System.Text", "StringBuilder", "Insert",
+            new byte[] { 0x00, 0x02, 0x1C, 0x08, 0x11, 0x05 }), "Insert");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_insert_o", m.CppName);
+        Assert.Equal(new[] { "", "i", "box:dec" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_EqualsObject_MapsToReferenceEquality()
+    {
+        var m = ResolveMember(Synthesize("System.Text", "StringBuilder", "Equals", Sig(0x02, 0x1C)), "Equals");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_equals_obj", m.CppName);
+        Assert.Equal(new[] { "", "" }, m.ParamTypeNames);
+    }
+
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)
     {
         using var reader = new PEReader(pe);
@@ -295,6 +366,12 @@ public class MethodMapStringBuilderTests
     // ps.Length), return byte, then one byte per parameter (the raw bytes
     // RawSignature decodes; CLASS params 0x12 carry a trailing coded-index
     // byte the decoder consumes).
+    // Insert(int, value) signature: the char[] value needs its element byte.
+    private static byte[] InsertSig(byte value) =>
+        value == 0x1D
+            ? new byte[] { 0x00, 0x02, 0x1C, 0x08, 0x1D, 0x03 }
+            : Sig(0x1C, 0x08, value);
+
     private static byte[] Sig(byte ret, params byte[] ps)
     {
         var bytes = new byte[3 + ps.Length];
@@ -356,3 +433,4 @@ public class MethodMapStringBuilderTests
         return Serialize(mdb);
     }
 }
+

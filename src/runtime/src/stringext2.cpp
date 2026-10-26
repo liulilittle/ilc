@@ -33,10 +33,13 @@
 #include "il2cpp_string_intern.h"
 #include "il2cpp_value_semantics.h"
 #include "il2cpp_gc.h"
+#include "arraysort.h"        // il2cpp_ienum_* (Concat<T>(IEnumerable<T>))
+#include "decimal_format.h"   // icall_decimal_to_string (decimal enumerable)
 
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 namespace il2cpp {
 namespace runtime {
@@ -941,6 +944,260 @@ Il2CppObject* icall_string_copy(Il2CppObject* s)
 // icall_string_get_chars -- INLINE in il2cpp_string_ext2.h (perf1): one
 // definition site, inlined at every call site. Removed from this TU.
 //------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// Range comparators (String.CompareOrdinal / Compare range overloads).
+//
+// The range forms compare the windows [indexA, indexA+lenA) and
+// [indexB, indexB+lenB), where lenA/lenB are the CLAMPED lengths
+// min(length, str.Length - index). A still-equal prefix yields the WINDOW
+// LENGTH difference (net48 probe: CompareOrdinal("abc",0,"ab",0,3) == 1),
+// unlike the full-string ComparePayloads helper (which returns the
+// boundary-unit difference).
+//------------------------------------------------------------------------------
+namespace {
+
+int32_t CompareWindows(const char16_t* a, int32_t lenA,
+                       const char16_t* b, int32_t lenB, bool ignoreCase)
+{
+    const int32_t common = (lenA < lenB) ? lenA : lenB;
+    for (int32_t i = 0; i < common; ++i)
+    {
+        int32_t x = static_cast<int32_t>(a[i]);
+        int32_t y = static_cast<int32_t>(b[i]);
+        if (ignoreCase)
+        {
+            if (x >= u'A' && x <= u'Z') x += u'a' - u'A';
+            if (y >= u'A' && y <= u'Z') y += u'a' - u'A';
+        }
+        if (x != y)
+        {
+            return x - y;
+        }
+    }
+    return lenA - lenB;
+}
+
+void ThrowRangeAoore(const char* paramName)
+{
+    il2cpp_throw_argument_out_of_range_exception(paramName, "Index was out of range.");
+}
+
+// The CompareOrdinal / StringComparison range validation (probe-pinned):
+// null is EMPTY; length < 0 -> "count"/"length"; index outside [0, Length]
+// -> "indexA"/"indexB". Returns the CLAMPED window length.
+int32_t ValidateRangeWindow(const Il2CppString* s, int32_t index, int32_t length,
+                            const char* lengthName, const char* indexName)
+{
+    if (length < 0)
+    {
+        ThrowRangeAoore(lengthName);
+    }
+    const int32_t len = (s == nullptr) ? 0 : s->length;
+    if (index < 0 || index > len)
+    {
+        ThrowRangeAoore(indexName);
+    }
+    const int32_t available = len - index;
+    return (length < available) ? length : available;
+}
+
+// The CULTURE range validation (probe-pinned): a null string is rejected
+// BEFORE the window validation; length < 0 / index outside [0, Length] all
+// report "length1". Returns the CLAMPED window length.
+int32_t ValidateCultureRangeWindow(const Il2CppString* s, int32_t index, int32_t length,
+                                   const char* stringName)
+{
+    if (s == nullptr)
+    {
+        ThrowRangeAoore(stringName);
+    }
+    if (length < 0 || index < 0 || index > s->length)
+    {
+        ThrowRangeAoore("length1");
+    }
+    const int32_t available = s->length - index;
+    return (length < available) ? length : available;
+}
+
+} // namespace
+
+int32_t icall_string_compare_ordinal_range(Il2CppObject* a, int32_t indexA,
+                                           Il2CppObject* b, int32_t indexB,
+                                           int32_t length)
+{
+    const Il2CppString* x = AsString(a);
+    const Il2CppString* y = AsString(b);
+    const int32_t lenA = ValidateRangeWindow(x, indexA, length, "count", "indexA");
+    const int32_t lenB = ValidateRangeWindow(y, indexB, length, "count", "indexB");
+    return CompareWindows(x != nullptr ? x->chars + indexA : nullptr, lenA,
+                          y != nullptr ? y->chars + indexB : nullptr, lenB, false);
+}
+
+int32_t icall_string_compare_range_sc(Il2CppObject* a, int32_t indexA,
+                                      Il2CppObject* b, int32_t indexB,
+                                      int32_t length, int32_t mode)
+{
+    ThrowIfInvalidComparison(mode);
+    const Il2CppString* x = AsString(a);
+    const Il2CppString* y = AsString(b);
+    const int32_t lenA = ValidateRangeWindow(x, indexA, length, "length", "indexA");
+    const int32_t lenB = ValidateRangeWindow(y, indexB, length, "length", "indexB");
+    return CompareWindows(x != nullptr ? x->chars + indexA : nullptr, lenA,
+                          y != nullptr ? y->chars + indexB : nullptr, lenB,
+                          IsIgnoreCaseMode(mode));
+}
+
+int32_t icall_string_compare_range(Il2CppObject* a, int32_t indexA,
+                                   Il2CppObject* b, int32_t indexB,
+                                   int32_t length)
+{
+    const Il2CppString* x = AsString(a);
+    const Il2CppString* y = AsString(b);
+    const int32_t lenA = ValidateCultureRangeWindow(x, indexA, length, "string1");
+    const int32_t lenB = ValidateCultureRangeWindow(y, indexB, length, "string2");
+    return CompareWindows(x->chars + indexA, lenA, y->chars + indexB, lenB, false);
+}
+
+int32_t icall_string_compare_range_bool(Il2CppObject* a, int32_t indexA,
+                                        Il2CppObject* b, int32_t indexB,
+                                        int32_t length, bool ignoreCase)
+{
+    const Il2CppString* x = AsString(a);
+    const Il2CppString* y = AsString(b);
+    const int32_t lenA = ValidateCultureRangeWindow(x, indexA, length, "string1");
+    const int32_t lenB = ValidateCultureRangeWindow(y, indexB, length, "string2");
+    return CompareWindows(x->chars + indexA, lenA, y->chars + indexB, lenB, ignoreCase);
+}
+
+int32_t icall_string_compare_range_options(Il2CppObject* a, int32_t indexA,
+                                           Il2CppObject* b, int32_t indexB,
+                                           int32_t length, int32_t options)
+{
+    const Il2CppString* x = AsString(a);
+    const Il2CppString* y = AsString(b);
+    const int32_t lenA = ValidateCultureRangeWindow(x, indexA, length, "string1");
+    const int32_t lenB = ValidateCultureRangeWindow(y, indexB, length, "string2");
+    const bool ignoreCase = (options & 0x10000000) != 0 || (options & 1) != 0;
+    return CompareWindows(x->chars + indexA, lenA, y->chars + indexB, lenB, ignoreCase);
+}
+
+int32_t icall_string_compare_options(Il2CppObject* a, Il2CppObject* b, int32_t options)
+{
+    if (a == nullptr && b == nullptr)
+    {
+        return 0;
+    }
+    if (a == nullptr)
+    {
+        return -1;
+    }
+    if (b == nullptr)
+    {
+        return 1;
+    }
+    // CompareOptions: None=0, IgnoreCase=1, Ordinal=0x40000000,
+    // OrdinalIgnoreCase=0x10000000. Every other culture option degrades to
+    // the ordinal fold (the documented culture-collation deviation).
+    const bool ignoreCase = (options & 0x10000000) != 0 || (options & 1) != 0;
+    return ComparePayloadsFold(AsString(a), AsString(b), ignoreCase);
+}
+
+//------------------------------------------------------------------------------
+// icall_string_concat_object -- Concat(object): null -> String.Empty, a
+// string passes through (identity), any other object renders through the
+// Object.ToString dispatch. net48 Concat(object) never allocates for a
+// string/null argument.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_string_concat_object(Il2CppObject* value)
+{
+    if (value == nullptr)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(u"", 0));
+    }
+    if (IsStringObject(value))
+    {
+        return value;
+    }
+    return reinterpret_cast<Il2CppObject*>(icall_object_to_string(value));
+}
+
+//------------------------------------------------------------------------------
+// icall_string_concat_enumerable -- Concat<T>(IEnumerable<T>) /
+// Concat(IEnumerable<string>). The source is enumerated through the runtime
+// IEnumerator dispatch; each element's net48 ToString text is staged into a
+// non-GC vector<char16_t> (the single-allocation discipline: the result string
+// is allocated only after the enumeration completes). 'elemKind' selects the
+// get_Current carrier (see the header).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_string_concat_enumerable(Il2CppObject* source, int32_t elemKind)
+{
+    if (source == nullptr)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(u"", 0));
+    }
+    std::vector<char16_t> units;
+    Il2CppObject* roots[2] = { source, nullptr };
+    il2cpp_gc_add_root_range(reinterpret_cast<void**>(roots), 2);
+    Il2CppObject* enumerator = il2cpp_ienum_get_enumerator(source);
+    roots[1] = enumerator;
+    while (enumerator != nullptr && il2cpp_ienum_move_next(enumerator))
+    {
+        Il2CppString* text = nullptr;
+        switch (elemKind)
+        {
+        case 1:
+            text = icall_int32_to_string(il2cpp_ienum_get_current_i4(enumerator));
+            break;
+        case 2:
+            text = icall_uint32_to_string(
+                static_cast<uint32_t>(il2cpp_ienum_get_current_i4(enumerator)));
+            break;
+        case 3:
+            text = icall_int64_to_string(il2cpp_ienum_get_current_i8(enumerator));
+            break;
+        case 4:
+            text = icall_uint64_to_string(
+                static_cast<uint64_t>(il2cpp_ienum_get_current_i8(enumerator)));
+            break;
+        case 5:
+            text = icall_double_to_string(il2cpp_ienum_get_current_d(enumerator));
+            break;
+        case 6:
+            text = icall_bool_to_string(il2cpp_ienum_get_current_i4(enumerator) != 0);
+            break;
+        case 7:
+            text = icall_char_to_string(il2cpp_ienum_get_current_i4(enumerator));
+            break;
+        case 8:
+        {
+            Il2CppDecimal value;
+            il2cpp_ienum_get_current_dec(&value, enumerator);
+            text = icall_decimal_to_string(&value);
+            break;
+        }
+        default:
+        {
+            Il2CppObject* current = il2cpp_ienum_get_current_ref(enumerator);
+            if (current != nullptr)
+            {
+                text = IsStringObject(current)
+                    ? reinterpret_cast<Il2CppString*>(current)
+                    : icall_object_to_string(current);
+            }
+            break;
+        }
+        }
+        if (text != nullptr)
+        {
+            units.insert(units.end(), text->chars, text->chars + text->length);
+        }
+    }
+    il2cpp_ienum_dispose(enumerator);
+    il2cpp_gc_remove_root_range(reinterpret_cast<void**>(roots));
+    return reinterpret_cast<Il2CppObject*>(
+        il2cpp_string_new(units.data(), static_cast<int32_t>(units.size())));
+}
 
 } // namespace runtime
 } // namespace il2cpp

@@ -278,6 +278,14 @@ case "ReplaceLineEndings":
                 // TrimStart lockstep discipline). Loud until an icall exists.
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_string_get_hash_code", 0, true, false, true);
+                // GetHashCode(StringComparison) -- the net core 2.0+ overload
+                // (net48 has no such member). The enum crosses as its int32
+                // value; the runtime keeps the ordinal hash for Ordinal and
+                // folds ASCII for OrdinalIgnoreCase (the culture modes
+                // degrade to the ordinal hash, the documented deviation).
+                if (ps.Length == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_string_get_hash_code_mode", 1, true, false, true,
+                        new[] { "", "i" });
                 throw new NotSupportedException($"String.GetHashCode with {ps.Length} arg(s) not wired (needs a comparison-mode-aware runtime hash icall)");
             // System.String.Normalize / IsNormalized (stringnormalize.cpp --
             // the full UAX #15 implementation). The form crosses as the raw
@@ -353,6 +361,72 @@ case "ReplaceLineEndings":
                 if (ps.Length == 3 && ps[2] == 0x02)
                     return I("il2cpp::runtime::icall_string_compare_mode", 3, true, false, false,
                         new[] { "", "", "i" });
+                // String.CompareOrdinal(string, int, string, int, int) -- the
+                // ORDINAL range form. ps = (string, int32, string, int32,
+                // int32); the runtime clamps the length and treats null as
+                // empty (net48 probe-pinned).
+                if (name == "CompareOrdinal" && ps.Length == 5
+                    && ps[0] == 0x0E && ps[1] == 0x08 && ps[2] == 0x0E
+                    && ps[3] == 0x08 && ps[4] == 0x08)
+                    return I("il2cpp::runtime::icall_string_compare_ordinal_range", 5, true, false, false,
+                        new[] { "", "i", "", "i", "i" });
+                // String.Compare(string, int, string, int, int) -- the
+                // CULTURE range form. The runtime validates null/window the
+                // net48 way and compares through the documented ordinal fold.
+                if (name == "Compare" && ps.Length == 5
+                    && ps[0] == 0x0E && ps[1] == 0x08 && ps[2] == 0x0E
+                    && ps[3] == 0x08 && ps[4] == 0x08)
+                    return I("il2cpp::runtime::icall_string_compare_range", 5, true, false, false,
+                        new[] { "", "i", "", "i", "i" });
+                // String.Compare(..., bool ignoreCase) -- the CULTURE range
+                // form with the ignore-case flag (the same net48 null/window
+                // validation; the fold is ordinal, the documented deviation).
+                if (name == "Compare" && ps.Length == 6
+                    && ps[0] == 0x0E && ps[1] == 0x08 && ps[2] == 0x0E
+                    && ps[3] == 0x08 && ps[4] == 0x08 && ps[5] == 0x02)
+                    return I("il2cpp::runtime::icall_string_compare_range_bool", 6, true, false, false,
+                        new[] { "", "i", "", "i", "i", "b" });
+                // String.Compare(..., StringComparison) -- the MODE-AWARE
+                // range form (null treated as empty; length/index AOORE with
+                // the "length"/"indexA"/"indexB" names).
+                if (name == "Compare" && ps.Length == 6
+                    && ps[0] == 0x0E && ps[1] == 0x08 && ps[2] == 0x0E
+                    && ps[3] == 0x08 && ps[4] == 0x08 && ps[5] == 0x11)
+                    return I("il2cpp::runtime::icall_string_compare_range_sc", 6, true, false, false,
+                        new[] { "", "i", "", "i", "i", "i" });
+                // String.Compare(..., bool ignoreCase, CultureInfo): the
+                // CultureInfo is dropped (culture collation is not modelled);
+                // the flag carries the ordinal ignore-case mode.
+                if (name == "Compare" && ps.Length == 7
+                    && ps[0] == 0x0E && ps[1] == 0x08 && ps[2] == 0x0E
+                    && ps[3] == 0x08 && ps[4] == 0x08 && ps[5] == 0x02
+                    && ps[6] == 0x12)
+                    return I("il2cpp::runtime::icall_string_compare_range_bool", 7, true, false, false,
+                        new[] { "", "i", "", "i", "i", "b", "drop" });
+                // String.Compare(..., CultureInfo, CompareOptions): the
+                // CultureInfo is dropped and the options fold to the ordinal
+                // /ignore-case modes.
+                if (name == "Compare" && ps.Length == 7
+                    && ps[0] == 0x0E && ps[1] == 0x08 && ps[2] == 0x0E
+                    && ps[3] == 0x08 && ps[4] == 0x08 && ps[5] == 0x12
+                    && ps[6] == 0x11)
+                    return I("il2cpp::runtime::icall_string_compare_range_options", 7, true, false, false,
+                        new[] { "", "i", "", "i", "i", "drop", "i" });
+                // String.Compare(string, string, bool ignoreCase,
+                // CultureInfo): the CultureInfo is dropped; the bool rides
+                // the mode slot (false -> 0 CurrentCulture, true -> 1
+                // CurrentCultureIgnoreCase -- the compare_mode fold).
+                if (name == "Compare" && ps.Length == 4
+                    && ps[0] == 0x0E && ps[1] == 0x0E && ps[2] == 0x02 && ps[3] == 0x12)
+                    return I("il2cpp::runtime::icall_string_compare_mode", 4, true, false, false,
+                        new[] { "", "", "i", "drop" });
+                // String.Compare(string, string, CultureInfo,
+                // CompareOptions): the CultureInfo is dropped; the options
+                // select the ordinal/ignore-case fold.
+                if (name == "Compare" && ps.Length == 4
+                    && ps[0] == 0x0E && ps[1] == 0x0E && ps[2] == 0x12 && ps[3] == 0x11)
+                    return I("il2cpp::runtime::icall_string_compare_options", 4, true, false, false,
+                        new[] { "", "", "drop", "i" });
                 throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5");
             case "Equals":
                 // Static Equals(a, b) and instance Equals(obj/string) both
@@ -502,6 +576,43 @@ case "ReplaceLineEndings":
                         return I($"il2cpp::runtime::icall_string_concat_{ps.Length}", ps.Length, true, true, false);
                     return I("il2cpp::runtime::il2cpp_string_concat_many", ps.Length, true, true, false,
                         null, null, prependCount: true);
+                }
+                // Concat(object): null -> String.Empty; a string is the
+                // identity; any other object renders through the net48
+                // Object.ToString dispatch.
+                if (ps.Length == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::runtime::icall_string_concat_object", 1, true, true, false,
+                        null, null, false, false, false, "System.String");
+                // Concat<T>(IEnumerable<T>) / Concat(IEnumerable<string>):
+                // the source is enumerated through the runtime IEnumerator
+                // dispatch. The element carrier is a compile-time fact:
+                //   genArgs null -> IEnumerable<string> (reference elements)
+                //   genArgs[0] -> the closed T of Concat<T> (the same byte
+                //   vocabulary as the AppendFormatted value families).
+                // The literal appended after the source is the elemKind the
+                // runtime switch consumes.
+                if (ps.Length == 1 && ps[0] == 0x15)
+                {
+                    var elemKind = "0"; // IEnumerable<string>
+                    if (genArgs is { Length: > 0 })
+                    {
+                        elemKind = genArgs[0] switch
+                        {
+                            0x02 => "6", // bool
+                            0x03 => "7", // char
+                            0x04 or 0x05 or 0x06 or 0x07 => "1", // byte/sbyte/short/ushort
+                            0x08 => "1", // int32
+                            0x09 => "2", // uint32
+                            0x0A => "3", // int64
+                            0x0B => "4", // uint64
+                            0x0C or 0x0D => "5", // float/double
+                            0x11 => "8", // decimal / value type (decimal carrier)
+                            _ => "0", // reference element (string/object/class)
+                        };
+                    }
+                    return I("il2cpp::runtime::icall_string_concat_enumerable", 1, true, true, false,
+                        new[] { "" }, null, false, false, false, "System.String",
+                        appendLiterals: new[] { elemKind });
                 }
                 if (ps.Length == 1 && ps[0] is 0x1D or 0x1F)
                     return I("il2cpp::runtime::il2cpp_string_concat_array", 1, true, true, false);

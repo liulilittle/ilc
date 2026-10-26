@@ -619,6 +619,121 @@ public class MethodMapTestsString
     // Helpers -- synthetic PE construction (same pipeline as
     // MethodRefResolverDispatchTests / MethodMapTests.StringExt3)
     //--------------------------------------------------------------------------
+    // Range comparators: CompareOrdinal / Compare 5/6-arg forms and the
+    // culture 4-arg forms. All are statically analyzable (the arity and the
+    // parameter family are compile-time facts); the culture collation itself
+    // degrades to the documented ordinal fold.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_CompareOrdinalRange_MapsToOrdinalRangeIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "String", "CompareOrdinal",
+            Sig(0x08, 0x0E, 0x08, 0x0E, 0x08, 0x08)), "CompareOrdinal");
+
+        Assert.Equal("il2cpp::runtime::icall_string_compare_ordinal_range", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.Equal(5, m.ParamCount);
+        Assert.Equal(new[] { "", "i", "", "i", "i" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_CompareRange_MapsToCultureRangeIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "String", "Compare",
+            Sig(0x08, 0x0E, 0x08, 0x0E, 0x08, 0x08)), "Compare");
+
+        Assert.Equal("il2cpp::runtime::icall_string_compare_range", m.CppName);
+        Assert.Equal(5, m.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_CompareRangeBool_MapsToRangeBoolIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "String", "Compare",
+            Sig(0x08, 0x0E, 0x08, 0x0E, 0x08, 0x08, 0x02)), "Compare");
+
+        Assert.Equal("il2cpp::runtime::icall_string_compare_range_bool", m.CppName);
+        Assert.Equal(6, m.ParamCount);
+        Assert.Equal(new[] { "", "i", "", "i", "i", "b" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_CompareRangeStringComparison_MapsToRangeScIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "String", "Compare",
+            EnumSig(0x08, 0x0E, 0x08, 0x0E, 0x08, 0x08)), "Compare");
+
+        Assert.Equal("il2cpp::runtime::icall_string_compare_range_sc", m.CppName);
+        Assert.Equal(6, m.ParamCount);
+        Assert.Equal(new[] { "", "i", "", "i", "i", "i" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_CompareBoolCultureInfo_MapsToModeWithDroppedCulture()
+    {
+        var m = ResolveMember(Synthesize("System", "String", "Compare",
+            new byte[] { 0x00, 0x04, 0x08, 0x0E, 0x0E, 0x02, 0x12, 0x05 }), "Compare");
+
+        Assert.Equal("il2cpp::runtime::icall_string_compare_mode", m.CppName);
+        Assert.Equal(4, m.ParamCount);
+        Assert.Equal(new[] { "", "", "i", "drop" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_CompareCultureInfoOptions_MapsToOptionsIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "String", "Compare",
+            new byte[] { 0x00, 0x04, 0x08, 0x0E, 0x0E, 0x12, 0x05, 0x11, 0x05 }), "Compare");
+
+        Assert.Equal("il2cpp::runtime::icall_string_compare_options", m.CppName);
+        Assert.Equal(4, m.ParamCount);
+        Assert.Equal(new[] { "", "", "drop", "i" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // Concat(object) / Concat<T>(IEnumerable<T>) -- the 1-arg reference
+    // families (the string[]/object[] array form stays concat_array).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ConcatObject_MapsToConcatObjectIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "String", "Concat", Sig(0x0E, 0x1C)), "Concat");
+
+        Assert.Equal("il2cpp::runtime::icall_string_concat_object", m.CppName);
+        Assert.False(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal("System.String", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_ConcatGenericEnumerable_MapsToEnumerableIcall()
+    {
+        // Concat<T>(IEnumerable<T>): Generic calling convention (0x10) +
+        // GenericParameterCount (0x01), one GenericInst param.
+        var m = ResolveMember(Synthesize("System", "String", "Concat",
+            new byte[] { 0x10, 0x01, 0x01, 0x0E, 0x15, 0x12, 0x05, 0x01, 0x1E, 0x00 }), "Concat");
+
+        Assert.Equal("il2cpp::runtime::icall_string_concat_enumerable", m.CppName);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "" }, m.ParamTypeNames);
+        Assert.Equal(new[] { "0" }, m.AppendLiterals);
+    }
+
+    //--------------------------------------------------------------------------
+    // GetHashCode(StringComparison) -- the net core 2.0+ overload.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_GetHashCodeStringComparison_MapsToModeHashIcall()
+    {
+        var m = ResolveMember(Synthesize("System", "String", "GetHashCode", EnumSig(0x08)), "GetHashCode");
+
+        Assert.Equal("il2cpp::runtime::icall_string_get_hash_code_mode", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", "i" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)
     {
         using var reader = new PEReader(pe);

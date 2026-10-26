@@ -83,6 +83,13 @@ int32_t icall_int64_get_hash_code(int64_t value);
 int32_t icall_double_get_hash_code(double value);
 int32_t icall_single_get_hash_code(double value);
 int32_t icall_string_get_hash_code(Il2CppObject* str);
+
+// string.GetHashCode(StringComparison) (net core 2.0+; net48 has no such
+// overload). Ordinal is the legacy ordinal hash; OrdinalIgnoreCase folds
+// ASCII before hashing (equal-under-fold strings hash equally); the culture
+// modes degrade to the ordinal hash (documented culture deviation). A mode
+// outside 0..5 throws ArgumentException (the StringComparison contract).
+int32_t icall_string_get_hash_code_mode(Il2CppObject* str, int32_t comparisonType);
 int32_t icall_bool_get_hash_code(bool value);
 
 // The narrow integral/char GetHashCode family (net48-exact). The value rides the

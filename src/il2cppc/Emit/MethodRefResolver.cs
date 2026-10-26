@@ -1,4 +1,4 @@
-using System.Reflection.Metadata;
+﻿using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using Il2Cpp.Transpiler.Model;
 using Il2Cpp.Transpiler.Opt;
@@ -2035,7 +2035,7 @@ var userRecvLike = receiverType ?? arg0Type;
                 if (receiverType is "System.IO.StreamReader" or "System.IO.StreamWriter")
                     return TryMapStreamIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
                 if (receiverType is "System.IO.StringReader" or "System.IO.StringWriter")
-                    return TryMapStringIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                    return TryMapStringIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
                 // console3 (2026-08-09): Console.Out / Console.Error stream
                 // receivers -- get_Out/get_Error (MethodMap.Console.cs) return
                 // the console stream objects tracked under the distinct
@@ -2054,7 +2054,7 @@ var userRecvLike = receiverType ?? arg0Type;
                     return TryMapConsoleStream(owner, name, ps, count, receiverType);
                 if (owner is "System.IO.TextReader" or "System.IO.TextWriter" && receiverType == null)
                     return null; // base owner, first pass -- defer to the receiver-aware re-resolve
-                return TryMapStringIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);            case "System.IO.BinaryReader":
+                return TryMapStringIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);            case "System.IO.BinaryReader":
             case "System.IO.BinaryWriter": return TryMapBinaryIO(md, sigHandle, owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Text.Encoding":
             case "System.Text.UTF8Encoding":
@@ -3707,3 +3707,4 @@ var userRecvLike = receiverType ?? arg0Type;
         _ => false,
     };
 }
+

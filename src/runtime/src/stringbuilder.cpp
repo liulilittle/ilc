@@ -943,6 +943,52 @@ Il2CppObject* icall_stringbuilder_append_i(Il2CppObject* self, int32_t value)
 }
 
 //------------------------------------------------------------------------------
+// icall_stringbuilder_append_c_array -- Append(char[]) (net48): appends every
+// unit of the managed array; a null array is a no-op. Returns the SAME builder.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_append_c_array(Il2CppObject* self, Il2CppArray* value)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&value));
+    if (value != nullptr)
+    {
+        AppendUnits(&self, reinterpret_cast<const char16_t*>(value->data), value->length);
+    }
+    return self;
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_append_u4 / _u8 -- Append(uint) / Append(ulong): the
+// UNSIGNED invariant decimal text (net48; the signed kernels would render a
+// value >= 2^31 / 2^63 with a minus sign).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_append_u4(Il2CppObject* self, uint32_t value)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppString* text = icall_uint32_to_string(value);
+    scope.Add(reinterpret_cast<void**>(&text));
+    const Il2CppString* v = reinterpret_cast<const Il2CppString*>(text);
+    AppendUnits(&self, v->chars, v->length);
+    return self;
+}
+
+Il2CppObject* icall_stringbuilder_append_u8(Il2CppObject* self, uint64_t value)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppString* text = icall_uint64_to_string(value);
+    scope.Add(reinterpret_cast<void**>(&text));
+    const Il2CppString* v = reinterpret_cast<const Il2CppString*>(text);
+    AppendUnits(&self, v->chars, v->length);
+    return self;
+}
+
+//------------------------------------------------------------------------------
 // icall_stringbuilder_append_o -- Append(object) (see header). net48:
 // Append(object value) = Append(value.ToString()) -- null is a no-op, a
 // string appends its payload, a boxed Int32 appends its invariant decimal,
@@ -1391,6 +1437,88 @@ Il2CppObject* icall_stringbuilder_insert_c(Il2CppObject* self, int32_t index, ch
 }
 
 //------------------------------------------------------------------------------
+// icall_stringbuilder_insert_u4 / _u8 -- Insert(int, uint) / (int, ulong):
+// the UNSIGNED invariant decimal text (net48; the signed kernels would render
+// a value >= 2^31 / 2^63 with a minus sign). The text is rooted across the
+// insert growth allocation.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_insert_u4(Il2CppObject* self, int32_t index, uint32_t value)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppString* text = icall_uint32_to_string(value);
+    scope.Add(reinterpret_cast<void**>(&text));
+    const Il2CppString* v = reinterpret_cast<const Il2CppString*>(text);
+    InsertUnits(&self, index, v->chars, v->length);
+    return self;
+}
+
+Il2CppObject* icall_stringbuilder_insert_u8(Il2CppObject* self, int32_t index, uint64_t value)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    Il2CppString* text = icall_uint64_to_string(value);
+    scope.Add(reinterpret_cast<void**>(&text));
+    const Il2CppString* v = reinterpret_cast<const Il2CppString*>(text);
+    InsertUnits(&self, index, v->chars, v->length);
+    return self;
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_insert_c_array -- Insert(int, char[]): inserts every
+// unit of the managed array; a null array is a no-op AFTER the index bounds
+// check (net48). The array is rooted across the insert growth allocation.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_insert_c_array(Il2CppObject* self, int32_t index, Il2CppArray* value)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&value));
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (index < 0 || static_cast<int64_t>(index) > sb->length)
+    {
+        ThrowAoore("index");
+    }
+    if (value == nullptr)
+    {
+        return self;
+    }
+    InsertUnits(&self, index, reinterpret_cast<const char16_t*>(value->data), value->length);
+    return self;
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_insert_o -- Insert(int, object): inserts value.ToString()
+// (the same dispatch as Append(object)); a null value is a no-op AFTER the
+// index bounds check. The formatted text is rooted across the insert growth
+// allocation.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_insert_o(Il2CppObject* self, int32_t index, Il2CppObject* value)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&value));
+    Il2CppStringBuilder* sb = AsBuilder(self);
+    if (index < 0 || static_cast<int64_t>(index) > sb->length)
+    {
+        ThrowAoore("index");
+    }
+    if (value == nullptr)
+    {
+        return self;
+    }
+    Il2CppString* text = runtime::icall_object_to_string(value);
+    scope.Add(reinterpret_cast<void**>(&text));
+    const Il2CppString* v = reinterpret_cast<const Il2CppString*>(text);
+    InsertUnits(&self, index, v->chars, v->length);
+    return self;
+}
+
+//------------------------------------------------------------------------------
 // icall_stringbuilder_insert_s_count -- Insert(int, string, int) (batch 170,
 // net48 semantics). count < 0 -> ArgumentOutOfRangeException("count");
 // index < 0 or index > Length -> ArgumentOutOfRangeException("index");
@@ -1677,6 +1805,18 @@ bool icall_stringbuilder_equals(Il2CppObject* self, Il2CppObject* other)
     }
     return std::memcmp(a->chars->data, b->chars->data,
                        static_cast<size_t>(a->length) * sizeof(char16_t)) == 0;
+}
+
+//------------------------------------------------------------------------------
+// icall_stringbuilder_equals_obj -- Equals(object): net48 StringBuilder does
+// NOT override Equals(object), so this is System.Object reference equality.
+// (The value comparison is the Equals(StringBuilder) overload above.) A null
+// argument is false; a null receiver is a defensive NRE.
+//------------------------------------------------------------------------------
+bool icall_stringbuilder_equals_obj(Il2CppObject* self, Il2CppObject* other)
+{
+    ThrowIfNullReceiver(self);
+    return self == other;
 }
 
 // Replace(string oldValue, string newValue, int startIndex, int count) --

@@ -90,12 +90,18 @@ struct Il2CppStringReaderObject
     runtime::StringReaderState* state;       // opaque handle; null = closed/uninitialized
 };
 
-// Managed System.IO.StringWriter layout: object header + the opaque backend
-// handle (the growable buffer lives C++-side). No reference fields
-// (refFieldBitmap 0 -- the collector never scans past the header).
+// Managed System.IO.StringWriter layout: object header + the backing
+// StringBuilder (a GC reference -- refFieldBitmap bit 1) + the IFormatProvider
+// (bit 2; null = CurrentCulture) + the NewLine string (bit 3) + the opaque
+// backend handle (a raw C++ pointer). The builder is the SOLE content store:
+// StringWriter(stringBuilder) writes into the caller's builder and
+// GetStringBuilder returns that same instance (net48 identity contract).
 struct Il2CppStringWriterObject
 {
     Il2CppObject obj;                        // object header (klass pointer)
+    Il2CppObject* builder;                   // System.Text.StringBuilder (GC ref)
+    Il2CppObject* provider;                  // IFormatProvider (GC ref; null = current)
+    Il2CppObject* newline;                   // NewLine string (GC ref)
     runtime::StringWriterState* state;       // opaque handle; null = closed/uninitialized
 };
 
@@ -204,6 +210,23 @@ int32_t icall_stringreader_read(Il2CppObject* self);
 int32_t icall_stringreader_read_chars(Il2CppObject* self, Il2CppArray* buffer,
                                       int32_t offset, int32_t count);
 
+// StringReader.ReadBlock(char[], int, int) -- fills up to 'count' units
+// (loops until the buffer window is full or end-of-string); returns the
+// number of units read. Bounds as Read.
+int32_t icall_stringreader_read_block(Il2CppObject* self, Il2CppArray* buffer,
+                                      int32_t offset, int32_t count);
+
+// The net48 async surface (synchronous-completion model: every returned task
+// is already completed). The reader entries run the synchronous operation and
+// wrap the result in a completed Task<T>; the writer entries run the write and
+// return a completed (non-generic) Task.
+Il2CppObject* icall_stringreader_read_to_end_async(Il2CppObject* self);
+Il2CppObject* icall_stringreader_read_line_async(Il2CppObject* self);
+Il2CppObject* icall_stringreader_read_chars_async(Il2CppObject* self, Il2CppArray* buffer,
+                                                  int32_t offset, int32_t count);
+Il2CppObject* icall_stringreader_read_block_async(Il2CppObject* self, Il2CppArray* buffer,
+                                                  int32_t offset, int32_t count);
+
 // StringReader.Peek(): the next UTF-16 unit WITHOUT consuming it, or -1 at
 // end-of-string / after close.
 int32_t icall_stringreader_peek(Il2CppObject* self);
@@ -220,8 +243,85 @@ Il2CppObject* icall_stringreader_read_to_end(Il2CppObject* self);
 // reference is dropped. Idempotent: a second Close returns 0. 0 on success.
 int32_t icall_stringreader_close(Il2CppObject* self);
 
-// StringWriter(): an empty growable UTF-16 buffer.
+// StringWriter(): an empty builder-backed writer (provider = current culture,
+// NewLine = CRLF).
 void icall_stringwriter_ctor(Il2CppObject* self);
+
+// StringWriter(IFormatProvider): the provider is stored (FormatProvider); the
+// content still starts empty.
+void icall_stringwriter_ctor_provider(Il2CppObject* self, Il2CppObject* provider);
+
+// StringWriter(StringBuilder): writes into the CALLER'S builder; a null
+// builder -> ArgumentNullException. GetStringBuilder returns that instance.
+void icall_stringwriter_ctor_sb(Il2CppObject* self, Il2CppObject* builder);
+
+// StringWriter(StringBuilder, IFormatProvider).
+void icall_stringwriter_ctor_sb_provider(Il2CppObject* self, Il2CppObject* builder,
+                                         Il2CppObject* provider);
+
+// GetStringBuilder(): the backing builder instance (identity).
+Il2CppObject* icall_stringwriter_get_string_builder(Il2CppObject* self);
+
+// get_Encoding: net48 StringWriter.Encoding is Encoding.Unicode (UTF-16).
+Il2CppObject* icall_stringwriter_get_encoding(Il2CppObject* self);
+
+// get_FormatProvider: the stored provider, or CurrentCulture when null.
+Il2CppObject* icall_stringwriter_get_format_provider(Il2CppObject* self);
+
+// get_NewLine / set_NewLine: the line terminator used by WriteLine (the
+// default is the Windows CRLF; a null setter value -> ArgumentNullException).
+Il2CppObject* icall_stringwriter_get_newline(Il2CppObject* self);
+void icall_stringwriter_set_newline(Il2CppObject* self, Il2CppObject* value);
+
+// Write value families: the net48 TextWriter convenience overloads format the
+// value's ToString text and append it (null object -> no-op). Each returns 0
+// (the mapping discards the status).
+int32_t icall_stringwriter_write_i(Il2CppObject* self, int32_t value);
+int32_t icall_stringwriter_write_u4(Il2CppObject* self, uint32_t value);
+int32_t icall_stringwriter_write_l(Il2CppObject* self, int64_t value);
+int32_t icall_stringwriter_write_u8(Il2CppObject* self, uint64_t value);
+int32_t icall_stringwriter_write_d(Il2CppObject* self, double value);
+int32_t icall_stringwriter_write_b(Il2CppObject* self, int32_t value);
+int32_t icall_stringwriter_write_o(Il2CppObject* self, Il2CppObject* value);
+int32_t icall_stringwriter_write_cs_range(Il2CppObject* self, Il2CppArray* chars,
+                                          int32_t index, int32_t count);
+int32_t icall_stringwriter_write_s_range(Il2CppObject* self, Il2CppObject* value,
+                                         int32_t index, int32_t count);
+int32_t icall_stringwriter_write_format_1(Il2CppObject* self, Il2CppObject* format,
+                                          Il2CppObject* arg0);
+int32_t icall_stringwriter_write_format_2(Il2CppObject* self, Il2CppObject* format,
+                                          Il2CppObject* arg0, Il2CppObject* arg1);
+int32_t icall_stringwriter_write_format(Il2CppObject* self, Il2CppObject* format,
+                                        Il2CppObject* argsArray);
+int32_t icall_stringwriter_write_format_3(Il2CppObject* self, Il2CppObject* format,
+                                          Il2CppObject* arg0, Il2CppObject* arg1,
+                                          Il2CppObject* arg2);
+
+// WriteLine value families: the value text (if any) followed by the stored
+// NewLine. WriteLine() appends the NewLine only.
+int32_t icall_stringwriter_write_line_default(Il2CppObject* self);
+int32_t icall_stringwriter_write_line_i(Il2CppObject* self, int32_t value);
+int32_t icall_stringwriter_write_line_u4(Il2CppObject* self, uint32_t value);
+int32_t icall_stringwriter_write_line_l(Il2CppObject* self, int64_t value);
+int32_t icall_stringwriter_write_line_u8(Il2CppObject* self, uint64_t value);
+int32_t icall_stringwriter_write_line_d(Il2CppObject* self, double value);
+int32_t icall_stringwriter_write_line_b(Il2CppObject* self, int32_t value);
+int32_t icall_stringwriter_write_line_o(Il2CppObject* self, Il2CppObject* value);
+int32_t icall_stringwriter_write_line_c(Il2CppObject* self, char16_t value);
+int32_t icall_stringwriter_write_line_cs(Il2CppObject* self, Il2CppArray* chars);
+int32_t icall_stringwriter_write_line_cs_range(Il2CppObject* self, Il2CppArray* chars,
+                                               int32_t index, int32_t count);
+int32_t icall_stringwriter_write_line_s_range(Il2CppObject* self, Il2CppObject* value,
+                                              int32_t index, int32_t count);
+int32_t icall_stringwriter_write_line_format_1(Il2CppObject* self, Il2CppObject* format,
+                                               Il2CppObject* arg0);
+int32_t icall_stringwriter_write_line_format_2(Il2CppObject* self, Il2CppObject* format,
+                                               Il2CppObject* arg0, Il2CppObject* arg1);
+int32_t icall_stringwriter_write_line_format(Il2CppObject* self, Il2CppObject* format,
+                                             Il2CppObject* argsArray);
+int32_t icall_stringwriter_write_line_format_3(Il2CppObject* self, Il2CppObject* format,
+                                               Il2CppObject* arg0, Il2CppObject* arg1,
+                                               Il2CppObject* arg2);
 
 // StringWriter.Write(string): appends 'text' (null is a no-op, matching
 // .NET StringWriter.Write(null)). 0 on success, -1 after close.
@@ -241,6 +341,23 @@ int32_t icall_stringwriter_write_line(Il2CppObject* self, Il2CppObject* text);
 // StringWriter.ToString(): a managed string COPY of the buffer (repeatable;
 // the buffer is not consumed), nullptr after close.
 Il2CppObject* icall_stringwriter_to_string(Il2CppObject* self);
+
+// StringWriter.Flush(): a no-op (the in-memory writer has nothing to flush).
+void icall_stringwriter_flush(Il2CppObject* self);
+
+// The net48 async writer surface (completed tasks; see the reader note).
+Il2CppObject* icall_stringwriter_write_async(Il2CppObject* self, Il2CppObject* text);
+Il2CppObject* icall_stringwriter_write_async_c(Il2CppObject* self, char16_t value);
+Il2CppObject* icall_stringwriter_write_async_cs(Il2CppObject* self, Il2CppArray* chars);
+Il2CppObject* icall_stringwriter_write_async_cs_range(Il2CppObject* self, Il2CppArray* chars,
+                                                      int32_t index, int32_t count);
+Il2CppObject* icall_stringwriter_write_line_async_default(Il2CppObject* self);
+Il2CppObject* icall_stringwriter_write_line_async(Il2CppObject* self, Il2CppObject* text);
+Il2CppObject* icall_stringwriter_write_line_async_c(Il2CppObject* self, char16_t value);
+Il2CppObject* icall_stringwriter_write_line_async_cs(Il2CppObject* self, Il2CppArray* chars);
+Il2CppObject* icall_stringwriter_write_line_async_cs_range(Il2CppObject* self, Il2CppArray* chars,
+                                                           int32_t index, int32_t count);
+Il2CppObject* icall_stringwriter_flush_async(Il2CppObject* self);
 
 // StringWriter.Close(): releases the backend handle. Idempotent: a second
 // Close returns 0. 0 on success.

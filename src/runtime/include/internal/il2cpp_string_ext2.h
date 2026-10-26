@@ -109,6 +109,62 @@ int32_t icall_string_compare_static(Il2CppObject* a, Il2CppObject* b);
 // for mixed-case and accented inputs).
 int32_t icall_string_compare_mode(Il2CppObject* a, Il2CppObject* b, int32_t mode);
 
+// string.CompareOrdinal(string, int, string, int, int): the ORDINAL range
+// comparator. net48 (probe-pinned): a null string is treated as EMPTY;
+// length < 0 -> ArgumentOutOfRangeException("count"); indexA/indexB outside
+// [0, Length] -> ArgumentOutOfRangeException("indexA"/"indexB"); the compared
+// window is min(length, Length-indexA, Length-indexB) (the length is CLAMPED,
+// not rejected).
+int32_t icall_string_compare_ordinal_range(Il2CppObject* a, int32_t indexA,
+                                           Il2CppObject* b, int32_t indexB,
+                                           int32_t length);
+
+// string.Compare(string, int, string, int, int, StringComparison): the
+// MODE-AWARE range comparator. net48 (probe-pinned): null is treated as EMPTY;
+// length < 0 -> ArgumentOutOfRangeException("length"); indexA/indexB outside
+// [0, Length] -> ArgumentOutOfRangeException("indexA"/"indexB"); the length is
+// clamped. The mode uses the same StringComparison fold as
+// icall_string_compare_mode (culture modes degrade to the ordinal fold).
+int32_t icall_string_compare_range_sc(Il2CppObject* a, int32_t indexA,
+                                      Il2CppObject* b, int32_t indexB,
+                                      int32_t length, int32_t mode);
+
+// string.Compare(string, int, string, int, int) / (..., bool ignoreCase):
+// the CULTURE range forms. net48 (probe-pinned) validates BEFORE any null
+// handling: a null string -> ArgumentOutOfRangeException("string1"/"string2");
+// length < 0 or indexA/indexB outside [0, Length] ->
+// ArgumentOutOfRangeException("length1"). The comparison degrades to the
+// ordinal fold (the documented culture-collation deviation shared with
+// icall_string_compare_mode).
+int32_t icall_string_compare_range(Il2CppObject* a, int32_t indexA,
+                                   Il2CppObject* b, int32_t indexB,
+                                   int32_t length);
+int32_t icall_string_compare_range_bool(Il2CppObject* a, int32_t indexA,
+                                        Il2CppObject* b, int32_t indexB,
+                                        int32_t length, bool ignoreCase);
+int32_t icall_string_compare_range_options(Il2CppObject* a, int32_t indexA,
+                                           Il2CppObject* b, int32_t indexB,
+                                           int32_t length, int32_t options);
+
+// string.Compare(string, string, CultureInfo, CompareOptions) /
+// (string, string, bool, CultureInfo): the culture + options form. null
+// arguments are treated as EMPTY (probe-pinned). The options are folded to
+// the ordinal/ignore-case modes: Ordinal (0x40000000) is exact,
+// OrdinalIgnoreCase (0x10000000) / IgnoreCase (1) fold ASCII, every other
+// option degrades to the ordinal fold (documented culture deviation).
+int32_t icall_string_compare_options(Il2CppObject* a, Il2CppObject* b, int32_t options);
+
+// string.Concat(object): null -> String.Empty; a string passes through
+// (identity); any other object renders through icall_object_to_string.
+Il2CppObject* icall_string_concat_object(Il2CppObject* value);
+
+// string.Concat<T>(IEnumerable<T>) / Concat(IEnumerable<string>): iterates
+// the source through the runtime enumerator dispatch and concatenates every
+// element's net48 ToString text. 'elemKind' selects the element carrier
+// (0 = reference/object, 1 = int32, 2 = uint32, 3 = int64, 4 = uint64,
+// 5 = double, 6 = bool, 7 = char, 8 = decimal). Null elements count as empty.
+Il2CppObject* icall_string_concat_enumerable(Il2CppObject* source, int32_t elemKind);
+
 // Ordinal static Equals (both null -> true; one null -> false; content).
 bool icall_string_equals_static(Il2CppObject* a, Il2CppObject* b);
 

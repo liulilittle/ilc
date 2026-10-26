@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
@@ -216,14 +216,86 @@ public class MethodMapStringIOTests
     // Unwireable members -- LOUD
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_StringWriter_CtorProvider_ThrowsLoud()
+    public void Resolve_StringWriter_CtorProvider_MapsToProviderCtor()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "StringWriter", ".ctor",
-                new byte[] { 0x00, 0x01, 0x01, 0x12, 0x05 }), ".ctor"));
+        // StringWriter(IFormatProvider): the provider is stored and exposed
+        // through FormatProvider (no longer LOUD).
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", ".ctor",
+            new byte[] { 0x00, 0x01, 0x01, 0x12, 0x05 }), ".ctor");
 
-        Assert.StartsWith("System.IO.StringWriter::.ctor: ", ex.Message);
-        Assert.Contains("IFormatProvider", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_ctor_provider", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_StringWriter_CtorStringBuilder_MapsToBuilderCtor()
+    {
+        // StringBuilder is also a 0x12 CLASS: the tracked argument type
+        // selects the builder-backed ctor.
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", ".ctor",
+            new byte[] { 0x00, 0x01, 0x01, 0x12, 0x05 }), ".ctor",
+            receiverType: "System.IO.StringWriter", arg0Type: "System.Text.StringBuilder");
+
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_ctor_sb", m.CppName);
+        Assert.Equal(1, m.ParamCount);
+    }
+
+    [Fact]
+    public void Resolve_StringWriter_GetStringBuilder_MapsToIcall()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "GetStringBuilder", Sig(0x1C)), "GetStringBuilder");
+
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_get_string_builder", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.Equal("System.Text.StringBuilder", m.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("Write", 0x08, "il2cpp::runtime::icall_stringwriter_write_i", "i")]
+    [InlineData("Write", 0x09, "il2cpp::runtime::icall_stringwriter_write_u4", "u4")]
+    [InlineData("Write", 0x0A, "il2cpp::runtime::icall_stringwriter_write_l", "l")]
+    [InlineData("Write", 0x0B, "il2cpp::runtime::icall_stringwriter_write_u8", "q")]
+    [InlineData("Write", 0x0D, "il2cpp::runtime::icall_stringwriter_write_d", "d")]
+    [InlineData("Write", 0x02, "il2cpp::runtime::icall_stringwriter_write_b", "i")]
+    [InlineData("Write", 0x1C, "il2cpp::runtime::icall_stringwriter_write_o", "")]
+    [InlineData("WriteLine", 0x08, "il2cpp::runtime::icall_stringwriter_write_line_i", "i")]
+    [InlineData("WriteLine", 0x09, "il2cpp::runtime::icall_stringwriter_write_line_u4", "u4")]
+    [InlineData("WriteLine", 0x0A, "il2cpp::runtime::icall_stringwriter_write_line_l", "l")]
+    [InlineData("WriteLine", 0x0B, "il2cpp::runtime::icall_stringwriter_write_line_u8", "q")]
+    [InlineData("WriteLine", 0x0D, "il2cpp::runtime::icall_stringwriter_write_line_d", "d")]
+    [InlineData("WriteLine", 0x02, "il2cpp::runtime::icall_stringwriter_write_line_b", "i")]
+    [InlineData("WriteLine", 0x1C, "il2cpp::runtime::icall_stringwriter_write_line_o", "")]
+    public void Resolve_StringWriter_ValueWrites_MapToTypedIcalls(string name, byte param, string cppName, string cast)
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", name, Sig(0x01, param)), name);
+
+        Assert.Equal(cppName, m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", cast }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_StringWriter_WriteRange_MapsToArrayRangeIcall()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "Write",
+            new byte[] { 0x00, 0x03, 0x01, 0x1D, 0x03, 0x08, 0x08 }), "Write");
+
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_write_cs_range", m.CppName);
+        Assert.Equal(3, m.ParamCount);
+        Assert.Equal(new[] { "", "a", "i", "i" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_StringWriter_WriteFormat_MapsToFormatIcall()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "Write",
+            new byte[] { 0x00, 0x02, 0x01, 0x0E, 0x1C }), "Write");
+
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_write_format_1", m.CppName);
+        Assert.Equal(2, m.ParamCount);
     }
 
     [Fact]
@@ -239,13 +311,13 @@ public class MethodMapStringIOTests
     }
 
     [Fact]
-    public void Resolve_StringWriter_WriteLineDefault_ThrowsLoud()
+    public void Resolve_StringWriter_WriteLineDefault_MapsToNewLineIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.IO", "StringWriter", "WriteLine", Sig(0x01)), "WriteLine"));
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "WriteLine", Sig(0x01)), "WriteLine");
 
-        Assert.StartsWith("System.IO.StringWriter::WriteLine: ", ex.Message);
-        Assert.Contains("null-text variant", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_write_line_default", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
     }
 
     [Fact]
@@ -271,18 +343,144 @@ public class MethodMapStringIOTests
     }
 
     //--------------------------------------------------------------------------
+    // The net48 async surface (synchronous-completion model): every returned
+    // task is already completed. The reader entries wrap the synchronous
+    // result in a completed Task<T>; the writer entries run the write and
+    // return a completed (non-generic) Task.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("ReadToEndAsync", "il2cpp::runtime::icall_stringreader_read_to_end_async")]
+    [InlineData("ReadLineAsync", "il2cpp::runtime::icall_stringreader_read_line_async")]
+    public void Resolve_StringReader_AsyncZeroArg_MapsToCompletedTask(string name, string cppName)
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringReader", name,
+            Blob(0x20, 0x00, 0x13, 0x00)), name);
+
+        Assert.Equal(cppName, m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal("System.Threading.Tasks.Task`1", m.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("ReadAsync", "il2cpp::runtime::icall_stringreader_read_chars_async")]
+    [InlineData("ReadBlockAsync", "il2cpp::runtime::icall_stringreader_read_block_async")]
+    public void Resolve_StringReader_AsyncArray_MapsToCompletedTask(string name, string cppName)
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringReader", name,
+            Blob(0x20, 0x03, 0x13, 0x00, 0x1D, 0x03, 0x08, 0x08)), name);
+
+        Assert.Equal(cppName, m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(3, m.ParamCount);
+        Assert.Equal(new[] { "", "a", "i", "i" }, m.ParamTypeNames);
+        Assert.Equal("System.Threading.Tasks.Task`1", m.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("WriteAsync", 0x0E, "il2cpp::runtime::icall_stringwriter_write_async", "")]
+    [InlineData("WriteAsync", 0x03, "il2cpp::runtime::icall_stringwriter_write_async_c", "c")]
+    [InlineData("WriteAsync", 0x1D, "il2cpp::runtime::icall_stringwriter_write_async_cs", "a")]
+    public void Resolve_StringWriter_WriteAsync_MapsToCompletedTask(string name, byte param, string cppName, string cast)
+    {
+        var sig = param == 0x1D
+            ? Blob(0x20, 0x01, 0x13, 0x00, 0x1D, 0x03)
+            : Blob(0x20, 0x01, 0x13, 0x00, param);
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", name, sig), name);
+
+        Assert.Equal(cppName, m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", cast }, m.ParamTypeNames);
+        Assert.Equal("System.Threading.Tasks.Task", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_StringWriter_WriteAsyncRange_MapsToCompletedTask()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "WriteAsync",
+            Blob(0x20, 0x03, 0x13, 0x00, 0x1D, 0x03, 0x08, 0x08)), "WriteAsync");
+
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_write_async_cs_range", m.CppName);
+        Assert.Equal(3, m.ParamCount);
+        Assert.Equal("System.Threading.Tasks.Task", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_StringWriter_WriteLineAsyncDefault_MapsToCompletedTask()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "WriteLineAsync",
+            Blob(0x20, 0x00, 0x13, 0x00)), "WriteLineAsync");
+
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_write_line_async_default", m.CppName);
+        Assert.Equal(0, m.ParamCount);
+        Assert.Equal("System.Threading.Tasks.Task", m.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData(0x0E, "il2cpp::runtime::icall_stringwriter_write_line_async")]
+    [InlineData(0x03, "il2cpp::runtime::icall_stringwriter_write_line_async_c")]
+    public void Resolve_StringWriter_WriteLineAsyncScalar_MapsToCompletedTask(byte param, string cppName)
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "WriteLineAsync",
+            Blob(0x20, 0x01, 0x13, 0x00, param)), "WriteLineAsync");
+
+        Assert.Equal(cppName, m.CppName);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal("System.Threading.Tasks.Task", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_StringWriter_WriteLineAsyncChars_MapsToCompletedTask()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "WriteLineAsync",
+            Blob(0x20, 0x01, 0x13, 0x00, 0x1D, 0x03)), "WriteLineAsync");
+
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_write_line_async_cs", m.CppName);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal("System.Threading.Tasks.Task", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_StringWriter_WriteLineAsyncRange_MapsToCompletedTask()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "WriteLineAsync",
+            Blob(0x20, 0x03, 0x13, 0x00, 0x1D, 0x03, 0x08, 0x08)), "WriteLineAsync");
+
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_write_line_async_cs_range", m.CppName);
+        Assert.Equal(3, m.ParamCount);
+        Assert.Equal("System.Threading.Tasks.Task", m.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_StringWriter_FlushAsync_MapsToCompletedTask()
+    {
+        var m = ResolveMember(Synthesize("System.IO", "StringWriter", "FlushAsync",
+            Blob(0x20, 0x00, 0x13, 0x00)), "FlushAsync");
+
+        Assert.Equal("il2cpp::runtime::icall_stringwriter_flush_async", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.Equal("System.Threading.Tasks.Task", m.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as
     // MethodMapTests.VersionUri.cs)
     //--------------------------------------------------------------------------
-    private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName, string? receiverType = null)
+    private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName, string? receiverType = null,
+        string? arg0Type = null)
     {
         using var reader = new PEReader(pe);
         var md = reader.GetMetadataReader();
         var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
         return receiverType == null
-            ? MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>())
+            ? MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+                null, false, arg0Type)
             : MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
-                receiverType, false, null);
+                receiverType, false, arg0Type);
     }
 
     private static byte[] Sig(byte ret, params byte[] ps)
@@ -294,6 +492,8 @@ public class MethodMapStringIOTests
         Array.Copy(ps, 0, bytes, 3, ps.Length);
         return bytes;
     }
+
+    private static byte[] Blob(params byte[] bytes) => bytes;
 
     private static MemoryStream Synthesize(string ns, string typeName, string memberName, byte[] signature)
     {
@@ -319,3 +519,4 @@ public class MethodMapStringIOTests
         return new MemoryStream(blob.ToArray());
     }
 }
+

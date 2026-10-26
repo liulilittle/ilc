@@ -68,11 +68,13 @@ public static partial class MethodRefResolver
                     // DefaultInterpolatedStringHandler AppendFormatted
                     // mapping, which folds 0x04/0x05/0x06/0x07/0x09 to the
                     // int kernel).
-                    0x04 or 0x05 or 0x06 or 0x07 or 0x09 => I("il2cpp::runtime::icall_stringbuilder_append_i", 1, true, true, true, new[] { "", "i" }, null, false, false, false, "System.Text.StringBuilder"),
+                    0x04 or 0x05 or 0x06 or 0x07 => I("il2cpp::runtime::icall_stringbuilder_append_i", 1, true, true, true, new[] { "", "i" }, null, false, false, false, "System.Text.StringBuilder"),
+                    // Append(uint) -- the UNSIGNED decimal kernel (a value
+                    // >= 2^31 must not render through the signed int32 form).
+                    0x09 => I("il2cpp::runtime::icall_stringbuilder_append_u4", 1, true, true, true, new[] { "", "u4" }, null, false, false, false, "System.Text.StringBuilder"),
                     0x0A => I("il2cpp::runtime::icall_stringbuilder_append_l", 1, true, true, true, new[] { "", "l" }, null, false, false, false, "System.Text.StringBuilder"),
-                    // Append(ulong) -- the int64 kernel (a value >= 2^63
-                    // would render signed; the same documented deviation).
-                    0x0B => I("il2cpp::runtime::icall_stringbuilder_append_l", 1, true, true, true, new[] { "", "l" }, null, false, false, false, "System.Text.StringBuilder"),
+                    // Append(ulong) -- the UNSIGNED 64-bit kernel.
+                    0x0B => I("il2cpp::runtime::icall_stringbuilder_append_u8", 1, true, true, true, new[] { "", "q" }, null, false, false, false, "System.Text.StringBuilder"),
                     0x0D => I("il2cpp::runtime::icall_stringbuilder_append_d", 1, true, true, true, new[] { "", "d" }, null, false, false, false, "System.Text.StringBuilder"),
                     // Append(float) -- net48 appends the value's "G"-like
                     // default text. Float values live in double slots (the
@@ -85,6 +87,12 @@ public static partial class MethodRefResolver
                     // overload is exactly StringBuilder -- append its CONTENT
                     // (StringBuilder.ToString()), not the type name.
                     0x12 => I("il2cpp::runtime::icall_stringbuilder_append_sb", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
+                    // Append(char[]) -- the whole managed array (null no-op).
+                    0x1D => I("il2cpp::runtime::icall_stringbuilder_append_c_array", 1, true, true, true, new[] { "", "a" }, null, false, false, false, "System.Text.StringBuilder"),
+                    // Append(decimal) -- the 0x11 VALUETYPE slot boxes through
+                    // the BCL decimal box and renders via the Object.ToString
+                    // dispatch (net48 Append(decimal) = Append(ToString())).
+                    0x11 => I("il2cpp::runtime::icall_stringbuilder_append_o", 1, true, true, true, new[] { "", "box:dec" }, null, false, false, false, "System.Text.StringBuilder"),
                     0x1C => I("il2cpp::runtime::icall_stringbuilder_append_o", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     _ => throw new NotSupportedException($"StringBuilder.Append param type 0x{ps[0]:X2} not wired in M5"),
                 };
@@ -104,10 +112,27 @@ public static partial class MethodRefResolver
                     {
                         0x0E => I("il2cpp::runtime::icall_stringbuilder_insert", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                         0x08 => I("il2cpp::runtime::icall_stringbuilder_insert_i", 2, true, true, true, new[] { "", "i", "i" }, null, false, false, false, "System.Text.StringBuilder"),
+                        // Insert(int, byte/sbyte/short/ushort): the value
+                        // widens to the int32 carrier (sign/zero extension is
+                        // exact for the narrow domains).
+                        0x04 or 0x05 or 0x06 or 0x07 => I("il2cpp::runtime::icall_stringbuilder_insert_i", 2, true, true, true, new[] { "", "i", "i" }, null, false, false, false, "System.Text.StringBuilder"),
+                        // Insert(int, uint) / (int, ulong): the UNSIGNED text.
+                        0x09 => I("il2cpp::runtime::icall_stringbuilder_insert_u4", 2, true, true, true, new[] { "", "i", "u4" }, null, false, false, false, "System.Text.StringBuilder"),
                         0x0A => I("il2cpp::runtime::icall_stringbuilder_insert_l", 2, true, true, true, new[] { "", "i", "l" }, null, false, false, false, "System.Text.StringBuilder"),
+                        0x0B => I("il2cpp::runtime::icall_stringbuilder_insert_u8", 2, true, true, true, new[] { "", "i", "q" }, null, false, false, false, "System.Text.StringBuilder"),
+                        // Insert(int, float): float lives in a double slot
+                        // (the Append(float) / MethodMap.Format precedent).
+                        0x0C => I("il2cpp::runtime::icall_stringbuilder_insert_d", 2, true, true, true, new[] { "", "i", "d" }, null, false, false, false, "System.Text.StringBuilder"),
                         0x0D => I("il2cpp::runtime::icall_stringbuilder_insert_d", 2, true, true, true, new[] { "", "i", "d" }, null, false, false, false, "System.Text.StringBuilder"),
                         0x02 => I("il2cpp::runtime::icall_stringbuilder_insert_b", 2, true, true, true, new[] { "", "i", "b" }, null, false, false, false, "System.Text.StringBuilder"),
                         0x03 => I("il2cpp::runtime::icall_stringbuilder_insert_c", 2, true, true, true, new[] { "", "i", "c" }, null, false, false, false, "System.Text.StringBuilder"),
+                        // Insert(int, char[]) -- the whole managed array.
+                        0x1D => I("il2cpp::runtime::icall_stringbuilder_insert_c_array", 2, true, true, true, new[] { "", "i", "a" }, null, false, false, false, "System.Text.StringBuilder"),
+                        // Insert(int, object) / Insert(int, decimal): the
+                        // Object.ToString dispatch (decimal boxes through the
+                        // BCL decimal box first).
+                        0x1C => I("il2cpp::runtime::icall_stringbuilder_insert_o", 2, true, true, true, new[] { "", "i", "" }, null, false, false, false, "System.Text.StringBuilder"),
+                        0x11 => I("il2cpp::runtime::icall_stringbuilder_insert_o", 2, true, true, true, new[] { "", "i", "box:dec" }, null, false, false, false, "System.Text.StringBuilder"),
                         _ => throw new NotSupportedException($"StringBuilder.Insert value param type 0x{ps[1]:X2} not wired in M5"),
                     };
                 }
@@ -202,6 +227,11 @@ public static partial class MethodRefResolver
             case "Equals":
                 if (count == 1 && ps[0] == 0x12)
                     return I("il2cpp::runtime::icall_stringbuilder_equals", 1, true, false, true, new[] { "", "" });
+                // Equals(object) -- System.Object reference equality (net48
+                // StringBuilder only value-compares the StringBuilder
+                // overload).
+                if (count == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::runtime::icall_stringbuilder_equals_obj", 1, true, false, true, new[] { "", "" });
                 throw new NotSupportedException($"StringBuilder.Equals signature not wired in M5");
             case "ToString":
                 // The 2-arg overload ToString(int startIndex, int length) must
@@ -364,6 +394,13 @@ public static partial class MethodRefResolver
                         0x0B => I("il2cpp::runtime::icall_stringbuilder_append_l", 1, false, false, true, new[] { "deref:r", "l" }),
                         0x0C => I("il2cpp::runtime::icall_stringbuilder_append_d", 1, false, false, true, new[] { "deref:r", "d" }),
                         _ when vk == 0x0E => I("il2cpp::runtime::icall_stringbuilder_append_s", 1, false, false, true, new[] { "deref:r" }),
+                        // A REFERENCE generic argument (class/interface/
+                        // object/array/generic instantiation): the slot is
+                        // already an Il2CppObject*, so it rides the
+                        // Append(object) ToString dispatch unchanged.
+                        0x12 or 0x1C or 0x1D or 0x1F or 0x15 =>
+                            I("il2cpp::runtime::icall_stringbuilder_append_o", 1, false, false, true,
+                                new[] { "deref:r", "" }),
                         _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted arg 0x{vk:X2} not wired in M5"),
                     };
                 }
@@ -403,6 +440,12 @@ public static partial class MethodRefResolver
                             new[] { "deref:r", "d", isWidth ? "i" : "" }),
                         _ when vk == 0x0E => I($"il2cpp::runtime::icall_stringbuilder_append_s{suffix}", 2, false, false, true,
                             new[] { "deref:r", "", isWidth ? "i" : "" }),
+                        // Reference generic argument: the boxed-object
+                        // alignment/format trio (the value is already an
+                        // object reference).
+                        0x12 or 0x1C or 0x1D or 0x1F or 0x15 =>
+                            I($"il2cpp::runtime::icall_stringbuilder_append_o{suffix}", 2, false, false, true,
+                                new[] { "deref:r", "", isWidth ? "i" : "" }),
                         _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 2-arg value 0x{vk:X2} not wired in M5"),
                     };
                 }
@@ -426,6 +469,11 @@ public static partial class MethodRefResolver
                         0x0B => I("il2cpp::runtime::icall_stringbuilder_append_l_wf", 3, false, false, true, new[] { "deref:r", "l", "i", "" }),
                         0x0C => I("il2cpp::runtime::icall_stringbuilder_append_d_wf", 3, false, false, true, new[] { "deref:r", "d", "i", "" }),
                         _ when vk == 0x0E => I("il2cpp::runtime::icall_stringbuilder_append_s_wf", 3, false, false, true, new[] { "deref:r", "", "i", "" }),
+                        // Reference generic argument: the boxed-object
+                        // alignment + format trio.
+                        0x12 or 0x1C or 0x1D or 0x1F or 0x15 =>
+                            I("il2cpp::runtime::icall_stringbuilder_append_o_wf", 3, false, false, true,
+                                new[] { "deref:r", "", "i", "" }),
                         _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 3-arg value 0x{vk:X2} not wired in M5"),
                     };
                 }

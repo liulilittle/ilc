@@ -241,6 +241,15 @@ Il2CppObject* icall_stringbuilder_append_s_range(Il2CppObject* self, Il2CppObjec
 // Append(char): appends one UTF-16 unit. Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_append_c(Il2CppObject* self, char16_t value);
 
+// Append(char[]): appends every unit of the managed array (null is a no-op).
+// Returns the SAME builder.
+Il2CppObject* icall_stringbuilder_append_c_array(Il2CppObject* self, Il2CppArray* value);
+
+// Append(uint) / Append(ulong): the UNSIGNED invariant decimal text (net48;
+// values >= 2^31 / 2^63 must not render through the signed kernels).
+Il2CppObject* icall_stringbuilder_append_u4(Il2CppObject* self, uint32_t value);
+Il2CppObject* icall_stringbuilder_append_u8(Il2CppObject* self, uint64_t value);
+
 // Append(int): appends the invariant decimal representation of 'value'
 // ("0", "-12345", "2147483647", "-2147483648"). Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_append_i(Il2CppObject* self, int32_t value);
@@ -381,6 +390,18 @@ Il2CppObject* icall_stringbuilder_insert_b(Il2CppObject* self, int32_t index, in
 // Insert(int index, char value): inserts one UTF-16 unit. Returns the SAME builder.
 Il2CppObject* icall_stringbuilder_insert_c(Il2CppObject* self, int32_t index, char16_t value);
 
+// Insert(int index, uint) / (int index, ulong): the UNSIGNED decimal text.
+Il2CppObject* icall_stringbuilder_insert_u4(Il2CppObject* self, int32_t index, uint32_t value);
+Il2CppObject* icall_stringbuilder_insert_u8(Il2CppObject* self, int32_t index, uint64_t value);
+
+// Insert(int index, char[] value): inserts every unit of the array (a null
+// array is a no-op AFTER the index bounds check). Returns the SAME builder.
+Il2CppObject* icall_stringbuilder_insert_c_array(Il2CppObject* self, int32_t index, Il2CppArray* value);
+
+// Insert(int index, object value): inserts value.ToString() (a null value is
+// a no-op AFTER the index bounds check). Returns the SAME builder.
+Il2CppObject* icall_stringbuilder_insert_o(Il2CppObject* self, int32_t index, Il2CppObject* value);
+
 // Insert(int index, string value, int count): inserts 'value' repeated
 // 'count' times before 'index' (net48 semantics). count < 0 -> 
 // ArgumentOutOfRangeException; index < 0 or index > Length throws
@@ -436,6 +457,11 @@ int32_t icall_stringbuilder_ensure_capacity(Il2CppObject* self, int32_t capacity
 // Equals(StringBuilder sb): net48 StringBuilder.Equals is REFERENCE
 // equality (the object identity contract; a null other is false).
 bool icall_stringbuilder_equals(Il2CppObject* self, Il2CppObject* other);
+
+// Equals(object) -- System.Object reference equality (net48 StringBuilder
+// does NOT override Equals(object); only Equals(StringBuilder) is the value
+// comparison above). A null argument is false.
+bool icall_stringbuilder_equals_obj(Il2CppObject* self, Il2CppObject* other);
 
 // Replace(string oldValue, string newValue, int startIndex, int count):
 // replaces every non-overlapping occurrence fully inside the window

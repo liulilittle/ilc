@@ -93,6 +93,52 @@ public class MethodMapTestsAppendFormattedUser
     }
 
     //--------------------------------------------------------------------------
+    // Reference generic arguments: the value slot is already an Il2CppObject*,
+    // so the Append(object) dispatch (and its _w/_f/_wf trios) is used.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData(new byte[] { 0x0A, 0x01, 0x12, 0x09 }, new byte[] { 0x00, 0x01, 0x1C, 0x1E, 0x00 },
+        "il2cpp::runtime::icall_stringbuilder_append_o", new[] { "deref:r", "" })]
+    [InlineData(new byte[] { 0x0A, 0x01, 0x1C }, new byte[] { 0x00, 0x01, 0x1C, 0x1E, 0x00 },
+        "il2cpp::runtime::icall_stringbuilder_append_o", new[] { "deref:r", "" })]
+    [InlineData(new byte[] { 0x0A, 0x01, 0x1D, 0x0E }, new byte[] { 0x00, 0x01, 0x1C, 0x1E, 0x00 },
+        "il2cpp::runtime::icall_stringbuilder_append_o", new[] { "deref:r", "" })]
+    public void Resolve_HandlerAppendFormatted_ReferenceType_MapsToAppendObject(
+        byte[] genericSignature, byte[] memberRefSignature, string cppName, string[] casts)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", "AppendFormatted",
+            memberRefSignature, genericSignature, "Cases", "Widget"));
+
+        Assert.Equal(cppName, resolved.CppName);
+        Assert.Equal(casts, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_HandlerAppendFormatted_ReferenceTypeWidth_MapsToAppendObjectW()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", "AppendFormatted",
+            new byte[] { 0x00, 0x02, 0x1C, 0x1E, 0x00, 0x08 },
+            new byte[] { 0x0A, 0x01, 0x12, 0x09 }, "Cases", "Widget"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_o_w", resolved.CppName);
+        Assert.Equal(new[] { "deref:r", "", "i" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_HandlerAppendFormatted_ReferenceTypeWidthFormat_MapsToAppendObjectWf()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Runtime.CompilerServices", "DefaultInterpolatedStringHandler", "AppendFormatted",
+            new byte[] { 0x00, 0x03, 0x1C, 0x1E, 0x00, 0x08, 0x0E },
+            new byte[] { 0x0A, 0x01, 0x12, 0x09 }, "Cases", "Widget"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_o_wf", resolved.CppName);
+        Assert.Equal(new[] { "deref:r", "", "i", "" }, resolved.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same harness as MethodMapTests.StringBuilder)
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMethodSpec(MemoryStream pe)

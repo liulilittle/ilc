@@ -821,6 +821,44 @@ int32_t icall_string_get_hash_code(Il2CppObject* str)
 }
 
 //------------------------------------------------------------------------------
+// icall_string_get_hash_code_mode -- string.GetHashCode(StringComparison)
+// (net core 2.0+; net48 has NO such overload). The ordinal form keeps the
+// legacy net48 hash; the ignore-case form folds ASCII BEFORE the same
+// pair-scan (so strings equal under OrdinalIgnoreCase hash equally); the
+// culture modes degrade to the ordinal hash (documented culture deviation).
+// An invalid mode throws ArgumentException (the StringComparison contract).
+//------------------------------------------------------------------------------
+int32_t icall_string_get_hash_code_mode(Il2CppObject* str, int32_t comparisonType)
+{
+    if (comparisonType < 0 || comparisonType > 5)
+    {
+        il2cpp_throw_argument_exception("comparisonType must be a valid StringComparison value.");
+    }
+    ThrowIfNull(str);
+    const Il2CppString* s = reinterpret_cast<const Il2CppString*>(str);
+    const bool ignoreCase = comparisonType == 1 || comparisonType == 3 || comparisonType == 5;
+    if (!ignoreCase)
+    {
+        return HashStringOrdinal(s);
+    }
+    uint32_t hash1 = 5381u;
+    uint32_t hash2 = hash1;
+    for (int32_t i = 0; i < s->length; i += 2)
+    {
+        char16_t c0 = s->chars[i];
+        if (c0 >= u'A' && c0 <= u'Z') c0 = static_cast<char16_t>(c0 + 32);
+        hash1 = ((hash1 << 5) + hash1) ^ static_cast<uint32_t>(c0);
+        if (i + 1 < s->length)
+        {
+            char16_t c1 = s->chars[i + 1];
+            if (c1 >= u'A' && c1 <= u'Z') c1 = static_cast<char16_t>(c1 + 32);
+            hash2 = ((hash2 << 5) + hash2) ^ static_cast<uint32_t>(c1);
+        }
+    }
+    return static_cast<int32_t>(hash1 + hash2 * 1566083941u);
+}
+
+//------------------------------------------------------------------------------
 // icall_bool_get_hash_code -- Boolean.GetHashCode: true -> 1, false -> 0.
 //------------------------------------------------------------------------------
 int32_t icall_bool_get_hash_code(bool value)
