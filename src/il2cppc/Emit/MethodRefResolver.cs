@@ -1263,6 +1263,30 @@ public static partial class MethodRefResolver
         }
     }
 
+    // Whether a TypeDef full name is a translated USER value type (direct base
+    // System.ValueType, NOT System.Enum). Used to route a constrained
+    // Object::GetHashCode on a user struct to the ValueType domain (the
+    // first-instance-field classification); every translated class / enum /
+    // BCL type (absent from the TypeDef table) answers false.
+    private static bool IsTranslatedUserValueType(MetadataReader md, string? name)
+    {
+        if (name == null) return false;
+        foreach (var tdh in md.TypeDefinitions)
+        {
+            if (md.GetFullName(tdh) != name) continue;
+            var baseType = md.GetTypeDefinition(tdh).BaseType;
+            if (baseType.IsNil) return false;
+            var baseName = baseType.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)baseType),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)baseType),
+                _ => null
+            };
+            return baseName == "System.ValueType";
+        }
+        return false;
+    }
+
     // Is this owner a BCL type the input assembly NEVER defines (there is no
     // TypeDefinition for it -> the generated-name fallback would be a phantom)?
     // EXEMPTIONS: System.Object / System.ValueType (their virtual members are
@@ -1456,6 +1480,17 @@ public static partial class MethodRefResolver
                 if (receiverType != null && ValueTupleSupport.IsValueTupleName(receiverType)
                     && TryMapTupleObjectMember(receiverType, name, count) is { } tupleObj)
                     return tupleObj;
+                // ValueType (audit §5 #5): a user struct that does NOT override
+                // GetHashCode routes `constrained. T; callvirt Object::GetHashCode`
+                // here with the tracked receiver type. The constrained shape is an
+                // ADDRESS receiver (receiverIsAddress) -- route it to the
+                // ValueType domain (the first-instance-field classification),
+                // which the Object default arm would otherwise turn into the box
+                // identity hash. A boxed receiver (receiverIsAddress false) and
+                // every translated class keep the Object arm.
+                if (name == "GetHashCode" && receiverIsAddress && IsTranslatedUserValueType(md, receiverType))
+                    return TryMapValueTypeGetHashCode(md, "System.ValueType", name, ps, count, genArgs,
+                        receiverType, receiverIsAddress, arg0Type, arg1Type);
                 return name == "get_Module"
                     ? TryMapModule(md, owner, name, count)
                     : TryMapObject(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
