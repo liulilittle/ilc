@@ -384,7 +384,7 @@ the net48 oracle pinned by the `conv-obj` difftest and a unit test):
 | `Convert.ToBase64String(byte[], int, int[, options])` | `il2cpp_convert_to_base64_string_range`/`_options`/`_range_options` (InsertLineBreaks CRLF every 76 chars) |
 | `Convert.FromBase64CharArray(char[], int, int)` | `il2cpp_convert_from_base64_char_array` |
 
-The `conv-obj` difftest (sha `37ec7ad4...`, 2910B) pins the whole surface; the
+The `conv-obj` difftest (sha `6fd4b47a...`, 2928B) pins the whole surface; the
 `MethodMapTests.ConvertObj` unit test (28/28) pins the mappings.
 
 ### 8i.2. Contract whitelist entry -- `HashAlgorithm.Create(string)`
