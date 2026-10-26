@@ -4278,6 +4278,133 @@ Il2CppArray* il2cpp_attribute_member_get_custom(Il2CppObject* memberName, int32_
     return result;
 }
 
+// net48 attributeType filter for a member-registered attribute: a null
+// attributeType matches everything; otherwise the attribute's runtime class
+// must equal attributeType or derive from it (walk the klass->baseClass chain
+// -- attributeType.IsAssignableFrom).
+bool MatchesAttrType(Il2CppObject* attr, Il2CppClass* attributeType)
+{
+    if (attributeType == nullptr)
+    {
+        return true;
+    }
+    Il2CppClass* attrKlass = (attr != nullptr) ? attr->klass : nullptr;
+    for (Il2CppClass* current = attrKlass; current != nullptr; current = current->baseClass)
+    {
+        if (current == attributeType)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+Il2CppArray* il2cpp_attribute_member_get_custom_named(Il2CppObject* memberName,
+                                                      Il2CppObject* attributeTypeName,
+                                                      int32_t inherit)
+{
+    if (memberName == nullptr)
+    {
+        // net48: ((MemberInfo)null).GetCustomAttributes(type, false) ->
+        // NullReferenceException.
+        il2cpp_throw_null_reference_exception(
+            "Object reference not set to an instance of an object.");
+        return nullptr; // unreachable -- the throw does not return
+    }
+    char nameBuf[kNameBufferSize];
+    if (!AsciiFromManagedString(memberName, nameBuf))
+    {
+        return EmptyStringArray();
+    }
+    // Resolve the attributeType filter. A null string = no filter; an
+    // unresolvable name matches nothing (defensive -- the type-level
+    // CollectAttributes contract).
+    Il2CppClass* attrType = nullptr;
+    if (attributeTypeName != nullptr)
+    {
+        char attrBuf[kNameBufferSize];
+        if (AsciiFromManagedString(attributeTypeName, attrBuf))
+        {
+            attrType = il2cpp_class_by_name(attrBuf);
+        }
+        if (attrType == nullptr)
+        {
+            return EmptyStringArray();
+        }
+    }
+    // Same declaring-type scan as il2cpp_attribute_member_get_custom (the
+    // deepest registered type that DECLARES the member).
+    const Il2CppTypeInfo* best = nullptr;
+    int32_t bestDepth = -1;
+    for (int32_t i = 0; i < g_registeredTypeInfoCount; ++i)
+    {
+        const Il2CppTypeInfo* info = g_registeredTypeInfos[i];
+        if (info != nullptr && DeclaresMemberName(info, nameBuf))
+        {
+            const int32_t depth = BaseChainDepth(info);
+            if (depth > bestDepth)
+            {
+                bestDepth = depth;
+                best = info;
+            }
+        }
+    }
+    if (best == nullptr)
+    {
+        return EmptyStringArray();
+    }
+    // Count pass with the attributeType filter applied.
+    int32_t total = 0;
+    for (const Il2CppTypeInfo* level = best; level != nullptr; level = level->baseType)
+    {
+        if (level != best && !inherit)
+        {
+            break;
+        }
+        if (!DeclaresMemberName(level, nameBuf))
+        {
+            continue;
+        }
+        char key[kNameBufferSize * 2 + 2];
+        BuildMemberKey(level, nameBuf, key);
+        int32_t count = 0;
+        Il2CppObject** attrs = runtime::il2cpp_attribute_lookup_member(key, &count);
+        for (int32_t j = 0; j < count; ++j)
+        {
+            if (MatchesAttrType(attrs[j], attrType))
+            {
+                ++total;
+            }
+        }
+    }
+    Il2CppArray* result = il2cpp_array_new(nullptr, sizeof(void*), true, total);
+    int32_t dst = 0;
+    for (const Il2CppTypeInfo* level = best; level != nullptr; level = level->baseType)
+    {
+        if (level != best && !inherit)
+        {
+            break;
+        }
+        if (!DeclaresMemberName(level, nameBuf))
+        {
+            continue;
+        }
+        char key[kNameBufferSize * 2 + 2];
+        BuildMemberKey(level, nameBuf, key);
+        int32_t count = 0;
+        Il2CppObject** attrs = runtime::il2cpp_attribute_lookup_member(key, &count);
+        for (int32_t j = 0; j < count; ++j)
+        {
+            if (!MatchesAttrType(attrs[j], attrType))
+            {
+                continue;
+            }
+            *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(result, dst++)) = attrs[j];
+        }
+    }
+    return result;
+}
+
 //------------------------------------------------------------------------------
 // RF-N7 -- the LOUD icalls (typeinfo.h contract). Each throws an explicit
 // NotSupportedException instead of letting the transpiler fall to a spelling

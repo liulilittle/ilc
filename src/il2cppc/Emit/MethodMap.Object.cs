@@ -336,9 +336,17 @@ public static partial class MethodRefResolver
                 if (name == "GetCustomAttributes" && ps.Length == 1 && ps[0] == 0x02)
                     return I("il2cpp::il2cpp_attribute_member_get_custom", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.Object[]");
+                // net48 GetCustomAttributes(Type attributeType, bool inherit):
+                // the attributeType-filter form. The receiver rides the member-
+                // NAME string (the simplified member model); attributeType rides
+                // as a managed-string full name. Same CollectAttributes
+                // attributeType-assignability filter the type-level queries run.
+                if (name == "GetCustomAttributes" && ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x02)
+                    return I("il2cpp::il2cpp_attribute_member_get_custom_named", 2, true, true, true,
+                        new[] { "", "", "i" }, returnTypeName: "System.Object[]");
                 if (name == "GetCustomAttributes")
                     throw new NotSupportedException(
-                        $"System.Reflection.MemberInfo::GetCustomAttributes with {ps.Length} parameter(s) not wired in RF-N6 -- only the net48 (bool inherit) overload maps to il2cpp_attribute_member_get_custom (the (Type, bool) attributeType-filter form is not wired)");
+                        $"System.Reflection.MemberInfo::GetCustomAttributes with {ps.Length} parameter(s) not wired in RF-N6 -- only the net48 (bool inherit) and (Type attributeType, bool inherit) overloads map to il2cpp_attribute_member_get_custom(_named)");
                 // REFL3 (item 1): MemberInfo.IsDefined(Type attributeType, bool
                 // inherit) -- net48 bool. The receiver rides the simplified
                 // member VALUE (for a Type receiver -- the probe shape -- the

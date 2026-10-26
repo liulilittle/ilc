@@ -139,14 +139,22 @@ public class MethodMapAttributeTests
     }
 
     [Fact]
-    public void Resolve_MemberInfo_GetCustomAttributes_TypeBool_ThrowsLoud()
+    public void Resolve_MemberInfo_GetCustomAttributes_TypeBool_MapsToNamedMemberIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Reflection", "MemberInfo", "GetCustomAttributes",
+        // net48 GetCustomAttributes(Type attributeType, bool inherit): the
+        // attributeType-filter form. The receiver is the MEMBER-NAME string
+        // (the simplified member model); attributeType rides as a
+        // managed-string full name; inherit is the bool.
+        var resolved = ResolveMember(Synthesize("System.Reflection", "MemberInfo", "GetCustomAttributes",
                 Sig(0x1C, 2, 0x12, 0x05, 0x02)), // (Type, bool)
-            "GetCustomAttributes"));
+            "GetCustomAttributes");
 
-        Assert.Contains("not wired in RF-N6", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_attribute_member_get_custom_named", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "i" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Object[]", resolved.ReturnTypeName);
     }
 
     //--------------------------------------------------------------------------

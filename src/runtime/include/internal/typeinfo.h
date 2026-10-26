@@ -754,6 +754,26 @@ Il2CppObject* il2cpp_methodinfo_invoke(Il2CppObject* memberName, Il2CppObject* t
 Il2CppArray* il2cpp_attribute_member_get_custom(Il2CppObject* memberName, int32_t inherit);
 
 //------------------------------------------------------------------------------
+// il2cpp_attribute_member_get_custom_named -- net48
+// MemberInfo.GetCustomAttributes(Type attributeType, bool inherit) on the
+// MEMBER-level registry (the RF-N6 member walk + the attributeType filter).
+// Same receiver / inherit contract as il2cpp_attribute_member_get_custom
+// above; the extra attributeTypeName is the managed-string full name of the
+// filter type:
+//   attributeTypeName : the filter type's full name (managed string). A null
+//                       string -> no filter (matches every attribute type,
+//                       the type-level CollectAttributes contract); an
+//                       unresolvable name -> an empty array (no matches).
+//
+// Returns an Il2CppArray* of the registered attribute objects whose runtime
+// class equals or derives from attributeTypeName, most-derived first. Same
+// empty / null / exception doctrines as il2cpp_attribute_member_get_custom.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_attribute_member_get_custom_named(Il2CppObject* memberName,
+                                                      Il2CppObject* attributeTypeName,
+                                                      int32_t inherit);
+
+//------------------------------------------------------------------------------
 // RF-N7 (NEXT2-DECISION section ② RF-N7) -- the reflection operations that
 // have NO AOT implementation and MUST fail loudly instead of falling to a
 // spelling generated-member name (the pre-RF-N7 behavior: an unwired BCL
