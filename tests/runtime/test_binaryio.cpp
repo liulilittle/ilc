@@ -742,9 +742,11 @@ int main()
            "BinaryReader instanceSize == sizeof(Il2CppStreamObject)");
     Expect(System_IO_BinaryWriter_class.instanceSize == sizeof(Il2CppStreamObject),
            "BinaryWriter instanceSize == sizeof(Il2CppStreamObject)");
-    Expect(System_IO_BinaryReader_class.refFieldBitmap == 0u
-           && System_IO_BinaryWriter_class.refFieldBitmap == 0u,
-           "binary reader/writer descriptors carry no GC reference fields");
+    // binrw3: the binary wrappers carry the WRAPPED stream at slot 2 (a GC
+    // reference -- refFieldBitmap bit 2), surfaced through get_BaseStream.
+    Expect(System_IO_BinaryReader_class.refFieldBitmap == 0b100u
+           && System_IO_BinaryWriter_class.refFieldBitmap == 0b100u,
+           "binary reader/writer descriptors carry the wrapped-stream GC reference (slot 2)");
 
     Il2CppObject* bwms = NewMemoryStream();
     icall_stream_memory_ctor(bwms);
@@ -753,6 +755,8 @@ int main()
     Expect(il2cpp_is_instance(bw, &System_Object_class),
            "a BinaryWriter IS-A System.Object (baseClass chain)");
     icall_binary_writer_ctor(bw, bwms);
+    Expect(icall_binary_get_base_stream(bw) == bwms,
+           "BinaryWriter.BaseStream returns the wrapped stream (net48)");
 
     // Mixed writes over the shared stream: int32 + double + string + bool +
     // int64 + uint32 + single = 4+8+4+1+8+4+4 = 33 bytes.
@@ -796,6 +800,8 @@ int main()
     Expect(il2cpp_is_instance(br, &System_Object_class),
            "a BinaryReader IS-A System.Object (baseClass chain)");
     icall_binary_reader_ctor(br, bwms);
+    Expect(icall_binary_get_base_stream(br) == bwms,
+           "BinaryReader.BaseStream returns the wrapped stream (net48)");
     Expect(icall_binary_read_int32(br) == 0x01020304, "object ReadInt32 round-trips");
     Expect(DoubleBits(icall_binary_read_double(br)) == DoubleBits(1.0),
            "object ReadDouble bit-exact round-trip");
