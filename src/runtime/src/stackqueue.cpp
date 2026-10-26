@@ -376,6 +376,29 @@ Il2CppObject* il2cpp_stack_create()
     return reinterpret_cast<Il2CppObject*>(st);
 }
 
+Il2CppObject* il2cpp_stack_create_with_capacity(int32_t capacity)
+{
+    if (capacity < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("capacity", "Non-negative number required.");
+    }
+    EnsureStackRegistered();
+    Il2CppStack* st = reinterpret_cast<Il2CppStack*>(il2cpp_object_new(&System_Collections_Stack_class));
+    // Same re-read-before-publish discipline as il2cpp_stack_create (see
+    // there). The capacity is clamped up to kMinItems: the doubling growth
+    // (NextLength) cannot extend a zero-length array, and net48's first grow
+    // target is also 4.
+    GcRoot<Il2CppStack*> root(st, "icall_stack_create_capacity");
+    Il2CppArray* arr = AllocItems(capacity < kMinItems ? kMinItems : capacity);
+    st = root.Get();
+    st->items = arr;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&st->items),
+                         reinterpret_cast<Il2CppObject*>(st->items));
+    st->count = 0;
+    st->version = 0;
+    return reinterpret_cast<Il2CppObject*>(st);
+}
+
 void il2cpp_stack_push(Il2CppObject* self, Il2CppObject* value)
 {
     ThrowIfNullReceiver(self);
@@ -498,6 +521,28 @@ Il2CppObject* il2cpp_queue_create()
     // Same re-read-before-publish discipline as the Stack create (see there).
     GcRoot<Il2CppQueue*> root(q, "icall_queue_create");
     Il2CppArray* arr = AllocItems(kMinItems);
+    q = root.Get();
+    q->items = arr;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&q->items),
+                         reinterpret_cast<Il2CppObject*>(q->items));
+    q->head = 0;
+    q->count = 0;
+    q->version = 0;
+    return reinterpret_cast<Il2CppObject*>(q);
+}
+
+Il2CppObject* il2cpp_queue_create_with_capacity(int32_t capacity)
+{
+    if (capacity < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("capacity", "Non-negative number required.");
+    }
+    EnsureQueueRegistered();
+    Il2CppQueue* q = reinterpret_cast<Il2CppQueue*>(il2cpp_object_new(&System_Collections_Queue_class));
+    // Same re-read-before-publish discipline as il2cpp_queue_create (see
+    // there); the capacity clamp mirrors the Stack capacity ctor.
+    GcRoot<Il2CppQueue*> root(q, "icall_queue_create_capacity");
+    Il2CppArray* arr = AllocItems(capacity < kMinItems ? kMinItems : capacity);
     q = root.Get();
     q->items = arr;
     il2cpp_write_barrier(reinterpret_cast<void**>(&q->items),

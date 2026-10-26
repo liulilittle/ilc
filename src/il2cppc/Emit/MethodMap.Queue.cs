@@ -58,7 +58,12 @@ public static partial class MethodRefResolver
             case ".ctor":
                 if (count == 0)
                     return I("il2cpp::il2cpp_queue_create", 0, true, true, true, new[] { "drop" });
-                throw new NotSupportedException($"Queue ctor with {count} arg(s) not wired (the runtime has only the parameterless create icall)");
+                // net48 Queue(int capacity): the create icall takes the
+                // capacity as its sole argument (the fold-supplied newobj temp
+                // is dropped).
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::il2cpp_queue_create_with_capacity", 1, true, true, true, new[] { "drop", "i" });
+                throw new NotSupportedException($"Queue ctor with {count} arg(s) not wired (only the parameterless and int-capacity shapes exist)");
             case "Enqueue":
                 if (intReceiver)
                     return I("il2cpp::runtime::icall_queue_int_enqueue", 1, false, false, true, new[] { "", "i" });

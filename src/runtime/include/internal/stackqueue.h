@@ -107,6 +107,13 @@ Il2CppClass* il2cpp_queue_class();
 // Returns the new object (never null).
 Il2CppObject* il2cpp_stack_create();
 
+// Stack(int capacity) -- net48's capacity ctor: allocate 'capacity' slots
+// (clamped up to kMinItems, because the doubling growth cannot extend a
+// zero-length array). A negative capacity raises
+// ArgumentOutOfRangeException("capacity", "Non-negative number required.").
+// Returns the new object (never null).
+Il2CppObject* il2cpp_stack_create_with_capacity(int32_t capacity);
+
 // Push(value) -- push onto the top. Null is legal. Grows (doubles the items
 // array, min 4) when the stack is full.
 void il2cpp_stack_push(Il2CppObject* self, Il2CppObject* value);
@@ -138,6 +145,13 @@ Il2CppObject* il2cpp_stack_to_array(Il2CppObject* self);
 // Queue() -- allocate the managed queue with an empty 4-slot ring array.
 // Returns the new object (never null).
 Il2CppObject* il2cpp_queue_create();
+
+// Queue(int capacity) -- net48's capacity ctor: allocate 'capacity' ring
+// slots (clamped up to kMinItems, because the doubling growth cannot extend
+// a zero-length array). A negative capacity raises
+// ArgumentOutOfRangeException("capacity", "Non-negative number required.").
+// Returns the new object (never null).
+Il2CppObject* il2cpp_queue_create_with_capacity(int32_t capacity);
 
 // Enqueue(value) -- append at the back. Null is legal. Grows (doubles the
 // ring array, min 4, re-laying the ring with head = 0) when the queue is

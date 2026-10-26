@@ -24,9 +24,10 @@ using Xunit;
 // .ctor: the runtime create icalls (il2cpp_queue_create /
 // il2cpp_stack_create) take NO self and return the new object; the
 // fold-supplied newobj temp must be DROPPED at emission ("drop" cast) to
-// keep the call arity correct. Capacity ctors have no runtime icall and
-// are rejected LOUD (NotSupportedException with the "{owner}::{name}"
-// prefix -- see BclResolve's wrap).
+// keep the call arity correct. The capacity ctors (net48
+// Queue(int)/Stack(int)) route to the *_create_with_capacity icalls, which
+// take the capacity as their sole argument (the newobj temp is still
+// dropped).
 //
 // The PEs are SYNTHESIZED with System.Reflection.Metadata's own writer
 // (MetadataBuilder + ManagedPEBuilder -- net8.0 shared framework, no new
@@ -109,12 +110,18 @@ public class MethodMapQueueStackTests
     }
 
     [Fact]
-    public void Resolve_Queue_CtorCapacity_ThrowsLoud()
+    public void Resolve_Queue_CtorCapacity_MapsToCreateWithCapacityIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Collections", "Queue", ".ctor", Sig(0x01, 0x08)), ".ctor", receiverType: "System.Collections.Queue"));
+        // net48 Queue(int capacity): the runtime icall takes the capacity as
+        // its sole argument (the fold-supplied newobj temp is dropped).
+        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", ".ctor", Sig(0x01, 0x08)), ".ctor", receiverType: "System.Collections.Queue");
 
-        Assert.Contains("System.Collections.Queue::.ctor", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_queue_create_with_capacity", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "drop", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]
@@ -135,14 +142,17 @@ public class MethodMapQueueStackTests
     }
 
     [Fact]
-    public void Resolve_Queue_CtorCapacity_NullReceiver_ThrowsLoud()
+    public void Resolve_Queue_CtorCapacity_NullReceiver_MapsToCreateWithCapacityIcall()
     {
-        // The parameterized ctor stays LOUD on the null-tag path too (the
-        // owner guard only restores the parameterless create mapping).
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Collections", "Queue", ".ctor", Sig(0x01, 0x08)), ".ctor"));
+        // The capacity ctor maps on the null-tag path too (the owner guard
+        // restores both the parameterless and the capacity create mappings).
+        var resolved = ResolveMember(Synthesize("System.Collections", "Queue", ".ctor", Sig(0x01, 0x08)), ".ctor");
 
-        Assert.Contains("System.Collections.Queue::.ctor", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_queue_create_with_capacity", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "drop", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]
@@ -236,12 +246,18 @@ public class MethodMapQueueStackTests
     }
 
     [Fact]
-    public void Resolve_Stack_CtorCapacity_ThrowsLoud()
+    public void Resolve_Stack_CtorCapacity_MapsToCreateWithCapacityIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Collections", "Stack", ".ctor", Sig(0x01, 0x08)), ".ctor", receiverType: "System.Collections.Stack"));
+        // net48 Stack(int capacity): the runtime icall takes the capacity as
+        // its sole argument (the fold-supplied newobj temp is dropped).
+        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", ".ctor", Sig(0x01, 0x08)), ".ctor", receiverType: "System.Collections.Stack");
 
-        Assert.Contains("System.Collections.Stack::.ctor", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_stack_create_with_capacity", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "drop", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]
@@ -262,14 +278,17 @@ public class MethodMapQueueStackTests
     }
 
     [Fact]
-    public void Resolve_Stack_CtorCapacity_NullReceiver_ThrowsLoud()
+    public void Resolve_Stack_CtorCapacity_NullReceiver_MapsToCreateWithCapacityIcall()
     {
-        // The parameterized ctor stays LOUD on the null-tag path too (the
-        // owner guard only restores the parameterless create mapping).
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Collections", "Stack", ".ctor", Sig(0x01, 0x08)), ".ctor"));
+        // The capacity ctor maps on the null-tag path too (the owner guard
+        // restores both the parameterless and the capacity create mappings).
+        var resolved = ResolveMember(Synthesize("System.Collections", "Stack", ".ctor", Sig(0x01, 0x08)), ".ctor");
 
-        Assert.Contains("System.Collections.Stack::.ctor", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_stack_create_with_capacity", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "drop", "i" }, resolved.ParamTypeNames);
     }
 
     [Fact]
