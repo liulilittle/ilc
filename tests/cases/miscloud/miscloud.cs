@@ -26,7 +26,15 @@ namespace Cases
         {
             GuidFromBytes();
             DateTimeMisc();
+            CalendarMisc();
             GCHandleMisc();
+        }
+
+        static void CalendarMisc()
+        {
+            var cal = new System.Globalization.GregorianCalendar();
+            DateTime dt = cal.ToDateTime(2021, 3, 14, 15, 9, 26, 535);
+            Console.WriteLine("cal.todatetime=" + dt.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
         }
 
         static void GuidFromBytes()

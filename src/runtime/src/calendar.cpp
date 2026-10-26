@@ -251,4 +251,20 @@ int32_t icall_calendar_get_day_of_week(Il2CppObject* self, Il2CppDateTime dt)
     return DayOfWeekFromDays(Days1970FromTicks(dt.ticks));
 }
 
+// Calendar.ToDateTime(year, month, day, hour, minute, second, millisecond)
+// -> DateTime: the Gregorian calendar's civil-date composition (net48: the
+// GregorianCalendar's era-1 proleptic Gregorian calendar). The runtime reuses
+// the DateTime millisecond ctor's composition (icall_datetime_from_ymdhms_ms,
+// il2cpp_time.h) -- the same civil-date math (the component validation and the
+// tick composition) with the calendar object's identity ignored (the
+// GregorianCalendar is the only calendar model).
+Il2CppDateTime icall_calendar_to_datetime(Il2CppObject* self, int32_t year, int32_t month,
+                                          int32_t day, int32_t hour, int32_t minute,
+                                          int32_t second, int32_t millisecond)
+{
+    (void)self;
+    il2cpp_calendar_register_classes();
+    return icall_datetime_from_ymdhms_ms(year, month, day, hour, minute, second, millisecond);
+}
+
 }} // namespace il2cpp::runtime

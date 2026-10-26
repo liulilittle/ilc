@@ -99,4 +99,11 @@ int32_t icall_calendar_get_day_of_year_of(Il2CppObject* self, Il2CppDateTime dt)
 // Saturday = 6.
 int32_t icall_calendar_get_day_of_week(Il2CppObject* self, Il2CppDateTime dt);
 
+// ToDateTime(year, month, day, hour, minute, second, millisecond) -> DateTime:
+// the Gregorian calendar's civil-date composition (net48: the era-1 proleptic
+// Gregorian calendar). Reuses the DateTime millisecond ctor's composition.
+Il2CppDateTime icall_calendar_to_datetime(Il2CppObject* self, int32_t year, int32_t month,
+                                          int32_t day, int32_t hour, int32_t minute,
+                                          int32_t second, int32_t millisecond);
+
 }} // namespace il2cpp::runtime

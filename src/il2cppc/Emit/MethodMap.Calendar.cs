@@ -93,7 +93,17 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_calendar_get_day_of_week", 1, true, false, true, new[] { "", "" });
                 return null;
             case "ToDateTime":
-                throw new NotSupportedException("ToDateTime not wired: the DateTime-returning ctor shape is a separate follow-up (the runtime has no to_datetime icall yet)");
+                // Calendar.ToDateTime(year, month, day, hour, minute, second,
+                // millisecond): the 7-int civil-date composition. The
+                // GregorianCalendar is stateless, so the receiver is ignored;
+                // the component validation + tick composition live in the
+                // runtime (icall_calendar_to_datetime). Other arities have no
+                // net48 overload -> stay null (generated-name path).
+                if (ps.Length == 7 && ps[0] == 0x08 && ps[1] == 0x08 && ps[2] == 0x08
+                    && ps[3] == 0x08 && ps[4] == 0x08 && ps[5] == 0x08 && ps[6] == 0x08)
+                    return I("il2cpp::runtime::icall_calendar_to_datetime", 7, true, false, true,
+                        new[] { "", "i", "i", "i", "i", "i", "i", "i" }, "dt");
+                return null;
             default: return null;
         }
     }
