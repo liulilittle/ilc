@@ -1299,12 +1299,22 @@ T ConvertAllReadSource(Il2CppArray* a, int32_t i)
         return *reinterpret_cast<const T*>(il2cpp_array_get_elem_ptr(a, i));
 }
 
+// The transpiler stores float in a DOUBLE slot (MethodMap.MathF.cs), so a
+// Converter<float,TOut> leaf is emitted as TOut(double) -- the runtime invokes
+// it through the double ABI (the float cell widened to double).
+template <typename T>
+struct ConvertAllAbi { using type = T; };
+template <>
+struct ConvertAllAbi<float> { using type = double; };
+
 template <typename TIn, typename TOut>
 TOut ConvertAllInvoke(Il2CppDelegate* d, TIn v)
 {
+    using AbiIn = typename ConvertAllAbi<TIn>::type;
     if (d->target != nullptr)
-        return reinterpret_cast<TOut (*)(Il2CppObject*, TIn)>(d->methodPtr)(d->target, v);
-    return reinterpret_cast<TOut (*)(TIn)>(d->methodPtr)(v);
+        return reinterpret_cast<TOut (*)(Il2CppObject*, AbiIn)>(d->methodPtr)(
+            d->target, static_cast<AbiIn>(v));
+    return reinterpret_cast<TOut (*)(AbiIn)>(d->methodPtr)(static_cast<AbiIn>(v));
 }
 
 template <typename T>
@@ -1312,6 +1322,7 @@ int32_t ConvertAllResultElemKind()
 {
     if constexpr (std::is_same<T, int64_t>::value) return 2;
     else if constexpr (std::is_same<T, double>::value) return 4;
+    else if constexpr (std::is_same<T, float>::value) return 3;
     else return 1;
 }
 
@@ -1415,6 +1426,46 @@ Il2CppArray* icall_array_convert_all_str_d(Il2CppArray* arr, Il2CppObject* conve
 Il2CppArray* icall_array_convert_all_str_str(Il2CppArray* arr, Il2CppObject* converter)
 {
     return ConvertAllFamily<Il2CppString*, Il2CppString*>(arr, converter);
+}
+
+// arrgen1b: the float converter families. A float SOURCE rides the double-slot
+// ABI (ConvertAllAbi<float> -> double); a float RESULT is the float cell
+// (elemKind 3).
+Il2CppArray* icall_array_convert_all_f_i4(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<float, int32_t>(arr, converter);
+}
+Il2CppArray* icall_array_convert_all_f_i8(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<float, int64_t>(arr, converter);
+}
+Il2CppArray* icall_array_convert_all_f_d(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<float, double>(arr, converter);
+}
+Il2CppArray* icall_array_convert_all_f_str(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<float, Il2CppString*>(arr, converter);
+}
+Il2CppArray* icall_array_convert_all_i4_f(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<int32_t, float>(arr, converter);
+}
+Il2CppArray* icall_array_convert_all_i8_f(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<int64_t, float>(arr, converter);
+}
+Il2CppArray* icall_array_convert_all_d_f(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<double, float>(arr, converter);
+}
+Il2CppArray* icall_array_convert_all_str_f(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<Il2CppString*, float>(arr, converter);
+}
+Il2CppArray* icall_array_convert_all_f_f(Il2CppArray* arr, Il2CppObject* converter)
+{
+    return ConvertAllFamily<float, float>(arr, converter);
 }
 
 //------------------------------------------------------------------------------

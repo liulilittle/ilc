@@ -289,6 +289,19 @@ Il2CppArray* icall_array_convert_all_str_i8(Il2CppArray* arr, Il2CppObject* conv
 Il2CppArray* icall_array_convert_all_str_d(Il2CppArray* arr, Il2CppObject* converter);
 Il2CppArray* icall_array_convert_all_str_str(Il2CppArray* arr, Il2CppObject* converter);
 
+// arrgen1b: the float converter families. A float SOURCE rides the double-slot
+// ABI (the transpiler stores float in a double slot); a float RESULT is the
+// float cell.
+Il2CppArray* icall_array_convert_all_f_i4(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_f_i8(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_f_d(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_f_str(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_i4_f(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_i8_f(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_d_f(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_str_f(Il2CppArray* arr, Il2CppObject* converter);
+Il2CppArray* icall_array_convert_all_f_f(Il2CppArray* arr, Il2CppObject* converter);
+
 // Array.Resize<long>(ref long[], int) / Array.Resize<string>(ref string[],
 // int): the int64 / reference-element twins of icall_array_resize_i4 (the same
 // net48 contract: newSize < 0 -> ArgumentOutOfRangeException; a null array is

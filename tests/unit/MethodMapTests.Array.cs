@@ -153,6 +153,16 @@ public class MethodMapArrayTests
     [InlineData(0x0E, 0x0A, "il2cpp::runtime::icall_array_convert_all_str_i8")]
     [InlineData(0x0E, 0x0D, "il2cpp::runtime::icall_array_convert_all_str_d")]
     [InlineData(0x0E, 0x0E, "il2cpp::runtime::icall_array_convert_all_str_str")]
+    // arrgen1b: the float converter families (the double-slot source ABI).
+    [InlineData(0x0C, 0x08, "il2cpp::runtime::icall_array_convert_all_f_i4")]
+    [InlineData(0x0C, 0x0A, "il2cpp::runtime::icall_array_convert_all_f_i8")]
+    [InlineData(0x0C, 0x0D, "il2cpp::runtime::icall_array_convert_all_f_d")]
+    [InlineData(0x0C, 0x0E, "il2cpp::runtime::icall_array_convert_all_f_str")]
+    [InlineData(0x08, 0x0C, "il2cpp::runtime::icall_array_convert_all_i4_f")]
+    [InlineData(0x0A, 0x0C, "il2cpp::runtime::icall_array_convert_all_i8_f")]
+    [InlineData(0x0D, 0x0C, "il2cpp::runtime::icall_array_convert_all_d_f")]
+    [InlineData(0x0E, 0x0C, "il2cpp::runtime::icall_array_convert_all_str_f")]
+    [InlineData(0x0C, 0x0C, "il2cpp::runtime::icall_array_convert_all_f_f")]
     public void Resolve_Array_ConvertAllFamilies_MapsToConverterIcall(int ti, int to, string cpp)
     {
         var resolved = ResolveMethodSpec(SynthesizeGeneric("System", "Array", "ConvertAll",

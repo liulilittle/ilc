@@ -163,6 +163,17 @@ namespace Cases
             try { Buffer.SetByte(bb, 4, 0); } catch (ArgumentOutOfRangeException) { sbIo = true; }
             Console.WriteLine("sb_io=" + sbIo);
 
+            // ---- O. Array.ConvertAll<float,...> / <...,float> ----
+            float[] cfa = { 1.5f, 2.5f, 3.5f };
+            int[] ci = Array.ConvertAll(cfa, x => (int)(x * 2));
+            Console.WriteLine("ca_f_i4=" + (ci.Length == 3 && ci[0] == 3 && ci[1] == 5 && ci[2] == 7));
+            float[] cf = Array.ConvertAll(ci, x => x + 0.5f);
+            Console.WriteLine("ca_i4_f=" + (cf.Length == 3 && cf[0] == 3.5f && cf[2] == 7.5f));
+            double[] cd = Array.ConvertAll(cfa, x => x * 2.0);
+            Console.WriteLine("ca_f_d=" + (cd.Length == 3 && cd[1] == 5.0));
+            float[] cff = Array.ConvertAll(cfa, x => x * 2f);
+            Console.WriteLine("ca_f_f=" + (cff.Length == 3 && cff[1] == 5.0f));
+
             // ---- N. ArrayList(int capacity) ----
             ArrayList cap = new ArrayList(8);
             Console.WriteLine("al_cap0=" + cap.Capacity);

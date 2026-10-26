@@ -39,6 +39,8 @@ public static partial class MethodRefResolver
             0x08 => "i4",
             0x0A or 0x0B => "i8",
             0x0D => "d",
+            // arrgen1b: the float converter family (the double-slot source ABI).
+            0x0C => "f",
             0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "str",
             _ => null,
         };
@@ -47,6 +49,7 @@ public static partial class MethodRefResolver
             0x08 => "i4",
             0x0A or 0x0B => "i8",
             0x0D => "d",
+            0x0C => "f",
             0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "str",
             _ => null,
         };
