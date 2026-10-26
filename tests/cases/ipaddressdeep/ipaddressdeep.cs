@@ -30,9 +30,9 @@
 //     the wired parse layer implements Parse semantics (throws); the
 //     non-throwing 1/0 TryParse variant is runtime work (net-domain.md
 //     section 4.3). Recorded D-IPD-1.
-//   * GetAddressBytes / get_AddressFamily / Equals / GetHashCode -- LOUD
-//     (MethodMap.Net.cs default: "Parse(string)/ToString() only"). Recorded
-//     D-IPD-1.
+//   * get_AddressFamily / ScopeId / MapToIPv4 -- LOUD (MethodMap.Net.cs
+//     default). GetAddressBytes / Equals(object) / GetHashCode are wired
+//     (section S5 below). Recorded D-IPD-1.
 //------------------------------------------------------------------------------
 using System;
 using System.Net;
@@ -115,5 +115,23 @@ namespace Cases { public static class IPAddressDeep {
 
         // ===== S4: Parse(null) -> ArgumentNullException =====
         Console.WriteLine("an_null=" + IsArgumentNullException());
+
+        // ===== S5: GetAddressBytes / GetHashCode / Equals(object) =====
+        // net48 GetAddressBytes: the four address bytes (little-endian image
+        // of m_Address). net48 IPv4 GetHashCode: unchecked((int)m_Address).
+        byte[] gab = IPAddress.Parse("1.2.3.4").GetAddressBytes();
+        Console.WriteLine("gab_len=" + (gab.Length == 4));
+        Console.WriteLine("gab_0=" + gab[0]);
+        Console.WriteLine("gab_1=" + gab[1]);
+        Console.WriteLine("gab_2=" + gab[2]);
+        Console.WriteLine("gab_3=" + gab[3]);
+        Console.WriteLine("gab_loop=" + (IPAddress.Parse("127.0.0.1").GetAddressBytes()[0] == 127));
+        Console.WriteLine("ghc_1234=" + (IPAddress.Parse("1.2.3.4").GetHashCode() == 67305985));
+        Console.WriteLine("ghc_loop=" + (IPAddress.Parse("127.0.0.1").GetHashCode() == 16777343));
+        Console.WriteLine("ghc_zero=" + (IPAddress.Parse("0.0.0.0").GetHashCode() == 0));
+        // Equals(object): null / a foreign object -> false (the runtime has no
+        // IPAddress box, so a non-null object never matches).
+        Console.WriteLine("eq_null=" + IPAddress.Parse("1.2.3.4").Equals(null));
+        Console.WriteLine("eq_str=" + IPAddress.Parse("1.2.3.4").Equals("x"));
     }
 }}

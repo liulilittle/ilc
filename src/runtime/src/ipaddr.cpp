@@ -349,6 +349,46 @@ Il2CppArray* il2cpp_ipaddress_get_address_bytes(const uint8_t bytes4[4])
 }
 
 //------------------------------------------------------------------------------
+// IPAddress.GetHashCode (net48 IPv4): unchecked((int)m_Address). The slot's
+// four bytes ARE m_Address's little-endian image, so the fold is
+// bytes[0] | bytes[1]<<8 | bytes[2]<<16 | bytes[3]<<24 (e.g. "127.0.0.1" ->
+// 0x0100007F, matching IPAddress.Loopback's m_Address). A null buffer yields
+// 0 (defensive).
+//------------------------------------------------------------------------------
+int32_t il2cpp_ipaddress_get_hash_code(const uint8_t bytes4[4])
+{
+    if (bytes4 == nullptr)
+    {
+        return 0;
+    }
+    const uint32_t address = static_cast<uint32_t>(bytes4[0])
+        | (static_cast<uint32_t>(bytes4[1]) << 8)
+        | (static_cast<uint32_t>(bytes4[2]) << 16)
+        | (static_cast<uint32_t>(bytes4[3]) << 24);
+    return static_cast<int32_t>(address);
+}
+
+//------------------------------------------------------------------------------
+// IPAddress.Equals(object) (net48): null -> false, a non-IPAddress object ->
+// false, a boxed IPAddress -> the four address bytes (IPv4). The runtime has
+// no IPAddress box class, so a non-null object never matches today; the
+// klass-name check keeps the helper correct if a box lands later.
+//------------------------------------------------------------------------------
+bool il2cpp_ipaddress_equals_object(const uint8_t a[4], Il2CppObject* obj)
+{
+    if (obj == nullptr || obj->klass == nullptr || obj->klass->name == nullptr)
+    {
+        return false;
+    }
+    if (std::strcmp(obj->klass->name, "System.Net.IPAddress") != 0)
+    {
+        return false;
+    }
+    const uint8_t* b = reinterpret_cast<const uint8_t*>(obj) + sizeof(void*);
+    return std::memcmp(a, b, 4) == 0;
+}
+
+//------------------------------------------------------------------------------
 // Dns.GetHostAddresses: resolve 'host' (name or dotted-quad literal) to its
 // IPv4 addresses via getaddrinfo(AF_INET). The result is an object array
 // (isRefElement true, elemSize sizeof(void*)) whose elements are byte[4]

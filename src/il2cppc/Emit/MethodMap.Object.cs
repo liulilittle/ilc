@@ -61,6 +61,16 @@ public static partial class MethodRefResolver
                     // the generic boxed path.
                     if (receiverType == "System.Guid" && receiverIsAddress)
                         return I("il2cpp::il2cpp_guid_equals_object", 1, true, false, true, new[] { "g", "" });
+                    // boxwire: the same shape for a tracked IPAddress VALUE
+                    // receiver (Roslyn emits `callvirt Object::Equals(object)`
+                    // for the override). Route to the value-vs-object helper
+                    // (il2cpp_ipaddress_equals_object) -- the generic
+                    // icall_boxed_equals_ext2 below takes two Il2CppObject*
+                    // and cannot accept the uint8_t[4] address. The runtime
+                    // has no IPAddress box, so every IPAddress receiver is a
+                    // value slot (the ToString arm above is the precedent).
+                    if (receiverType == "System.Net.IPAddress")
+                        return I("il2cpp::runtime::il2cpp_ipaddress_equals_object", 1, true, false, true, new[] { "g", "" });
                     // .NET object.Equals -- the runtime boxed-value equality dispatches
                     // on the box classes (bool/char/int/double/long/...) and falls back
                     // to reference equality, mirroring Object.Equals semantics.
@@ -100,6 +110,14 @@ public static partial class MethodRefResolver
                 // `g.GetHashCode()` -> icall_object_get_hash_code((&loc2))).
                 if (name == "GetHashCode" && receiverType == "System.Guid" && receiverIsAddress)
                     return I("il2cpp::il2cpp_guid_get_hash_code", 0, true, false, true, new[] { "g" });
+                // boxwire: Roslyn emits `callvirt Object::GetHashCode` for the
+                // IPAddress override too. The value-slot receiver takes the "g"
+                // cast and folds the four address bytes (net48 IPv4:
+                // unchecked((int)m_Address)). The runtime has no IPAddress
+                // box, so every receiver is a value slot (the Guid arm above
+                // keeps its address gate for the boxed-Guid shape).
+                if (name == "GetHashCode" && receiverType == "System.Net.IPAddress")
+                    return I("il2cpp::runtime::il2cpp_ipaddress_get_hash_code", 0, true, false, true, new[] { "g" });
                 if (name == "GetHashCode" && receiverType == "System.DateTime" && receiverIsAddress)
                     return I("il2cpp::runtime::icall_datetime_get_hash_code", 0, true, false, true, new[] { "deref:dt" });
                 // URI-FIX P3: Object::GetHashCode on a tracked Uri receiver

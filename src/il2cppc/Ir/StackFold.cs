@@ -3775,15 +3775,18 @@ public static class StackFold
                         // re-resolve to the domain icall.
                         || resolved.CppName.EndsWith("icall_object_get_hash_code")
                         || resolved.CppName.EndsWith("icall_object_to_string")
-                        // boxwire: Object::Equals(object) on a tracked Guid
-                        // VALUE receiver. Roslyn emits a CONSTRAINED callvirt
-                        // (ldloca + constrained. Guid), so the receiver arrives
-                        // as the value ADDRESS while the hint-less first pass
-                        // resolves the generic icall_boxed_equals_ext2 -- whose
-                        // Il2CppObject* parameter cannot accept the Il2CppGuid*
-                        // address. The receiver-hinted re-resolve routes to the
-                        // value-vs-object helper (il2cpp_guid_equals_object).
-                        || (recvType == "System.Guid" && resolved.CppName.EndsWith("icall_boxed_equals_ext2"))
+                        // boxwire: Object::Equals(object) on a tracked VALUE
+                        // receiver (Guid / IPAddress). Roslyn emits a
+                        // CONSTRAINED callvirt (ldloca + constrained. T), so
+                        // the receiver arrives as the value ADDRESS while the
+                        // hint-less first pass resolves the generic
+                        // icall_boxed_equals_ext2 -- whose Il2CppObject*
+                        // parameter cannot accept the byte-slot address. The
+                        // receiver-hinted re-resolve routes to the
+                        // value-vs-object helper (il2cpp_guid_equals_object /
+                        // il2cpp_ipaddress_equals_object).
+                        || (recvType is "System.Guid" or "System.Net.IPAddress"
+                            && resolved.CppName.EndsWith("icall_boxed_equals_ext2"))
                         // ValueType.GetHashCode hint-less fallback (OfPtr) --
                         // a tracked typed receiver must re-resolve to the
                         // precise per-kind icall.

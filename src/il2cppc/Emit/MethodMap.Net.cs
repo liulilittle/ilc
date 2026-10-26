@@ -120,11 +120,38 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::il2cpp_ipaddress_to_string", 0, true, true, true, new[] { "g" });
                 return null;
+            // IPAddress.GetAddressBytes() (net48): the four address bytes as a
+            // managed byte[4] -- the runtime helper already exists
+            // (ipaddr.h il2cpp_ipaddress_get_address_bytes). The receiver is
+            // the ip4 value slot ("g" byte-slot cast).
+            case "GetAddressBytes":
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::il2cpp_ipaddress_get_address_bytes", 0, true, true, true, new[] { "g" });
+                return null;
+            // IPAddress.GetHashCode() (net48 IPv4): unchecked((int)m_Address)
+            // -- the little-endian fold of the four address bytes. Roslyn
+            // emits callvirt Object::GetHashCode for the override, so the
+            // Object.cs receiver-typed arm is the live path; this arm mirrors
+            // it for the direct owner (the Guid precedent,
+            // MethodMapTests.Guid.cs).
+            case "GetHashCode":
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::il2cpp_ipaddress_get_hash_code", 0, true, false, true, new[] { "g" });
+                return null;
+            // IPAddress.Equals(object) (net48): null/non-IPAddress -> false, a
+            // boxed IPAddress -> the four address bytes. Roslyn emits
+            // callvirt Object::Equals(object) for the override (the same shape
+            // as Guid); the Object.cs receiver-typed arm is the live path.
+            case "Equals":
+                if (ps.Length == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::runtime::il2cpp_ipaddress_equals_object", 1, true, false, true, new[] { "g", "" });
+                return null;
             default:
                 throw new NotSupportedException(
                     "System.Net.IPAddress member not wired: the ipaddr.h parse layer covers " +
-                    "Parse(string)/ToString() only (GetAddressBytes/get_AddressFamily/Equals/" +
-                    "GetHashCode stay LOUD; the icall_ip_* object layer of net-domain.md section 4.3 is runtime work)");
+                    "Parse(string)/ToString()/GetAddressBytes()/GetHashCode()/Equals(object) " +
+                    "(get_AddressFamily/ScopeId/MapToIPv4 stay LOUD; the icall_ip_* object layer " +
+                    "of net-domain.md section 4.3 is runtime work)");
         }
     }
 

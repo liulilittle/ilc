@@ -44,12 +44,26 @@
 #include <cstdint>
 
 #include "il2cpp_array.h" // Il2CppArray
+#include "il2cpp_object.h"   // Il2CppObject (the object-typed argument)
+#include "il2cpp_metadata.h" // Il2CppClass (the box identity check)
 
 namespace il2cpp {
 
 struct Il2CppString; // forward (il2cpp_string.h defines the full layout)
 
 namespace runtime {
+
+// IPAddress.GetHashCode (net48 IPv4): unchecked((int)m_Address) -- the
+// little-endian fold of the four address bytes (the host-order slot IS the
+// m_Address byte image). A null buffer yields 0 (defensive).
+int32_t il2cpp_ipaddress_get_hash_code(const uint8_t bytes4[4]);
+
+// IPAddress.Equals(object) (net48): null -> false, a non-IPAddress object ->
+// false, a boxed IPAddress -> the four address bytes (IPv4). The runtime has
+// no IPAddress box class (metadata.cpp); a non-null object therefore never
+// matches today -- the reachable shapes (null / a foreign object) return
+// false. The klass-name check keeps the helper correct if a box lands later.
+bool il2cpp_ipaddress_equals_object(const uint8_t a[4], Il2CppObject* obj);
 
 // Parse a dotted-decimal IPv4 literal with the net48 legacy grammar above
 // (1-4 parts, hex, leading zeros, wider trailing field). Returns 1 and

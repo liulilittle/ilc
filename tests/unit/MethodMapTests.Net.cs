@@ -73,16 +73,62 @@ public class MethodMapNetTests
     }
 
     //--------------------------------------------------------------------------
-    // IPAddress members outside the parse-layer surface are LOUD
+    // IPAddress.GetAddressBytes() -> il2cpp_ipaddress_get_address_bytes
+    // (instance, returns byte[]; the receiver IS the ip4 value slot, the "g"
+    // byte-slot cast).
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_IPAddress_GetHashCode_ThrowsLoudNotWired()
+    public void Resolve_IPAddress_GetAddressBytes_MapsToAddressBytesIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Net", "IPAddress", "GetHashCode", Sig(0x08)), "GetHashCode"));
+        // instance byte[] GetAddressBytes(): ret SZARRAY (0x1D) + element byte
+        // (0x05), no params.
+        var m = ResolveMember(Synthesize("System.Net", "IPAddress", "GetAddressBytes",
+            new byte[] { 0x00, 0x00, 0x1D, 0x05 }), "GetAddressBytes");
 
-        Assert.Contains("System.Net.IPAddress member not wired", ex.Message);
-        Assert.Contains("Parse(string)/ToString() only", ex.Message);
+        Assert.Equal("il2cpp::runtime::il2cpp_ipaddress_get_address_bytes", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal("g", m.ParamTypeNames![0]);
+    }
+
+    //--------------------------------------------------------------------------
+    // IPAddress.GetHashCode() -> il2cpp_ipaddress_get_hash_code (instance,
+    // returns int32; net48 IPv4: unchecked((int)m_Address) -- the little-endian
+    // fold of the four address bytes).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_IPAddress_GetHashCode_MapsToHashIcall()
+    {
+        var m = ResolveMember(Synthesize("System.Net", "IPAddress", "GetHashCode", Sig(0x08)), "GetHashCode");
+
+        Assert.Equal("il2cpp::runtime::il2cpp_ipaddress_get_hash_code", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(0, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.False(m.ReturnsRef);
+        Assert.Equal("g", m.ParamTypeNames![0]);
+    }
+
+    //--------------------------------------------------------------------------
+    // IPAddress.Equals(object) (net48) -- Roslyn emits `callvirt
+    // Object::Equals(object)` for the override (the constrained callvirt
+    // passes the ip4 value ADDRESS), so the receiver-typed Object arm is the
+    // live path: the value-vs-object helper il2cpp_ipaddress_equals_object
+    // (the generic icall_boxed_equals_ext2 takes Il2CppObject*).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_IPAddress_EqualsObject_MapsToEqualsObjectIcall()
+    {
+        var m = ResolveMemberWithReceiver(Synthesize("System", "Object", "Equals", Sig(0x02, 0x1C)),
+            "Equals", "System.Net.IPAddress", receiverIsAddress: true);
+
+        Assert.Equal("il2cpp::runtime::il2cpp_ipaddress_equals_object", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.True(m.ReturnsValue);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "g", "" }, m.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
@@ -172,6 +218,18 @@ public class MethodMapNetTests
         var md = reader.GetMetadataReader();
         var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
         return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>());
+    }
+
+    // Receiver-aware resolution (the Object::Equals(object) override shape --
+    // the tracked value-slot receiver type selects the domain arm).
+    private static ResolvedMethod ResolveMemberWithReceiver(MemoryStream pe, string memberName,
+        string? receiverType, bool receiverIsAddress)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+            receiverType, receiverIsAddress, null);
     }
 
     // Signature blob: header 0x00 (DEFAULT, non-generic), param count, return
