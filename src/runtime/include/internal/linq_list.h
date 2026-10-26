@@ -86,6 +86,14 @@ bool    il2cpp_linq_list_all_pred(Il2CppObject* list, Il2CppObject* pred, int32_
 Il2CppArray* il2cpp_linq_list_where(Il2CppObject* list, Il2CppObject* pred, int32_t kind);
 Il2CppArray* il2cpp_linq_list_select(Il2CppObject* list, Il2CppObject* sel,
                                      int32_t kind, int32_t resKind);
+// Index-predicate / index-selector counterparts (net48 Func<TSource,int,bool> /
+// Func<TSource,int,TResult>): the callback receives the element AND its
+// zero-based source index. Same result/element family contracts as the 1-arg
+// entries; the int32-source and reference-source shapes reuse the array index
+// kernels (il2cpp_linq_where_idx_i4 / _ref, il2cpp_linq_select_idx_*).
+Il2CppArray* il2cpp_linq_list_where_idx(Il2CppObject* list, Il2CppObject* pred, int32_t kind);
+Il2CppArray* il2cpp_linq_list_select_idx(Il2CppObject* list, Il2CppObject* sel,
+                                         int32_t kind, int32_t resKind);
 // Value-type tuple result (resKind 5): the selector returns the tuple struct by
 // value; the result array holds BOXED tuples (the shared tuple-box contract --
 // see il2cpp_valuetuple.h). 'kinds' is the element-kind string carried in the

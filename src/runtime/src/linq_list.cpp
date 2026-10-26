@@ -228,6 +228,56 @@ typedef Il2CppObject* (*SelI4RefFn)(int32_t);
 typedef Il2CppObject* (*SelI4RefThisFn)(Il2CppObject*, int32_t);
 typedef Il2CppObject* (*SelRefRefFn)(Il2CppObject*);
 typedef Il2CppObject* (*SelRefRefThisFn)(Il2CppObject*, Il2CppObject*);
+
+// Index-predicate ABI (net48 Func<TSource,int,bool>): the predicate receives
+// the element AND its zero-based source index.
+typedef bool (*PredI4IdxFn)(int32_t, int32_t);
+typedef bool (*PredI4IdxThisFn)(Il2CppObject*, int32_t, int32_t);
+typedef bool (*PredI8IdxFn)(int64_t, int32_t);
+typedef bool (*PredI8IdxThisFn)(Il2CppObject*, int64_t, int32_t);
+typedef bool (*PredDIdxFn)(double, int32_t);
+typedef bool (*PredDIdxThisFn)(Il2CppObject*, double, int32_t);
+typedef bool (*PredRefIdxFn)(Il2CppObject*, int32_t);
+typedef bool (*PredRefIdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+
+// Index-selector ABI (net48 Func<TSource,int,TResult>): the selector receives
+// the element AND its zero-based source index.
+typedef int32_t (*SelI4IdxI4Fn)(int32_t, int32_t);
+typedef int32_t (*SelI4IdxI4ThisFn)(Il2CppObject*, int32_t, int32_t);
+typedef int64_t (*SelI4IdxI8Fn)(int32_t, int32_t);
+typedef int64_t (*SelI4IdxI8ThisFn)(Il2CppObject*, int32_t, int32_t);
+typedef double (*SelI4IdxDFn)(int32_t, int32_t);
+typedef double (*SelI4IdxDThisFn)(Il2CppObject*, int32_t, int32_t);
+typedef float (*SelI4IdxFFn)(int32_t, int32_t);
+typedef float (*SelI4IdxFThisFn)(Il2CppObject*, int32_t, int32_t);
+typedef Il2CppObject* (*SelI4IdxRefFn)(int32_t, int32_t);
+typedef Il2CppObject* (*SelI4IdxRefThisFn)(Il2CppObject*, int32_t, int32_t);
+typedef Il2CppObject* (*SelRefIdxRefFn)(Il2CppObject*, int32_t);
+typedef Il2CppObject* (*SelRefIdxRefThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+
+// Index-selector ABIs for the WIDE source families (the element crosses in its
+// OWN slot: int64 for an i8 source, double for a float/double source).
+typedef int32_t (*SelI8IdxI4Fn)(int64_t, int32_t);
+typedef int32_t (*SelI8IdxI4ThisFn)(Il2CppObject*, int64_t, int32_t);
+typedef int64_t (*SelI8IdxI8Fn)(int64_t, int32_t);
+typedef int64_t (*SelI8IdxI8ThisFn)(Il2CppObject*, int64_t, int32_t);
+typedef double (*SelI8IdxDFn)(int64_t, int32_t);
+typedef double (*SelI8IdxDThisFn)(Il2CppObject*, int64_t, int32_t);
+typedef float (*SelI8IdxFFn)(int64_t, int32_t);
+typedef float (*SelI8IdxFThisFn)(Il2CppObject*, int64_t, int32_t);
+typedef Il2CppObject* (*SelI8IdxRefFn)(int64_t, int32_t);
+typedef Il2CppObject* (*SelI8IdxRefThisFn)(Il2CppObject*, int64_t, int32_t);
+
+typedef int32_t (*SelDIdxI4Fn)(double, int32_t);
+typedef int32_t (*SelDIdxI4ThisFn)(Il2CppObject*, double, int32_t);
+typedef int64_t (*SelDIdxI8Fn)(double, int32_t);
+typedef int64_t (*SelDIdxI8ThisFn)(Il2CppObject*, double, int32_t);
+typedef double (*SelDIdxDFn)(double, int32_t);
+typedef double (*SelDIdxDThisFn)(Il2CppObject*, double, int32_t);
+typedef float (*SelDIdxFFn)(double, int32_t);
+typedef float (*SelDIdxFThisFn)(Il2CppObject*, double, int32_t);
+typedef Il2CppObject* (*SelDIdxRefFn)(double, int32_t);
+typedef Il2CppObject* (*SelDIdxRefThisFn)(Il2CppObject*, double, int32_t);
 // (The Zip reference-selector typedefs were removed together with the
 // reference Zip branch: nothing in this file may call a selector through the
 // reference ABI any more -- see il2cpp_linq_zip_family.)
@@ -258,6 +308,34 @@ bool InvokePredRef(Il2CppDelegate* d, Il2CppObject* v)
     return d->target != nullptr
         ? reinterpret_cast<PredRefThisFn>(d->methodPtr)(d->target, v)
         : reinterpret_cast<PredRefFn>(d->methodPtr)(v);
+}
+
+bool InvokePredI4Idx(Il2CppDelegate* d, int32_t v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredI4IdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredI4IdxFn>(d->methodPtr)(v, index);
+}
+
+bool InvokePredI8Idx(Il2CppDelegate* d, int64_t v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredI8IdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredI8IdxFn>(d->methodPtr)(v, index);
+}
+
+bool InvokePredDIdx(Il2CppDelegate* d, double v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredDIdxFn>(d->methodPtr)(v, index);
+}
+
+bool InvokePredRefIdx(Il2CppDelegate* d, Il2CppObject* v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredRefIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredRefIdxFn>(d->methodPtr)(v, index);
 }
 
 Il2CppDelegate* RequireCallback(Il2CppObject* cb, const char* paramName)
@@ -292,6 +370,21 @@ bool PredicateOn(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kind)
         case IL2CPP_LIST_KIND_F:
         case IL2CPP_LIST_KIND_D:   return InvokePredD(d, ReadD(snap, i));
         default:                   return InvokePredI4(d, ReadI4(snap, i, kind));
+    }
+}
+
+// The 2-arg index PREDICATE dispatch (net48 Func<TSource,int,bool>): the
+// element is widened exactly like the 1-arg form, and its zero-based source
+// index is passed as the second argument.
+bool PredicateOnIdx(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_REF: return InvokePredRefIdx(d, ReadRef(snap, i), i);
+        case IL2CPP_LIST_KIND_I8:  return InvokePredI8Idx(d, ReadI8(snap, i), i);
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:   return InvokePredDIdx(d, ReadD(snap, i), i);
+        default:                   return InvokePredI4Idx(d, ReadI4(snap, i, kind), i);
     }
 }
 
@@ -450,6 +543,38 @@ Il2CppArray* il2cpp_linq_list_where(Il2CppObject* list, Il2CppObject* pred, int3
     for (int32_t i = 0; i < snap->length; ++i)
     {
         if (!PredicateOn(d, snap, i, kind)) continue;
+        CopyElem(scratch, w, snap, i);
+        ++w;
+    }
+    if (w == snap->length) return scratch;
+    Il2CppArray* out = AllocElemArray(snap, kind, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i) CopyElem(out, i, scratch, i);
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// Where with an INDEX predicate (net48 Func<TSource,int,bool>): the predicate
+// receives the element AND its zero-based source index. Same element family.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_list_where_idx(Il2CppObject* list, Il2CppObject* pred, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+
+    if (kind == IL2CPP_LIST_KIND_I4) return il2cpp_linq_where_idx_i4(snap, pred);
+    if (kind == IL2CPP_LIST_KIND_REF) return il2cpp_linq_where_idx_ref(snap, pred);
+
+    Il2CppArray* scratch = AllocElemArray(snap, kind, snap->length);
+    roots.Add(reinterpret_cast<void**>(&scratch));
+    int32_t w = 0;
+    for (int32_t i = 0; i < snap->length; ++i)
+    {
+        if (!PredicateOnIdx(d, snap, i, kind)) continue;
         CopyElem(scratch, w, snap, i);
         ++w;
     }
@@ -643,6 +768,196 @@ Il2CppArray* il2cpp_linq_list_select(Il2CppObject* list, Il2CppObject* sel,
                         d->target != nullptr
                             ? reinterpret_cast<SelI4I4ThisFn>(d->methodPtr)(d->target, v)
                             : reinterpret_cast<SelI4I4Fn>(d->methodPtr)(v);
+                    break;
+            }
+        }
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// Select with an INDEX selector (net48 Func<TSource,int,TResult>): the selector
+// receives the element AND its zero-based source index. The int32-source and
+// ref-source, int32-result shapes reuse the array index kernels; the generic
+// path widens each source family into its OWN slot (int32 / int64 / double /
+// reference) and passes the index as the second argument.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_list_select_idx(Il2CppObject* list, Il2CppObject* sel,
+                                         int32_t kind, int32_t resKind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+
+    if (kind == IL2CPP_LIST_KIND_I4)
+    {
+        switch (resKind)
+        {
+            case 0: return il2cpp_linq_select_idx_i4_i4(snap, sel);
+            case 1: return il2cpp_linq_select_idx_i4_ref(snap, sel);
+            case 2: return il2cpp_linq_select_idx_i4_i8(snap, sel);
+            case 3: return il2cpp_linq_select_idx_i4_f(snap, sel);
+            case 4: return il2cpp_linq_select_idx_i4_d(snap, sel);
+            default: break;
+        }
+    }
+    if (kind == IL2CPP_LIST_KIND_REF && resKind == 1)
+    {
+        return il2cpp_linq_select_idx_ref_ref(snap, sel);
+    }
+
+    int32_t resElemSize = 4;
+    bool resIsRef = false;
+    int32_t resElemKind = 1;
+    switch (resKind)
+    {
+        case 1: resElemSize = static_cast<int32_t>(sizeof(void*)); resIsRef = true; resElemKind = 0; break;
+        case 2: resElemSize = 8; resElemKind = 2; break;
+        case 3: resElemSize = 8; resElemKind = 3; break; // float -> double carrier
+        case 4: resElemSize = 8; resElemKind = 4; break;
+        default: resElemSize = 4; resElemKind = 1; break;
+    }
+    Il2CppArray* out = resIsRef
+        ? il2cpp_array_new(nullptr, resElemSize, true, snap->length)
+        : il2cpp_array_new_typed(resElemSize, resElemKind, snap->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < snap->length; ++i)
+    {
+        if (kind == IL2CPP_LIST_KIND_REF)
+        {
+            Il2CppObject* r = d->target != nullptr
+                ? reinterpret_cast<SelRefIdxRefThisFn>(d->methodPtr)(d->target, ReadRef(snap, i), i)
+                : reinterpret_cast<SelRefIdxRefFn>(d->methodPtr)(ReadRef(snap, i), i);
+            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+            il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+            *slot = r;
+            continue;
+        }
+        if (kind == IL2CPP_LIST_KIND_I8)
+        {
+            const int64_t v = ReadI8(snap, i);
+            switch (resKind)
+            {
+                case 1:
+                {
+                    Il2CppObject* r = d->target != nullptr
+                        ? reinterpret_cast<SelI8IdxRefThisFn>(d->methodPtr)(d->target, v, i)
+                        : reinterpret_cast<SelI8IdxRefFn>(d->methodPtr)(v, i);
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                    *slot = r;
+                    break;
+                }
+                case 2:
+                    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelI8IdxI8ThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelI8IdxI8Fn>(d->methodPtr)(v, i);
+                    break;
+                case 3:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                        d->target != nullptr
+                            ? reinterpret_cast<SelI8IdxFThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelI8IdxFFn>(d->methodPtr)(v, i));
+                    break;
+                case 4:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelI8IdxDThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelI8IdxDFn>(d->methodPtr)(v, i);
+                    break;
+                default:
+                    *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelI8IdxI4ThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelI8IdxI4Fn>(d->methodPtr)(v, i);
+                    break;
+            }
+            continue;
+        }
+        if (kind == IL2CPP_LIST_KIND_F || kind == IL2CPP_LIST_KIND_D)
+        {
+            const double v = ReadD(snap, i);
+            switch (resKind)
+            {
+                case 1:
+                {
+                    Il2CppObject* r = d->target != nullptr
+                        ? reinterpret_cast<SelDIdxRefThisFn>(d->methodPtr)(d->target, v, i)
+                        : reinterpret_cast<SelDIdxRefFn>(d->methodPtr)(v, i);
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                    *slot = r;
+                    break;
+                }
+                case 2:
+                    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelDIdxI8ThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelDIdxI8Fn>(d->methodPtr)(v, i);
+                    break;
+                case 3:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                        d->target != nullptr
+                            ? reinterpret_cast<SelDIdxFThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelDIdxFFn>(d->methodPtr)(v, i));
+                    break;
+                case 4:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelDIdxDThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelDIdxDFn>(d->methodPtr)(v, i);
+                    break;
+                default:
+                    *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelDIdxI4ThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelDIdxI4Fn>(d->methodPtr)(v, i);
+                    break;
+            }
+            continue;
+        }
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            switch (resKind)
+            {
+                case 1:
+                {
+                    Il2CppObject* r = d->target != nullptr
+                        ? reinterpret_cast<SelI4IdxRefThisFn>(d->methodPtr)(d->target, v, i)
+                        : reinterpret_cast<SelI4IdxRefFn>(d->methodPtr)(v, i);
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                    *slot = r;
+                    break;
+                }
+                case 2:
+                    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelI4IdxI8ThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelI4IdxI8Fn>(d->methodPtr)(v, i);
+                    break;
+                case 3:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                        d->target != nullptr
+                            ? reinterpret_cast<SelI4IdxFThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelI4IdxFFn>(d->methodPtr)(v, i));
+                    break;
+                case 4:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelI4IdxDThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelI4IdxDFn>(d->methodPtr)(v, i);
+                    break;
+                default:
+                    *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelI4IdxI4ThisFn>(d->methodPtr)(d->target, v, i)
+                            : reinterpret_cast<SelI4IdxI4Fn>(d->methodPtr)(v, i);
                     break;
             }
         }

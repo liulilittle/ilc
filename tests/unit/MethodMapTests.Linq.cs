@@ -1152,6 +1152,60 @@ public class MethodMapTestsLinq
         Assert.Equal(listOnly ? 1 : 2, resolved.ParamCount);
     }
 
+    //--------------------------------------------------------------------------
+    // The INDEX overloads over a List<T> (net48 Func<TSource,int,bool> /
+    // Func<TSource,int,TResult>): the callback receives the element AND its
+    // zero-based source index. Before this change both LOUD-rejected ("the
+    // runtime has no list index-predicate/selector entry").
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Where_ListIndexPredicate_MapsToListWhereIdx()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Where",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x00, 0x08, 0x02 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }),
+            receiverType: "System.Collections.Generic.List`1_int");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_where_idx", resolved.CppName);
+        Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Select_ListIndexSelector_MapsToListSelectIdx()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Select",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x00, 0x08, 0x0A },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x0A }),
+            receiverType: "System.Collections.Generic.List`1_int");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_select_idx", resolved.CppName);
+        Assert.Equal("System.Int64[]", resolved.ReturnTypeName);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    // The 1-arg List Where/Select keep their non-index entries (the Func`2
+    // shape) -- the index entries must NOT capture the common overload.
+    [Fact]
+    public void Resolve_Where_ListOneArgPredicate_StaysListWhere()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Where",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x02 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x08 }),
+            receiverType: "System.Collections.Generic.List`1_int");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_where", resolved.CppName);
+    }
+
     // B5 D-4: the already-implemented all_ref kernel (linq.h / linq.cpp) was
     // never wired -- All over a reference source must resolve to it.
     [Fact]

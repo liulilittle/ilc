@@ -2358,19 +2358,21 @@ public static partial class MethodRefResolver
                     L2, appendLiterals: new[] { K });
             case "Where":
             {
+                // The INDEX overload Where(Func<TSource,int,bool>) carries a
+                // 3-argument Func -- route it to the list index-predicate entry
+                // (the element AND its zero-based source index).
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                    throw new NotSupportedException(
-                        "Enumerable.Where with a (element, index) predicate over a List source is not wired " +
-                        "(the runtime has no list index-predicate entry)");
+                    return I("il2cpp::il2cpp_linq_list_where_idx", 2, true, true, false,
+                        L2, returnTypeName: elemTracked, appendLiterals: new[] { K });
                 return I("il2cpp::il2cpp_linq_list_where", 2, true, true, false,
                     L2, returnTypeName: elemTracked, appendLiterals: new[] { K });
             }
             case "Select":
             {
-                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                    throw new NotSupportedException(
-                        "Enumerable.Select with a (element, index) selector over a List source is not wired " +
-                        "(the runtime has no list index-selector entry)");
+                // The INDEX overload Select(Func<TSource,int,TResult>) carries
+                // a 3-argument Func -- route it to the list index-selector entry
+                // (the element AND its zero-based source index).
+                bool selIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
                 byte tRes = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
                 // Value-type tuple result: the selector returns the tuple struct
                 // by value; the runtime boxes it into the reference result array
@@ -2391,7 +2393,8 @@ public static partial class MethodRefResolver
                     0x0D => "4",
                     _ => "1",
                 };
-                return I("il2cpp::il2cpp_linq_list_select", 2, true, true, false, L2,
+                return I(selIdx ? "il2cpp::il2cpp_linq_list_select_idx" : "il2cpp::il2cpp_linq_list_select",
+                    2, true, true, false, L2,
                     returnTypeName: LinqArrayTypeNameExact(tRes), appendLiterals: new[] { K, resKind });
             }
             case "First" when count < 2:
