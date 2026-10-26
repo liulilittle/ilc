@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // convert.cpp -- System.Convert icall implementation (see il2cpp_convert.h).
 //
 // The Convert family wraps the format.cpp Parse/Format icalls with the
@@ -20,6 +20,8 @@
 #include "il2cpp_exception_ext.h"
 #include "decimal_format.h" // p0conv2: icall_decimal_parse (Convert.ToDecimal(string))
 #include "il2cpp_value_semantics.h" // p0narrow3: icall_object_to_string (Convert.ToString(object))
+#include "il2cpp_metadata.h" // batch 8: the System_*_class box descriptors
+#include "il2cpp_conv.h"      // batch 8: the conv.ovf.* / conv.* object-source helpers
 
 #include <cmath>
 #include <cstdint>
@@ -813,6 +815,547 @@ float icall_convert_to_single_char(int32_t utf16)
     (void)utf16;
     il2cpp_throw_new("System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
                      "Invalid cast from 'Char' to 'Single'.");
+}
+
+//------------------------------------------------------------------------------
+// Object-source Convert dispatch (batch 8): Convert.ToXxx(object value).
+//
+// net48: Convert.ToXxx(object) applies the Convert "null means zero" rule
+// FIRST (null -> 0 / "" / 0m), then dispatches on the boxed value's
+// IConvertible implementation. Every boxed primitive in this runtime implements
+// IConvertible, so the dispatch is a klass switch over the box classes
+// (metadata.cpp); a non-IConvertible object (a user struct, DateTime, Guid,
+// TimeSpan, an enum, ...) -> InvalidCastException.
+//
+// The per-source conversions REUSE the same value-source icalls the
+// statically-typed overloads map to, so the object overloads cannot drift from
+// the value overloads. The boxed value is read through the boxing.cpp/ext2
+// payload contract (offset 8; byte/sbyte/short/ushort store the masked low
+// bits; uint/long/ulong/float/double store the full pattern; decimal is 16
+// bytes).
+//------------------------------------------------------------------------------
+namespace {
+
+// boxing.cpp/ext2 contract: the payload sits one 8-byte-aligned slot after the
+// Il2CppObject header.
+constexpr int32_t kObjBoxPayloadOffset = 8;
+
+int32_t BoxedI32(Il2CppObject* v)
+{
+    return *reinterpret_cast<int32_t*>(reinterpret_cast<char*>(v) + kObjBoxPayloadOffset);
+}
+
+int64_t BoxedI64(Il2CppObject* v)
+{
+    return *reinterpret_cast<int64_t*>(reinterpret_cast<char*>(v) + kObjBoxPayloadOffset);
+}
+
+uint64_t BoxedU64(Il2CppObject* v)
+{
+    return *reinterpret_cast<uint64_t*>(reinterpret_cast<char*>(v) + kObjBoxPayloadOffset);
+}
+
+double BoxedDouble(Il2CppObject* v)
+{
+    return *reinterpret_cast<double*>(reinterpret_cast<char*>(v) + kObjBoxPayloadOffset);
+}
+
+const Il2CppDecimal& BoxedDecimalRef(Il2CppObject* v)
+{
+    return *reinterpret_cast<const Il2CppDecimal*>(reinterpret_cast<char*>(v) + kObjBoxPayloadOffset);
+}
+
+enum class BoxKind : int32_t
+{
+    None, Boolean, Char, SByte, Byte, Int16, UInt16, Int32, UInt32,
+    Int64, UInt64, Single, Double, Decimal, String, Other
+};
+
+BoxKind ClassifyBoxed(Il2CppObject* v)
+{
+    if (v == nullptr) return BoxKind::None;
+    const Il2CppClass* k = v->klass;
+    if (k == &System_Boolean_class) return BoxKind::Boolean;
+    if (k == &System_Char_class)    return BoxKind::Char;
+    if (k == &System_SByte_class)   return BoxKind::SByte;
+    if (k == &System_Byte_class)    return BoxKind::Byte;
+    if (k == &System_Int16_class)   return BoxKind::Int16;
+    if (k == &System_UInt16_class)  return BoxKind::UInt16;
+    if (k == &System_Int32_class)   return BoxKind::Int32;
+    if (k == &System_UInt32_class)  return BoxKind::UInt32;
+    if (k == &System_Int64_class)   return BoxKind::Int64;
+    if (k == &System_UInt64_class)  return BoxKind::UInt64;
+    if (k == &System_Single_class)  return BoxKind::Single;
+    if (k == &System_Double_class)  return BoxKind::Double;
+    if (k == &System_Decimal_class) return BoxKind::Decimal;
+    if (k == &System_String_class)  return BoxKind::String;
+    return BoxKind::Other;
+}
+
+bool IsIntFamilyKind(BoxKind kind)
+{
+    switch (kind)
+    {
+        case BoxKind::SByte:
+        case BoxKind::Byte:
+        case BoxKind::Int16:
+        case BoxKind::UInt16:
+        case BoxKind::Int32:
+        case BoxKind::UInt32:
+        case BoxKind::Int64:
+        case BoxKind::UInt64:
+            return true;
+        default:
+            return false;
+    }
+}
+
+[[noreturn]] void ThrowConvertObjectInvalidCast()
+{
+    il2cpp_throw_new("System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+                     "Invalid cast in Convert: the object is not IConvertible.");
+}
+
+[[noreturn]] void ThrowConvertObjectCharOverflow()
+{
+    il2cpp_throw_overflow_exception("Value was either too large or too small for a Char.");
+}
+
+// The int64 carrier for the int-family boxes: sign/zero-extended exactly as
+// the value-source "l"/"q" casts would (a boxed uint >= 2^31 stays positive, so
+// a checked conversion range-checks it out).
+int64_t BoxedIntFamilyCarrier(Il2CppObject* v, BoxKind kind)
+{
+    switch (kind)
+    {
+        case BoxKind::Int64:   return BoxedI64(v);
+        case BoxKind::UInt64:  return static_cast<int64_t>(BoxedU64(v));
+        case BoxKind::UInt32:  return static_cast<int64_t>(static_cast<uint32_t>(BoxedI32(v)));
+        case BoxKind::UInt16:  return static_cast<int64_t>(static_cast<uint16_t>(BoxedI32(v)));
+        case BoxKind::Byte:    return static_cast<int64_t>(BoxedI32(v) & 0xFF);
+        case BoxKind::SByte:   return static_cast<int64_t>(static_cast<int8_t>(BoxedI32(v)));
+        case BoxKind::Int16:   return static_cast<int64_t>(static_cast<int16_t>(BoxedI32(v)));
+        default:               return BoxedI32(v); // Int32
+    }
+}
+
+} // namespace
+
+// Convert.ToInt32(object): null -> 0; the boxed dispatch mirrors the
+// statically-typed overloads (string parse / bool / char / double RNE / decimal
+// round / int-family checked).
+int32_t icall_convert_to_int32_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::String:  return icall_convert_to_int32_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::Boolean: return icall_convert_to_int32_bool(BoxedI32(value));
+        case BoxKind::Char:    return icall_convert_to_int32_char(BoxedI32(value));
+        case BoxKind::Double:
+        case BoxKind::Single:  return icall_convert_to_int32_d(BoxedDouble(value));
+        case BoxKind::Decimal: return icall_decimal_to_int32_round(&BoxedDecimalRef(value));
+        case BoxKind::Int32:   return BoxedI32(value);
+        case BoxKind::SByte:   return static_cast<int32_t>(static_cast<int8_t>(BoxedI32(value)));
+        case BoxKind::Int16:   return static_cast<int32_t>(static_cast<int16_t>(BoxedI32(value)));
+        case BoxKind::Byte:    return BoxedI32(value) & 0xFF;
+        case BoxKind::UInt16:  return BoxedI32(value) & 0xFFFF;
+        case BoxKind::UInt32:
+        case BoxKind::Int64:
+        case BoxKind::UInt64:  return icall_convert_to_int32_i8(BoxedIntFamilyCarrier(value, kind));
+        default: break;
+    }
+    ThrowConvertObjectInvalidCast();
+}
+
+// Convert.ToInt64(object): null -> 0; ulong is CHECKED (values >= 2^63 throw).
+int64_t icall_convert_to_int64_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::String:  return icall_convert_to_int64_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::Boolean: return BoxedI32(value) != 0 ? 1 : 0;
+        case BoxKind::Char:    return static_cast<int64_t>(BoxedI32(value) & 0xFFFF);
+        case BoxKind::Double:
+        case BoxKind::Single:  return icall_convert_to_int64_d(BoxedDouble(value));
+        case BoxKind::Decimal: return icall_decimal_to_int64_round(&BoxedDecimalRef(value));
+        case BoxKind::UInt64:  return icall_conv_ovf_i8_u8(BoxedU64(value));
+        case BoxKind::UInt32:  return static_cast<int64_t>(static_cast<uint32_t>(BoxedI32(value)));
+        case BoxKind::Int64:   return BoxedI64(value);
+        case BoxKind::Int32:   return BoxedI32(value);
+        case BoxKind::SByte:   return static_cast<int8_t>(BoxedI32(value));
+        case BoxKind::Int16:   return static_cast<int16_t>(BoxedI32(value));
+        case BoxKind::Byte:    return BoxedI32(value) & 0xFF;
+        case BoxKind::UInt16:  return BoxedI32(value) & 0xFFFF;
+        default: break;
+    }
+    ThrowConvertObjectInvalidCast();
+}
+
+// Convert.ToUInt32(object): null -> 0; negative signed sources throw.
+uint32_t icall_convert_to_uint32_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::String:  return icall_convert_to_uint32_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::Boolean: return BoxedI32(value) != 0 ? 1u : 0u;
+        case BoxKind::Char:    return static_cast<uint32_t>(BoxedI32(value) & 0xFFFF);
+        case BoxKind::Double:
+        case BoxKind::Single:  return icall_convert_to_uint32_d(BoxedDouble(value));
+        case BoxKind::Decimal: return icall_decimal_to_uint32_round(&BoxedDecimalRef(value));
+        case BoxKind::UInt32:  return static_cast<uint32_t>(BoxedI32(value));
+        case BoxKind::UInt64:  return icall_conv_ovf_u4_u8(BoxedU64(value));
+        case BoxKind::Int64:   return icall_conv_ovf_u4_i8(BoxedI64(value));
+        case BoxKind::Int32:
+        case BoxKind::SByte:
+        case BoxKind::Int16:   return icall_conv_ovf_u4_i4(BoxedI32(value));
+        case BoxKind::Byte:    return static_cast<uint32_t>(BoxedI32(value) & 0xFF);
+        case BoxKind::UInt16:  return static_cast<uint32_t>(BoxedI32(value) & 0xFFFF);
+        default: break;
+    }
+    ThrowConvertObjectInvalidCast();
+}
+
+// Convert.ToUInt64(object): null -> 0; negative signed sources throw.
+uint64_t icall_convert_to_uint64_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::String:  return icall_convert_to_uint64_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::Boolean: return BoxedI32(value) != 0 ? 1u : 0u;
+        case BoxKind::Char:    return static_cast<uint64_t>(BoxedI32(value) & 0xFFFF);
+        case BoxKind::Double:
+        case BoxKind::Single:  return icall_convert_to_uint64_d(BoxedDouble(value));
+        case BoxKind::Decimal: return icall_decimal_to_uint64_round(&BoxedDecimalRef(value));
+        case BoxKind::UInt64:  return BoxedU64(value);
+        case BoxKind::UInt32:  return static_cast<uint64_t>(static_cast<uint32_t>(BoxedI32(value)));
+        case BoxKind::Int64:   return icall_conv_ovf_u8_i8(BoxedI64(value));
+        case BoxKind::Int32:
+        case BoxKind::SByte:
+        case BoxKind::Int16:   return icall_conv_ovf_u8_i4(BoxedI32(value));
+        case BoxKind::Byte:    return static_cast<uint64_t>(BoxedI32(value) & 0xFF);
+        case BoxKind::UInt16:  return static_cast<uint64_t>(BoxedI32(value) & 0xFFFF);
+        default: break;
+    }
+    ThrowConvertObjectInvalidCast();
+}
+
+// Convert.ToByte/ToSByte/ToInt16/ToUInt16(object): null -> 0; the checked
+// narrow range over the existing narrow icalls. The int64/uint64 sources ride
+// the full-width checked helpers (no low-32 truncation).
+int32_t icall_convert_to_byte_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::Boolean: return icall_conv_bool_i4(BoxedI32(value));
+        case BoxKind::Char:    return icall_conv_ovf_u1_i8(BoxedI32(value));
+        case BoxKind::Double:
+        case BoxKind::Single:  return icall_convert_to_byte_d(BoxedDouble(value));
+        case BoxKind::Decimal: return icall_decimal_to_byte_round(&BoxedDecimalRef(value));
+        case BoxKind::String:  return icall_convert_to_byte_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::UInt64:  return icall_conv_ovf_u1_u8(BoxedU64(value));
+        default: break;
+    }
+    if (IsIntFamilyKind(kind)) return icall_conv_ovf_u1_i8(BoxedIntFamilyCarrier(value, kind));
+    ThrowConvertObjectInvalidCast();
+}
+
+int32_t icall_convert_to_sbyte_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::Boolean: return icall_conv_bool_i4(BoxedI32(value));
+        case BoxKind::Char:    return icall_conv_ovf_i1_i8(BoxedI32(value));
+        case BoxKind::Double:
+        case BoxKind::Single:  return icall_convert_to_sbyte_d(BoxedDouble(value));
+        case BoxKind::Decimal: return icall_decimal_to_sbyte_round(&BoxedDecimalRef(value));
+        case BoxKind::String:  return icall_convert_to_sbyte_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::UInt64:  return icall_conv_ovf_i1_u8(BoxedU64(value));
+        default: break;
+    }
+    if (IsIntFamilyKind(kind)) return icall_conv_ovf_i1_i8(BoxedIntFamilyCarrier(value, kind));
+    ThrowConvertObjectInvalidCast();
+}
+
+int32_t icall_convert_to_int16_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::Boolean: return icall_conv_bool_i4(BoxedI32(value));
+        case BoxKind::Char:    return icall_conv_ovf_i2_i8(BoxedI32(value));
+        case BoxKind::Double:
+        case BoxKind::Single:  return icall_convert_to_int16_d(BoxedDouble(value));
+        case BoxKind::Decimal: return icall_decimal_to_int16_round(&BoxedDecimalRef(value));
+        case BoxKind::String:  return icall_convert_to_int16_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::UInt64:  return icall_conv_ovf_i2_u8(BoxedU64(value));
+        default: break;
+    }
+    if (IsIntFamilyKind(kind)) return icall_conv_ovf_i2_i8(BoxedIntFamilyCarrier(value, kind));
+    ThrowConvertObjectInvalidCast();
+}
+
+int32_t icall_convert_to_uint16_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::Boolean: return icall_conv_bool_i4(BoxedI32(value));
+        case BoxKind::Char:    return icall_conv_ovf_u2_i8(BoxedI32(value));
+        case BoxKind::Double:
+        case BoxKind::Single:  return icall_convert_to_uint16_d(BoxedDouble(value));
+        case BoxKind::Decimal: return icall_decimal_to_uint16_round(&BoxedDecimalRef(value));
+        case BoxKind::String:  return icall_convert_to_uint16_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::UInt64:  return icall_conv_ovf_u2_u8(BoxedU64(value));
+        default: break;
+    }
+    if (IsIntFamilyKind(kind)) return icall_conv_ovf_u2_i8(BoxedIntFamilyCarrier(value, kind));
+    ThrowConvertObjectInvalidCast();
+}
+
+// Convert.ToDouble(object): null -> 0.0; bool -> 1.0/0.0 (net48), char is NOT
+// IConvertible to Double on net48 (InvalidCastException).
+double icall_convert_to_double_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0.0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::String:  return icall_convert_to_double_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::Boolean: return BoxedI32(value) != 0 ? 1.0 : 0.0;
+        case BoxKind::Double:
+        case BoxKind::Single:  return BoxedDouble(value);
+        case BoxKind::Decimal: return icall_decimal_to_double(&BoxedDecimalRef(value));
+        case BoxKind::UInt64:  return icall_conv_d_u8(BoxedU64(value));
+        case BoxKind::UInt32:  return icall_conv_d_u4(static_cast<uint32_t>(BoxedI32(value)));
+        case BoxKind::Int64:   return icall_conv_d_i8(BoxedI64(value));
+        case BoxKind::Int32:   return icall_conv_d_i4(BoxedI32(value));
+        case BoxKind::SByte:   return icall_conv_d_i4(BoxedI32(value));
+        case BoxKind::Int16:   return icall_conv_d_i4(BoxedI32(value));
+        case BoxKind::Byte:    return icall_conv_d_i4(BoxedI32(value) & 0xFF);
+        case BoxKind::UInt16:  return icall_conv_d_i4(BoxedI32(value) & 0xFFFF);
+        default: break;
+    }
+    ThrowConvertObjectInvalidCast();
+}
+
+// Convert.ToSingle(object): null -> 0f; char is NOT IConvertible to Single on
+// net48 (InvalidCastException).
+float icall_convert_to_single_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0.0f;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::String:  return icall_convert_to_single_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::Double:
+        case BoxKind::Single:  return icall_conv_r4_d(BoxedDouble(value));
+        case BoxKind::Decimal: return icall_decimal_to_float(&BoxedDecimalRef(value));
+        case BoxKind::UInt64:  return icall_conv_r4_u8(BoxedU64(value));
+        case BoxKind::UInt32:  return icall_conv_r4_u4(static_cast<uint32_t>(BoxedI32(value)));
+        case BoxKind::Int64:   return icall_conv_r4_i8(BoxedI64(value));
+        case BoxKind::Boolean:
+        case BoxKind::Int32:   return icall_conv_r4_i4(BoxedI32(value));
+        case BoxKind::SByte:   return icall_conv_r4_i4(BoxedI32(value));
+        case BoxKind::Int16:   return icall_conv_r4_i4(BoxedI32(value));
+        case BoxKind::Byte:    return icall_conv_r4_i4(BoxedI32(value) & 0xFF);
+        case BoxKind::UInt16:  return icall_conv_r4_i4(BoxedI32(value) & 0xFFFF);
+        default: break;
+    }
+    ThrowConvertObjectInvalidCast();
+}
+
+// Convert.ToBoolean(object): null -> false; the full 64-bit int sources are
+// tested for non-zero (no low-32 truncation), and float/double/decimal are the
+// net48 `value != 0` conversions. char is NOT IConvertible to Boolean on net48
+// (InvalidCastException).
+int32_t icall_convert_to_bool_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::String:  return icall_convert_to_boolean_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::Boolean:
+        case BoxKind::Int32:
+        case BoxKind::SByte:
+        case BoxKind::Int16:
+        case BoxKind::Byte:
+        case BoxKind::UInt16:
+        case BoxKind::UInt32:  return BoxedI32(value) != 0 ? 1 : 0;
+        case BoxKind::Int64:   return BoxedI64(value) != 0 ? 1 : 0;
+        case BoxKind::UInt64:  return BoxedU64(value) != 0 ? 1 : 0;
+        case BoxKind::Double:
+        case BoxKind::Single:  return BoxedDouble(value) != 0.0 ? 1 : 0;
+        case BoxKind::Decimal: return (BoxedDecimalRef(value).lo64 != 0
+                                       || BoxedDecimalRef(value).hi32 != 0) ? 1 : 0;
+        default: break;
+    }
+    ThrowConvertObjectInvalidCast();
+}
+
+// Convert.ToChar(object): null -> '\0'; int-family is CHECKED against the UTF-16
+// unit range (the 64-bit sources use the full-width check, not a low-32
+// truncation). bool/float/double/decimal are NOT IConvertible to Char on net48
+// (InvalidCastException).
+int32_t icall_convert_to_char_obj(Il2CppObject* value)
+{
+    if (value == nullptr) return 0;
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::String:  return icall_convert_to_char_string(reinterpret_cast<Il2CppString*>(value));
+        case BoxKind::Char:    return BoxedI32(value) & 0xFFFF;
+        case BoxKind::Int32:
+        case BoxKind::SByte:
+        case BoxKind::Int16:   return icall_convert_to_char_i4(BoxedI32(value));
+        case BoxKind::Byte:    return icall_convert_to_char_i4(BoxedI32(value) & 0xFF);
+        case BoxKind::UInt16:  return icall_convert_to_char_i4(BoxedI32(value) & 0xFFFF);
+        case BoxKind::UInt32:
+        {
+            const uint32_t u = static_cast<uint32_t>(BoxedI32(value));
+            if (u > 0xFFFF) ThrowConvertObjectCharOverflow();
+            return static_cast<int32_t>(u);
+        }
+        case BoxKind::Int64:
+        {
+            const int64_t v = BoxedI64(value);
+            if (v < 0 || v > 0xFFFF) ThrowConvertObjectCharOverflow();
+            return static_cast<int32_t>(v);
+        }
+        case BoxKind::UInt64:
+        {
+            const uint64_t v = BoxedU64(value);
+            if (v > 0xFFFF) ThrowConvertObjectCharOverflow();
+            return static_cast<int32_t>(v);
+        }
+        default: break;
+    }
+    ThrowConvertObjectInvalidCast();
+}
+
+// Convert.ToDecimal(object): null -> 0m; the decimal target reuses the
+// existing ctor icalls. char is NOT IConvertible to Decimal on net48
+// (InvalidCastException).
+void icall_convert_to_decimal_obj(Il2CppDecimal* out, Il2CppObject* value)
+{
+    if (value == nullptr)
+    {
+        out->flags = 0;
+        out->hi32 = 0;
+        out->lo64 = 0;
+        return;
+    }
+    const BoxKind kind = ClassifyBoxed(value);
+    switch (kind)
+    {
+        case BoxKind::String:  icall_convert_to_decimal_string(out, reinterpret_cast<Il2CppString*>(value)); return;
+        case BoxKind::Decimal: *out = BoxedDecimalRef(value); return;
+        case BoxKind::Boolean:
+        case BoxKind::Int32:
+        case BoxKind::SByte:
+        case BoxKind::Int16:   icall_decimal_ctor_int32(out, BoxedI32(value)); return;
+        case BoxKind::Byte:    icall_decimal_ctor_int32(out, BoxedI32(value) & 0xFF); return;
+        case BoxKind::UInt16:  icall_decimal_ctor_int32(out, BoxedI32(value) & 0xFFFF); return;
+        case BoxKind::UInt32:  icall_decimal_ctor_uint32(out, static_cast<uint32_t>(BoxedI32(value))); return;
+        case BoxKind::Int64:   icall_decimal_ctor_int64(out, BoxedI64(value)); return;
+        case BoxKind::UInt64:  icall_decimal_ctor_uint64(out, BoxedU64(value)); return;
+        case BoxKind::Double:  icall_decimal_ctor_double(out, BoxedDouble(value)); return;
+        case BoxKind::Single:  icall_decimal_ctor_float(out, static_cast<float>(BoxedDouble(value))); return;
+        default: break;
+    }
+    ThrowConvertObjectInvalidCast();
+}
+
+//------------------------------------------------------------------------------
+// Value-source residuals (batch 8): the net48 conversions the batch-5 sweep
+// LOUD-rejected with an "InvalidCastException" note but that net48 actually
+// performs. Each is pinned by the net48 oracle (tmp-convprobe):
+//   * Convert.ToBoolean(double/float) == (value != 0)
+//   * Convert.ToBoolean(long/ulong)  == (value != 0)   (full 64-bit, no truncation)
+//   * Convert.ToBoolean(decimal)     == (value != 0)
+//   * Convert.ToChar(long) / ToChar(ulong) is the CHECKED UTF-16 range test.
+//------------------------------------------------------------------------------
+int32_t icall_convert_to_bool_d(double value)
+{
+    return value != 0.0 ? 1 : 0;
+}
+
+int32_t icall_convert_to_bool_i8(int64_t value)
+{
+    return value != 0 ? 1 : 0;
+}
+
+int32_t icall_convert_to_bool_dec(const Il2CppDecimal* d)
+{
+    return (d->lo64 != 0 || d->hi32 != 0) ? 1 : 0;
+}
+
+int32_t icall_convert_to_char_i8(int64_t value)
+{
+    if (value < 0 || value > 0xFFFF)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Char.");
+    }
+    return static_cast<int32_t>(value);
+}
+
+int32_t icall_convert_to_char_u8(uint64_t value)
+{
+    if (value > 0xFFFF)
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Char.");
+    }
+    return static_cast<int32_t>(value);
+}
+
+//------------------------------------------------------------------------------
+// InvalidCastException residuals (batch 8): net48 throws InvalidCastException
+// for these source/target pairs (the source has no IConvertible conversion to
+// the target). The helpers always throw through the managed carrier so the
+// generated try/catch handles them like any other managed throw.
+//------------------------------------------------------------------------------
+[[noreturn]] static void ThrowConvertIce(const char* message)
+{
+    il2cpp_throw_new("System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+                     message); // the message is not byte-compared by the harness
+}
+
+double icall_convert_to_double_char(int32_t utf16)
+{
+    (void)utf16;
+    ThrowConvertIce("Invalid cast from 'Char' to 'Double'.");
+}
+
+int32_t icall_convert_to_bool_char(int32_t utf16)
+{
+    (void)utf16;
+    ThrowConvertIce("Invalid cast from 'Char' to 'Boolean'.");
+}
+
+int32_t icall_convert_to_char_bool(int32_t value)
+{
+    (void)value;
+    ThrowConvertIce("Invalid cast from 'Boolean' to 'Char'.");
+}
+
+int32_t icall_convert_to_char_d(double value)
+{
+    (void)value;
+    ThrowConvertIce("Invalid cast from 'Double' to 'Char'.");
 }
 
 }} // namespace il2cpp::runtime

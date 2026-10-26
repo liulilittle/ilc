@@ -39,4 +39,14 @@ Il2CppString* il2cpp_convert_to_base64_string(Il2CppArray* bytes);
 // FormatException. Returns a byte[] (elemSize 1) managed array.
 Il2CppArray* il2cpp_convert_from_base64_string(Il2CppString* text);
 
+// BATCH 8: the remaining net48 Convert.ToBase64String / FromBase64CharArray
+// overloads (all the offset/length/options forms). The offset/length pair is
+// validated against the array length (ArgumentOutOfRangeException /
+// ArgumentException); Base64FormattingOptions.InsertLineBreaks (1) inserts a
+// CRLF every 76 output characters.
+Il2CppString* il2cpp_convert_to_base64_string_range(Il2CppArray* bytes, int32_t offset, int32_t length);
+Il2CppString* il2cpp_convert_to_base64_string_options(Il2CppArray* bytes, int32_t options);
+Il2CppString* il2cpp_convert_to_base64_string_range_options(Il2CppArray* bytes, int32_t offset, int32_t length, int32_t options);
+Il2CppArray* il2cpp_convert_from_base64_char_array(Il2CppArray* chars, int32_t offset, int32_t length);
+
 }} // namespace il2cpp::runtime

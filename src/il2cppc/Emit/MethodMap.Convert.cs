@@ -75,6 +75,10 @@ public static partial class MethodRefResolver
                                 0x03 => I("il2cpp::runtime::icall_convert_to_int32_char", 1, true, false, false),
                                 // net9/10 E2E icallcase: Convert.ToInt32(bool).
                                 0x02 => I("il2cpp::runtime::icall_convert_to_int32_bool", 1, true, false, false, new[] { "b" }),
+                                // BATCH 8: Convert.ToInt32(object) -- the runtime
+                                // dispatches on the boxed value's IConvertible
+                                // implementation (null -> 0).
+                                0x1C => I("il2cpp::runtime::icall_convert_to_int32_obj", 1, true, false, false, new[] { "" }),
                                 _ => throw new NotSupportedException($"Convert.ToInt32 param type 0x{ps[0]:X2} not wired (see tmp/reports/edit_convert.md needs-new list)"),
                             };
                         // M7: Convert.ToInt32(string, fromBase) -- the runtime
@@ -124,6 +128,9 @@ public static partial class MethodRefResolver
                                 // Float rides the double slot ("d" widening,
                                 // the ToInt32 0x0C precedent).
                                 0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_int64_d", 1, true, false, false, new[] { "d" }, "l"),
+                                // BATCH 8: Convert.ToInt64(object) -- the boxed
+                                // dispatch (null -> 0; ulong checked).
+                                0x1C => I("il2cpp::runtime::icall_convert_to_int64_obj", 1, true, false, false, new[] { "" }, "l"),
                                 _ => throw new NotSupportedException($"Convert.ToInt64 param type 0x{ps[0]:X2} not wired (decimal/string+provider on the needs-new list)"),
                             };
                         throw new NotSupportedException($"Convert.ToInt64 with {ps.Length} param(s) not wired");
@@ -157,9 +164,19 @@ public static partial class MethodRefResolver
                             // already-widened double slot; icall_conv_d_d is the
                             // bit-exact identity (batch 7).
                             0x0C => I("il2cpp::runtime::icall_conv_d_d", 1, true, false, false, new[] { "d" }, "d"),
-                            // net48 InvalidCastException ALWAYS (unsupported
-                            // conversions); no existing icall raises ICE.
-                            0x02 or 0x03 => throw new NotSupportedException($"Convert.ToDouble({(ps[0] == 0x02 ? "bool" : "char")}) throws InvalidCastException on net48 and no existing icall raises it"),
+                            // BATCH 8: net48 Convert.ToDouble(bool) is
+                            // `value ? 1.0 : 0.0` (oracle-pinned); the bool
+                            // slot carries int32 0/1, so icall_conv_d_i4 is
+                            // exact. char remains InvalidCastException.
+                            0x02 => I("il2cpp::runtime::icall_conv_d_i4", 1, true, false, false, new[] { "i" }, "d"),
+                            // BATCH 8: net48 throws InvalidCastException for the
+                            // char source; the dedicated icall is the exact
+                            // contract (probe-pinned).
+                            0x03 => I("il2cpp::runtime::icall_convert_to_double_char", 1, true, false, false, new[] { "i" }, "d"),
+                            // BATCH 8: Convert.ToDouble(object) -- the boxed
+                            // dispatch (null -> 0.0; bool/char throw ICE, which
+                            // the runtime icall reproduces).
+                            0x1C => I("il2cpp::runtime::icall_convert_to_double_obj", 1, true, false, false, new[] { "" }, "d"),
                             // object / any remaining source: the edit_convert.md
                             // needs-new list.
                             _ => throw new NotSupportedException($"Convert.ToDouble param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
@@ -222,6 +239,17 @@ public static partial class MethodRefResolver
                                     new[] { "l", "drop" }),
                                 0x0D => I("il2cpp::runtime::icall_convert_to_string_d", 2, true, true, false,
                                     new[] { "d", "drop" }),
+                                // BATCH 8: the remaining primitive sources (the
+                                // provider is ignored for uint/ulong/float and for
+                                // the string source, which returns itself).
+                                0x09 => I("il2cpp::runtime::icall_uint32_to_string", 2, true, true, false,
+                                    new[] { "u4", "drop" }),
+                                0x0B => I("il2cpp::runtime::icall_uint64_to_string", 2, true, true, false,
+                                    new[] { "q", "drop" }),
+                                0x0C => I("il2cpp::runtime::icall_convert_to_string_d", 2, true, true, false,
+                                    new[] { "d", "drop" }),
+                                0x0E => I("il2cpp::runtime::icall_convert_to_string_obj", 2, true, true, false,
+                                    new[] { "", "drop" }),
                                 0x1C => I("il2cpp::runtime::icall_convert_to_string_obj", 2, true, true, false,
                                     new[] { "", "drop" }),
                                 _ => throw new NotSupportedException(
@@ -235,6 +263,14 @@ public static partial class MethodRefResolver
                             0x02 => I("il2cpp::runtime::icall_convert_to_string_bool", 1, true, true, false, new[] { "b" }),
                             // M5 wiring: Convert.ToString(char) -> the char formatter.
                             0x03 => I("il2cpp::runtime::icall_char_to_string", 1, true, true, false, new[] { "c" }),
+                            // BATCH 8: the remaining primitive sources. uint/ulong
+                            // must render the FULL unsigned range (the int32/int64
+                            // formatters would read uint >= 2^31 as negative); the
+                            // float source rides the double slot.
+                            0x09 => I("il2cpp::runtime::icall_uint32_to_string", 1, true, true, false, new[] { "u4" }),
+                            0x0B => I("il2cpp::runtime::icall_uint64_to_string", 1, true, true, false, new[] { "q" }),
+                            0x0C => I("il2cpp::runtime::icall_convert_to_string_d", 1, true, true, false, new[] { "d" }),
+                            0x11 => I("il2cpp::runtime::icall_decimal_to_string", 1, true, true, false, new[] { "dec" }),
                             _ => throw new NotSupportedException($"Convert.ToString param type 0x{ps[0]:X2} not wired in M5"),
                         };
                     case "ToBoolean":
@@ -251,18 +287,30 @@ public static partial class MethodRefResolver
                             // (the documented ABI invariant), on which the
                             // to-bool helper is the identity.
                             0x02 => I("il2cpp::runtime::icall_conv_bool_i4", 1, true, false, false),
-                            // NEEDS-NEW: long/ulong need icall_convert_to_bool_i8
-                            // -- truncating the low 32 bits misreads 0x100000000
-                            // as false. edit_convert.md.
-                            0x0A or 0x0B
-                                => throw new NotSupportedException("Convert.ToBoolean(long/ulong) needs a new icall_convert_to_bool_i8 (low-32 truncation would misread high values)"),
-                            // net48 InvalidCastException ALWAYS (unsupported).
-                            0x03 => throw new NotSupportedException("Convert.ToBoolean(char) throws InvalidCastException on net48 and no existing icall raises it"),
-                            0x0C or 0x0D => throw new NotSupportedException("Convert.ToBoolean(float/double) throws InvalidCastException on net48 and no existing icall raises it"),
+                            // BATCH 8: net48 Convert.ToBoolean(long/ulong) is
+                            // (value != 0) over the FULL 64-bit value (the
+                            // oracle-pinned icall_convert_to_bool_i8; a low-32
+                            // truncation would misread 0x100000000 as false).
+                            0x0A => I("il2cpp::runtime::icall_convert_to_bool_i8", 1, true, false, false, new[] { "l" }),
+                            0x0B => I("il2cpp::runtime::icall_convert_to_bool_i8", 1, true, false, false, new[] { "q" }),
+                            // BATCH 8: net48 throws InvalidCastException for the
+                            // char source; the dedicated icall is the exact
+                            // contract (probe-pinned).
+                            0x03 => I("il2cpp::runtime::icall_convert_to_bool_char", 1, true, false, false, new[] { "i" }),
+                            // BATCH 8: net48 Convert.ToBoolean(float/double) is
+                            // (value != 0) (oracle-pinned).
+                            0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_bool_d", 1, true, false, false, new[] { "d" }),
                             // The throwing parser exists now: null -> false,
                             // "true"/"false" (case-insensitive, trimmed),
                             // anything else FormatException.
                             0x0E => I("il2cpp::runtime::icall_convert_to_boolean_string", 1, true, false, false, new[] { "s" }),
+                            // BATCH 8: net48 Convert.ToBoolean(decimal) is
+                            // (value != 0) (oracle-pinned).
+                            0x11 => I("il2cpp::runtime::icall_convert_to_bool_dec", 1, true, false, false, new[] { "dec" }),
+                            // BATCH 8: Convert.ToBoolean(object) -- the boxed
+                            // dispatch (null -> false; the full 64-bit sources
+                            // are tested for non-zero, no low-32 truncation).
+                            0x1C => I("il2cpp::runtime::icall_convert_to_bool_obj", 1, true, false, false, new[] { "" }),
                             _ => throw new NotSupportedException($"Convert.ToBoolean param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
                         };
                     case "ToChar":
@@ -277,18 +325,26 @@ public static partial class MethodRefResolver
                         {
                             0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09
                                 => I("il2cpp::runtime::icall_convert_to_char_i4", 1, true, false, false),
-                            // NEEDS-NEW: long/ulong need icall_convert_to_char_i8
-                            // (low-32 truncation would accept 0x100000041 as 'A').
-                            0x0A or 0x0B
-                                => throw new NotSupportedException($"Convert.ToChar(long/ulong) needs a new icall_convert_to_char_i8 (low-32 truncation would mask out-of-range values)"),
-                            // net48 InvalidCastException ALWAYS (unsupported).
-                            0x02 => throw new NotSupportedException("Convert.ToChar(bool) throws InvalidCastException on net48 and no existing icall raises it"),
-                            0x0C or 0x0D => throw new NotSupportedException("Convert.ToChar(float/double) throws InvalidCastException on net48 and no existing icall raises it"),
+                            // BATCH 8: net48 Convert.ToChar(long/ulong) is the
+                            // CHECKED UTF-16 range test over the FULL 64-bit
+                            // value (oracle-pinned; a low-32 truncation would
+                            // accept 0x100000041 as 'A').
+                            0x0A => I("il2cpp::runtime::icall_convert_to_char_i8", 1, true, false, false, new[] { "l" }),
+                            0x0B => I("il2cpp::runtime::icall_convert_to_char_u8", 1, true, false, false, new[] { "q" }),
+                            // BATCH 8: net48 throws InvalidCastException for the
+                            // bool / float / double sources; the dedicated icalls
+                            // are the exact contracts (probe-pinned).
+                            0x02 => I("il2cpp::runtime::icall_convert_to_char_bool", 1, true, false, false, new[] { "i" }),
+                            0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_char_d", 1, true, false, false, new[] { "d" }),
                             // Convert.ToChar(string): null -> ArgumentNullException (the
                             // Convert null-means-zero rule does NOT extend to the char
                             // target -- net48 probe-pinned), a text that is not exactly
                             // one UTF-16 unit -> FormatException, otherwise the unit.
                             0x0E => I("il2cpp::runtime::icall_convert_to_char_string", 1, true, false, false, new[] { "s" }),
+                            // BATCH 8: Convert.ToChar(object) -- the boxed
+                            // dispatch (null -> '\0'; the int-family is CHECKED
+                            // against the UTF-16 unit range).
+                            0x1C => I("il2cpp::runtime::icall_convert_to_char_obj", 1, true, false, false, new[] { "" }),
                             _ => throw new NotSupportedException($"Convert.ToChar param type 0x{ps[0]:X2} not wired (decimal/object on the edit_convert.md needs-new list)"),
                         };
                     default: return null;

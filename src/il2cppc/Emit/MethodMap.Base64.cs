@@ -20,13 +20,23 @@ public static partial class MethodRefResolver
     {
         switch (name)
         {
-            // ToBase64String(byte[]) -> string: the single-arg form only; the
-            // offset/length/options overloads have no runtime helper. The
+            // ToBase64String(byte[]) -> string: the single-arg form. The
             // byte[] slot takes the "a" cast (Il2CppObject* -> Il2CppArray*;
             // the runtime icall declares the concrete array type, and
             // Il2CppArray embeds Il2CppObject as its first member -- the
             // same exact-address reinterpret as the "s" string cast).
             case "ToBase64String":
+                // BATCH 8: the offset/length/options overloads (the enum param
+                // is a VALUETYPE 0x11 slot carrying the int32 flag).
+                if (ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
+                    return I("il2cpp::runtime::il2cpp_convert_to_base64_string_range", 3, true, true, false,
+                        new[] { "a", "i", "i" });
+                if (ps.Length == 2 && ps[0] == 0x1D && ps[1] is 0x11 or 0x40)
+                    return I("il2cpp::runtime::il2cpp_convert_to_base64_string_options", 2, true, true, false,
+                        new[] { "a", "" });
+                if (ps.Length == 4 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] is 0x11 or 0x40)
+                    return I("il2cpp::runtime::il2cpp_convert_to_base64_string_range_options", 4, true, true, false,
+                        new[] { "a", "i", "i", "" });
                 return ps.Length == 1 && ps[0] == 0x1D
                     ? I("il2cpp::runtime::il2cpp_convert_to_base64_string", 1, true, true, false, new[] { "a" })
                     : throw new NotSupportedException($"Convert.ToBase64String overload (arity {ps.Length}) not wired in M5 (single byte[] form only)");
@@ -38,9 +48,14 @@ public static partial class MethodRefResolver
                 return ps.Length == 1 && ps[0] == 0x0E
                     ? I("il2cpp::runtime::il2cpp_convert_from_base64_string", 1, true, true, false, new[] { "s" })
                     : throw new NotSupportedException($"Convert.FromBase64String overload (arity {ps.Length}) not wired in M5 (single string form only)");
+            // BATCH 8: FromBase64CharArray(char[], int, int) -> byte[].
+            case "FromBase64CharArray":
+                return ps.Length == 3 && ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08
+                    ? I("il2cpp::runtime::il2cpp_convert_from_base64_char_array", 3, true, true, false,
+                        new[] { "a", "i", "i" })
+                    : throw new NotSupportedException($"Convert.FromBase64CharArray overload (arity {ps.Length}) not wired");
             // char[]-buffer variants: same Base64 domain, no runtime helper.
             case "ToBase64CharArray":
-            case "FromBase64CharArray":
                 throw new NotSupportedException($"Convert.{name} (char[] variant) has no runtime helper on the M5 surface");
             default: return null;
         }

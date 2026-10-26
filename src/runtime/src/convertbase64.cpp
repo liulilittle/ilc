@@ -74,7 +74,87 @@ void ByteSet(Il2CppArray* arr, int32_t index, uint8_t value)
     *reinterpret_cast<uint8_t*>(il2cpp_array_get_elem_ptr(arr, index)) = value;
 }
 
+// The .NET ArgumentOutOfRangeException text for a negative offset/length.
+void ThrowOutOfRange(const char* paramName)
+{
+    il2cpp_throw_argument_out_of_range_exception(paramName, "Value must be non-negative.");
+}
+
+// The .NET ArgumentOutOfRangeException text for an offset/length outside the
+// array (net48 throws ArgumentOutOfRangeException, not ArgumentException).
+void ThrowBase64Range(const char* paramName)
+{
+    il2cpp_throw_argument_out_of_range_exception(paramName,
+        "Offset and length were out of bounds for the array or the length is greater than the number of elements from the index to the end of the source collection.");
+}
+
+// Core encoder over the byte range [offset, offset+length) of 'bytes'.
+// When 'lineBreaks' is true a CRLF is inserted every 76 output characters
+// (net48 Base64FormattingOptions.InsertLineBreaks).
+Il2CppString* EncodeBase64Range(Il2CppArray* bytes, int32_t offset, int32_t length, bool lineBreaks)
+{
+    const int32_t outLen = ((length + 2) / 3) * 4;
+    const int32_t breaks = lineBreaks ? (outLen + 75) / 76 : 0;
+    std::vector<char16_t> buf(static_cast<size_t>(outLen) + static_cast<size_t>(breaks) * 2);
+
+    int32_t i = 0;
+    int32_t o = 0;
+    int32_t line = 0;
+    while (i + 2 < length)
+    {
+        const uint32_t v = (static_cast<uint32_t>(ByteAt(bytes, offset + i)) << 16)
+                         | (static_cast<uint32_t>(ByteAt(bytes, offset + i + 1)) << 8)
+                         | static_cast<uint32_t>(ByteAt(bytes, offset + i + 2));
+        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 18) & 63]);
+        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 12) & 63]);
+        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 6) & 63]);
+        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[v & 63]);
+        i += 3;
+        line += 4;
+        if (lineBreaks && line == 76 && i < length)
+        {
+            buf[static_cast<size_t>(o++)] = u'\r';
+            buf[static_cast<size_t>(o++)] = u'\n';
+            line = 0;
+        }
+    }
+    const int32_t rem = length - i;
+    if (rem == 1)
+    {
+        const uint32_t v = static_cast<uint32_t>(ByteAt(bytes, offset + i)) << 16;
+        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 18) & 63]);
+        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 12) & 63]);
+        buf[static_cast<size_t>(o++)] = u'=';
+        buf[static_cast<size_t>(o++)] = u'=';
+    }
+    else if (rem == 2)
+    {
+        const uint32_t v = (static_cast<uint32_t>(ByteAt(bytes, offset + i)) << 16)
+                         | (static_cast<uint32_t>(ByteAt(bytes, offset + i + 1)) << 8);
+        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 18) & 63]);
+        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 12) & 63]);
+        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 6) & 63]);
+        buf[static_cast<size_t>(o++)] = u'=';
+    }
+    return il2cpp_string_new(buf.data(), o);
+}
+
+// Validate the (offset, length) pair against the array length (net48 contract).
+void ValidateRange(Il2CppArray* arr, int32_t offset, int32_t length, const char* offsetName, const char* lengthName)
+{
+    if (offset < 0) ThrowOutOfRange(offsetName);
+    if (length < 0) ThrowOutOfRange(lengthName);
+    const int32_t n = il2cpp_array_get_length(arr);
+    if (offset > n || length > n - offset)
+    {
+        ThrowBase64Range(lengthName);
+    }
+}
+
 } // namespace
+
+// Core decoder over a char16 range [begin, end) -- defined below.
+Il2CppArray* DecodeBase64Core(const char16_t* begin, const char16_t* end);
 
 //------------------------------------------------------------------------------
 // Convert.ToBase64String(byte[]): 3 bytes -> 4 chars; the final quantum is
@@ -89,77 +169,53 @@ Il2CppString* il2cpp_convert_to_base64_string(Il2CppArray* bytes)
         il2cpp_throw_argument_null_exception("inArray");
     }
     const int32_t n = il2cpp_array_get_length(bytes);
-    const int32_t outLen = ((n + 2) / 3) * 4;
-    std::vector<char16_t> buf(static_cast<size_t>(outLen));
+    return EncodeBase64Range(bytes, 0, n, false);
+}
 
-    int32_t i = 0;
-    int32_t o = 0;
-    while (i + 2 < n)
+Il2CppString* il2cpp_convert_to_base64_string_range(Il2CppArray* bytes, int32_t offset, int32_t length)
+{
+    if (bytes == nullptr)
     {
-        const uint32_t v = (static_cast<uint32_t>(ByteAt(bytes, i)) << 16)
-                         | (static_cast<uint32_t>(ByteAt(bytes, i + 1)) << 8)
-                         | static_cast<uint32_t>(ByteAt(bytes, i + 2));
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 18) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 12) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 6) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[v & 63]);
-        i += 3;
+        il2cpp_throw_argument_null_exception("inArray");
     }
-    const int32_t rem = n - i;
-    if (rem == 1)
+    ValidateRange(bytes, offset, length, "offset", "length");
+    return EncodeBase64Range(bytes, offset, length, false);
+}
+
+Il2CppString* il2cpp_convert_to_base64_string_options(Il2CppArray* bytes, int32_t options)
+{
+    if (bytes == nullptr)
     {
-        const uint32_t v = static_cast<uint32_t>(ByteAt(bytes, i)) << 16;
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 18) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 12) & 63]);
-        buf[static_cast<size_t>(o++)] = u'=';
-        buf[static_cast<size_t>(o++)] = u'=';
+        il2cpp_throw_argument_null_exception("inArray");
     }
-    else if (rem == 2)
+    // net48 Base64FormattingOptions: 0 = None, 1 = InsertLineBreaks; any other
+    // value throws ArgumentException.
+    if (options != 0 && options != 1)
     {
-        const uint32_t v = (static_cast<uint32_t>(ByteAt(bytes, i)) << 16)
-                         | (static_cast<uint32_t>(ByteAt(bytes, i + 1)) << 8);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 18) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 12) & 63]);
-        buf[static_cast<size_t>(o++)] = static_cast<char16_t>(kBase64Alphabet[(v >> 6) & 63]);
-        buf[static_cast<size_t>(o++)] = u'=';
+        il2cpp_throw_argument_exception("The options parameter must be None or InsertLineBreaks.");
     }
-    return il2cpp_string_new(buf.data(), outLen);
+    const int32_t n = il2cpp_array_get_length(bytes);
+    return EncodeBase64Range(bytes, 0, n, options == 1);
+}
+
+Il2CppString* il2cpp_convert_to_base64_string_range_options(Il2CppArray* bytes, int32_t offset, int32_t length, int32_t options)
+{
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("inArray");
+    }
+    if (options != 0 && options != 1)
+    {
+        il2cpp_throw_argument_exception("The options parameter must be None or InsertLineBreaks.");
+    }
+    ValidateRange(bytes, offset, length, "offset", "length");
+    return EncodeBase64Range(bytes, offset, length, options == 1);
 }
 
 //------------------------------------------------------------------------------
-// Convert.FromBase64String(string): two passes over the input.
-//
-// Pass 1 (validation): every character is classified -- whitespace (ignored),
-// '=' (padding) or a valid alphabet char. '=' placement follows the net48
-// final-quantum rule EXACTLY (probe-verified):
-//   * first '=' at quantum position 2 ("AB==") requires a closing second
-//     '='; a lone '=' there throws even with trailing whitespace ("AB= ");
-//   * first '=' at quantum position 3 ("TWE=") may be final, or may be
-//     followed by one closing '=' at the next quantum's position 0 --
-//     net48 accepts "TWE==" (three valid chars + '==') and decodes it to
-//     ONE byte, and the same with whitespace between the pads;
-//   * a third '=' or a non-whitespace char after padding -> FormatException.
-// The decoded length is derived from the valid-char count and padding
-// count exactly like net48: leftover 1 -> FormatException; leftover 0/2/3
-// are legal only with 0/2/1-or-2 padding chars respectively (unpadded
-// "TWE"/"TW" throw).
-//
-// Pass 2 (decode): a faithful port of the net48 FromBase64_Decode state
-// machine -- a 4-byte marker block accumulates six-bit codes; every fourth
-// valid char flushes 3 bytes; a trailing '=' shifts zero code bits in (6 for
-// one pad, 12 for two) and flushes the partial quantum. This reproduces the
-// net48 byte output for every legal shape, including the "TWE==" -> 1 byte
-// case (the byte comes from the LAST two valid chars).
-//------------------------------------------------------------------------------
-Il2CppArray* il2cpp_convert_from_base64_string(Il2CppString* text)
+// Core decoder over a char16 range [begin, end).
+Il2CppArray* DecodeBase64Core(const char16_t* begin, const char16_t* end)
 {
-    if (text == nullptr)
-    {
-        il2cpp_throw_argument_null_exception("s");
-    }
-    const char16_t* begin = text->chars;
-    const char16_t* end = begin + text->length;
-
     // --- Pass 1: validate and compute the decoded length. ---
     int32_t validCount = 0;   // non-whitespace chars, '=' included
     int32_t paddingCount = 0;
@@ -292,5 +348,52 @@ Il2CppArray* il2cpp_convert_from_base64_string(Il2CppString* text)
     }
     return result;
 }
+
+// Convert.FromBase64String(string): two passes over the input.
+//
+// Pass 1 (validation): every character is classified -- whitespace (ignored),
+// '=' (padding) or a valid alphabet char. '=' placement follows the net48
+// final-quantum rule EXACTLY (probe-verified):
+//   * first '=' at quantum position 2 ("AB==") requires a closing second
+//     '='; a lone '=' there throws even with trailing whitespace ("AB= ");
+//   * first '=' at quantum position 3 ("TWE=") may be final, or may be
+//     followed by one closing '=' at the next quantum's position 0 --
+//     net48 accepts "TWE==" (three valid chars + '==') and decodes it to
+//     ONE byte, and the same with whitespace between the pads;
+//   * a third '=' or a non-whitespace char after padding -> FormatException.
+// The decoded length is derived from the valid-char count and padding
+// count exactly like net48: leftover 1 -> FormatException; leftover 0/2/3
+// are legal only with 0/2/1-or-2 padding chars respectively (unpadded
+// "TWE"/"TW" throw).
+//
+// Pass 2 (decode): a faithful port of the net48 FromBase64_Decode state
+// machine -- a 4-byte marker block accumulates six-bit codes; every fourth
+// valid char flushes 3 bytes; a trailing '=' shifts zero code bits in (6 for
+// one pad, 12 for two) and flushes the partial quantum. This reproduces the
+// net48 byte output for every legal shape, including the "TWE==" -> 1 byte
+// case (the byte comes from the LAST two valid chars).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_convert_from_base64_string(Il2CppString* text)
+{
+    if (text == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("s");
+    }
+    const char16_t* begin = text->chars;
+    const char16_t* end = begin + text->length;
+    return DecodeBase64Core(begin, end);
+}
+
+Il2CppArray* il2cpp_convert_from_base64_char_array(Il2CppArray* chars, int32_t offset, int32_t length)
+{
+    if (chars == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("inArray");
+    }
+    ValidateRange(chars, offset, length, "offset", "length");
+    const char16_t* base = reinterpret_cast<const char16_t*>(il2cpp_array_get_elem_ptr(chars, 0));
+    return DecodeBase64Core(base + offset, base + offset + length);
+}
+
 
 }} // namespace il2cpp::runtime

@@ -107,6 +107,10 @@ public static partial class MethodRefResolver
                     // Convert.ToXxx(string): the throwing parse icall with the
                     // null-means-zero rule (conv-str-parse e2e).
                     0x0E => I($"il2cpp::runtime::icall_convert_to_{dName}_string", 1, true, false, false, new[] { "s" }),
+                    // BATCH 8: Convert.{name}(object) -- the boxed dispatch
+                    // (null -> 0; the checked narrow range over the full-width
+                    // int64/uint64 sources).
+                    0x1C => I($"il2cpp::runtime::icall_convert_to_{dName}_obj", 1, true, false, false, new[] { "" }),
                     _ => throw new NotSupportedException($"Convert.{name} param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
@@ -140,6 +144,9 @@ public static partial class MethodRefResolver
                     // (ovf_u4_d truncates; net48 rounds half-to-even first).
                     0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_uint32_d", 1, true, false, false, new[] { "d" }),
                     0x0E => I("il2cpp::runtime::icall_convert_to_uint32_string", 1, true, false, false, new[] { "s" }),
+                    // BATCH 8: Convert.ToUInt32(object) -- the boxed dispatch
+                    // (null -> 0; negative signed sources throw).
+                    0x1C => I("il2cpp::runtime::icall_convert_to_uint32_obj", 1, true, false, false, new[] { "" }),
                     _ => throw new NotSupportedException($"Convert.ToUInt32 param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
@@ -169,6 +176,9 @@ public static partial class MethodRefResolver
                     // carries the uint64 slot, the ovf_u8 precedent).
                     0x0C or 0x0D => I("il2cpp::runtime::icall_convert_to_uint64_d", 1, true, false, false, new[] { "d" }, "l"),
                     0x0E => I("il2cpp::runtime::icall_convert_to_uint64_string", 1, true, false, false, new[] { "s" }, "l"),
+                    // BATCH 8: Convert.ToUInt64(object) -- the boxed dispatch
+                    // (null -> 0; negative signed sources throw).
+                    0x1C => I("il2cpp::runtime::icall_convert_to_uint64_obj", 1, true, false, false, new[] { "" }, "l"),
                     _ => throw new NotSupportedException($"Convert.ToUInt64 param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
@@ -213,6 +223,9 @@ public static partial class MethodRefResolver
                     // exact net48 contract (probe-pinned for 'A').
                     0x03 => I("il2cpp::runtime::icall_convert_to_single_char", 1, true, false, false, new[] { "i" }, "d"),
                     0x0E => I("il2cpp::runtime::icall_convert_to_single_string", 1, true, false, false, new[] { "s" }, "d"),
+                    // BATCH 8: Convert.ToSingle(object) -- the boxed dispatch
+                    // (null -> 0f; char throws ICE, which the icall reproduces).
+                    0x1C => I("il2cpp::runtime::icall_convert_to_single_obj", 1, true, false, false, new[] { "" }, "d"),
                     _ => throw new NotSupportedException($"Convert.ToSingle param type 0x{ps[0]:X2} not wired (object on the edit_convert.md needs-new list)"),
                 };
             }
@@ -239,6 +252,29 @@ public static partial class MethodRefResolver
                 //   char                        -> InvalidCastException on net48
                 //                                  (probe-pinned for 'A'), served by
                 //                                  icall_convert_to_decimal_char
+                // BATCH 8: Convert.ToDecimal(value, IFormatProvider) -- net48
+                // ignores the provider for every primitive source (the string
+                // source parses with the provider; the runtime parse is the
+                // invariant grammar, which matches zh-CN's '.'/','), so the
+                // 2-arg form drops the provider and routes to the 1-arg arm.
+                if (ps.Length == 2 && ps[1] == 0x12)
+                    return ps[0] switch
+                    {
+                        0x04 or 0x05 or 0x06 or 0x07 or 0x08
+                            => I("il2cpp::runtime::icall_decimal_ctor_int32", 2, true, false, false, new[] { "i", "drop" }, "dec"),
+                        0x09 => I("il2cpp::runtime::icall_decimal_ctor_uint32", 2, true, false, false, new[] { "i", "drop" }, "dec"),
+                        0x0A => I("il2cpp::runtime::icall_decimal_ctor_int64", 2, true, false, false, new[] { "l", "drop" }, "dec"),
+                        0x0B => I("il2cpp::runtime::icall_decimal_ctor_uint64", 2, true, false, false, new[] { "q", "drop" }, "dec"),
+                        0x02 => I("il2cpp::runtime::icall_decimal_ctor_int32", 2, true, false, false, new[] { "i", "drop" }, "dec"),
+                        0x0C => I("il2cpp::runtime::icall_decimal_ctor_float", 2, true, false, false, new[] { "", "drop" }, "dec"),
+                        0x0D => I("il2cpp::runtime::icall_decimal_ctor_double", 2, true, false, false, new[] { "", "drop" }, "dec"),
+                        0x11 => I("il2cpp::runtime::icall_decimal_copy", 2, true, false, false, new[] { "dec", "drop" }, "dec"),
+                        0x0E => I("il2cpp::runtime::icall_convert_to_decimal_string", 2, true, false, false, new[] { "s", "drop" }, "dec"),
+                        0x03 => I("il2cpp::runtime::icall_convert_to_decimal_char", 2, true, false, false, new[] { "i", "drop" }, "dec"),
+                        0x1C => I("il2cpp::runtime::icall_convert_to_decimal_obj", 2, true, false, false, new[] { "", "drop" }, "dec"),
+                        _ => throw new NotSupportedException(
+                            $"Convert.ToDecimal param type 0x{ps[0]:X2} with IFormatProvider not wired"),
+                    };
                 if (ps.Length != 1)
                     throw new NotSupportedException($"Convert.ToDecimal with {ps.Length} param(s) not wired (object/2-arg provider overloads on the edit_convert.md needs-new list)");
                 return ps[0] switch
@@ -263,6 +299,9 @@ public static partial class MethodRefResolver
                     0x0E => I("il2cpp::runtime::icall_convert_to_decimal_string", 1, true, false, false, new[] { "s" }, "dec"),
                     // char: InvalidCastException on net48, never a value.
                     0x03 => I("il2cpp::runtime::icall_convert_to_decimal_char", 1, true, false, false, new[] { "i" }, "dec"),
+                    // BATCH 8: Convert.ToDecimal(object) -- the boxed dispatch
+                    // (null -> 0m; char throws ICE, which the icall reproduces).
+                    0x1C => I("il2cpp::runtime::icall_convert_to_decimal_obj", 1, true, false, false, new[] { "" }, "dec"),
                     _ => throw new NotSupportedException($"Convert.ToDecimal param type 0x{ps[0]:X2} not wired (object/2-arg provider overloads on the edit_convert.md needs-new list)"),
                 };
             default: return null;

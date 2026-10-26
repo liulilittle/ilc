@@ -159,6 +159,45 @@ Il2CppString* icall_convert_to_string_i4_base(int32_t value, int32_t toBase);
 // Object.ToString contract) -- P0-narrow, 2026-10-22.
 Il2CppString* icall_convert_to_string_obj(Il2CppObject* value);
 
+//------------------------------------------------------------------------------
+// Object-source Convert overloads (batch 8): Convert.ToXxx(object value).
+//
+// net48 dispatches on the boxed value's IConvertible implementation after the
+// "null means zero" rule (null -> 0 / "" / 0m). Every boxed primitive in this
+// runtime implements IConvertible; a non-IConvertible object (user struct,
+// DateTime, Guid, TimeSpan, enum, ...) -> InvalidCastException. The per-source
+// conversions reuse the value-source icalls above, so the object overloads
+// cannot drift from the value overloads.
+//------------------------------------------------------------------------------
+int32_t icall_convert_to_int32_obj(Il2CppObject* value);
+int64_t icall_convert_to_int64_obj(Il2CppObject* value);
+uint32_t icall_convert_to_uint32_obj(Il2CppObject* value);
+uint64_t icall_convert_to_uint64_obj(Il2CppObject* value);
+int32_t icall_convert_to_byte_obj(Il2CppObject* value);
+int32_t icall_convert_to_sbyte_obj(Il2CppObject* value);
+int32_t icall_convert_to_int16_obj(Il2CppObject* value);
+int32_t icall_convert_to_uint16_obj(Il2CppObject* value);
+double icall_convert_to_double_obj(Il2CppObject* value);
+float icall_convert_to_single_obj(Il2CppObject* value);
+int32_t icall_convert_to_bool_obj(Il2CppObject* value);
+int32_t icall_convert_to_char_obj(Il2CppObject* value);
+void icall_convert_to_decimal_obj(Il2CppDecimal* out, Il2CppObject* value);
+
+// Value-source residuals (batch 8): net48 conversions the batch-5 sweep
+// LOUD-rejected with an "InvalidCastException" note but that net48 performs.
+int32_t icall_convert_to_bool_d(double value);
+int32_t icall_convert_to_bool_i8(int64_t value);
+int32_t icall_convert_to_bool_dec(const Il2CppDecimal* d);
+int32_t icall_convert_to_char_i8(int64_t value);
+int32_t icall_convert_to_char_u8(uint64_t value);
+
+// InvalidCastException residuals (batch 8): net48 throws InvalidCastException
+// for these source/target pairs; the helpers always throw.
+double icall_convert_to_double_char(int32_t utf16);
+int32_t icall_convert_to_bool_char(int32_t utf16);
+int32_t icall_convert_to_char_bool(int32_t value);
+int32_t icall_convert_to_char_d(double value);
+
 // Convert.ToBoolean(int32): 0 -> 0, any non-zero (incl. negative) -> 1.
 int32_t icall_convert_to_bool_i4(int32_t value);
 
