@@ -24,6 +24,7 @@
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null / format / not_supported
 #include "il2cpp_pinvoke_ext.h"   // managed string <-> heap UTF-8 marshalling
 #include "il2cpp_runtime.h"       // il2cpp_class_register / System_Object_class
+#include "versionuri.h"           // icall_uri_to_string (DownloadString(Uri))
 
 #include <cctype>
 #include <cstdint>
@@ -724,6 +725,24 @@ Il2CppString* icall_web_client_download_string(Il2CppObject* self,
 Il2CppString* icall_webclient_download_string(Il2CppString* url)
 {
     return DownloadStringCore(url);
+}
+
+//------------------------------------------------------------------------------
+// icall_web_client_download_string_uri -- WebClient.DownloadString(Uri)
+// (net48). The Uri is marshaled to its string form (icall_uri_to_string --
+// net48 WebClient.GetUri(address) returns the Uri's string) and the string
+// download closure runs.
+//------------------------------------------------------------------------------
+Il2CppString* icall_web_client_download_string_uri(Il2CppObject* self,
+                                                   Il2CppObject* uri)
+{
+    if (uri == nullptr)
+    {
+        // net48 DownloadString((Uri)null) throws ArgumentNullException.
+        il2cpp_throw_argument_null_exception("address");
+    }
+    Il2CppString* url = reinterpret_cast<Il2CppString*>(icall_uri_to_string(uri));
+    return icall_web_client_download_string(self, url);
 }
 
 }} // namespace il2cpp::runtime

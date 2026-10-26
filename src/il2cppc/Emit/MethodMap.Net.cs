@@ -62,6 +62,9 @@ namespace Il2Cpp.Transpiler.Emit;
 //     (Il2CppObject* self, Il2CppString* url) -> Il2CppString* -- the whole
 //     HTTP GET closure (connect -> request -> 200-check -> UTF-8 decode ->
 //     managed string -> free_body), throwing WebException on failure.
+//   DownloadString(Uri)          -> icall_web_client_download_string_uri
+//     (net48) -- the Uri is marshaled to its string form by the runtime
+//     (versionuri.h icall_uri_to_string) and the string closure runs.
 // The emitter emits ONE call expression per mapping (the runtime closure
 // makes the multi-step composition unnecessary). new WebClient() allocates
 // through the BclAllocExpr fallback il2cpp_object_new(&System_Net_WebClient_class).
@@ -218,6 +221,12 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::icall_web_client_download_string", 1, true, true, true,
                         new[] { "", "s" });
+                // net48 DownloadString(Uri address): the Uri is marshaled to
+                // its string form by the runtime kernel
+                // (icall_web_client_download_string_uri).
+                if (ps.Length == 1 && ps[0] == 0x12)
+                    return I("il2cpp::runtime::icall_web_client_download_string_uri", 1, true, true, true,
+                        new[] { "", "" });
                 return null;
             default: return null;
         }

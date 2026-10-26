@@ -209,6 +209,26 @@ public class MethodMapNetTests
     }
 
     //--------------------------------------------------------------------------
+    // WebClient.DownloadString(Uri) (net48) -> the Uri-marshaling download
+    // icall (the Uri is converted to its string form by the runtime).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_WebClient_DownloadStringUri_MapsToUriIcall()
+    {
+        // instance string DownloadString(Uri address): CLASS return (0x12 +
+        // coded index), one CLASS (Uri) param (0x12 + coded index).
+        var m = ResolveMember(Synthesize("System.Net", "WebClient", "DownloadString",
+            new byte[] { 0x00, 0x01, 0x12, 0x05, 0x12, 0x05 }), "DownloadString");
+
+        Assert.Equal("il2cpp::runtime::icall_web_client_download_string_uri", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.True(m.ReturnsRef);
+        Assert.Equal(new[] { "", "" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as
     // MethodMapTests.VersionUri.cs)
     //--------------------------------------------------------------------------

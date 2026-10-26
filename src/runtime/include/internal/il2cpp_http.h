@@ -84,4 +84,10 @@ il2cpp::Il2CppString* icall_web_client_download_string(
 il2cpp::Il2CppString* icall_webclient_download_string(
     il2cpp::Il2CppString* url);
 
+// WebClient.DownloadString(Uri) (net48): the Uri is marshaled to its string
+// form (versionuri.h icall_uri_to_string -- net48 WebClient.GetUri(address)
+// returns the Uri's string) and then the string download closure runs.
+il2cpp::Il2CppString* icall_web_client_download_string_uri(
+    il2cpp::Il2CppObject* self, il2cpp::Il2CppObject* uri);
+
 }} // namespace il2cpp::runtime
