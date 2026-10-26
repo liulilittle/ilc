@@ -323,7 +323,7 @@ public static partial class MethodRefResolver
     // its Read/Peek/ReadLine/ReadToEnd members route to the stdin icalls (the
     // receiver is the reader singletons -- the runtime ignores it).
     private static ResolvedMethod? TryMapConsoleStream(string owner, string name, byte[] ps, int count,
-        string? receiverType = null)
+        string? receiverType = null, string? paramTypes = null)
     {
         if (receiverType == "System.Console.InReader")
         {
@@ -357,6 +357,14 @@ public static partial class MethodRefResolver
                         $"Console.In TextReader member '{name}' not wired (Read/Peek/ReadLine/ReadToEnd only)");
             }
         }
+        // Value-type argument naming for the 0x11 (VALUETYPE) shapes.
+        string? vtName = null;
+        if (paramTypes is { Length: > 0 })
+        {
+            var parts = CodeGenerator.SplitTopLevel(paramTypes).ToArray();
+            if (parts.Length > 0 && parts[0].StartsWith("V:", StringComparison.Ordinal))
+                vtName = parts[0][2..];
+        }
         // TextWriter.StringBuilder-shaped stream members: Flush is a no-op
         // (stdio is unbuffered for our purposes) but must still resolve.
         if (name == "Flush" && count == 0)
@@ -371,19 +379,44 @@ public static partial class MethodRefResolver
                 case 0x0E when count == 1:
                     return I("il2cpp::runtime::icall_console_stream_write", 1, false, false, true);
                 case 0x08 when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_i", 1, false, false, true, new[] { "", "i" });
                 case 0x02 when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_b", 1, false, false, true, new[] { "", "i" });
                 case 0x03 when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_c", 1, false, false, true, new[] { "", "i" });
+                case 0x09 when count == 1:
+                    return I("il2cpp::runtime::icall_console_stream_write_u32", 1, false, false, true, new[] { "", "u4" });
                 case 0x0A when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_l", 1, false, false, true, new[] { "", "l" });
+                case 0x0B when count == 1:
+                    return I("il2cpp::runtime::icall_console_stream_write_u64", 1, false, false, true, new[] { "", "q" });
                 case 0x0D when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_d", 1, false, false, true, new[] { "", "d" });
+                // Single values live in double slots; the double formatter
+                // renders them (documented deviation: .NET G15 prints the
+                // float's own precision).
+                case 0x0C when count == 1:
+                    return I("il2cpp::runtime::icall_console_stream_write_d", 1, false, false, true, new[] { "", "d" });
+                case 0x11 when count == 1 && vtName == "System.Decimal":
+                    return I("il2cpp::runtime::icall_console_stream_write_decimal", 1, false, false, true, new[] { "", "dec" });
                 case 0x1C or 0x12 when count == 1:
                     return I("il2cpp::runtime::icall_console_stream_write_object", 1, false, false, true, new[] { "", "" });
                 case 0x1D when count == 1:
                     return I("il2cpp::runtime::icall_console_stream_write_chars", 1, false, false, true, new[] { "", "a" });
+                // Composite forms: Write(format, object...) and the params array
+                // -- routed through the String.Format kernel so the composite
+                // expansion has a single authority.
+                case 0x0E when count == 2 && ps[1] == 0x1D:
+                    return I("il2cpp::runtime::icall_console_stream_write_fmt_array", 2, false, false, true, new[] { "", "", "a" });
+                case 0x0E when count == 2 && ps[1] is 0x1C or 0x12:
+                    return I("il2cpp::runtime::icall_console_stream_write_fmt1", 2, false, false, true, new[] { "", "", "" });
+                case 0x0E when count == 3 && ps[1] is 0x1C or 0x12 && ps[2] is 0x1C or 0x12:
+                    return I("il2cpp::runtime::icall_console_stream_write_fmt2", 3, false, false, true, new[] { "", "", "", "" });
+                case 0x0E when count == 4 && ps[1] is 0x1C or 0x12 && ps[2] is 0x1C or 0x12 && ps[3] is 0x1C or 0x12:
+                    return I("il2cpp::runtime::icall_console_stream_write_fmt3", 4, false, false, true, new[] { "", "", "", "", "" });
+                // char[] slice form: Write(char[] buffer, int index, int count).
+                case 0x1D when count == 3 && ps[1] == 0x08 && ps[2] == 0x08:
+                    return I("il2cpp::runtime::icall_console_stream_write_chars_range", 3, false, false, true, new[] { "", "a", "i", "i" });
             }
             throw new NotSupportedException(
                 $"console stream TextWriter.Write overload (arity {count}, param 0x{(count > 0 ? ps[0] : 0):X2}) not wired");
@@ -397,19 +430,38 @@ public static partial class MethodRefResolver
                 case 0x0E when count == 1:
                     return I("il2cpp::runtime::icall_console_stream_write_line", 1, false, false, true);
                 case 0x08 when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_line_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_line_i", 1, false, false, true, new[] { "", "i" });
                 case 0x02 when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_line_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_line_b", 1, false, false, true, new[] { "", "i" });
                 case 0x03 when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_line_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_line_c", 1, false, false, true, new[] { "", "i" });
+                case 0x09 when count == 1:
+                    return I("il2cpp::runtime::icall_console_stream_write_line_u32", 1, false, false, true, new[] { "", "u4" });
                 case 0x0A when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_line_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_line_l", 1, false, false, true, new[] { "", "l" });
+                case 0x0B when count == 1:
+                    return I("il2cpp::runtime::icall_console_stream_write_line_u64", 1, false, false, true, new[] { "", "q" });
                 case 0x0D when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_line_object", 1, false, false, true, new[] { "", "box:i" });
+                    return I("il2cpp::runtime::icall_console_stream_write_line_d", 1, false, false, true, new[] { "", "d" });
+                case 0x0C when count == 1:
+                    return I("il2cpp::runtime::icall_console_stream_write_line_d", 1, false, false, true, new[] { "", "d" });
+                case 0x11 when count == 1 && vtName == "System.Decimal":
+                    return I("il2cpp::runtime::icall_console_stream_write_line_decimal", 1, false, false, true, new[] { "", "dec" });
                 case 0x1C or 0x12 when count == 1:
                     return I("il2cpp::runtime::icall_console_stream_write_line_object", 1, false, false, true, new[] { "", "" });
                 case 0x1D when count == 1:
                     return I("il2cpp::runtime::icall_console_stream_write_line_chars", 1, false, false, true, new[] { "", "a" });
+                // Composite forms (mirror the Write arms).
+                case 0x0E when count == 2 && ps[1] == 0x1D:
+                    return I("il2cpp::runtime::icall_console_stream_write_line_fmt_array", 2, false, false, true, new[] { "", "", "a" });
+                case 0x0E when count == 2 && ps[1] is 0x1C or 0x12:
+                    return I("il2cpp::runtime::icall_console_stream_write_line_fmt1", 2, false, false, true, new[] { "", "", "" });
+                case 0x0E when count == 3 && ps[1] is 0x1C or 0x12 && ps[2] is 0x1C or 0x12:
+                    return I("il2cpp::runtime::icall_console_stream_write_line_fmt2", 3, false, false, true, new[] { "", "", "", "" });
+                case 0x0E when count == 4 && ps[1] is 0x1C or 0x12 && ps[2] is 0x1C or 0x12 && ps[3] is 0x1C or 0x12:
+                    return I("il2cpp::runtime::icall_console_stream_write_line_fmt3", 4, false, false, true, new[] { "", "", "", "", "" });
+                case 0x1D when count == 3 && ps[1] == 0x08 && ps[2] == 0x08:
+                    return I("il2cpp::runtime::icall_console_stream_write_line_chars_range", 3, false, false, true, new[] { "", "a", "i", "i" });
             }
             throw new NotSupportedException(
                 $"console stream TextWriter.WriteLine overload (arity {count}, param 0x{(count > 0 ? ps[0] : 0):X2}) not wired");

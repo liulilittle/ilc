@@ -247,6 +247,82 @@ void WriteStringToStream(Il2CppObject* text, FILE* stream)
         PrintCharCode(str->chars[i], stream);
 }
 
+//------------------------------------------------------------------------------
+// Console STREAM value surface helpers: the same rendering as the M1 core
+// icalls, but to a console stream object's FILE* target (stdout / stderr /
+// discard). A foreign/unknown receiver or the null stream renders nothing.
+//------------------------------------------------------------------------------
+// Forward declarations (the stream-object accessors are defined with the
+// Console.Out/Error singleton block below).
+struct ConsoleStreamObject;
+ConsoleStreamObject* StreamAs(Il2CppObject* self);
+bool IsConsoleStream(const Il2CppObject* self);
+FILE* StreamTarget(const ConsoleStreamObject* s);
+
+FILE* StreamFile(Il2CppObject* self)
+{
+    if (self == nullptr || !IsConsoleStream(self))
+        return nullptr;
+    return StreamTarget(StreamAs(self));
+}
+
+void StreamWriteString(Il2CppObject* self, Il2CppString* text)
+{
+    FILE* stream = StreamFile(self);
+    if (stream == nullptr)
+        return;
+    WriteStringToStream(reinterpret_cast<Il2CppObject*>(text), stream);
+}
+
+void StreamWriteNewline(Il2CppObject* self)
+{
+    FILE* stream = StreamFile(self);
+    if (stream == nullptr)
+        return;
+#ifdef _WIN32
+    std::fputs("\r\n", stream);
+#else
+    std::fputc('\n', stream);
+#endif
+}
+
+void StreamWriteChars(Il2CppArray* chars, int32_t index, int32_t count, bool range, FILE* stream)
+{
+    if (chars == nullptr)
+    {
+        il2cpp_throw_new("System.ArgumentNullException,System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception",
+                         "buffer");
+    }
+    if (stream == nullptr)
+        return;
+    int32_t begin = 0;
+    int32_t len = chars->length;
+    if (range)
+    {
+        if (index < 0)
+        {
+            il2cpp_throw_new("System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception",
+                             "index");
+        }
+        if (count < 0)
+        {
+            il2cpp_throw_new("System.ArgumentOutOfRangeException,System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception",
+                             "count");
+        }
+        if (index + count > chars->length)
+        {
+            il2cpp_throw_new("System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception",
+                             "Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+        }
+        begin = index;
+        len = count;
+    }
+    if (chars->elemSize != 2)
+        return; // not a char[]: nothing to render (defensive)
+    const char16_t* units = reinterpret_cast<const char16_t*>(chars->data);
+    console_write_units(units + begin, len, stream);
+}
+
 } // namespace
 
 // Active console output code page -- the net48 Console.OutputEncoding default.
@@ -1062,6 +1138,177 @@ void icall_console_stream_write_line(Il2CppObject* self, Il2CppObject* text)
 #else
     std::fputc('\n', stream);
 #endif
+}
+
+//------------------------------------------------------------------------------
+// Console STREAM value surface (net48 TextWriter.Write/WriteLine overloads on
+// Console.Out / Console.Error). Every arm renders with the SAME formatter the
+// matching M1 core icall uses and writes to the stream object's target.
+//------------------------------------------------------------------------------
+void icall_console_stream_write_b(Il2CppObject* self, int32_t value)
+{
+    StreamWriteString(self, icall_bool_to_string(value != 0));
+}
+
+void icall_console_stream_write_line_b(Il2CppObject* self, int32_t value)
+{
+    icall_console_stream_write_b(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_c(Il2CppObject* self, int32_t value)
+{
+    StreamWriteString(self, icall_char_to_string(value));
+}
+
+void icall_console_stream_write_line_c(Il2CppObject* self, int32_t value)
+{
+    icall_console_stream_write_c(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_i(Il2CppObject* self, int32_t value)
+{
+    StreamWriteString(self, icall_int32_to_string(value));
+}
+
+void icall_console_stream_write_line_i(Il2CppObject* self, int32_t value)
+{
+    icall_console_stream_write_i(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_u32(Il2CppObject* self, uint32_t value)
+{
+    StreamWriteString(self, icall_uint64_to_string(value));
+}
+
+void icall_console_stream_write_line_u32(Il2CppObject* self, uint32_t value)
+{
+    icall_console_stream_write_u32(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_l(Il2CppObject* self, int64_t value)
+{
+    StreamWriteString(self, icall_int64_to_string(value));
+}
+
+void icall_console_stream_write_line_l(Il2CppObject* self, int64_t value)
+{
+    icall_console_stream_write_l(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_u64(Il2CppObject* self, uint64_t value)
+{
+    StreamWriteString(self, icall_uint64_to_string(value));
+}
+
+void icall_console_stream_write_line_u64(Il2CppObject* self, uint64_t value)
+{
+    icall_console_stream_write_u64(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_d(Il2CppObject* self, double value)
+{
+    StreamWriteString(self, icall_double_to_string(value));
+}
+
+void icall_console_stream_write_line_d(Il2CppObject* self, double value)
+{
+    icall_console_stream_write_d(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_decimal(Il2CppObject* self, const Il2CppDecimal* value)
+{
+    StreamWriteString(self, icall_decimal_to_string(value));
+}
+
+void icall_console_stream_write_line_decimal(Il2CppObject* self, const Il2CppDecimal* value)
+{
+    icall_console_stream_write_decimal(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_object(Il2CppObject* self, Il2CppObject* value)
+{
+    StreamWriteString(self, ObjectTextOrNull(value));
+}
+
+void icall_console_stream_write_line_object(Il2CppObject* self, Il2CppObject* value)
+{
+    icall_console_stream_write_object(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_chars(Il2CppObject* self, Il2CppArray* chars)
+{
+    StreamWriteChars(chars, 0, 0, false, StreamFile(self));
+}
+
+void icall_console_stream_write_line_chars(Il2CppObject* self, Il2CppArray* chars)
+{
+    icall_console_stream_write_chars(self, chars);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_chars_range(Il2CppObject* self, Il2CppArray* chars, int32_t index, int32_t count)
+{
+    StreamWriteChars(chars, index, count, true, StreamFile(self));
+}
+
+void icall_console_stream_write_line_chars_range(Il2CppObject* self, Il2CppArray* chars, int32_t index, int32_t count)
+{
+    icall_console_stream_write_chars_range(self, chars, index, count);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_fmt1(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0)
+{
+    StreamWriteString(self, reinterpret_cast<Il2CppString*>(icall_string_format_1(format, arg0)));
+}
+
+void icall_console_stream_write_line_fmt1(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0)
+{
+    icall_console_stream_write_fmt1(self, format, arg0);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_fmt2(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
+{
+    StreamWriteString(self, reinterpret_cast<Il2CppString*>(icall_string_format_2(format, arg0, arg1)));
+}
+
+void icall_console_stream_write_line_fmt2(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1)
+{
+    icall_console_stream_write_fmt2(self, format, arg0, arg1);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_fmt3(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
+{
+    StreamWriteString(self, reinterpret_cast<Il2CppString*>(icall_string_format_3(format, arg0, arg1, arg2)));
+}
+
+void icall_console_stream_write_line_fmt3(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2)
+{
+    icall_console_stream_write_fmt3(self, format, arg0, arg1, arg2);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_fmt_array(Il2CppObject* self, Il2CppObject* format, Il2CppArray* args)
+{
+    StreamWriteString(self, reinterpret_cast<Il2CppString*>(
+        icall_string_format(format, reinterpret_cast<Il2CppObject*>(args))));
+}
+
+void icall_console_stream_write_line_fmt_array(Il2CppObject* self, Il2CppObject* format, Il2CppArray* args)
+{
+    icall_console_stream_write_fmt_array(self, format, args);
+    StreamWriteNewline(self);
 }
 
 }} // namespace il2cpp::runtime

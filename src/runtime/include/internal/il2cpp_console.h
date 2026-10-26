@@ -273,4 +273,57 @@ void icall_console_stream_write(Il2CppObject* self, Il2CppObject* text);
 // receiver) writes only the terminator (net48 TextWriter.WriteLine(null)).
 void icall_console_stream_write_line(Il2CppObject* self, Il2CppObject* text = nullptr);
 
+//------------------------------------------------------------------------------
+// Console STREAM value surface (net48 TextWriter.Write/WriteLine overloads on
+// Console.Out / Console.Error). Each arm renders with the SAME formatter the
+// matching M1 core icall uses (so the stream text and Console.Write agree
+// byte-for-byte) and writes to the stream object's target (stdout / stderr /
+// discard). The composite forms route through the String.Format kernel
+// (icall_string_format_*) and then write the expanded text.
+//
+//   bool    -> icall_bool_to_string
+//   char    -> icall_char_to_string
+//   int32   -> icall_int32_to_string
+//   uint32  -> icall_uint64_to_string (full range)
+//   int64   -> icall_int64_to_string
+//   uint64  -> icall_uint64_to_string
+//   double  -> icall_double_to_string (single lives in a double slot -- the
+//             M1 core's float deviation)
+//   decimal -> icall_decimal_to_string
+//   object  -> icall_object_to_string (boxed primitives print their value,
+//             strings print themselves, null prints NOTHING for Write and
+//             just the terminator for WriteLine -- net48 TextWriter semantics)
+//   char[]  -> the UTF-16 units in the active console output encoding
+//------------------------------------------------------------------------------
+void icall_console_stream_write_b(Il2CppObject* self, int32_t value);
+void icall_console_stream_write_line_b(Il2CppObject* self, int32_t value);
+void icall_console_stream_write_c(Il2CppObject* self, int32_t value);
+void icall_console_stream_write_line_c(Il2CppObject* self, int32_t value);
+void icall_console_stream_write_i(Il2CppObject* self, int32_t value);
+void icall_console_stream_write_line_i(Il2CppObject* self, int32_t value);
+void icall_console_stream_write_u32(Il2CppObject* self, uint32_t value);
+void icall_console_stream_write_line_u32(Il2CppObject* self, uint32_t value);
+void icall_console_stream_write_l(Il2CppObject* self, int64_t value);
+void icall_console_stream_write_line_l(Il2CppObject* self, int64_t value);
+void icall_console_stream_write_u64(Il2CppObject* self, uint64_t value);
+void icall_console_stream_write_line_u64(Il2CppObject* self, uint64_t value);
+void icall_console_stream_write_d(Il2CppObject* self, double value);
+void icall_console_stream_write_line_d(Il2CppObject* self, double value);
+void icall_console_stream_write_decimal(Il2CppObject* self, const Il2CppDecimal* value);
+void icall_console_stream_write_line_decimal(Il2CppObject* self, const Il2CppDecimal* value);
+void icall_console_stream_write_object(Il2CppObject* self, Il2CppObject* value);
+void icall_console_stream_write_line_object(Il2CppObject* self, Il2CppObject* value);
+void icall_console_stream_write_chars(Il2CppObject* self, Il2CppArray* chars);
+void icall_console_stream_write_line_chars(Il2CppObject* self, Il2CppArray* chars);
+void icall_console_stream_write_chars_range(Il2CppObject* self, Il2CppArray* chars, int32_t index, int32_t count);
+void icall_console_stream_write_line_chars_range(Il2CppObject* self, Il2CppArray* chars, int32_t index, int32_t count);
+void icall_console_stream_write_fmt1(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0);
+void icall_console_stream_write_line_fmt1(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0);
+void icall_console_stream_write_fmt2(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
+void icall_console_stream_write_line_fmt2(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1);
+void icall_console_stream_write_fmt3(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
+void icall_console_stream_write_line_fmt3(Il2CppObject* self, Il2CppObject* format, Il2CppObject* arg0, Il2CppObject* arg1, Il2CppObject* arg2);
+void icall_console_stream_write_fmt_array(Il2CppObject* self, Il2CppObject* format, Il2CppArray* args);
+void icall_console_stream_write_line_fmt_array(Il2CppObject* self, Il2CppObject* format, Il2CppArray* args);
+
 }} // namespace il2cpp::runtime

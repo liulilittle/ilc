@@ -2051,13 +2051,15 @@ var userRecvLike = receiverType ?? arg0Type;
                 // -- the ONLY TextWriter surface the Console domain owns.
                 // StringIO/StreamIO receivers keep the mappings above.
                 if (receiverType is "System.Console.OutStream" or "System.Console.ErrorStream")
-                    return TryMapConsoleStream(owner, name, ps, count, receiverType);
+                    return TryMapConsoleStream(owner, name, ps, count, receiverType,
+                        MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
                 // misc3 Console.In: the stdin TextReader object (get_In tracks
                 // it as "System.Console.InReader"). Read/Peek/ReadLine/
                 // ReadToEnd route to the stdin icalls; the receiver is the
                 // process-stdin singleton (the runtime ignores it).
                 if (receiverType == "System.Console.InReader")
-                    return TryMapConsoleStream(owner, name, ps, count, receiverType);
+                    return TryMapConsoleStream(owner, name, ps, count, receiverType,
+                        MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
                 if (owner is "System.IO.TextReader" or "System.IO.TextWriter" && receiverType == null)
                     return null; // base owner, first pass -- defer to the receiver-aware re-resolve
                 return TryMapStringIO(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);            case "System.IO.BinaryReader":

@@ -202,6 +202,62 @@ public class MethodMapConsoleTests
     }
 
     //--------------------------------------------------------------------------
+    // Console STREAM value surface (Console.Out / Console.Error TextWriter).
+    // The receiver-typed dispatch routes to the stream icalls; the value arms
+    // render with the matching M1 core formatter and write to the stream.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ConsoleStream_WriteInt_MapsToStreamWriteI()
+    {
+        var m = ResolveMemberWithReceiver(Synthesize("System.IO", "TextWriter", "Write", Sig(0x01, 0x08)),
+            "Write", "System.Console.OutStream");
+
+        Assert.Equal("il2cpp::runtime::icall_console_stream_write_i", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", "i" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_ConsoleStream_WriteLineDecimal_MapsToStreamDecimalIcall()
+    {
+        // void WriteLine(decimal): ret void, param VALUETYPE (0x11) + the
+        // TypeRef coded index (0x05). The PE carries System.Decimal as TypeRef
+        // row 1 (coded 0x05) and the TextWriter owner as row 2.
+        var m = ResolveMemberWithReceiver(SynthesizeWithDecimalRef("System.IO", "TextWriter", "WriteLine",
+            new byte[] { 0x00, 0x01, 0x01, 0x11, 0x05 }), "WriteLine", "System.Console.OutStream");
+
+        Assert.Equal("il2cpp::runtime::icall_console_stream_write_line_decimal", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.Equal(new[] { "", "dec" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_ConsoleStream_WriteLineFmt1_MapsToStreamFmt1Icall()
+    {
+        // void WriteLine(string format, object arg0): ret void, params string +
+        // object.
+        var m = ResolveMemberWithReceiver(Synthesize("System.IO", "TextWriter", "WriteLine", Sig(0x01, 0x0E, 0x1C)),
+            "WriteLine", "System.Console.OutStream");
+
+        Assert.Equal("il2cpp::runtime::icall_console_stream_write_line_fmt1", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(2, m.ParamCount);
+        Assert.Equal(new[] { "", "", "" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_ConsoleStream_WriteUlong_MapsToStreamWriteU64()
+    {
+        var m = ResolveMemberWithReceiver(Synthesize("System.IO", "TextWriter", "Write", Sig(0x01, 0x0B)),
+            "Write", "System.Console.OutStream");
+
+        Assert.Equal("il2cpp::runtime::icall_console_stream_write_u64", m.CppName);
+        Assert.Equal(new[] { "", "q" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as
     // MethodMapTests.Debug.cs)
     //--------------------------------------------------------------------------
@@ -212,6 +268,17 @@ public class MethodMapConsoleTests
         var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
         return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
             null, false, arg0Type);
+    }
+
+    // Receiver-aware resolution (the Console.Out/Error stream dispatch).
+    private static ResolvedMethod ResolveMemberWithReceiver(MemoryStream pe, string memberName,
+        string? receiverType)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+            receiverType, false, null);
     }
 
     // Signature blob: header 0x00 (DEFAULT, non-generic), param count, return
@@ -235,6 +302,21 @@ public class MethodMapConsoleTests
             new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
         var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
         mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
+        return Serialize(mdb);
+    }
+
+    // A variant carrying System.Decimal as TypeRef row 1 (coded index 0x05) so
+    // a VALUETYPE param blob can name decimal (the owner TypeRef is row 2).
+    private static MemoryStream SynthesizeWithDecimalRef(string ns, string typeName, string memberName, byte[] signature)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        _ = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var ownerRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        mdb.AddMemberReference(ownerRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
         return Serialize(mdb);
     }
 
