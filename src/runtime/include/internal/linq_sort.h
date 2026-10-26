@@ -206,6 +206,12 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject*
 Il2CppArray* il2cpp_linq_order_by_key_i8_d(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* keySel);
 
+// The DOUBLE-source key-selector entries: the elements are 8-byte double cells
+// and the key crosses in the F-stack slot (Func<double,double>). Same
+// cached-once / stable / fresh double[] result contract.
+Il2CppArray* il2cpp_linq_order_by_key_d(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_d(Il2CppArray* src, Il2CppObject* keySel);
+
 //------------------------------------------------------------------------------
 // p0linq4 (D4): Enumerable.ThenBy / ThenByDescending over an INT64 (long[] /
 // ulong[]) SOURCE -- the int64-source counterparts of il2cpp_linq_then_by_key_

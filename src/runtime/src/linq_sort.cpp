@@ -175,6 +175,18 @@ double InvokeKeyI4D(Il2CppDelegate* d, int32_t value)
         : reinterpret_cast<KeyI4DFn>(d->methodPtr)(value);
 }
 
+// Key-selector callback shapes for a DOUBLE value SOURCE element (the
+// Func<double,TKey> ABI): the element crosses in the F-stack slot.
+using KeyDSrcDFn = double (*)(double value);
+using KeyDSrcDThisFn = double (*)(Il2CppObject* self, double value);
+
+double InvokeKeyDSrcD(Il2CppDelegate* d, double value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyDSrcDThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyDSrcDFn>(d->methodPtr)(value);
+}
+
 // Per-binding dispatch. The target is re-read through the ROOTED delegate
 // slot (every key-selector entry roots the delegate) so a compaction between
 // calls (the selector may allocate) rewrites both the delegate and its target.
@@ -558,6 +570,54 @@ Il2CppArray* SortInt32KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool des
 {
     return SortInt32KeyCopyT<int32_t>(src, keySel, desc, InvokeKeyI4,
                                       CmpKeyValue<int32_t>);
+}
+
+//------------------------------------------------------------------------------
+// SortDoubleKeyCopy -- the DOUBLE-SOURCE counterpart of SortInt32KeyCopy (and
+// of the SortInt64KeyCopy template): build a new double array holding the
+// stable OrderBy of 'src' under the double KEY SELECTOR 'keySel' (each key
+// cached EXACTLY ONCE -- net48 EnumerableSorter). Same GC-safety two shields:
+// the element snapshot is taken before the first selector call, and the
+// delegate is rooted across the key phase.
+//------------------------------------------------------------------------------
+Il2CppArray* SortDoubleKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+
+    if (n > 0)
+    {
+        std::vector<double> elems(static_cast<size_t>(n));
+        std::memcpy(elems.data(), src->data,
+                    static_cast<size_t>(n) * sizeof(double));
+        std::vector<double> keys(static_cast<size_t>(n));
+        std::vector<int32_t> order(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            order[i] = i;
+        }
+        for (int32_t i = 0; i < n; ++i)
+        {
+            keys[i] = InvokeKeyDSrcD(keySel, elems[i]);
+        }
+        std::vector<int32_t> scratch(static_cast<size_t>(n));
+        MergeSortStable(order.data(), scratch.data(), 0, n,
+                        [&](int32_t a, int32_t b) -> int32_t {
+                            const int32_t c = CmpKeyValue<double>(keys[a], keys[b]);
+                            return desc ? -c : c;
+                        });
+        Il2CppArray* result = il2cpp_array_new_typed(sizeof(double), kElemKindD, n);
+        double* out = reinterpret_cast<double*>(result->data);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            out[i] = elems[order[i]];
+        }
+        return result;
+    }
+    return il2cpp_array_new_typed(sizeof(double), kElemKindD, 0);
 }
 
 //------------------------------------------------------------------------------
@@ -1160,6 +1220,27 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* 
     Il2CppDelegate* d = RequireKeySelector(keySel);
     return SortInt64KeyCopy<double>(s, d, true, InvokeKeyI8SrcD,
         CmpKeyValue<double>);
+}
+
+//------------------------------------------------------------------------------
+// The DOUBLE-SOURCE key-selector entries: the elements are 8-byte double
+// cells and the key crosses in the F-stack slot. Same cached-once / stable /
+// fresh double[] result contract.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_order_by_key_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDoubleKeyCopy(s, d, false);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDoubleKeyCopy(s, d, true);
 }
 
 //------------------------------------------------------------------------------

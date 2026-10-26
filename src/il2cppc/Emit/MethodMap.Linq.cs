@@ -2543,10 +2543,29 @@ public static partial class MethodRefResolver
                         2, true, true, false, L2,
                         returnTypeName: "System.Int32[]", appendLiterals: new[] { K });
                 }
+                if (K == "4")
+                {
+                    // A DOUBLE-element list: the snapshot is a double array and
+                    // the key crosses in the F-stack slot
+                    // (il2cpp_linq_list_order_by_key[_desc]_d). A non-double key
+                    // over a double list has no list kernel.
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    if (genArgs[1] is not (0x0C or 0x0D))
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
+                            "over a List<double> not wired: the list double key-selector surface covers a " +
+                            "double/float key only (il2cpp_linq_list_order_by_key[_desc]_d)");
+                    return I(desc
+                            ? "il2cpp::il2cpp_linq_list_order_by_key_desc_d"
+                            : "il2cpp::il2cpp_linq_list_order_by_key_d",
+                        2, true, true, false, L2,
+                        returnTypeName: "System.Double[]", appendLiterals: new[] { K });
+                }
                 if (K != "1")
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a List of the element family kind {K} is not wired " +
-                        "(the list key-selector surface covers int32 and reference elements)");
+                        "(the list key-selector surface covers int32, double and reference elements)");
                 if (genArgs is not { Length: >= 2 })
                     return null;
                 if (genArgs[1] == 0x0E)

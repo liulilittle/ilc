@@ -1206,6 +1206,50 @@ public class MethodMapTestsLinq
         Assert.Equal("il2cpp::il2cpp_linq_list_where", resolved.CppName);
     }
 
+    //==========================================================================
+    // The DOUBLE-element List key-selector entries (net48
+    // OrderBy<TSource,TKey>(List<TSource>, Func<TSource,TKey>) with
+    // TSource=TKey=double). Before this change a List<double>.OrderBy LOUD-
+    // rejected ("the list key-selector surface covers int32 and reference
+    // elements").
+    //==========================================================================
+    [Theory]
+    [InlineData("OrderBy", "il2cpp::il2cpp_linq_list_order_by_key_d")]
+    [InlineData("OrderByDescending", "il2cpp::il2cpp_linq_list_order_by_key_desc_d")]
+    public void Resolve_ListDouble_OrderBy_MapsToListDoubleKey(string name, string icall)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0D, 0x0D }),
+            receiverType: "System.Collections.Generic.List`1_double");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Double[]", resolved.ReturnTypeName);
+    }
+
+    // A List<double>.OrderBy with a non-double key (e.g. an int32 projection)
+    // stays LOUD -- the list double key-selector surface covers a double/float
+    // key only.
+    [Fact]
+    public void Resolve_ListDouble_OrderByIntKey_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpecWithReceiver(SynthesizeGeneric("OrderBy",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x08 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0D, 0x08 }),
+            receiverType: "System.Collections.Generic.List`1_double"));
+
+        Assert.Contains("List<double>", ex.Message);
+        Assert.Contains("double/float key only", ex.Message);
+    }
+
     // B5 D-4: the already-implemented all_ref kernel (linq.h / linq.cpp) was
     // never wired -- All over a reference source must resolve to it.
     [Fact]
