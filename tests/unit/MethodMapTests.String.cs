@@ -734,6 +734,45 @@ public class MethodMapTestsString
     }
 
     //--------------------------------------------------------------------------
+    // LOUD-whitelist self-identification (2026-10-26). The net48 analyzable
+    // sweep (see MethodMap.String.cs) wired every overload that net48 defines;
+    // the surviving catch-alls are the shapes net48 does NOT define. Each must
+    // announce its whitelist category + the net48 Reference Source line it was
+    // checked against, so a residual gap can never be silent.
+    //--------------------------------------------------------------------------
+    public static IEnumerable<object[]> LoudWhitelistShapes() => new[]
+    {
+        new object[] { ".ctor",          new byte[] { 0x0E } },                                        // 1-arg string (no such ctor)
+        new object[] { "IndexOf",        new byte[] { 0x08 } },                                        // int value (net48: char/string)
+        new object[] { "IndexOfAny",     new byte[] { 0x0E } },                                        // 1 arg, string (net48: char[])
+        new object[] { "LastIndexOfAny", new byte[] { 0x0E } },
+        new object[] { "Replace",        new byte[] { 0x0E, 0x0E, 0x03 } },                            // 3 args
+        new object[] { "ToUpper",        new byte[] { 0x08, 0x08 } },                                  // 2 args
+        new object[] { "ToLower",        new byte[] { 0x08, 0x08 } },
+        new object[] { "PadLeft",        new byte[] { 0x08, 0x08, 0x08 } },                            // 3 args
+        new object[] { "Contains",       new byte[] { 0x0E, 0x0E } },                                  // 2 args
+        new object[] { "GetHashCode",    new byte[] { 0x08, 0x08 } },
+        new object[] { "Normalize",      new byte[] { 0x08, 0x08 } },
+        new object[] { "IsNormalized",   new byte[] { 0x08, 0x08 } },
+        new object[] { "Compare",        new byte[] { 0x0E, 0x08, 0x0E, 0x08, 0x08, 0x08, 0x08 } },    // 7 args, bad tail
+        new object[] { "Equals",         new byte[] { 0x03, 0x03 } },                                  // 2-arg unknown
+        new object[] { "Format",         new byte[] { 0x0E, 0x1C, 0x1C, 0x1C, 0x1C } },                // 5 args
+        new object[] { "Concat",         new byte[] { 0x1C, 0x1C, 0x1C, 0x1C, 0x1C } },                // 5 args
+        new object[] { "Join",           new byte[] { 0x0E, 0x0E } },                                  // 2 args, no array
+    };
+
+    [Theory]
+    [MemberData(nameof(LoudWhitelistShapes))]
+    public void Resolve_CatchAlls_AreSelfIdentifyingLoudWhitelists(string name, byte[] ps)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System", "String", name, Sig(0x0E, ps)), name));
+
+        Assert.Contains("LOUD whitelist (", ex.Message);
+        Assert.Contains("net48 RefSrc mscorlib/system/string.cs:", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)
     {
         using var reader = new PEReader(pe);

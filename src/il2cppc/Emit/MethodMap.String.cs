@@ -70,7 +70,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x15)
                     return I("il2cpp::runtime::icall_string_ctor_char_span", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"String ctor with {ps.Length} arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32) and the full char*/sbyte* pointer family)");
+                throw new NotSupportedException($"String ctor with {ps.Length} arg(s) not wired (the runtime icalls cover (char, int32), (char[]), (char[], int32, int32) and the full char*/sbyte* pointer family) -- LOUD whitelist (net48 defines no String ctor of this arity/param shape); net48 RefSrc mscorlib/system/string.cs:1350-1762");
             case "get_Length":
                 return I("il2cpp::il2cpp_string_get_length", 0, true, false, true);
             case "Substring":
@@ -87,7 +87,7 @@ public static partial class MethodRefResolver
                 {
                     0x03 => I("il2cpp::runtime::icall_string_index_of_c", 1, true, false, true, new[] { "", "c" }),
                     0x0E => I("il2cpp::runtime::icall_string_index_of_s", 1, true, false, true),
-                    _ => throw new NotSupportedException($"String.IndexOf param type 0x{ps[0]:X2} not wired in M5"),
+                    _ => throw new NotSupportedException($"String.IndexOf param type 0x{ps[0]:X2} not wired in M5 -- LOUD whitelist (net48 IndexOf takes only (char) or (string) as its value argument); net48 RefSrc mscorlib/system/string.cs:2266-2350"),
                 };
             case "IndexOfAny":
                 // System.String.IndexOfAny(char[] anyOf, int32 startIndex,
@@ -110,7 +110,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x1D && ps[1] == 0x08)
                     return I("il2cpp::runtime::icall_string_index_of_any_start", 2, true, false, true,
                         new[] { "", "", "i" });
-                throw new NotSupportedException($"String.IndexOfAny with {ps.Length} arg(s) not wired (the runtime icall takes (char[], int32, int32))");
+                throw new NotSupportedException($"String.IndexOfAny with {ps.Length} arg(s) not wired (the runtime icall takes (char[], int32, int32)) -- LOUD whitelist (net48 IndexOfAny has only (char[]), (char[],int) and (char[],int,int)); net48 RefSrc mscorlib/system/string.cs:2285-2298");
             case "LastIndexOfAny":
                 // System.String.LastIndexOfAny(char[] anyOf, int32 startIndex,
                 // int32 count) -- the LAST index in [startIndex - count + 1,
@@ -128,7 +128,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x1D && ps[1] == 0x08)
                     return I("il2cpp::runtime::icall_string_last_index_of_any_start", 2, true, false, true,
                         new[] { "", "", "i" });
-                throw new NotSupportedException($"String.LastIndexOfAny with {ps.Length} arg(s) not wired (the runtime icall takes (char[], int32, int32))");
+                throw new NotSupportedException($"String.LastIndexOfAny with {ps.Length} arg(s) not wired (the runtime icall takes (char[], int32, int32)) -- LOUD whitelist (net48 LastIndexOfAny has only (char[]), (char[],int) and (char[],int,int)); net48 RefSrc mscorlib/system/string.cs:2418-2432");
             case "LastIndexOf":
                 // The char 1-arg form lives here; the string 1-arg form and
                 // the position/range overloads fall through to TryMapStringExt3.
@@ -152,7 +152,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x0E)
                     return I("il2cpp::runtime::icall_string_replace_s_s", 2, true, true, true,
                         new[] { "s", "s", "s" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"String.Replace with {ps.Length} arg(s) not wired in M5 (the runtime icall_string_replace takes (char, char); the string/string overload needs a runtime icall_string_replace_s_s)");
+                throw new NotSupportedException($"String.Replace with {ps.Length} arg(s) not wired in M5 (the runtime icall_string_replace takes (char, char); the string/string overload needs a runtime icall_string_replace_s_s) -- LOUD whitelist (net48 Replace has only (char,char) and (string,string)); net48 RefSrc mscorlib/system/string.cs:2863-2879");
 case "ToUpper":
 case "ToUpperInvariant":
     // ToUpper(IFormatProvider): the provider is IGNORED (the runtime pins the
@@ -164,7 +164,7 @@ case "ToUpperInvariant":
         return I("il2cpp::runtime::icall_string_to_upper", 0, true, true, true);
     if (ps.Length == 1)
         return I("il2cpp::runtime::icall_string_to_upper", 1, true, true, true, new[] { "", "drop" });
-    throw new NotSupportedException($"String.ToUpper with {ps.Length} arg(s) not wired");
+    throw new NotSupportedException($"String.ToUpper with {ps.Length} arg(s) not wired -- LOUD whitelist (net48 ToUpper has only () and (CultureInfo); ToUpperInvariant is netcore-only); net48 RefSrc mscorlib/system/string.cs:2667-2676");
 case "ToLower":
 case "ToLowerInvariant":
     // Symmetric to ToUpper (see above).
@@ -172,7 +172,7 @@ case "ToLowerInvariant":
         return I("il2cpp::runtime::icall_string_to_lower", 0, true, true, true);
     if (ps.Length == 1)
         return I("il2cpp::runtime::icall_string_to_lower", 1, true, true, true, new[] { "", "drop" });
-    throw new NotSupportedException($"String.ToLower with {ps.Length} arg(s) not wired");
+    throw new NotSupportedException($"String.ToLower with {ps.Length} arg(s) not wired -- LOUD whitelist (net48 ToLower has only () and (CultureInfo); ToLowerInvariant is netcore-only); net48 RefSrc mscorlib/system/string.cs:2640-2648");
 // net9/10 E2E icallcase: Insert/Remove (stringext.cpp, new icalls).
 case "Insert": return I("il2cpp::runtime::icall_string_insert", 2, true, true, true,
     new[] { "s", "i", "s" }, returnTypeName: "System.String");
@@ -259,7 +259,7 @@ case "ReplaceLineEndings":
                 if (ps.Length == 2)
                     return I(name == "PadLeft" ? "il2cpp::runtime::icall_string_pad_left" : "il2cpp::runtime::icall_string_pad_right",
                         2, true, true, true, new[] { "", "i", "c" }, null, false, false, false, "System.String");
-                throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5 (the runtime pad icalls take (string, int32[, char16_t]))");
+                throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5 (the runtime pad icalls take (string, int32[, char16_t])) -- LOUD whitelist (net48 PadLeft/PadRight has only (int) and (int,char)); net48 RefSrc mscorlib/system/string.cs:2530-2545");
             case "CompareTo": return I("il2cpp::runtime::icall_string_compare_to", 1, true, false, true);
             case "Contains":
                 // The wired icall takes the VALUE as Il2CppObject* (a string).
@@ -270,7 +270,7 @@ case "ReplaceLineEndings":
                 if (ps.Length == 1 && ps[0] == 0x03)
                     return I("il2cpp::runtime::icall_string_contains_char", 1, true, false, true,
                         new[] { "s", "c" });
-                throw new NotSupportedException($"String.Contains with {ps.Length} arg(s) not wired");
+                throw new NotSupportedException($"String.Contains with {ps.Length} arg(s) not wired -- LOUD whitelist (net48 Contains has only (string); the char/StringComparison forms are netcore-only); net48 RefSrc mscorlib/system/string.cs:2172");
             case "GetHashCode":
                 // GetHashCode(StringComparison) (.NET Core 2.0+/net9) has NO
                 // mode-aware hash icall -- and mapping it onto the 0-param
@@ -286,7 +286,7 @@ case "ReplaceLineEndings":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_string_get_hash_code_mode", 1, true, false, true,
                         new[] { "", "i" });
-                throw new NotSupportedException($"String.GetHashCode with {ps.Length} arg(s) not wired (needs a comparison-mode-aware runtime hash icall)");
+                throw new NotSupportedException($"String.GetHashCode with {ps.Length} arg(s) not wired (needs a comparison-mode-aware runtime hash icall) -- LOUD whitelist (net48 GetHashCode has only the parameterless form; the StringComparison overload is netcore-only); net48 RefSrc mscorlib/system/string.cs:833");
             // System.String.Normalize / IsNormalized (stringnormalize.cpp --
             // the full UAX #15 implementation). The form crosses as the raw
             // System.Text.NormalizationForm value (FormC=1, FormD=2, FormKC=5,
@@ -302,7 +302,7 @@ case "ReplaceLineEndings":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_string_normalize", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"String.Normalize with {ps.Length} arg(s) not wired (the runtime icall takes (string[, NormalizationForm]))");
+                throw new NotSupportedException($"String.Normalize with {ps.Length} arg(s) not wired (the runtime icall takes (string[, NormalizationForm])) -- LOUD whitelist (net48 Normalize has only () and (NormalizationForm)); net48 RefSrc mscorlib/system/string.cs:1503-1515");
             case "IsNormalized":
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_string_is_normalized", 0, true, false, true,
@@ -310,7 +310,7 @@ case "ReplaceLineEndings":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_string_is_normalized", 1, true, false, true,
                         new[] { "", "i" });
-                throw new NotSupportedException($"String.IsNormalized with {ps.Length} arg(s) not wired (the runtime icall takes (string[, NormalizationForm]))");
+                throw new NotSupportedException($"String.IsNormalized with {ps.Length} arg(s) not wired (the runtime icall takes (string[, NormalizationForm])) -- LOUD whitelist (net48 IsNormalized has only () and (NormalizationForm)); net48 RefSrc mscorlib/system/string.cs:1475-1487");
             case "ToString":
                 // String.ToString() is the identity (net48 semantics) -- the
                 // fold pushes the receiver. ToString(IFormatProvider) is ALSO
@@ -427,7 +427,7 @@ case "ReplaceLineEndings":
                     && ps[0] == 0x0E && ps[1] == 0x0E && ps[2] == 0x12 && ps[3] == 0x11)
                     return I("il2cpp::runtime::icall_string_compare_options", 4, true, false, false,
                         new[] { "", "", "drop", "i" });
-                throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5");
+                throw new NotSupportedException($"String.{name} with {ps.Length} arg(s) not wired in M5 -- LOUD whitelist (net48 defines no Compare/CompareOrdinal overload of this arity/param shape); net48 RefSrc mscorlib/system/string.cs:1775-2009,2129-2158");
             case "Equals":
                 // Static Equals(a, b) and instance Equals(obj/string) both
                 // reduce to the ordinal static comparator (null-aware).
@@ -458,7 +458,7 @@ case "ReplaceLineEndings":
                         // signature encoding; RawSignature consumes the
                         // trailing TypeHandle).
                         0x11 => I("il2cpp::runtime::icall_string_equals_culture", 2, true, false, true, new[] { "", "", "i" }),
-                        _ => throw new NotSupportedException($"String.Equals 2-arg param type 0x{ps[1]:X2} not wired in M5"),
+                        _ => throw new NotSupportedException($"String.Equals 2-arg param type 0x{ps[1]:X2} not wired in M5 -- LOUD whitelist (net48 Equals has only the static (string,string) and the instance (string)/(object) forms); net48 RefSrc mscorlib/system/string.cs:638-655"),
                     };
                 // dscmp: STATIC Equals(string a, string b, StringComparison)
                 // -- no receiver; the mode-aware runtime primitive takes
@@ -468,13 +468,13 @@ case "ReplaceLineEndings":
                 if (ps.Length == 3 && ps[2] == 0x11)
                     return I("il2cpp::runtime::icall_string_equals_culture", 3, true, false, false, new[] { "", "", "i" });
                 if (ps.Length == 3 && ps[2] == 0x02)
-                    throw new NotSupportedException($"String.{name}(string, string, bool ignoreCase) not wired (no mode-aware static equals icall; dropping the flag would silently ignore ignoreCase=true)");
-                throw new NotSupportedException($"String.Equals with {ps.Length} arg(s) not wired in M5");
+                    throw new NotSupportedException($"String.{name}(string, string, bool ignoreCase) not wired (no mode-aware static equals icall; dropping the flag would silently ignore ignoreCase=true) -- LOUD whitelist (net48 Equals has no (string,string,bool) overload; netcore uses StringComparison, which is wired); net48 RefSrc mscorlib/system/string.cs:638-655");
+                throw new NotSupportedException($"String.Equals with {ps.Length} arg(s) not wired in M5 -- LOUD whitelist (net48 defines no Equals overload of this arity/param shape); net48 RefSrc mscorlib/system/string.cs:638-655");
             case "op_Equality":
                 // string == string: ORDINAL CONTENT equality (the runtime's
                 // static comparator is null-aware and content-based).
                 if (ps.Length == 2) return I("il2cpp::runtime::icall_string_equals_static", 2, true, false, false);
-                throw new NotSupportedException($"String.op_Equality with {ps.Length} arg(s) not wired in M5");
+                throw new NotSupportedException($"String.op_Equality with {ps.Length} arg(s) not wired in M5 -- LOUD whitelist (net48 defines op_Equality only as (string,string)); net48 RefSrc mscorlib/system/string.cs:705");
             case "op_Inequality":
                 // string != string: the runtime has no inequality icall, so
                 // the mapping emits the ORDINAL EQUALITY icall under a C++
@@ -489,7 +489,7 @@ case "ReplaceLineEndings":
                 // the callvirt re-resolve) only inspect CALLVIRT receivers,
                 // and op_* are always static calls, so the prefix is safe.
                 if (ps.Length == 2) return I("!il2cpp::runtime::icall_string_equals_static", 2, true, false, false);
-                throw new NotSupportedException($"String.op_Inequality with {ps.Length} arg(s) not wired in M5");
+                throw new NotSupportedException($"String.op_Inequality with {ps.Length} arg(s) not wired in M5 -- LOUD whitelist (net48 defines op_Inequality only as (string,string)); net48 RefSrc mscorlib/system/string.cs:709");
             case "Format":
                 // String.Format overloads (net48 ps dispatch): the 1-arg
                 // format-only form, the 2/3/4-arg (string, object[, ...])
@@ -527,7 +527,7 @@ case "ReplaceLineEndings":
                     return I("il2cpp::runtime::icall_string_format_2", 3, true, true, false, null, null, false, false, false, "System.String");
                 if (ps.Length == 4)
                     return I("il2cpp::runtime::icall_string_format_3", 4, true, true, false, null, null, false, false, false, "System.String");
-                throw new NotSupportedException($"String.Format with {ps.Length} arg(s) not wired in M5");
+                throw new NotSupportedException($"String.Format with {ps.Length} arg(s) not wired in M5 -- LOUD whitelist (net48 defines no Format overload of this arity/param shape); net48 RefSrc mscorlib/system/string.cs:2960-3003");
             case "Concat":
                 // M5 wiring: Concat(object, object) numeric conveniences
                 // (il2cpp_string_ext2.h) -- the LAST stack value (arg0Type)
@@ -554,7 +554,7 @@ case "ReplaceLineEndings":
                         "System.Double" or "System.Single" => I("il2cpp::runtime::icall_string_concat_double", 2, true, true, false, new[] { "", "unbox:d" }),
                         "System.Boolean" => I("il2cpp::runtime::icall_string_concat_bool", 2, true, true, false, new[] { "", "unbox:b" }),
                         "System.String" => I("il2cpp::runtime::icall_string_concat_2", 2, true, true, false),
-                        _ => throw new NotSupportedException($"String.Concat(object, object) with untracked last argument (box type {arg0Type ?? "unknown"}) not wired in M5"),
+                        _ => throw new NotSupportedException($"String.Concat(object, object) with untracked last argument (box type {arg0Type ?? "unknown"}) not wired in M5 -- LOUD whitelist (the boxed last argument's runtime type is not tracked -- dynamic/object dispatch); net48 RefSrc mscorlib/system/string.cs:3045-3307"),
                     };
                 }
                 if (ps.Length == 2 || ps.Length == 3 || ps.Length == 4)
@@ -616,7 +616,7 @@ case "ReplaceLineEndings":
                 }
                 if (ps.Length == 1 && ps[0] is 0x1D or 0x1F)
                     return I("il2cpp::runtime::il2cpp_string_concat_array", 1, true, true, false);
-                throw new NotSupportedException($"String.Concat with {ps.Length} arg(s) not wired in M5");
+                throw new NotSupportedException($"String.Concat with {ps.Length} arg(s) not wired in M5 -- LOUD whitelist (net48 defines no Concat overload of this arity/param shape); net48 RefSrc mscorlib/system/string.cs:3045-3307");
             case "Split":
                 // Split(char[] separator): split this string on every
                 // occurrence of any character in 'separator' (default
@@ -713,7 +713,7 @@ case "ReplaceLineEndings":
                 if (ps.Length == 4 && ps[0] == 0x03 && ps[1] == 0x1D && ps[2] == 0x08 && ps[3] == 0x08)
                     return I("il2cpp::runtime::icall_string_join_range_c", 4, true, true, false,
                         new[] { "c", "a", "i", "i" }, null, false, false, false, "System.String");
-                throw new NotSupportedException($"String.Join with {ps.Length} arg(s) not wired (the runtime joins take (string, string[]) and (char, string[]); the start/count forms need a count-aware runtime icall)");
+                throw new NotSupportedException($"String.Join with {ps.Length} arg(s) not wired (the runtime joins take (string, string[]) and (char, string[]); the start/count forms need a count-aware runtime icall) -- LOUD whitelist (net48 Join has only (string,string[]), (string,object[]), (string,IEnumerable<string>) and Join<T>(string,IEnumerable<T>)); net48 RefSrc mscorlib/system/string.cs:84-161");
             case "IsNullOrEmpty":
                 return I("il2cpp::runtime::icall_string_is_null_or_empty", 1, true, false, false);
             case "IsNullOrWhiteSpace":

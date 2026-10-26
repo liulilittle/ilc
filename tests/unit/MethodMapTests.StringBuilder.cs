@@ -354,6 +354,36 @@ public class MethodMapStringBuilderTests
         Assert.Equal(new[] { "", "" }, m.ParamTypeNames);
     }
 
+    //--------------------------------------------------------------------------
+    // LOUD-whitelist self-identification (2026-10-26). Every net48 StringBuilder
+    // overload is wired (see MethodMap.StringBuilder.cs); the surviving catch-alls
+    // are shapes net48 does not define. Each must announce its whitelist
+    // category + the net48 Reference Source line it was checked against.
+    //--------------------------------------------------------------------------
+    public static IEnumerable<object[]> LoudWhitelistShapes() => new[]
+    {
+        new object[] { ".ctor",        new byte[] { 0x08, 0x08, 0x08 } },                  // 3 args (no such ctor)
+        new object[] { "Append",       new byte[] { 0x1C, 0x1C, 0x1C, 0x1C } },            // 4 args
+        new object[] { "Insert",       new byte[] { 0x08, 0x1C, 0x1C, 0x1C, 0x1C } },      // 5 args
+        new object[] { "AppendLine",   new byte[] { 0x0E, 0x0E } },                        // 2 args
+        new object[] { "AppendFormat", new byte[] { 0x0E } },                              // 1 arg
+        new object[] { "Replace",      new byte[] { 0x0E, 0x0E, 0x0E } },                  // 3 args
+        new object[] { "CopyTo",       new byte[] { 0x08, 0x08 } },                        // 2 args (net48: 4)
+        new object[] { "EnsureCapacity", new byte[] { 0x08, 0x08 } },                      // 2 args
+        new object[] { "Equals",       new byte[] { 0x1C, 0x1C } },                        // 2 args
+    };
+
+    [Theory]
+    [MemberData(nameof(LoudWhitelistShapes))]
+    public void Resolve_CatchAlls_AreSelfIdentifyingLoudWhitelists(string name, byte[] ps)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Text", "StringBuilder", name, Sig(0x01, ps)), name));
+
+        Assert.Contains("LOUD whitelist (", ex.Message);
+        Assert.Contains("net48 RefSrc mscorlib/system/text/stringbuilder.cs:", ex.Message);
+    }
+
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)
     {
         using var reader = new PEReader(pe);

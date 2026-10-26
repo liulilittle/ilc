@@ -467,6 +467,44 @@ public class MethodMapStringIOTests
     }
 
     //--------------------------------------------------------------------------
+    // LOUD-whitelist self-identification (2026-10-26). Every net48
+    // StringReader/StringWriter member is wired (see MethodMap.StringIO.cs);
+    // the surviving catch-alls are shapes net48 does not define. Each must
+    // announce its whitelist category + the net48 Reference Source line it was
+    // checked against.
+    //--------------------------------------------------------------------------
+    public static IEnumerable<object[]> LoudWhitelistShapes() => new[]
+    {
+        new object[] { "Read",      new byte[] { 0x08 } },                     // StringReader.Read(int) -- no such overload
+        new object[] { "ReadBlock", new byte[] { 0x08 } },                     // StringReader.ReadBlock(int) -- no such overload
+        new object[] { "Write",     new byte[] { 0x0E, 0x1C, 0x1C, 0x1C, 0x1C } }, // 5 args
+        new object[] { "WriteLine", new byte[] { 0x0E, 0x1C, 0x1C, 0x1C, 0x1C } }, // 5 args
+        new object[] { "Dispose",   new byte[] { 0x02, 0x02 } },               // 2 args
+    };
+
+    [Theory]
+    [MemberData(nameof(LoudWhitelistShapes))]
+    public void Resolve_CatchAlls_AreSelfIdentifyingLoudWhitelists(string name, byte[] ps)
+    {
+        var owner = name == "Read" || name == "ReadBlock" ? "StringReader" : "StringWriter";
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.IO", owner, name, Sig(0x01, ps)), name));
+
+        Assert.Contains("LOUD whitelist (", ex.Message);
+        Assert.Contains("net48 RefSrc mscorlib/system/io/", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_DefaultMember_IsSelfIdentifyingLoudWhitelist()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.IO", "StringReader", "GetHashCode", Sig(0x08)), "GetHashCode"));
+
+        Assert.Contains("LOUD whitelist (", ex.Message);
+        Assert.Contains("net48 RefSrc mscorlib/system/io/", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as
     // MethodMapTests.VersionUri.cs)
     //--------------------------------------------------------------------------

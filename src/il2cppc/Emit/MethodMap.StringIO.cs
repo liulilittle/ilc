@@ -66,7 +66,7 @@ public static partial class MethodRefResolver
                         new[] { "", "a", "i", "i" });
                 if (reader)
                     throw new NotSupportedException(
-                        "StringReader.Read with an unsupported arity not wired");
+                        "StringReader.Read with an unsupported arity not wired -- LOUD whitelist (net48 StringReader.Read has only () and (char[],int,int)); net48 RefSrc mscorlib/system/io/stringreader.cs:73,85");
                 return null;
             // ReadBlock(char[], int, int): the same buffer shape as Read, but
             // the runtime loops until the window is full or EOF (net48).
@@ -76,7 +76,7 @@ public static partial class MethodRefResolver
                         new[] { "", "a", "i", "i" });
                 if (reader)
                     throw new NotSupportedException(
-                        "StringReader.ReadBlock with an unsupported arity not wired");
+                        "StringReader.ReadBlock with an unsupported arity not wired -- LOUD whitelist (net48 TextReader.ReadBlock has only (char[],int,int)); net48 RefSrc mscorlib/system/io/textreader.cs:159");
                 return null;
             case "Peek":
                 if (reader && count == 0)
@@ -133,7 +133,7 @@ public static partial class MethodRefResolver
                 if (count == 4 && ps[0] == 0x0E && ps[1] == 0x1C && ps[2] == 0x1C && ps[3] == 0x1C)
                     return I("il2cpp::runtime::icall_stringwriter_write_format_3", 4, false, false, true);
                 throw new NotSupportedException(
-                    "StringWriter.Write with an unsupported arity/type not wired");
+                    "StringWriter.Write with an unsupported arity/type not wired -- LOUD whitelist (net48 TextWriter.Write families are bool/char/char[]/decimal/double/short/int/long/float/sbyte/string/uint/ulong/ushort/object plus the (char[],int,int) and composite-format forms); net48 RefSrc mscorlib/system/io/textwriter.cs:193-350");
             case "WriteLine":
                 if (!writer) return null;
                 if (count == 0)
@@ -174,7 +174,7 @@ public static partial class MethodRefResolver
                 if (count == 4 && ps[0] == 0x0E && ps[1] == 0x1C && ps[2] == 0x1C && ps[3] == 0x1C)
                     return I("il2cpp::runtime::icall_stringwriter_write_line_format_3", 4, false, false, true);
                 throw new NotSupportedException(
-                    "StringWriter.WriteLine with an unsupported arity/type not wired");
+                    "StringWriter.WriteLine with an unsupported arity/type not wired -- LOUD whitelist (net48 TextWriter.WriteLine families are the Write value families plus () and the composite-format forms); net48 RefSrc mscorlib/system/io/textwriter.cs:360-532");
             case "ToString":
                 if (owner == "System.IO.StringWriter" && count == 0)
                     return I("il2cpp::runtime::icall_stringwriter_to_string", 0, true, true, true);
@@ -197,7 +197,7 @@ public static partial class MethodRefResolver
                 if (count == 1) return I(owner == "System.IO.StringReader" || receiverType == "System.IO.StringReader"
                     ? "il2cpp::runtime::icall_stringreader_close"
                     : "il2cpp::runtime::icall_stringwriter_close", 1, false, false, true, new[] { "drop" });
-                throw new NotSupportedException("Dispose with an unsupported arity not wired");
+                throw new NotSupportedException("Dispose with an unsupported arity not wired -- LOUD whitelist (net48 TextReader/TextWriter.Dispose has only () and (bool)); net48 RefSrc mscorlib/system/io/textreader.cs:76");
             // StringWriter.GetStringBuilder(): the backing builder instance
             // (the net48 identity contract).
             case "GetStringBuilder":
@@ -303,7 +303,7 @@ public static partial class MethodRefResolver
                     "member not wired: the object icalls cover " +
                     "ctor/Read/ReadBlock/Peek/ReadLine/ReadToEnd/Write/WriteLine/ToString/" +
                     "GetStringBuilder/Encoding/FormatProvider/NewLine/Flush/Close only " +
-                    "(see stringrw.h)");
+                    "(see stringrw.h) -- LOUD whitelist (the member is not part of the net48 StringReader/StringWriter object-icall surface); net48 RefSrc mscorlib/system/io/stringreader.cs:46-178, mscorlib/system/io/stringwriter.cs:65-198");
         }
     }
 
@@ -319,7 +319,7 @@ public static partial class MethodRefResolver
         {
             if (count == 1 && ps[0] == 0x0E)
                 return I("il2cpp::runtime::icall_stringreader_ctor", 1, false, false, true);
-            throw new NotSupportedException($"StringReader ctor with {count} param(s) not wired (expected exactly (string))");
+            throw new NotSupportedException($"StringReader ctor with {count} param(s) not wired (expected exactly (string)) -- LOUD whitelist (net48 StringReader has only the (string) ctor); net48 RefSrc mscorlib/system/io/stringreader.cs:36");
         }
         if (owner == "System.IO.StringWriter")
         {
@@ -340,18 +340,18 @@ public static partial class MethodRefResolver
                 // signature is genuinely ambiguous and stays LOUD.
                 if (paramTypes == null && arg0Type == null)
                     throw new NotSupportedException(
-                        "StringWriter ctor class argument is ambiguous (StringBuilder vs IFormatProvider) without a declared/tracked type");
+                        "StringWriter ctor class argument is ambiguous (StringBuilder vs IFormatProvider) without a declared/tracked type -- LOUD whitelist (the declared parameter type is unavailable, so StringBuilder vs IFormatProvider cannot be distinguished); net48 RefSrc mscorlib/system/io/stringwriter.cs:48,54,57");
                 return I("il2cpp::runtime::icall_stringwriter_ctor_provider", 1, false, false, true);
             }
             if (count == 2 && ps[0] == 0x12 && ps[1] == 0x12)
             {
                 if (!builderArg)
                     throw new NotSupportedException(
-                        "StringWriter(StringBuilder, IFormatProvider) requires a tracked StringBuilder first argument");
+                        "StringWriter(StringBuilder, IFormatProvider) requires a tracked StringBuilder first argument -- LOUD whitelist (the StringBuilder first argument's tracked type is unavailable); net48 RefSrc mscorlib/system/io/stringwriter.cs:57");
                 return I("il2cpp::runtime::icall_stringwriter_ctor_sb_provider", 2, false, false, true);
             }
             throw new NotSupportedException(
-                $"StringWriter ctor with {count} param(s) not wired (expected (), (IFormatProvider), (StringBuilder) or (StringBuilder, IFormatProvider))");
+                $"StringWriter ctor with {count} param(s) not wired (expected (), (IFormatProvider), (StringBuilder) or (StringBuilder, IFormatProvider)) -- LOUD whitelist (net48 StringWriter ctors are only (), (IFormatProvider), (StringBuilder) and (StringBuilder,IFormatProvider)); net48 RefSrc mscorlib/system/io/stringwriter.cs:43-57");
         }
         return null;
     }

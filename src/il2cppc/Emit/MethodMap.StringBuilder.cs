@@ -28,7 +28,7 @@ public static partial class MethodRefResolver
                 // would pop one arg and desync the stack).
                 if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
                     return I("il2cpp::runtime::icall_stringbuilder_ctor_capacity_max", 2, false, false, true, new[] { "", "i", "i" });
-                throw new NotSupportedException($"StringBuilder ctor param type 0x{ps[0]:X2} not wired in M5");
+                throw new NotSupportedException($"StringBuilder ctor param type 0x{ps[0]:X2} not wired in M5 -- LOUD whitelist (net48 StringBuilder ctors are only (), (int), (int,int), (string), (string,int) and (string,int,int,int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:86-157");
             case "Append":
                 // SB-REST: the range overloads are 3-param methods. The old
                 // ps[0]-only dispatch bound them to the 1-arg Append icall
@@ -43,7 +43,7 @@ public static partial class MethodRefResolver
                     if (ps[0] == 0x1D && ps[1] == 0x08 && ps[2] == 0x08)
                         return I("il2cpp::runtime::icall_stringbuilder_append_c_array_range", 3, true, true, true,
                             new[] { "", "a", "i", "i" }, null, false, false, false, "System.Text.StringBuilder");
-                    throw new NotSupportedException($"StringBuilder.Append 3-arg signature not wired in M5");
+                    throw new NotSupportedException($"StringBuilder.Append 3-arg signature not wired in M5 -- LOUD whitelist (net48 Append 3-arg forms are (string,int,int) and (char[],int,int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037");
                 }
                 if (count != 1)
                 {
@@ -52,7 +52,7 @@ public static partial class MethodRefResolver
                     if (count == 2 && ps[0] == 0x03 && ps[1] == 0x08)
                         return I("il2cpp::runtime::icall_stringbuilder_append_c_count", 2, true, true, true,
                             new[] { "", "c", "i" }, null, false, false, false, "System.Text.StringBuilder");
-                    throw new NotSupportedException($"StringBuilder.Append with {count} args not wired in M5");
+                    throw new NotSupportedException($"StringBuilder.Append with {count} args not wired in M5 -- LOUD whitelist (net48 Append has no overload with this arity); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037");
                 }
                 return ps[0] switch
                 {
@@ -94,7 +94,7 @@ public static partial class MethodRefResolver
                     // dispatch (net48 Append(decimal) = Append(ToString())).
                     0x11 => I("il2cpp::runtime::icall_stringbuilder_append_o", 1, true, true, true, new[] { "", "box:dec" }, null, false, false, false, "System.Text.StringBuilder"),
                     0x1C => I("il2cpp::runtime::icall_stringbuilder_append_o", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
-                    _ => throw new NotSupportedException($"StringBuilder.Append param type 0x{ps[0]:X2} not wired in M5"),
+                    _ => throw new NotSupportedException($"StringBuilder.Append param type 0x{ps[0]:X2} not wired in M5 -- LOUD whitelist (net48 Append value families are bool/char/char[]/decimal/double/short/int/long/float/sbyte/string/uint/ulong/ushort/object/StringBuilder plus (char,int) and (char[],int,int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037"),
                 };
             case "Insert":
                 // batch 170 (#114 deep-dive): the Insert overload family. The
@@ -133,7 +133,7 @@ public static partial class MethodRefResolver
                         // BCL decimal box first).
                         0x1C => I("il2cpp::runtime::icall_stringbuilder_insert_o", 2, true, true, true, new[] { "", "i", "" }, null, false, false, false, "System.Text.StringBuilder"),
                         0x11 => I("il2cpp::runtime::icall_stringbuilder_insert_o", 2, true, true, true, new[] { "", "i", "box:dec" }, null, false, false, false, "System.Text.StringBuilder"),
-                        _ => throw new NotSupportedException($"StringBuilder.Insert value param type 0x{ps[1]:X2} not wired in M5"),
+                        _ => throw new NotSupportedException($"StringBuilder.Insert value param type 0x{ps[1]:X2} not wired in M5 -- LOUD whitelist (net48 Insert value families are bool/char/char[]/decimal/double/short/int/long/float/sbyte/string/uint/ulong/ushort/object plus (int,string,int) and (int,char[],int,int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:820,1037-1251"),
                     };
                 }
                 if (count == 3 && ps[0] == 0x08 && ps[1] == 0x0E && ps[2] == 0x08)
@@ -143,7 +143,7 @@ public static partial class MethodRefResolver
                 if (count == 4 && ps[0] == 0x08 && ps[1] == 0x1D && ps[2] == 0x08 && ps[3] == 0x08)
                     return I("il2cpp::runtime::icall_stringbuilder_insert_c_array_range", 4, true, true, true,
                         new[] { "", "i", "a", "i", "i" }, null, false, false, false, "System.Text.StringBuilder");
-                throw new NotSupportedException($"StringBuilder.Insert signature not wired in M5");
+                throw new NotSupportedException($"StringBuilder.Insert signature not wired in M5 -- LOUD whitelist (net48 Insert defines no overload with this arity/param shape); net48 RefSrc mscorlib/system/text/stringbuilder.cs:820,1037-1251");
             case "Remove":
                 return I("il2cpp::runtime::icall_stringbuilder_remove", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
             // netcore21+ audit surface: Clear() -- Length drops to 0 (the
@@ -154,7 +154,7 @@ public static partial class MethodRefResolver
             case "AppendLine":
                 if (count == 0) return I("il2cpp::runtime::icall_stringbuilder_append_line", 0, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                 if (count == 1 && ps[0] == 0x0E) return I("il2cpp::runtime::icall_stringbuilder_append_line_s", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
-                throw new NotSupportedException($"StringBuilder.AppendLine signature not wired in M5");
+                throw new NotSupportedException($"StringBuilder.AppendLine signature not wired in M5 -- LOUD whitelist (net48 AppendLine has only () and (string)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:742-748");
             case "AppendFormat":
                 // net48 overloads: (string, object[, object[, object[,
                 // object]]]), the params-object[] form, and the
@@ -176,23 +176,23 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::icall_stringbuilder_append_format_2_provider", 4, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                     if (ps.Length == 5 && ps[2] == 0x1C && ps[3] == 0x1C && ps[4] == 0x1C)
                         return I("il2cpp::runtime::icall_stringbuilder_append_format_3_provider", 5, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
-                    throw new NotSupportedException($"StringBuilder.AppendFormat provider signature not wired in M5");
+                    throw new NotSupportedException($"StringBuilder.AppendFormat provider signature not wired in M5 -- LOUD whitelist (net48 AppendFormat provider forms are (provider,string), (provider,string,object), (provider,string,object,object), (provider,string,object,object,object) and (provider,string,params object[])); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1290-1305");
                 }
                 if (count < 2 || ps[0] != 0x0E)
-                    throw new NotSupportedException($"StringBuilder.AppendFormat signature not wired in M5");
+                    throw new NotSupportedException($"StringBuilder.AppendFormat signature not wired in M5 -- LOUD whitelist (net48 AppendFormat requires a string format as its first argument); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1262-1305");
                 // (string, params object[]) -- the SZARRAY element byte is
                 // consumed by the signature walk (ps[1] == 0x1D).
                 if (ps[1] == 0x1D)
                     return I("il2cpp::runtime::icall_stringbuilder_append_format", ps.Length, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                 if (ps[1] != 0x1C)
-                    throw new NotSupportedException($"StringBuilder.AppendFormat signature not wired in M5");
+                    throw new NotSupportedException($"StringBuilder.AppendFormat signature not wired in M5 -- LOUD whitelist (net48 AppendFormat's second argument is object or params object[]); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1262-1305");
                 return count switch
                 {
                     2 => I("il2cpp::runtime::icall_stringbuilder_append_format_1", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     3 => I("il2cpp::runtime::icall_stringbuilder_append_format_2", 3, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     4 => I("il2cpp::runtime::icall_stringbuilder_append_format_3", 4, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     5 => I("il2cpp::runtime::icall_stringbuilder_append_format_4", 5, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
-                    _ => throw new NotSupportedException($"StringBuilder.AppendFormat with {count} args not wired in M5"),
+                    _ => throw new NotSupportedException($"StringBuilder.AppendFormat with {count} args not wired in M5 -- LOUD whitelist (net48 AppendFormat defines no overload with this arity); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1262-1305"),
                 };
             case "Replace":
                 // SB-REST: the 4-arg range forms
@@ -205,24 +205,24 @@ public static partial class MethodRefResolver
                     if (ps[0] == 0x03 && ps[1] == 0x03 && ps[2] == 0x08 && ps[3] == 0x08)
                         return I("il2cpp::runtime::icall_stringbuilder_replace_c_c_range", 4, true, true, true,
                             new[] { "", "c", "c", "i", "i" }, null, false, false, false, "System.Text.StringBuilder");
-                    throw new NotSupportedException($"StringBuilder.Replace 4-arg signature not wired in M5");
+                    throw new NotSupportedException($"StringBuilder.Replace 4-arg signature not wired in M5 -- LOUD whitelist (net48 Replace 4-arg forms are (string,string,int,int) and (char,char,int,int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1535,1623");
                 }
-                if (count != 2) throw new NotSupportedException($"StringBuilder.Replace with {count} args not wired in M5");
+                if (count != 2) throw new NotSupportedException($"StringBuilder.Replace with {count} args not wired in M5 -- LOUD whitelist (net48 Replace has only (char,char), (string,string), (char,char,int,int) and (string,string,int,int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1485-1623");
                 if (ps[0] == 0x0E && ps[1] == 0x0E) return I("il2cpp::runtime::icall_stringbuilder_replace_s_s", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                 if (ps[0] == 0x03 && ps[1] == 0x03) return I("il2cpp::runtime::icall_stringbuilder_replace_c_c", 2, true, true, true, new[] { "", "c", "c" }, null, false, false, false, "System.Text.StringBuilder");
-                throw new NotSupportedException($"StringBuilder.Replace param type 0x{ps[0]:X2} not wired in M5");
+                throw new NotSupportedException($"StringBuilder.Replace param type 0x{ps[0]:X2} not wired in M5 -- LOUD whitelist (net48 Replace's first argument is char or string); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1485-1623");
             // SB-REST: CopyTo(int, char[], int, int) -- copies the builder
             // window into a managed char[] (void result).
             case "CopyTo":
                 if (count == 4 && ps[0] == 0x08 && ps[1] == 0x1D && ps[2] == 0x08 && ps[3] == 0x08)
                     return I("il2cpp::runtime::icall_stringbuilder_copy_to", 4, false, false, true,
                         new[] { "", "i", "a", "i", "i" });
-                throw new NotSupportedException($"StringBuilder.CopyTo signature not wired in M5");
+                throw new NotSupportedException($"StringBuilder.CopyTo signature not wired in M5 -- LOUD whitelist (net48 CopyTo has only (int,char[],int,int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:756");
             // SB-REST: EnsureCapacity(int) -> int (the resulting Capacity).
             case "EnsureCapacity":
                 if (count == 1 && ps[0] == 0x08)
                     return I("il2cpp::runtime::icall_stringbuilder_ensure_capacity", 1, true, false, true, new[] { "", "i" });
-                throw new NotSupportedException($"StringBuilder.EnsureCapacity signature not wired in M5");
+                throw new NotSupportedException($"StringBuilder.EnsureCapacity signature not wired in M5 -- LOUD whitelist (net48 EnsureCapacity has only (int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:318");
             // SB-REST: Equals(StringBuilder) -- reference equality.
             case "Equals":
                 if (count == 1 && ps[0] == 0x12)
@@ -232,7 +232,7 @@ public static partial class MethodRefResolver
                 // overload).
                 if (count == 1 && ps[0] == 0x1C)
                     return I("il2cpp::runtime::icall_stringbuilder_equals_obj", 1, true, false, true, new[] { "", "" });
-                throw new NotSupportedException($"StringBuilder.Equals signature not wired in M5");
+                throw new NotSupportedException($"StringBuilder.Equals signature not wired in M5 -- LOUD whitelist (net48 Equals has only (StringBuilder) and (object)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1490");
             case "ToString":
                 // The 2-arg overload ToString(int startIndex, int length) must
                 // NOT bind to the 0-arg snapshot icall (that would pass the
@@ -347,7 +347,7 @@ public static partial class MethodRefResolver
                         "System.Guid" => "box:guid",
                         "System.TimeSpan" => "box:ts",
                         null => throw new NotSupportedException(
-                            "DefaultInterpolatedStringHandler.AppendFormatted value type has no MethodSpec generic-arg name (M5)"),
+                            "DefaultInterpolatedStringHandler.AppendFormatted value type has no MethodSpec generic-arg name (M5) -- LOUD whitelist (the MethodSpec generic-argument name is unavailable, so the boxed value-type carrier cannot be generated); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)"),
                         _ => "box:us:" + vtypeName,
                     };
                     if (count == 1)
@@ -359,7 +359,7 @@ public static partial class MethodRefResolver
                         var isFmt = ps.Length > 1 && ps[1] == 0x0E;
                         if (!isWidth && !isFmt)
                             throw new NotSupportedException(
-                                $"DefaultInterpolatedStringHandler.AppendFormatted 2-arg signature not wired in M5");
+                                $"DefaultInterpolatedStringHandler.AppendFormatted 2-arg signature not wired in M5 -- LOUD whitelist (net6+ AppendFormatted<T> 2-arg forms are (T,int) and (T,string)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)");
                         return isWidth
                             ? I("il2cpp::runtime::icall_stringbuilder_append_o_w", 2, false, false, true,
                                 new[] { "deref:r", valCast, "i" })
@@ -370,12 +370,12 @@ public static partial class MethodRefResolver
                     {
                         if (ps.Length != 3 || ps[1] != 0x08 || ps[2] != 0x0E)
                             throw new NotSupportedException(
-                                "DefaultInterpolatedStringHandler.AppendFormatted 3-arg signature not wired in M5");
+                                "DefaultInterpolatedStringHandler.AppendFormatted 3-arg signature not wired in M5 -- LOUD whitelist (net6+ AppendFormatted<T> 3-arg form is (T,int,string)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)");
                         return I("il2cpp::runtime::icall_stringbuilder_append_o_wf", 3, false, false, true,
                             new[] { "deref:r", valCast, "i", "" });
                     }
                     throw new NotSupportedException(
-                        $"DefaultInterpolatedStringHandler.AppendFormatted with {count} arg(s) not wired in M5");
+                        $"DefaultInterpolatedStringHandler.AppendFormatted with {count} arg(s) not wired in M5 -- LOUD whitelist (net6+ AppendFormatted<T> arities are 1/2/3); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)");
                 }
                 if (count == 1)
                 {
@@ -401,7 +401,7 @@ public static partial class MethodRefResolver
                         0x12 or 0x1C or 0x1D or 0x1F or 0x15 =>
                             I("il2cpp::runtime::icall_stringbuilder_append_o", 1, false, false, true,
                                 new[] { "deref:r", "" }),
-                        _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted arg 0x{vk:X2} not wired in M5"),
+                        _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted arg 0x{vk:X2} not wired in M5 -- LOUD whitelist (net6+ AppendFormatted value carriers are the primitive/reference families); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)"),
                     };
                 }
                 if (count == 2)
@@ -410,7 +410,7 @@ public static partial class MethodRefResolver
                     var isWidth = ps.Length > 1 && ps[1] == 0x08;
                     var isFmt = ps.Length > 1 && ps[1] == 0x0E;
                     if (!isWidth && !isFmt)
-                        throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 2-arg signature not wired in M5 (ps[{string.Join(",", ps.Select(b => $"0x{b:X2}"))}])");
+                        throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 2-arg signature not wired in M5 (ps[{string.Join(",", ps.Select(b => $"0x{b:X2}"))}]) -- LOUD whitelist (net6+ AppendFormatted<T> 2-arg forms are (T,int) and (T,string)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)");
                     var suffix = isWidth ? "_w" : "_f";
                     return vk switch
                     {
@@ -446,14 +446,14 @@ public static partial class MethodRefResolver
                         0x12 or 0x1C or 0x1D or 0x1F or 0x15 =>
                             I($"il2cpp::runtime::icall_stringbuilder_append_o{suffix}", 2, false, false, true,
                                 new[] { "deref:r", "", isWidth ? "i" : "" }),
-                        _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 2-arg value 0x{vk:X2} not wired in M5"),
+                        _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 2-arg value 0x{vk:X2} not wired in M5 -- LOUD whitelist (net6+ AppendFormatted<T> 2-arg value carriers are the primitive/reference families); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)"),
                     };
                 }
                 if (count == 3)
                 {
                     // (T, int32 width, string format) -> _wf.
                     if (ps.Length != 3 || ps[1] != 0x08 || ps[2] != 0x0E)
-                        throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 3-arg signature not wired in M5");
+                        throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 3-arg signature not wired in M5 -- LOUD whitelist (net6+ AppendFormatted<T> 3-arg form is (T,int,string)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)");
                     return vk switch
                     {
                         0x08 => I("il2cpp::runtime::icall_stringbuilder_append_i_wf", 3, false, false, true, new[] { "deref:r", "i", "i", "" }),
@@ -474,10 +474,10 @@ public static partial class MethodRefResolver
                         0x12 or 0x1C or 0x1D or 0x1F or 0x15 =>
                             I("il2cpp::runtime::icall_stringbuilder_append_o_wf", 3, false, false, true,
                                 new[] { "deref:r", "", "i", "" }),
-                        _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 3-arg value 0x{vk:X2} not wired in M5"),
+                        _ => throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted 3-arg value 0x{vk:X2} not wired in M5 -- LOUD whitelist (net6+ AppendFormatted<T> 3-arg value carriers are the primitive/reference families); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)"),
                     };
                 }
-                throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted with {count} arg(s) not wired in M5");
+                throw new NotSupportedException($"DefaultInterpolatedStringHandler.AppendFormatted with {count} arg(s) not wired in M5 -- LOUD whitelist (net6+ AppendFormatted<T> arities are 1/2/3); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037 (net6+ handler, no net48 counterpart)");
             case "ToStringAndClear":
                 return count == 0
                     ? I("il2cpp::runtime::icall_stringbuilder_to_string", 0, true, true, true, new[] { "deref:r" }, returnTypeName: "System.String")
