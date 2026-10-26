@@ -60,6 +60,13 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_version_get_revision", 0, true, false, true);
             case "ToString":
                 if (count == 0) return I("il2cpp::runtime::icall_version_to_string", 0, true, true, true);
+                // Version.ToString(int fieldCount) (net48 version.cs:284):
+                // rebuilds the first 'fieldCount' components; the runtime icall
+                // throws ArgumentException when a requested component is absent
+                // (build/revision == -1) or the count is out of range.
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_version_to_string_field", 1, true, true, true,
+                        new[] { "", "i" });
                 return null;
             case "CompareTo":
                 if (count == 1 && ps[0] == 0x12)
@@ -109,7 +116,7 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     "System.Version member not wired: the object icalls cover " +
                     ".ctor/get_Major/get_Minor/get_Build/get_Revision/ToString/" +
-                    "CompareTo/Equals/Parse/op_Equality/op_Inequality only " +
+                    "ToString(int)/CompareTo/Equals/Parse/op_Equality/op_Inequality only " +
                     "(see versionuri.h)");
         }
     }

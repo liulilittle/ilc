@@ -484,6 +484,44 @@ Il2CppObject* icall_version_to_string(Il2CppObject* self)
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(text.c_str()));
 }
 
+Il2CppObject* icall_version_to_string_field(Il2CppObject* self, int32_t fieldCount)
+{
+    // net48 version.cs:284. fieldCount == 0 -> ""; 1 -> major; 2 ->
+    // major.minor; 3 -> major.minor.build (throws when build is absent); 4 ->
+    // major.minor.build.revision (throws when revision is absent); anything
+    // else (negative / > 4) throws ArgumentException.
+    ThrowIfNullReceiver(self);
+    const Il2CppVersionObject* v = AsVersion(self);
+    if (fieldCount == 0)
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(""));
+    if (fieldCount < 0)
+        il2cpp_throw_argument_exception("Specified argument was out of the range of valid values. (Parameter 'fieldCount')");
+    const std::string major = std::to_string(v->components[0]);
+    if (fieldCount == 1)
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(major.c_str()));
+    if (fieldCount == 2)
+    {
+        const std::string text = major + "." + std::to_string(v->components[1]);
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(text.c_str()));
+    }
+    if (v->components[2] == -1)
+        il2cpp_throw_argument_exception("Specified argument was out of the range of valid values. (Parameter 'fieldCount')");
+    if (fieldCount == 3)
+    {
+        const std::string text = major + "." + std::to_string(v->components[1]) + "." + std::to_string(v->components[2]);
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(text.c_str()));
+    }
+    if (v->components[3] == -1)
+        il2cpp_throw_argument_exception("Specified argument was out of the range of valid values. (Parameter 'fieldCount')");
+    if (fieldCount == 4)
+    {
+        const std::string text = major + "." + std::to_string(v->components[1]) + "." + std::to_string(v->components[2]) + "." + std::to_string(v->components[3]);
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(text.c_str()));
+    }
+    il2cpp_throw_argument_exception("Specified argument was out of the range of valid values. (Parameter 'fieldCount')");
+    return nullptr; // unreachable (il2cpp_throw_argument_exception always throws)
+}
+
 int32_t icall_version_compare(Il2CppObject* self, Il2CppObject* other)
 {
     ThrowIfNullReceiver(self);

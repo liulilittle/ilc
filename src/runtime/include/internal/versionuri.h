@@ -218,6 +218,14 @@ int32_t icall_version_get_hash_code(Il2CppObject* self);
 // Returns the managed string as Il2CppObject* (the IR's reference shape).
 Il2CppObject* icall_version_to_string(Il2CppObject* self);
 
+// ToString(int fieldCount) (net48 version.cs:284): rebuilds the first
+// 'fieldCount' components -- "" (0), major (1), "major.minor" (2),
+// "major.minor.build" (3), "major.minor.build.revision" (4). A requested
+// component that is ABSENT throws ArgumentException (fieldCount >= 3 with
+// build == -1; fieldCount >= 4 with revision == -1) and any fieldCount > 4
+// throws ArgumentException too. Returns the managed string as Il2CppObject*.
+Il2CppObject* icall_version_to_string_field(Il2CppObject* self, int32_t fieldCount);
+
 // CompareTo(object): -1 / 0 / 1 with the net48 rule (missing trailing
 // component counts as -1). Null 'other' -> 1 (net48); a non-Version object
 // -> ArgumentException.

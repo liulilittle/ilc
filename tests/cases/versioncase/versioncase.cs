@@ -31,5 +31,24 @@ namespace Cases { public static class VersionCase {
         try { Version.Parse("abc"); Console.WriteLine(false); } catch (ArgumentException) { Console.WriteLine(true); }
         try { Version.Parse("1.2.3.4.5"); Console.WriteLine(false); } catch (ArgumentException) { Console.WriteLine(true); }
         try { new Version(1, -1); Console.WriteLine(false); } catch (ArgumentOutOfRangeException) { Console.WriteLine(true); }
+
+        // ---- Version.ToString(int fieldCount) (net48 version.cs:284) ----
+        // 0 -> "", 1 -> major, 2 -> major.minor, 3 -> major.minor.build,
+        // 4 -> major.minor.build.revision; a requested ABSENT component or
+        // an out-of-range count throws ArgumentException (caught -> bool).
+        Console.WriteLine(new Version(1, 2, 3, 4).ToString(0) == "");
+        Console.WriteLine(new Version(1, 2, 3, 4).ToString(1) == "1");
+        Console.WriteLine(new Version(1, 2, 3, 4).ToString(2) == "1.2");
+        Console.WriteLine(new Version(1, 2, 3, 4).ToString(3) == "1.2.3");
+        Console.WriteLine(new Version(1, 2, 3, 4).ToString(4) == "1.2.3.4");
+        Console.WriteLine(new Version(2, 0).ToString(1) == "2");
+        Console.WriteLine(new Version(2, 0).ToString(2) == "2.0");
+        Console.WriteLine(new Version("10.20.30").ToString(2) == "10.20");
+        Console.WriteLine(new Version().ToString(1) == "0");
+        Console.WriteLine(new Version().ToString(2) == "0.0");
+        try { new Version(2, 0).ToString(3); Console.WriteLine(false); } catch (ArgumentException) { Console.WriteLine(true); }
+        try { new Version(1, 2, 3).ToString(4); Console.WriteLine(false); } catch (ArgumentException) { Console.WriteLine(true); }
+        try { new Version(1, 2, 3, 4).ToString(5); Console.WriteLine(false); } catch (ArgumentException) { Console.WriteLine(true); }
+        try { new Version(1, 2, 3, 4).ToString(-1); Console.WriteLine(false); } catch (ArgumentException) { Console.WriteLine(true); }
     }
 }}

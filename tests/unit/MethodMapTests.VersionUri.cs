@@ -146,6 +146,30 @@ public class MethodMapVersionUriTests
     }
 
     //--------------------------------------------------------------------------
+    // Version.ToString(int fieldCount) -> icall_version_to_string_field
+    // (net48 version.cs:284). The field count selects how many components are
+    // rebuilt ("" / major / major.minor / major.minor.build /
+    // major.minor.build.revision) and throws ArgumentException when a missing
+    // component is requested (build absent -> fieldCount >= 3; revision absent
+    // -> fieldCount >= 4) or the count is out of range (> 4).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Version_ToStringInt_MapsToFieldIcall()
+    {
+        // instance string ToString(int fieldCount): ret string (0x0E), one
+        // int32 param (0x08).
+        var m = ResolveMember(Synthesize("System", "Version", "ToString", Sig(0x0E, 0x08)), "ToString");
+
+        Assert.Equal("il2cpp::runtime::icall_version_to_string_field", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(1, m.ParamCount);
+        Assert.True(m.ReturnsValue);
+        Assert.True(m.ReturnsRef);
+        // Receiver passes through (the Version object) + the int32 field count.
+        Assert.Equal(new[] { "", "i" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
     // Version.CompareTo(object) / Equals(object) -> component icalls
     //--------------------------------------------------------------------------
     [Fact]
