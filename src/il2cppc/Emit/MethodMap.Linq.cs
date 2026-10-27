@@ -129,7 +129,21 @@ public static partial class MethodRefResolver
                 // (Sum/Min/Max/Average) to the decimal bucket kernels instead
                 // of reinterpreting every cell as an int32; the remaining
                 // operators stay LOUD (registered in docs/audit/b5-gaps.md).
-                if (genArgs is { Length: >= 1 } && genArgs[0] == 0x11)
+                //
+                // impl-linqfix: the 0x11 byte covers EVERY value type, so the
+                // DECIMAL bucket kernels are gated by the SOURCE NAME
+                // (IsDecimalSourceNamed -- the same authority the decimal
+                // source block uses): a DateTime / TimeSpan / Guid / user
+                // struct bucket has NO bucket kernel in the runtime. The
+                // decimal entries would read 16-byte decimal cells and the
+                // int32 entries 4-byte cells out of the bucket's own 8/16-byte
+                // payload -- both a SILENT wrong value -- so a non-decimal
+                // value-type bucket stays LOUD.
+                bool decBucketAgg = IsLinqDecimalSource(genArgs, receiverType, arg0Type)
+                    && IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
+                bool valueBucketAgg = IsLinqValueTypeSource(genArgs, receiverType, arg0Type)
+                    && !decBucketAgg;
+                if (decBucketAgg)
                 {
                     if (count < 2)
                     {
@@ -210,6 +224,13 @@ public static partial class MethodRefResolver
                         "selector forms (the decimal kernels); the int32 predicate/selector operators have " +
                         "no decimal bucket kernel (see docs/audit/b5-gaps.md)");
                 }
+                if (valueBucketAgg)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a {ValueTypeSourceName(genArgs, genArgNames, receiverType, arg0Type)} " +
+                        "GroupBy bucket is not wired: the runtime has no bucket aggregate kernel for a " +
+                        "non-decimal value-type element family (the decimal bucket entries read 16-byte " +
+                        "decimal cells and the int32 entries 4-byte cells out of the bucket's own " +
+                        "8/16-byte payload -- both would be a silent wrong value; see docs/audit/b5-gaps.md)");
                 if (name == "Sum")
                 {
                     // Sum() -> the per-bucket checked sum; Sum(selector) ->
@@ -494,7 +515,19 @@ public static partial class MethodRefResolver
             // aggregate family is dispatched in the Sum/Min/Max/Average block
             // above; the family-agnostic members (Count()/Any()/ToArray()/
             // get_Key) stay here.
-            bool decBucket = genArgs is { Length: >= 1 } && genArgs[0] == 0x11;
+            // impl-linqfix: the 0x11 byte covers EVERY value type, so the
+            // DECIMAL-bucket kernels are gated by the SOURCE NAME
+            // (IsDecimalSourceNamed -- the same authority the decimal source
+            // block uses): a DateTime / TimeSpan / Guid / user struct bucket
+            // has NO bucket kernel in the runtime. The decimal entries would
+            // read 16-byte decimal cells and the int32 entries 4-byte cells
+            // out of the bucket's own 8/16-byte payload -- both a SILENT wrong
+            // value. A non-decimal value-type bucket keeps the family-agnostic
+            // entries (the header-only Count / Any and the ToArray snapshot)
+            // and LOUDs every cell-reading operator.
+            bool decBucket = IsLinqDecimalSource(genArgs, receiverType, arg0Type)
+                && IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
+            bool valueBucket = IsLinqValueTypeSource(genArgs, receiverType, arg0Type) && !decBucket;
             switch (name)
             {
                 // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each
@@ -623,9 +656,9 @@ public static partial class MethodRefResolver
                 }
                 case "Count" when count < 2:
                     return I("il2cpp::il2cpp_linq_grouping_get_count", 1, true, false, false, new[] { "" });
-                case "Count":
+                case "Count" when !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_count_pred", 2, true, false, false, new[] { "", "" });
-                case "Where":
+                case "Where" when !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_where", 2, true, true, false, new[] { "", "" },
                         returnTypeName: "System.Int32[]");
                 case "Select" when decBucket:
@@ -667,7 +700,7 @@ public static partial class MethodRefResolver
                     return I($"il2cpp::il2cpp_linq_grouping_select{(selIdx ? "_idx" : "")}_dec_{vs}",
                         2, true, true, false, new[] { "", "" }, returnTypeName: LinqValueResultArrayName(vs));
                 }
-                case "Select":
+                case "Select" when !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_select", 2, true, true, false, new[] { "", "" },
                         returnTypeName: "System.Int32[]");
                 case "ToArray":
@@ -678,24 +711,34 @@ public static partial class MethodRefResolver
                     // the bucket family (the old tracking said System.Int32[]
                     // and downstream element reads resolved the int32 family
                     // against a 16-byte array).
+                    //
+                    // impl-linqfix: the bucket ELEMENT family comes from the
+                    // generic-argument NAME (the 0x11 byte is shared by every
+                    // value type): a DateTime / TimeSpan / Guid bucket
+                    // snapshots its own cell width, so the tracked array name
+                    // must name it (the byte-only LinqArrayTypeName would say
+                    // "System.Decimal[]" for every 0x11 source).
                     return I("il2cpp::il2cpp_linq_grouping_get_elements", 1, true, true, false, new[] { "" },
-                        returnTypeName: decBucket ? "System.Decimal[]" : "System.Int32[]");
+                        returnTypeName: decBucket ? "System.Decimal[]"
+                            : valueBucket && genArgs is { Length: >= 1 }
+                                ? LinqArrayTypeNameExact(genArgs[0], genArgNames, 0)
+                            : "System.Int32[]");
                 case "Any" when count < 2:
                     return I("il2cpp::il2cpp_linq_grouping_any", 1, true, false, false, new[] { "" });
-                case "Any":
+                case "Any" when !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_any_pred", 2, true, false, false, new[] { "", "" });
-                case "All":
+                case "All" when !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_all", 2, true, false, false, new[] { "", "" });
-                case "First" when count < 2:
+                case "First" when count < 2 && !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_first_i4", 1, true, false, false, new[] { "" });
-                case "FirstOrDefault" when count < 2:
+                case "FirstOrDefault" when count < 2 && !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_first_or_default_i4", 1, true, false, false, new[] { "" });
-                case "Last" when count < 2:
+                case "Last" when count < 2 && !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_last_i4", 1, true, false, false, new[] { "" });
-                case "ElementAt":
+                case "ElementAt" when !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_element_at_i4", 2, true, false, false,
                         new[] { "", "i" });
-                case "Contains":
+                case "Contains" when !valueBucket:
                     // BATCH4: a decimal bucket's Contains takes the decimal by
                     // value (the decimal equality kernel); an int32 bucket rides
                     // the int32 entry.
@@ -721,6 +764,23 @@ public static partial class MethodRefResolver
                     "Take/Skip/Distinct/TakeWhile/SkipWhile/Except/Concat/DefaultIfEmpty), the counts " +
                     "(Count/LongCount/Any/All/SequenceEqual), OrderBy/OrderByDescending and get_Key " +
                     "(see docs/audit/b5-gaps.md)");
+            }
+            if (valueBucket)
+            {
+                // impl-linqfix: a NON-decimal value-type bucket (DateTime /
+                // TimeSpan / Guid / a user struct) has NO bucket kernel in the
+                // runtime: the decimal-bucket entries read 16-byte decimal
+                // cells and the int32-bucket entries 4-byte cells out of the
+                // bucket's own 8/16-byte payload -- both a SILENT wrong value.
+                // The family-agnostic entries (the header-only Count / Any and
+                // the ToArray snapshot) are served above; every cell-reading
+                // operator stays LOUD.
+                throw new NotSupportedException(
+                    $"Enumerable.{name} over a {ValueTypeSourceName(genArgs, genArgNames, receiverType, arg0Type)} " +
+                    "GroupBy bucket is not wired: the runtime has no bucket kernel for a non-decimal " +
+                    "value-type element family (the decimal bucket entries read 16-byte decimal cells and " +
+                    "the int32 entries 4-byte cells out of the bucket's own 8/16-byte payload -- both would " +
+                    "be a silent wrong value; see docs/audit/b5-gaps.md)");
             }
         }
 
@@ -1005,6 +1065,86 @@ public static partial class MethodRefResolver
                     : decKeyFam == "d" ? "d" : "dec");
                 return I($"il2cpp::il2cpp_linq_order_by_key{(desc ? "_desc" : "")}_dec_{decKeyEntry}",
                     2, true, true, false, TwoArg, returnTypeName: "System.Decimal[]");
+            }
+            // impl-linqfix2: the VALUE-FAMILY (System.DateTime / System.TimeSpan
+            // / System.Guid) source operators. The family-generic kernels
+            // (linq_family.h) read/write the element at its REAL width when
+            // the caller passes the cell code as the trailing literal
+            // (12 / 13 / 14), so the operators the runtime already covers ride
+            // them instead of falling through to the LOUD gates. The source
+            // NAME decides the family (the 0x11 byte is shared by every value
+            // type); a USER STRUCT has no cell ABI and stays LOUD.
+            //
+            // The operators with NO value-family kernel stay LOUD: the
+            // predicate family (Where / All / TakeWhile / SkipWhile /
+            // Count(pred) / Any(pred)) ships per i4 / ref / i8 / d / f /
+            // narrow family only, and First / Last have no family entry at
+            // all (linq_family.h) -- a foreign ABI would be a silent wrong
+            // value.
+            string? valCell = LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type);
+            if (valCell is { } vc)
+            {
+                // The kernel suffix (dt / ts / guid) and the by-value result
+                // kind of the element-returning entries. "guidv" is the
+                // BY-VALUE Guid return (the plain "guid" kind is the Guid
+                // icall out-buffer ABI -- guid.h writes through a byte
+                // pointer, while the family kernels RETURN the value).
+                string vcFam = vc == "12" ? "dt" : vc == "13" ? "ts" : "guid";
+                string vcResult = vcFam == "guid" ? "guidv" : vcFam;
+                string valArrayType = LinqArrayTypeNameExact(genArgs![0], genArgNames, 0);
+                // The element-returning entries (the element crosses by value).
+                if (name == "ElementAt")
+                    return I($"il2cpp::il2cpp_linq_element_at_fam_{vcFam}", 2, true, false, false,
+                        new[] { "a", "i" }, resultKind: vcResult, appendLiterals: new[] { vc });
+                if (name == "Single" && count < 2)
+                    return I($"il2cpp::il2cpp_linq_single_fam_{vcFam}", 1, true, false, false,
+                        OneArg, resultKind: vcResult, appendLiterals: new[] { vc });
+                if (name == "SingleOrDefault" && count < 2)
+                    return I($"il2cpp::il2cpp_linq_single_or_default_fam_{vcFam}", 1, true, false, false,
+                        OneArg, resultKind: vcResult, appendLiterals: new[] { vc });
+                // Contains: the per-family VALUE entry -- the value rides the
+                // family's own parameter slot, so the cell code is implied and
+                // no literal is appended.
+                if (name == "Contains")
+                    return I($"il2cpp::il2cpp_linq_contains_family_{vcFam}", 2, true, false, false,
+                        new[] { "a", "" });
+                // The ARRAY-returning entries (a fresh array of the source's
+                // own cell width).
+                if (name == "Take")
+                    return I("il2cpp::il2cpp_linq_take_family", 2, true, true, false,
+                        new[] { "a", "i" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                if (name == "Skip")
+                    return I("il2cpp::il2cpp_linq_skip_family", 2, true, true, false,
+                        new[] { "a", "i" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                if (name == "Reverse")
+                    return I("il2cpp::il2cpp_linq_reverse_family", 1, true, true, false,
+                        OneArg, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                if (name == "Concat")
+                    return I("il2cpp::il2cpp_linq_concat_family", 2, true, true, false,
+                        new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                if (name == "Distinct")
+                    return I("il2cpp::il2cpp_linq_distinct_family", 1, true, true, false,
+                        OneArg, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                if (name == "Except")
+                    return I("il2cpp::il2cpp_linq_except_family", 2, true, true, false,
+                        new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                if (name == "Union")
+                    return I("il2cpp::il2cpp_linq_union_family", 2, true, true, false,
+                        new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                if (name == "Intersect")
+                    return I("il2cpp::il2cpp_linq_intersect_family", 2, true, true, false,
+                        new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                // The source-only form (the 2-argument DefaultIfEmpty(source,
+                // defaultValue) has no family entry and stays LOUD).
+                if (name == "DefaultIfEmpty" && count < 2)
+                    return I("il2cpp::il2cpp_linq_default_if_empty_family", 1, true, true, false,
+                        OneArg, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                if (name == "LongCount" && count < 2)
+                    return I("il2cpp::il2cpp_linq_long_count_family", 1, true, false, false,
+                        OneArg, resultKind: "l", appendLiterals: new[] { vc });
+                if (name == "SequenceEqual")
+                    return I("il2cpp::il2cpp_linq_sequence_equal_family", 2, true, false, false,
+                        new[] { "a", "a" }, appendLiterals: new[] { vc });
             }
             // p0grp: GroupBy over a DateTime[] SOURCE (net48
             // GroupBy<TSource,TKey> with TSource = System.DateTime). The
@@ -1995,9 +2135,15 @@ public static partial class MethodRefResolver
                 // nb9 fix P0-4: ToArray is element-family agnostic -- the runtime
                 // clones the array by its own elemSize/isRefElem. The tracked
                 // return type follows TSource so downstream members resolve.
+                //
+                // impl-linqfix: the 0x11 value types need the generic-argument
+                // NAME (the byte-only LinqArrayTypeName says "System.Decimal[]"
+                // for every 0x11 source, so a DateTime[] / TimeSpan[] / Guid[]
+                // snapshot was tracked as a decimal[] and the downstream
+                // operators resolved the decimal family against it).
                 {
                     var toArrType = genArgs is { Length: >= 1 }
-                        ? LinqArrayTypeName(genArgs[0])
+                        ? LinqArrayTypeNameExact(genArgs[0], genArgNames, 0)
                         : (toArrRecv != null && toArrRecv.EndsWith("[]", StringComparison.Ordinal)
                             ? toArrRecv : "System.Int32[]");
                     return I("il2cpp::il2cpp_linq_to_array_family", 1, true, true, false, new[] { "a" },
@@ -2765,6 +2911,38 @@ public static partial class MethodRefResolver
     {
         if (!IsLinqValueTypeSource(genArgs, receiverType, arg0Type)) return false;
         return !IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
+    }
+
+    // The IL2CPP_LINQ_CELL_* code of a VALUE-TYPE source (linq_family.h):
+    // System.DateTime -> 12, System.TimeSpan -> 13, System.Guid -> 14. The
+    // 0x11 dispatch byte covers EVERY value type, so the NAME decides (the
+    // same authority IsDecimalSourceNamed applies to the decimal source); the
+    // tracked array name is the fallback when the generic-argument name table
+    // could not be decoded. A USER STRUCT has no cell ABI (null -> the
+    // operator stays LOUD: the family kernels know decimal / DateTime /
+    // TimeSpan / Guid only).
+    private static string? LinqValueFamilyCellCode(byte[]? genArgs, string[]? genArgNames,
+        string? receiverType, string? arg0Type)
+    {
+        if (genArgs is not { Length: >= 1 } || genArgs[0] != 0x11) return null;
+        string? name = genArgNames is { Length: >= 1 } ? genArgNames[0] : null;
+        if (name is { Length: > 0 } && name != "?")
+        {
+            if (name.StartsWith("V:", StringComparison.Ordinal)) name = name[2..];
+            return name switch
+            {
+                "System.DateTime" => "12",
+                "System.TimeSpan" => "13",
+                "System.Guid" => "14",
+                _ => null,
+            };
+        }
+        var tracked = receiverType ?? arg0Type;
+        if (tracked == null) return null;
+        if (tracked.EndsWith("System.DateTime[]", StringComparison.Ordinal)) return "12";
+        if (tracked.EndsWith("System.TimeSpan[]", StringComparison.Ordinal)) return "13";
+        if (tracked.EndsWith("System.Guid[]", StringComparison.Ordinal)) return "14";
+        return null;
     }
 
     // ValueTypeSourceName -- the source element name for a LOUD message: the

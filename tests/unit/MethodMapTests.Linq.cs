@@ -1547,35 +1547,27 @@ public class MethodMapTestsLinq
     // take_dec / count_pred_dec / ...) to a DateTime/TimeSpan/Guid source --
     // a SILENT wrong read (16-byte decimal cells over an 8/16-byte payload).
     //
-    // The runtime has NO predicate kernel for a value-type element family
-    // (linq.h ships count/any/all/where/take_while/skip_while per i4 / ref /
-    // i8 / d / f / narrow family only; the decimal source has its own dec
-    // kernels), so these operators must stay LOUD instead of binding a
-    // foreign ABI.
+    // The value families the runtime DOES cover ride the FAMILY-GENERIC
+    // kernels (linq_family.h) with their own cell code (12 / 13 / 14) as the
+    // trailing literal: Take / Skip / Reverse / Concat / Distinct / Except /
+    // Union / Intersect / DefaultIfEmpty / LongCount / SequenceEqual /
+    // Contains / ElementAt / Single / SingleOrDefault. The operators with NO
+    // value-family kernel (the predicate family -- Where / All / TakeWhile /
+    // SkipWhile / Count(pred) / Any(pred) -- and First / Last, which have no
+    // family entry) stay LOUD: the runtime ships the predicate kernels per
+    // i4 / ref / i8 / d / f / narrow family only, and a foreign ABI would be
+    // a silent wrong value.
     //==========================================================================
     [Theory]
     [InlineData("First", "source")]
     [InlineData("FirstOrDefault", "source")]
     [InlineData("Last", "source")]
     [InlineData("LastOrDefault", "source")]
-    [InlineData("Single", "source")]
-    [InlineData("SingleOrDefault", "source")]
-    [InlineData("Distinct", "source")]
-    [InlineData("Reverse", "source")]
-    [InlineData("LongCount", "source")]
-    [InlineData("DefaultIfEmpty", "source")]
     [InlineData("Where", "predicate")]
     [InlineData("All", "predicate")]
     [InlineData("TakeWhile", "predicate")]
     [InlineData("SkipWhile", "predicate")]
-    [InlineData("Take", "range")]
-    [InlineData("Skip", "range")]
-    [InlineData("ElementAt", "range")]
-    [InlineData("Concat", "same")]
-    [InlineData("Except", "same")]
-    [InlineData("SequenceEqual", "same")]
-    [InlineData("Contains", "contains")]
-    public void Resolve_DateTimeSource_ElementOperator_StaysLoud(string name, string shape)
+    public void Resolve_DateTimeSource_UnsupportedOperator_StaysLoud(string name, string shape)
     {
         var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(
             SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature(shape),
@@ -1584,18 +1576,125 @@ public class MethodMapTestsLinq
         Assert.DoesNotContain("_dec", ex.Message);
     }
 
-    // The SAME-TYPE families: a TimeSpan[] / Guid[] source is not a decimal
-    // source either (the 0x11 byte is shared by every value type).
+    // The ARRAY-returning family operators over a DateTime source: the
+    // family-generic kernel with the DateTime cell code (12) as the trailing
+    // literal, and a fresh DateTime[] as the tracked result.
     [Theory]
-    [InlineData("System", "TimeSpan", "First", "source")]
-    [InlineData("System", "TimeSpan", "Where", "predicate")]
-    [InlineData("System", "TimeSpan", "Take", "range")]
-    [InlineData("System", "Guid", "First", "source")]
-    [InlineData("System", "Guid", "Where", "predicate")]
-    [InlineData("System", "Guid", "ElementAt", "range")]
+    [InlineData("Take", "il2cpp::il2cpp_linq_take_family", 2)]
+    [InlineData("Skip", "il2cpp::il2cpp_linq_skip_family", 2)]
+    [InlineData("Reverse", "il2cpp::il2cpp_linq_reverse_family", 1)]
+    [InlineData("Concat", "il2cpp::il2cpp_linq_concat_family", 2)]
+    [InlineData("Distinct", "il2cpp::il2cpp_linq_distinct_family", 1)]
+    [InlineData("Except", "il2cpp::il2cpp_linq_except_family", 2)]
+    [InlineData("Union", "il2cpp::il2cpp_linq_union_family", 2)]
+    [InlineData("Intersect", "il2cpp::il2cpp_linq_intersect_family", 2)]
+    [InlineData("DefaultIfEmpty", "il2cpp::il2cpp_linq_default_if_empty_family", 1)]
+    public void Resolve_DateTimeSource_ArrayOperator_MapsToFamilyKernel(
+        string name, string kernel, int paramCount)
+    {
+        var shape = name switch
+        {
+            "Take" or "Skip" => "range",
+            "Concat" or "Except" or "Union" or "Intersect" => "same",
+            _ => "source",
+        };
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+            ValueTypeSourceSignature(shape), "System", "DateTime"));
+
+        Assert.Equal(kernel, resolved.CppName);
+        Assert.Equal(paramCount, resolved.ParamCount);
+        Assert.Equal(new[] { "12" }, resolved.AppendLiterals);
+        Assert.Equal("System.DateTime[]", resolved.ReturnTypeName);
+    }
+
+    [Fact]
+    public void Resolve_DateTimeSource_LongCount_MapsToFamilyKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource("LongCount",
+            ValueTypeSourceSignature("source"), "System", "DateTime"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_long_count_family", resolved.CppName);
+        Assert.Equal("l", resolved.ResultKind);
+        Assert.Equal(new[] { "12" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_DateTimeSource_SequenceEqual_MapsToFamilyKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource("SequenceEqual",
+            ValueTypeSourceSignature("same"), "System", "DateTime"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_sequence_equal_family", resolved.CppName);
+        Assert.Equal(new[] { "12" }, resolved.AppendLiterals);
+    }
+
+    // Contains over a value family rides the per-family VALUE entry (the value
+    // rides the family's own parameter slot; the cell code is implied).
+    [Theory]
+    [InlineData("System", "DateTime", "il2cpp::il2cpp_linq_contains_family_dt")]
+    [InlineData("System", "TimeSpan", "il2cpp::il2cpp_linq_contains_family_ts")]
+    [InlineData("System", "Guid", "il2cpp::il2cpp_linq_contains_family_guid")]
+    public void Resolve_ValueTypeSource_Contains_MapsToFamilyValueKernel(
+        string ns, string typeName, string kernel)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource("Contains",
+            ValueTypeSourceSignature("contains"), ns, typeName));
+
+        Assert.Equal(kernel, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.AppendLiterals is null || resolved.AppendLiterals.Length == 0);
+    }
+
+    // The element-returning family entries: the element crosses by value, so
+    // the result kind is the family's value kind (dt / ts / guidv).
+    [Theory]
+    [InlineData("System", "DateTime", "ElementAt", "il2cpp::il2cpp_linq_element_at_fam_dt", "dt")]
+    [InlineData("System", "DateTime", "Single", "il2cpp::il2cpp_linq_single_fam_dt", "dt")]
+    [InlineData("System", "DateTime", "SingleOrDefault", "il2cpp::il2cpp_linq_single_or_default_fam_dt", "dt")]
+    [InlineData("System", "TimeSpan", "ElementAt", "il2cpp::il2cpp_linq_element_at_fam_ts", "ts")]
+    [InlineData("System", "TimeSpan", "Single", "il2cpp::il2cpp_linq_single_fam_ts", "ts")]
+    [InlineData("System", "TimeSpan", "SingleOrDefault", "il2cpp::il2cpp_linq_single_or_default_fam_ts", "ts")]
+    [InlineData("System", "Guid", "ElementAt", "il2cpp::il2cpp_linq_element_at_fam_guid", "guidv")]
+    [InlineData("System", "Guid", "Single", "il2cpp::il2cpp_linq_single_fam_guid", "guidv")]
+    [InlineData("System", "Guid", "SingleOrDefault", "il2cpp::il2cpp_linq_single_or_default_fam_guid", "guidv")]
+    public void Resolve_ValueTypeSource_ElementOperator_MapsToFamilyElementKernel(
+        string ns, string typeName, string name, string kernel, string resultKind)
+    {
+        var shape = name == "ElementAt" ? "range" : "source";
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+            ValueTypeSourceSignature(shape), ns, typeName));
+
+        Assert.Equal(kernel, resolved.CppName);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(1, resolved.AppendLiterals!.Length);
+    }
+
+    // The cell code follows the SOURCE NAME: DateTime -> 12, TimeSpan -> 13,
+    // Guid -> 14 (the 0x11 dispatch byte is shared by every value type).
+    [Theory]
+    [InlineData("System", "DateTime", "12")]
+    [InlineData("System", "TimeSpan", "13")]
+    [InlineData("System", "Guid", "14")]
+    public void Resolve_ValueTypeSource_CellCodeFollowsSourceName(
+        string ns, string typeName, string cell)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource("Take",
+            ValueTypeSourceSignature("range"), ns, typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_take_family", resolved.CppName);
+        Assert.Equal(new[] { cell }, resolved.AppendLiterals);
+        Assert.Equal(ns + "." + typeName + "[]", resolved.ReturnTypeName);
+    }
+
+    // A USER STRUCT source has no cell ABI (the family kernels know decimal /
+    // DateTime / TimeSpan / Guid only) and no decimal kernel either: it stays
+    // LOUD rather than borrowing a foreign ABI.
+    [Theory]
     [InlineData("System.Collections.Generic", "KeyValuePair`2", "First", "source")]
     [InlineData("System.Collections.Generic", "KeyValuePair`2", "Where", "predicate")]
-    public void Resolve_NonDecimalValueTypeSource_ElementOperator_StaysLoud(
+    [InlineData("System.Collections.Generic", "KeyValuePair`2", "Take", "range")]
+    [InlineData("System.Collections.Generic", "KeyValuePair`2", "ElementAt", "range")]
+    public void Resolve_UserStructSource_Operator_StaysLoud(
         string ns, string typeName, string name, string shape)
     {
         var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(
@@ -1630,6 +1729,52 @@ public class MethodMapTestsLinq
 
         Assert.Equal("il2cpp::il2cpp_linq_first_dec", resolved.CppName);
         Assert.Equal("dec", resolved.ResultKind);
+    }
+
+    // impl-linqfix: a NON-decimal value-type BUCKET (DateTime / TimeSpan /
+    // Guid) has no bucket kernel in the runtime: the decimal-bucket entries
+    // read 16-byte decimal cells and the int32-bucket entries 4-byte cells
+    // out of the bucket's own 8/16-byte payload -- both a SILENT wrong value.
+    // The byte-only gate (genArgs[0] == 0x11) sent such a bucket into the
+    // decimal entries; the source NAME decides now.
+    [Theory]
+    [InlineData("Where", BucketShape.ElementPred)]
+    [InlineData("First", BucketShape.ElementNoPred)]
+    [InlineData("FirstOrDefault", BucketShape.ElementNoPred)]
+    [InlineData("ElementAt", BucketShape.ElementAt)]
+    [InlineData("Count", BucketShape.IntPred)]
+    [InlineData("Any", BucketShape.BoolPred)]
+    [InlineData("All", BucketShape.BoolPred)]
+    [InlineData("Take", BucketShape.RangeIndex)]
+    [InlineData("Distinct", BucketShape.RangeNoPred)]
+    [InlineData("Sum", BucketShape.ElementNoPred)]
+    public void Resolve_NonDecimalValueTypeBucket_Operator_StaysLoud(string name, BucketShape shape)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpecWithReceiver(
+            SynthesizeGenericGroupingValueTypeOp(name, BucketSig(shape), "DateTime"),
+            receiverType: "System.Linq.IGrouping"));
+
+        // The LOUD contract: the message names the bucket element family (and
+        // never a decimal kernel -- the decimal entries would read a
+        // 16-byte decimal cell out of the bucket's own payload).
+        Assert.Contains("System.DateTime", ex.Message);
+        Assert.Contains("GroupBy bucket", ex.Message);
+        Assert.DoesNotContain("_dec", ex.Message);
+    }
+
+    // The family-agnostic bucket entries read the bucket HEADER only, so they
+    // stay valid over a DateTime bucket.
+    [Theory]
+    [InlineData("Count", "il2cpp::il2cpp_linq_grouping_get_count")]
+    [InlineData("Any", "il2cpp::il2cpp_linq_grouping_any")]
+    public void Resolve_DateTimeBucket_HeaderOnlyOperator_StaysFamilyAgnostic(
+        string name, string kernel)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericGroupingValueTypeOp(name, BucketSig(BucketShape.ElementNoPred), "DateTime"),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal(kernel, resolved.CppName);
     }
 
     //--------------------------------------------------------------------------
@@ -3951,6 +4096,37 @@ public class MethodMapTestsLinq
                 spec.WriteByte(keyByte);
             }
         }
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // The VALUE-TYPE bucket operator helper: TSource is a NAMED VALUETYPE
+    // TypeRef (System.DateTime / System.TimeSpan / System.Guid), so the
+    // decoded generic-argument name tells the bucket's ELEMENT family (the
+    // 0x11 dispatch byte alone cannot -- it is shared by every value type).
+    private static MemoryStream SynthesizeGenericGroupingValueTypeOp(string methodName,
+        byte[] memberRefSignature, string typeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var srcRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"),
+            mdb.GetOrAddString(typeName));
+        var srcCoded = (MetadataTokens.GetRowNumber(srcRef) << 2) | 1;
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(memberRefSignature));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(1);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger(srcCoded);   // TSource = the named value type
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

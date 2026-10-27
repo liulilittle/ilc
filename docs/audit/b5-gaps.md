@@ -1046,3 +1046,144 @@ temporaries first (`tests/cases/guidmethod2`), so the existing corpus does
 not hit it. `tests/cases/closure-dt` keeps the comparison INSIDE the closure
 (the operand is then the captured field, an lvalue).
 
+
+## 11. The value-type source family (System.DateTime / System.TimeSpan / System.Guid) -- WIRED on the family kernels, LOUD elsewhere
+
+### 11.1 The defect that started this (byte-vs-name dispatch)
+
+`Enumerable`'s generic-argument dispatch byte is `0x11` for **EVERY** value
+type. The LINQ value-type source block used to gate the DECIMAL kernels on
+`genArgs[0] == 0x11` alone, so a `DateTime[]` / `TimeSpan[]` / `Guid[]` source
+was bound to the decimal kernels (`il2cpp_linq_first_dec` & co): a 16-byte
+`Il2CppDecimal` cell read over an 8-byte (`DateTime` / `TimeSpan`) or 16-byte
+(`Guid`) payload. That is a SILENT wrong value, and the shipped `zmatrix` case
+proved it as a C++ compile error (`zmatrix.cs:692-695/711-712`: "cannot
+convert 'il2cpp::runtime::Il2CppDateTime*' to 'il2cpp::runtime::Il2CppDecimal*'").
+
+The NAME is the only authority that can tell the families apart (the byte is
+shared), so every value-type gate now asks the generic-argument NAME first
+(`IsDecimalSourceNamed`, `MethodMap.Linq.cs:2875`).
+
+### 11.2 What is wired (the family-generic kernels, `src/runtime/include/internal/linq_family.h`)
+
+`linq_family.h` already ships family-generic kernels that read/write the
+element at its REAL width when the caller passes the cell code as the trailing
+literal -- `IL2CPP_LINQ_CELL_DATETIME` = 12, `IL2CPP_LINQ_CELL_TIMESPAN` = 13,
+`IL2CPP_LINQ_CELL_GUID` = 14 (`IL2CPP_LINQ_CELL_DECIMAL` = 11,
+`IL2CPP_LINQ_CELL_REF` = 15). The transpiler now routes the value-family
+sources through them (`MethodMap.Linq.cs:1069-1148`, cell code resolved by
+`LinqValueFamilyCellCode`, `:2924`):
+
+| Operator | Kernel | Notes |
+|---|---|---|
+| `Take` / `Skip` / `Reverse` | `il2cpp_linq_take_family` / `_skip_family` / `_reverse_family` | fresh array, the cell code as the trailing literal |
+| `Concat` / `Distinct` / `Except` / `Union` / `Intersect` | `il2cpp_linq_concat_family` / `_distinct_family` / `_except_family` / `_union_family` / `_intersect_family` | same |
+| `DefaultIfEmpty(source)` | `il2cpp_linq_default_if_empty_family` | the 2-argument form has NO family entry -- stays LOUD |
+| `LongCount` | `il2cpp_linq_long_count_family` | int64 result |
+| `SequenceEqual` | `il2cpp_linq_sequence_equal_family` | |
+| `Contains(value)` | `il2cpp_linq_contains_family_dt` / `_ts` / `_guid` | the VALUE entry: the cell code is implied, NO literal |
+| `ElementAt` | `il2cpp_linq_element_at_fam_dt` / `_ts` / `_guid` | the element crosses BY VALUE |
+| `Single` / `SingleOrDefault` | `il2cpp_linq_single_fam_*` / `il2cpp_linq_single_or_default_fam_*` | BY VALUE |
+
+The by-value `Guid` return needed a new result kind: the pre-existing `guid`
+kind is the Guid icall OUT-BUFFER ABI (`guid.h` writes through a byte
+pointer), while the family kernels RETURN the value -- hence `guidv`
+(`CodeGenerator.cs:3279-3290`, the ExprKind mapping at `:5678`).
+
+E2E proof (byte equality with the net48 oracle):
+`tests/cases/loud-linq-vtfam` -- `ok=True`, oracle sha = runtime sha =
+`278d62455e6f769d9f7b0b433568e6191d86fe4bcb5ccd620dbe0d4bc6276479` (31
+printed lines: Take / Skip / Reverse / Distinct / Concat / Except / Union /
+Intersect / DefaultIfEmpty / LongCount / SequenceEqual / Contains /
+ElementAt / Single / SingleOrDefault over `DateTime[]`, `TimeSpan[]`,
+`Guid[]`).
+
+### 11.3 Registered gaps (the shapes that stay LOUD -- never silent)
+
+1. **The predicate family over a value-family source.** `Where`, `All`,
+   `TakeWhile`, `SkipWhile`, `Count(predicate)`, `Any(predicate)` have NO
+   DateTime / TimeSpan / Guid kernel in the runtime (`linq.h` ships the
+   predicate entries per i4 / ref / i8 / d / f / narrow family only), and
+   `First` / `Last` have no family entry at all. The transpiler LOUDs them
+   with the source name. **Change surface**: per-family predicate entries in
+   `linq.h` (a `Func<DateTime,bool>` by-value ABI) plus the matching
+   `InvokeSel*` selector ABIs.
+2. **A USER STRUCT source.** `LinqValueFamilyCellCode` returns null for any
+   name outside `System.DateTime` / `System.TimeSpan` / `System.Guid` -- a
+   user struct has no cell ABI, so the operator stays LOUD (the decimal
+   kernels are NOT used as a fallback: that was the silent-wrong-value path).
+   **Change surface**: a per-struct cell ABI, or a boxed-element family.
+3. **`DefaultIfEmpty(source, defaultValue)`.** Only the source-only form has a
+   family entry; the 2-argument form needs a by-value default parameter per
+   family.
+4. **The grouping-bucket operators over a non-decimal value-type bucket**
+   (the byte-gate family of the bucket arms -- see 11.4).
+5. **`IsDecimalSourceNamed`'s permissive fallback.** When the generic-argument
+   NAME table could not be decoded (`genArgNames == null` or the slot is
+   `"?"`), a `0x11` source is treated as **decimal** (the legacy behaviour the
+   unnamed-decimal unit test depends on). A source whose name is unknown
+   therefore still rides the decimal kernels. **Change surface**: refuse the
+   decimal kernels when the name is unknown and LOUD instead -- that needs the
+   name table to be reliable first (a tracked-array-name fallback exists for
+   the value-family path, `LinqValueFamilyCellCode`).
+6. **The tracked-array-name fallback.** `LinqArrayTypeName(0x11)` returns
+   `"System.Decimal[]"` for EVERY value-type array (the byte-only helper), so a
+   `DateTime[]` snapshot used to be tracked as a `decimal[]` and the downstream
+   operators resolved the decimal family against it. The array-source `ToArray`
+   and the bucket `ToArray` now use the name-aware `LinqArrayTypeNameExact`
+   (`MethodMap.Linq.cs:2146`, `:3448`). **Residual**: the grouping bucket's
+   element array is a BOXED reference array (the b4 decimal-source design), so
+   the bucket `ToArray` returnTypeName is exact only for the decimal bucket;
+   for a value-family bucket the snapshot is `object[]` (the bucket cell
+   operators are LOUD anyway -- 11.4).
+
+### 11.4 The grouping-bucket byte gate (`:142` / `:528`) -- reachable, and now LOUD
+
+The bucket arms (the operators over an `IGrouping<TKey,TElement>`) gated the
+DECIMAL bucket kernels on `genArgs[0] == 0x11` as well. A `DateTime` / `Guid`
+bucket has NO bucket kernel in the runtime: the decimal bucket entries read
+16-byte decimal cells and the int32 bucket entries 4-byte cells out of the
+bucket's own 8/16-byte payload -- both a SILENT wrong value.
+
+**The arms ARE reachable**: a `DateTime[]` / `Guid[]` source GroupBy keeps its
+value-type key path by NAME (`GroupBy` over a value-type source), and the
+resulting bucket is an `IGrouping` with a value-type `TElement` -- so
+`bucket.Where(...)`, `bucket.First()`, `bucket.ElementAt(...)`,
+`bucket.Count(predicate)`, `bucket.Any(predicate)`, `bucket.All(...)`,
+`bucket.Take(...)`, `bucket.Distinct()`, `bucket.Sum()` all land in the
+bucket arms.
+
+Current state: the bucket arms now gate the decimal entries by NAME
+(`decBucket` / `valueBucket`, `MethodMap.Linq.cs:528-530`); the
+family-agnostic entries (the header-only `grouping_get_count` /
+`grouping_any`, and the `ToArray` snapshot) keep working, and every
+cell-reading operator over a non-decimal value-type bucket LOUDs with the
+bucket element type named (`MethodMap.Linq.cs:768-784`). The aggregate arm
+(`:142-146`, `:227-234`) LOUDs the same way.
+
+**The correct fix** (not done here): the bucket must carry its ELEMENT
+FAMILY (the `GroupElemKind` tag the runtime already stores per bucket --
+`linq_map.cpp`), and the runtime must grow bucket entries that read the
+bucket cells at the family's own width. A transpiler-only fix is NOT
+possible: the bucket's cell width is a runtime fact.
+
+**Not silent**: transpile-time LOUD naming the bucket element type.
+
+
+## References (section 11)
+
+- Value-family arm: `src/il2cppc/Emit/MethodMap.Linq.cs:1069-1148`; cell
+  code helper `:2924-2949`; the decimal-name authority `:2875-2890`.
+- Bucket gates: `src/il2cppc/Emit/MethodMap.Linq.cs:142-146` (aggregate),
+  `:227-234` (aggregate LOUD), `:528-530` (bucket), `:768-784` (bucket LOUD).
+- Name-aware array tracking: `src/il2cppc/Emit/MethodMap.Linq.cs:2146`
+  (array-source `ToArray`), `:722-726` (bucket `ToArray`), `:3448`
+  (`LinqArrayTypeNameExact`).
+- By-value Guid result kind: `src/il2cppc/Emit/CodeGenerator.cs:3279-3290`,
+  `:5678`.
+- Runtime cell ABI: `src/runtime/include/internal/linq_family.h` (the
+  `IL2CPP_LINQ_CELL_*` codes and the family kernels),
+  `src/runtime/src/linq_family.cpp`.
+- Tests: `tests/unit/MethodMapTests.Linq.cs` (the value-family theories and
+  the bucket LOUD theories), `tests/cases/loud-linq-vtfam` (e2e, byte-equal
+  with net48), `tests/cases/zmatrix` (the compile-error regression).

@@ -157,3 +157,29 @@ section 22 (runtime kernels), `tests/unit/MethodMapTests.B4DecimalSource.cs`
 (mapping + LOUD messages), and `tests/cases/loud-p0-grp-key-long/` (LOUD
 contract, registered in `scripts/sweep-exclude.txt`).
 
+## 7. The GROUPING-BUCKET operators over a non-decimal value-type bucket
+
+Section 3 above covers the KEY slot; this section covers the bucket's
+ELEMENT family (the `TElement` of `IGrouping<TKey,TElement>`).
+
+**Why LOUD**: the bucket arms used to gate the DECIMAL bucket kernels on the
+generic-argument byte `0x11` -- the byte shared by EVERY value type. A
+`DateTime[]` / `TimeSpan[]` / `Guid[]` source GroupBy keeps its value-type
+path by NAME, so the resulting bucket reaches those arms: the decimal bucket
+entries read 16-byte decimal cells and the int32 bucket entries 4-byte cells
+out of the bucket's own 8/16-byte payload -- a SILENT wrong value.
+
+**Not silent**: transpile-time LOUD naming the bucket element type
+(`src/il2cppc/Emit/MethodMap.Linq.cs:768-784` for the bucket arms, `:227-234`
+for the aggregate arm). The family-agnostic entries keep working (the
+header-only `grouping_get_count` / `grouping_any` and the `ToArray`
+snapshot).
+
+**Change surface**: the runtime bucket must carry its ELEMENT FAMILY (the
+`GroupElemKind` tag the bucket already stores) and grow the cell-reading
+entries at the family's own width. A transpiler-only fix is not possible --
+the bucket cell width is a runtime fact.
+
+**Cross-reference**: `docs/audit/b5-gaps.md` section 10 (the value-type source
+family: what is wired on the family kernels and what stays LOUD).
+

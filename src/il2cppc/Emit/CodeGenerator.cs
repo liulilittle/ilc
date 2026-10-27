@@ -3276,6 +3276,16 @@ public static class CodeGenerator
                 w.Line($"{MuPrefix(d)}il2cpp::Il2CppGuid {d};");
                 continue;
             }
+            // impl-linqfix: "guidv" is the BY-VALUE Guid RETURN (the family
+            // kernels -- il2cpp_linq_element_at_fam_guid / _single_fam_guid --
+            // RETURN an Il2CppGuid, while the plain "guid" kind is the Guid
+            // icall out-buffer ABI that WRITES through a byte pointer). The
+            // slot is the same assignable Il2CppGuid POD struct.
+            if (kind == "guidv")
+            {
+                w.Line($"{MuPrefix(d)}il2cpp::Il2CppGuid {d};");
+                continue;
+            }
             // M7 CG-FIX (netcase): the IPAddress.Parse "ip4" value slot -- the
             // four address bytes as a plain uint8_t[4] array (ipaddr.h takes
             // uint8_t out4[4], same write-through contract as the Guid slot).
@@ -5670,7 +5680,7 @@ public static class CodeGenerator
         // Guid icall results are 16-byte raw value slots (uint8_t[16]; the
         // icalls WRITE through the output buffer -- the "guid" kind carries
         // the slot shape to the declaration site).
-        CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "dec" or "dec2" or "ptr" or "ip4" or "dto" or "bi" or "rect" or "point" or "msg" => c.ResultKind,
+        CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "guidv" or "dec" or "dec2" or "ptr" or "ip4" or "dto" or "bi" or "rect" or "point" or "msg" => c.ResultKind,
         // P-D3 P0: a call whose result is a raw function pointer (fnptr
         // DllImport return) carries ResultKind "p" (void* slot) -- the same
         // carrier FuncPtrExpr/LocAddrExpr use. Without this arm the result
