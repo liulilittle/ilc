@@ -43,6 +43,22 @@ class P
         sb.Append($"|z={3}");
         sb.AppendLine();
 
+        // E (P3-1②): the char[]-backed span carrier (ReadOnlySpan<char>::
+        // op_Implicit(char[])) -- the span kernel dispatches on the backing
+        // object class and appends the ARRAY's element units (not the string
+        // path). The direct cast is the identity-folded lowering; a sliced
+        // AsSpan(string,int,int) would be a different (uncovered) shape.
+        char[] chars = { 'x', '|', 'y' };
+        sb.Append((ReadOnlySpan<char>)chars);
+        sb.AppendLine();
+
+        // F (P3-1②): the three-TArg CompositeFormat form
+        // (AppendFormat<TArg0,TArg1,TArg2> -- the kernel family's top arity;
+        // each closed int slot boxes through the composite engine).
+        var cf3 = CompositeFormat.Parse("<{0}-{1}-{2}>");
+        sb.AppendFormat(CultureInfo.InvariantCulture, cf3, 14, 15, 16);
+        sb.AppendLine();
+
         Console.WriteLine(sb.ToString());
     }
 }

@@ -428,6 +428,23 @@ public class MethodMapStringBuilderTests
     }
 
     [Fact]
+    public void Resolve_AppendFormat_CompositeFormat_NoMethodSpec_ThrowsLoudGenArgsNull()
+    {
+        // The CompositeFormat TArg shape riding a PLAIN MemberReference (the
+        // generic 0x30 signature without a MethodSpecification token): the
+        // resolver decodes ps=[0x12,0x12,0x1E] with genArgs=null -- the closed
+        // TArg carrier cannot be generated without the MethodSpec decode, so
+        // the arm must reject LOUD (never a silent provider-kernel fallback
+        // with uncast slots).
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendFormat",
+                new byte[] { 0x30, 0x01, 0x03, 0x1C, 0x12, 0x05, 0x12, 0x05, 0x1E, 0x00 }), "AppendFormat"));
+
+        Assert.Contains("genArgs=null", ex.Message);
+        Assert.Contains("LOUD whitelist (", ex.Message);
+    }
+
+    [Fact]
     public void Resolve_AppendFormat_CompositeFormat_FourGenericArgs_ThrowsLoud()
     {
         // netcore defines TArg0..TArg2 generic overloads only -- a 4-slot
