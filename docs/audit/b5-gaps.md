@@ -116,7 +116,8 @@ current state is the compile-time rejection (arrays and `List<T>`, lock:
 | `OrderBy` / `OrderByDescending` | `Func<T,int,TKey>` (index key selector) | no index key-selector entry |
 | `Select` | `Func<T,int,TResult>` over a reference source with a NON-reference `TResult` | the reference index-selector surface covers a REFERENCE `TResult` only (`select_idx_ref_ref`) |
 | `Select` | reference source with a NON-reference `TResult` | only `il2cpp_linq_select_ref_ref` exists for ref sources |
-| `OrderBy` / `OrderByDescending` | `decimal` (or any non-i4/i8/d/ref) key family | no key kernel |
+| `OrderBy` / `OrderByDescending` | a user-STRUCT key (a 0x11 value type that is neither `System.DateTime` nor `System.Guid`) | no field-wise comparison carrier (impl-linq3 B wired the DateTime/Guid carriers over the i4/i8/dec/ref sources) |
+| `Select` | (element, index) selector over a decimal source / decimal bucket returning a REFERENCE `TResult` | no decimal index reference-result entry (impl-linq3 C wired the non-index ref form over the bucket) |
 | `OrderBy` / `OrderByDescending` | a `System.String` key -- STATIC (`TKey == string`) | transpile-time rejection (no collation) |
 | `OrderBy` / `OrderByDescending` | a key whose RUNTIME type is `System.String` (`object`/interface key) | runtime rejection in `CompareRefKeys` (no collation) |
 | `ThenBy` / `ThenByDescending` | LIST receiver, or a reference-element source | the chained-sorter fold only rewrites the int32 ARRAY form |
