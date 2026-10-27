@@ -1531,6 +1531,107 @@ public class MethodMapTestsLinq
         Assert.Equal(1, resolved.ParamCount);
     }
 
+    //==========================================================================
+    // impl-linqfix: a VALUE-TYPE SOURCE must NEVER bind a DECIMAL-source
+    // kernel. The 0x11 element byte covers EVERY value type (decimal /
+    // DateTime / TimeSpan / Guid / a user struct), so the decimal-source
+    // dispatch arm has to resolve the SOURCE NAME (System.Decimal) before it
+    // serves a dec kernel.
+    //
+    // The regression: the decimal-source block was gated by the byte-only
+    // IsLinqDecimalSource (genArgs[0] == 0x11), so a DateTime[] source fell
+    // into it and the emitted C++ called il2cpp_linq_first_dec(&dtResult,
+    // dtArray) -- an Il2CppDateTime* into an Il2CppDecimal* slot (the zmatrix
+    // compile failure "cannot convert Il2CppDateTime* to Il2CppDecimal*").
+    // The same misroute also bound the cell-reading dec kernels (where_dec /
+    // take_dec / count_pred_dec / ...) to a DateTime/TimeSpan/Guid source --
+    // a SILENT wrong read (16-byte decimal cells over an 8/16-byte payload).
+    //
+    // The runtime has NO predicate kernel for a value-type element family
+    // (linq.h ships count/any/all/where/take_while/skip_while per i4 / ref /
+    // i8 / d / f / narrow family only; the decimal source has its own dec
+    // kernels), so these operators must stay LOUD instead of binding a
+    // foreign ABI.
+    //==========================================================================
+    [Theory]
+    [InlineData("First", "source")]
+    [InlineData("FirstOrDefault", "source")]
+    [InlineData("Last", "source")]
+    [InlineData("LastOrDefault", "source")]
+    [InlineData("Single", "source")]
+    [InlineData("SingleOrDefault", "source")]
+    [InlineData("Distinct", "source")]
+    [InlineData("Reverse", "source")]
+    [InlineData("LongCount", "source")]
+    [InlineData("DefaultIfEmpty", "source")]
+    [InlineData("Where", "predicate")]
+    [InlineData("All", "predicate")]
+    [InlineData("TakeWhile", "predicate")]
+    [InlineData("SkipWhile", "predicate")]
+    [InlineData("Take", "range")]
+    [InlineData("Skip", "range")]
+    [InlineData("ElementAt", "range")]
+    [InlineData("Concat", "same")]
+    [InlineData("Except", "same")]
+    [InlineData("SequenceEqual", "same")]
+    [InlineData("Contains", "contains")]
+    public void Resolve_DateTimeSource_ElementOperator_StaysLoud(string name, string shape)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(
+            SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature(shape),
+                "System", "DateTime")));
+
+        Assert.DoesNotContain("_dec", ex.Message);
+    }
+
+    // The SAME-TYPE families: a TimeSpan[] / Guid[] source is not a decimal
+    // source either (the 0x11 byte is shared by every value type).
+    [Theory]
+    [InlineData("System", "TimeSpan", "First", "source")]
+    [InlineData("System", "TimeSpan", "Where", "predicate")]
+    [InlineData("System", "TimeSpan", "Take", "range")]
+    [InlineData("System", "Guid", "First", "source")]
+    [InlineData("System", "Guid", "Where", "predicate")]
+    [InlineData("System", "Guid", "ElementAt", "range")]
+    [InlineData("System.Collections.Generic", "KeyValuePair`2", "First", "source")]
+    [InlineData("System.Collections.Generic", "KeyValuePair`2", "Where", "predicate")]
+    public void Resolve_NonDecimalValueTypeSource_ElementOperator_StaysLoud(
+        string ns, string typeName, string name, string shape)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(
+            SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature(shape), ns, typeName)));
+
+        Assert.DoesNotContain("_dec", ex.Message);
+    }
+
+    // The PREDICATE forms of Count / Any are element-family AGNOSTIC by NAME
+    // (the familyAgnostic gate lets them through), so they must not fall into
+    // the int32 predicate kernels either: those call the predicate through the
+    // int32 ABI and read 4-byte cells out of an 8/16-byte payload.
+    [Theory]
+    [InlineData("Count")]
+    [InlineData("Any")]
+    public void Resolve_DateTimeSource_PredicateCount_StaysLoud(string name)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(
+            SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("predicate"),
+                "System", "DateTime")));
+
+        Assert.DoesNotContain("_dec", ex.Message);
+    }
+
+    // The gate is NAME-based, not byte-based: a REAL System.Decimal source
+    // still rides the decimal kernels.
+    [Fact]
+    public void Resolve_NamedDecimalSource_ElementOperator_StillMapsToDecimalKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource("First",
+            ValueTypeSourceSignature("source"), "System", "Decimal"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_first_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+    }
+
     //--------------------------------------------------------------------------
     // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each entry
     // snapshots the bucket's decimal cells and reuses the DECIMAL-SOURCE
@@ -3223,6 +3324,66 @@ public class MethodMapTestsLinq
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }
+
+    // VALUE-TYPE SOURCE helper: TSource is a NAMED VALUETYPE TypeRef
+    // (System.DateTime / System.TimeSpan / System.Guid / System.Decimal / a
+    // user struct) so the decoded generic-argument FULL NAME table can tell
+    // the value-type source families apart -- the 0x11 dispatch byte alone
+    // cannot (this is the shape the real compiler sees for a DateTime[]
+    // source; the plain SynthesizeGeneric PE carries the dispatch byte only).
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: <the value type>            (coded 0x11)
+    private static MemoryStream SynthesizeGenericValueTypeSource(string methodName,
+        byte[] memberRefSignature, string ns, string typeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var srcRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(memberRefSignature));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger((MetadataTokens.GetRowNumber(srcRef) << 2) | 1); // TSource = the value type
+        spec.WriteByte(0x02);                                                       // TResult = int32
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // The member-reference signature of one LINQ operator shape over a
+    // single-source array:
+    //   source   -- IEnumerable<T>                       (First / Distinct / ...)
+    //   predicate-- IEnumerable<T>, Func<T,bool>         (Where / All / ...)
+    //   range    -- IEnumerable<T>, int32                (Take / Skip / ElementAt)
+    //   same     -- IEnumerable<T>, IEnumerable<T>        (Concat / Except / ...)
+    //   contains -- IEnumerable<T>, T                    (Contains)
+    private static byte[] ValueTypeSourceSignature(string shape) => shape switch
+    {
+        "source" => new byte[] { 0x10, 0x01, 0x01, 0x13, 0x00,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+        "predicate" => new byte[] { 0x10, 0x01, 0x02, 0x08,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+            0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
+        "range" => new byte[] { 0x10, 0x01, 0x02, 0x13, 0x00,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00, 0x08 },
+        "same" => new byte[] { 0x10, 0x01, 0x02, 0x13, 0x00,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+        "contains" => new byte[] { 0x10, 0x01, 0x02, 0x02,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00, 0x13, 0x00 },
+        _ => throw new ArgumentOutOfRangeException(nameof(shape), shape, "unknown LINQ operator shape"),
+    };
 
     // VALUE-source Select helper: TSource is a primitive byte (0x08 int32 /
     // 0x0E string) and TResult is a named VALUETYPE TypeRef (the 0x11 byte is

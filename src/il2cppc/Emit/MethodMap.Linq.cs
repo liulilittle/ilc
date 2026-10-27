@@ -779,16 +779,39 @@ public static partial class MethodRefResolver
             if (listDispatch != null) return listDispatch;
         }
 
-        // P0LINQ1 (D3): a DECIMAL-element ARRAY source. LinqSourceFamily folds
-        // 0x11 into "ref" (every value type shares that byte), so this block
-        // must run BEFORE the reference-source block or a decimal[] source
+        // P0LINQ1 (D3): a VALUE-TYPE-element ARRAY source. LinqSourceFamily
+        // folds 0x11 into "ref" (every value type shares that byte), so this
+        // block must run BEFORE the reference-source block or a decimal[] source
         // would be dispatched into the ref kernels (which require isRefElem).
         // The implemented operator is Select with a decimal result; the
         // source-only aggregates are served earlier by LinqFamilyAggregate.
+        //
+        // impl-linqfix: the 0x11 byte covers EVERY value type (decimal /
+        // DateTime / TimeSpan / Guid / a user struct), but the kernels this
+        // block binds for the element/predicate operators are the DECIMAL
+        // ones (il2cpp_linq_first_dec / where_dec / take_dec / count_pred_dec /
+        // ...). The byte-only gate let a DateTime[] / TimeSpan[] / Guid[] source
+        // fall into them: the typed-result entries (first_dec / last_dec /
+        // single_dec / element_at_dec / ...) then emitted
+        // il2cpp_linq_first_dec(&dateTimeResult, dtArray) -- an
+        // Il2CppDateTime* into an Il2CppDecimal* slot (the zmatrix compile
+        // failure), and the cell-reading entries (where_dec / take_dec /
+        // count_pred_dec / ...) read 16-byte decimal cells out of an 8/16-byte
+        // payload (a SILENT wrong value).
+        //
+        // The source NAME is the authority (IsDecimalSourceNamed -- the same
+        // rule LinqFamilyAggregate and the decimal-source GroupBy arm use), so
+        // every DECIMAL-kernel arm below carries the `decSource` gate. The
+        // VALUE-FAMILY arms that DO exist (the DateTime/Guid-source GroupBy)
+        // are name-guarded in place and stay reachable; a non-decimal
+        // value-type source that reaches no arm falls through to the LOUD
+        // gates below (the runtime has no value-family kernel for these
+        // operators -- a foreign ABI would be worse than a rejection).
         if (listKind == null && IsLinqDecimalSource(genArgs, receiverType, arg0Type)
             && !IsLinqStringSource(genArgs, receiverType, arg0Type))
         {
-            if (name == "Select")
+            bool decSource = IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
+            if (decSource && name == "Select")
             {
                 if (genArgs is not { Length: >= 2 })
                     return null;
@@ -834,7 +857,7 @@ public static partial class MethodRefResolver
             // p0grp: Where over a DECIMAL source (net48 Where<decimal>(source,
             // Func<decimal,bool>)). The predicate takes the decimal BY VALUE; the
             // result is a fresh decimal[].
-            if (name == "Where")
+            if (decSource && name == "Where")
             {
                 if (genArgs is not { Length: >= 1 })
                     return null;
@@ -850,23 +873,23 @@ public static partial class MethodRefResolver
             // ElementAt / Contains / Reverse / Take / Skip). The element-returning
             // entries return the decimal BY VALUE (ResultKind "dec"); the range
             // entries materialize a fresh decimal[].
-            if (name == "First" && count < 2)
+            if (decSource && name == "First" && count < 2)
                 return I("il2cpp::il2cpp_linq_first_dec", 1, true, false, false, OneArg, resultKind: "dec");
-            if (name == "Last" && count < 2)
+            if (decSource && name == "Last" && count < 2)
                 return I("il2cpp::il2cpp_linq_last_dec", 1, true, false, false, OneArg, resultKind: "dec");
-            if (name == "ElementAt")
+            if (decSource && name == "ElementAt")
                 return I("il2cpp::il2cpp_linq_element_at_dec", 2, true, false, false,
                     new[] { "a", "i" }, resultKind: "dec");
-            if (name == "Contains")
+            if (decSource && name == "Contains")
                 return I("il2cpp::il2cpp_linq_contains_dec", 2, true, false, false,
                     new[] { "a", "" });
-            if (name == "Reverse")
+            if (decSource && name == "Reverse")
                 return I("il2cpp::il2cpp_linq_reverse_dec", 1, true, true, false, OneArg,
                     returnTypeName: "System.Decimal[]");
-            if (name == "Take")
+            if (decSource && name == "Take")
                 return I("il2cpp::il2cpp_linq_take_dec", 2, true, true, false,
                     new[] { "a", "i" }, returnTypeName: "System.Decimal[]");
-            if (name == "Skip")
+            if (decSource && name == "Skip")
                 return I("il2cpp::il2cpp_linq_skip_dec", 2, true, true, false,
                     new[] { "a", "i" }, returnTypeName: "System.Decimal[]");
             // impl-linq2 (B-3): the remaining DECIMAL-source element / predicate
@@ -879,78 +902,78 @@ public static partial class MethodRefResolver
             // VALUE. Count(pred)/Any(pred) MUST be served here: the generic
             // int32 entries below are element-family agnostic and would
             // silently read the 16-byte decimal cells as int32 pairs.
-            if (name == "FirstOrDefault" && count < 2)
+            if (decSource && name == "FirstOrDefault" && count < 2)
                 return I("il2cpp::il2cpp_linq_first_or_default_dec", 1, true, false, false,
                     OneArg, resultKind: "dec");
-            if (name == "LastOrDefault" && count < 2)
+            if (decSource && name == "LastOrDefault" && count < 2)
                 return I("il2cpp::il2cpp_linq_last_or_default_dec", 1, true, false, false,
                     OneArg, resultKind: "dec");
-            if (name == "Single" && count < 2)
+            if (decSource && name == "Single" && count < 2)
                 return I("il2cpp::il2cpp_linq_single_dec", 1, true, false, false,
                     OneArg, resultKind: "dec");
-            if (name == "SingleOrDefault" && count < 2)
+            if (decSource && name == "SingleOrDefault" && count < 2)
                 return I("il2cpp::il2cpp_linq_single_or_default_dec", 1, true, false, false,
                     OneArg, resultKind: "dec");
-            if (name == "First" && count >= 2)
+            if (decSource && name == "First" && count >= 2)
                 return I("il2cpp::il2cpp_linq_first_pred_dec", 2, true, false, false,
                     TwoArg, resultKind: "dec");
-            if (name == "FirstOrDefault" && count >= 2)
+            if (decSource && name == "FirstOrDefault" && count >= 2)
                 return I("il2cpp::il2cpp_linq_first_or_default_pred_dec", 2, true, false, false,
                     TwoArg, resultKind: "dec");
-            if (name == "Last" && count >= 2)
+            if (decSource && name == "Last" && count >= 2)
                 return I("il2cpp::il2cpp_linq_last_pred_dec", 2, true, false, false,
                     TwoArg, resultKind: "dec");
-            if (name == "LastOrDefault" && count >= 2)
+            if (decSource && name == "LastOrDefault" && count >= 2)
                 return I("il2cpp::il2cpp_linq_last_or_default_pred_dec", 2, true, false, false,
                     TwoArg, resultKind: "dec");
-            if (name == "Single" && count >= 2)
+            if (decSource && name == "Single" && count >= 2)
                 return I("il2cpp::il2cpp_linq_single_pred_dec", 2, true, false, false,
                     TwoArg, resultKind: "dec");
-            if (name == "SingleOrDefault" && count >= 2)
+            if (decSource && name == "SingleOrDefault" && count >= 2)
                 return I("il2cpp::il2cpp_linq_single_or_default_pred_dec", 2, true, false, false,
                     TwoArg, resultKind: "dec");
-            if (name == "Count" && count >= 2)
+            if (decSource && name == "Count" && count >= 2)
                 return I("il2cpp::il2cpp_linq_count_pred_dec", 2, true, false, false, TwoArg);
-            if (name == "Any" && count >= 2)
+            if (decSource && name == "Any" && count >= 2)
                 return I("il2cpp::il2cpp_linq_any_pred_dec", 2, true, false, false, TwoArg);
-            if (name == "All")
+            if (decSource && name == "All")
                 return I("il2cpp::il2cpp_linq_all_dec", 2, true, false, false, TwoArg);
-            if (name == "LongCount" && count < 2)
+            if (decSource && name == "LongCount" && count < 2)
                 return I("il2cpp::il2cpp_linq_long_count_dec", 1, true, false, false,
                     OneArg, resultKind: "l");
-            if (name == "TakeWhile")
+            if (decSource && name == "TakeWhile")
                 return I("il2cpp::il2cpp_linq_take_while_dec", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Decimal[]");
-            if (name == "SkipWhile")
+            if (decSource && name == "SkipWhile")
                 return I("il2cpp::il2cpp_linq_skip_while_dec", 2, true, true, false, TwoArg,
                     returnTypeName: "System.Decimal[]");
             // p0grp: the DECIMAL-source set / concat / equality operators (net48
             // Distinct / Except / Concat / DefaultIfEmpty / SequenceEqual).
-            if (name == "Distinct")
+            if (decSource && name == "Distinct")
                 return I("il2cpp::il2cpp_linq_distinct_dec", 1, true, true, false, OneArg,
                     returnTypeName: "System.Decimal[]");
-            if (name == "Except")
+            if (decSource && name == "Except")
                 return I("il2cpp::il2cpp_linq_except_dec", 2, true, true, false, new[] { "a", "a" },
                     returnTypeName: "System.Decimal[]");
-            if (name == "Concat")
+            if (decSource && name == "Concat")
                 return I("il2cpp::il2cpp_linq_concat_dec", 2, true, true, false, new[] { "a", "a" },
                     returnTypeName: "System.Decimal[]");
-            if (name == "DefaultIfEmpty" && count >= 2)
+            if (decSource && name == "DefaultIfEmpty" && count >= 2)
                 return I("il2cpp::il2cpp_linq_default_if_empty_dec", 2, true, true, false,
                     new[] { "a", "" }, returnTypeName: "System.Decimal[]");
-            if (name == "DefaultIfEmpty")
+            if (decSource && name == "DefaultIfEmpty")
                 // impl-linq2 (B-3): the source-only form -- the old mapping
                 // pointed this 1-arity call at the 2-argument kernel (an
                 // under-arg'd call); the empty source now yields the single
                 // default(decimal) cell.
                 return I("il2cpp::il2cpp_linq_default_if_empty1_dec", 1, true, true, false,
                     OneArg, returnTypeName: "System.Decimal[]");
-            if (name == "SequenceEqual")
+            if (decSource && name == "SequenceEqual")
                 return I("il2cpp::il2cpp_linq_sequence_equal_dec", 2, true, false, false, new[] { "a", "a" });
             // p0grp: OrderBy / OrderByDescending over a DECIMAL source (net48
             // OrderBy<decimal,TKey>). The int32-key family rides the decimal
             // source sort; the result is a fresh decimal[].
-            if (name == "OrderBy" || name == "OrderByDescending")
+            if (decSource && (name == "OrderBy" || name == "OrderByDescending"))
             {
                 bool desc = name == "OrderByDescending";
                 byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
@@ -1793,11 +1816,31 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_linq_grouping_get_count", 1, true, false, false, new[] { "" });
                 if (count < 2 && countRecv == "System.Linq.IGroupingResult")
                     return I("il2cpp::il2cpp_linq_grouping_result_get_count", 1, true, false, false, new[] { "" });
+                // impl-linqfix: the PREDICATE form of Count over a VALUE-TYPE
+                // source (DateTime / TimeSpan / Guid / a user struct) must not
+                // ride the int32 predicate kernel: il2cpp_linq_count_i4 calls
+                // the predicate through the int32 ABI and reads 4-byte cells
+                // out of a source whose payload is 8/16 bytes wide -- a SILENT
+                // wrong count. The runtime has no predicate kernel for those
+                // families (the System.Decimal source has its own count_pred_dec
+                // entry), so the operator stays LOUD.
+                if (count >= 2 && IsLinqNonDecimalValueTypeSource(genArgs, genArgNames, receiverType, arg0Type))
+                    throw new NotSupportedException(
+                        $"Enumerable.Count with a predicate over a {ValueTypeSourceName(genArgs, genArgNames, receiverType, arg0Type)} source is not wired: " +
+                        "the runtime has no predicate kernel for a non-decimal value-type element family " +
+                        "(il2cpp_linq_count_i4 reads 4-byte int32 cells and calls the predicate through the int32 ABI)");
                 return count >= 2
                     ? I("il2cpp::il2cpp_linq_count_i4", 2, true, false, false, TwoArg)
                     : I("il2cpp::il2cpp_linq_count", 1, true, false, false, OneArg);
             case "Any":
                 // Any() / Any(predicate) -- bool result (int32 slot).
+                // impl-linqfix: the PREDICATE form over a non-decimal
+                // VALUE-TYPE source stays LOUD (see the Count arm above).
+                if (count >= 2 && IsLinqNonDecimalValueTypeSource(genArgs, genArgNames, receiverType, arg0Type))
+                    throw new NotSupportedException(
+                        $"Enumerable.Any with a predicate over a {ValueTypeSourceName(genArgs, genArgNames, receiverType, arg0Type)} source is not wired: " +
+                        "the runtime has no predicate kernel for a non-decimal value-type element family " +
+                        "(il2cpp_linq_any_i4 reads 4-byte int32 cells and calls the predicate through the int32 ABI)");
                 return count >= 2
                     ? I("il2cpp::il2cpp_linq_any_i4", 2, true, false, false, TwoArg)
                     : I("il2cpp::il2cpp_linq_any", 1, true, false, false, OneArg);
@@ -2708,6 +2751,32 @@ public static partial class MethodRefResolver
             || name.EndsWith("System.DateTime[]", StringComparison.Ordinal)
             || name.EndsWith("System.TimeSpan[]", StringComparison.Ordinal)
             || name.EndsWith("System.Guid[]", StringComparison.Ordinal));
+    }
+
+    // IsLinqNonDecimalValueTypeSource -- the source element is a 0x11
+    // VALUETYPE that is NOT System.Decimal (DateTime / TimeSpan / Guid / a user
+    // struct). The decimal source has its own kernels (count_pred_dec /
+    // any_dec / ...); every other value family has NO predicate kernel, so the
+    // int32-family entries (count_i4 / any_i4) must not serve them -- they
+    // call the predicate through the int32 ABI and read 4-byte cells out of a
+    // source whose payload is 8/16 bytes wide (a SILENT wrong count).
+    private static bool IsLinqNonDecimalValueTypeSource(byte[]? genArgs, string[]? genArgNames,
+        string? receiverType, string? arg0Type)
+    {
+        if (!IsLinqValueTypeSource(genArgs, receiverType, arg0Type)) return false;
+        return !IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
+    }
+
+    // ValueTypeSourceName -- the source element name for a LOUD message: the
+    // decoded generic-argument name when it is known, else the tracked array
+    // name, else the element byte's generic name.
+    private static string ValueTypeSourceName(byte[]? genArgs, string[]? genArgNames,
+        string? receiverType, string? arg0Type)
+    {
+        if (genArgNames is { Length: >= 1 } && genArgNames[0] != "?") return genArgNames[0];
+        var tracked = receiverType ?? arg0Type;
+        if (tracked != null) return tracked;
+        return genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?";
     }
 
     private static bool IsLinqStringSource(byte[]? genArgs, string? receiverType, string? arg0Type)
