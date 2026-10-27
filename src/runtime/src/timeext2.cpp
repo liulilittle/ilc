@@ -945,6 +945,49 @@ Il2CppDateTime il2cpp_datetime_parse_styles(Il2CppObject* input, int32_t styles)
     return il2cpp_datetime_parse(input);
 }
 
+//------------------------------------------------------------------------------
+// impl-tz2 -- DateTime.TryParse: the no-throw twin of il2cpp_datetime_parse
+// (net48 datetime.cs:1466-1473). A null input or an unparseable string
+// returns false with '*value' set to MinValue (net48 DateTimeParse.TryParse
+// always assigns the out slot -- the pinned dtextra2 oracle: a failed
+// TryParse leaves MinValue/ticks=0, NOT the caller's prior value); success
+// stores the parsed DateTime. The _styles arm is the (string, IFormatProvider,
+// DateTimeStyles, out DateTime) overload -- the provider is invariant-culture
+// only (dropped by the transpiler) and the styles flags ride the subset's
+// documented no-op behavior (the parse_styles contract).
+//------------------------------------------------------------------------------
+bool il2cpp_datetime_try_parse(Il2CppString* input, Il2CppDateTime* value)
+{
+    if (input == nullptr)
+    {
+        if (value != nullptr)
+        {
+            *value = Il2CppDateTime{}; // net48 failure contract: MinValue.
+        }
+        return false;
+    }
+    ParsedFields fields;
+    if (!TryParseDefault(input->chars, input->length, fields))
+    {
+        if (value != nullptr)
+        {
+            *value = Il2CppDateTime{}; // net48 failure contract: MinValue.
+        }
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = ComposeDateTime(fields);
+    }
+    return true;
+}
+
+bool il2cpp_datetime_try_parse_styles(Il2CppString* input, int32_t styles, Il2CppDateTime* value)
+{
+    (void)styles; // see the header contract
+    return il2cpp_datetime_try_parse(input, value);
+}
+
 Il2CppTimeSpan il2cpp_timespan_parse(Il2CppString* input)
 {
     if (input == nullptr)

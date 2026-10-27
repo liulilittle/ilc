@@ -118,9 +118,11 @@ public static partial class MethodRefResolver
                 // The net48 1-arg DateTime overload is the only reachable form
                 // (the DateTimeOffset overload shares the 0x11 arity-1 shape;
                 // no DateTimeOffset value can be constructed in the wired
-                // surface -- see the header).
+                // surface -- see the header). impl-tz2: net48 GetUtcOffset is
+                // 1-arg on BOTH owners (timezoneinfo.cs:428/433,
+                // timezone.cs:90) -- any other arity cannot come from net48.
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"{(name == "get_UtcOffset" ? "TimeZoneInfo" : "TimeZone")}.{name} with {ps.Length} arg(s) not wired: the runtime has only the (DateTime) offset overload");
+                    throw new NotSupportedException($"{(name == "get_UtcOffset" ? "TimeZoneInfo" : "TimeZone")}.{name} with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: the net48 overloads are the 1-arg DateTime/DateTimeOffset forms) [Reference Source mscorlib/system/timezoneinfo.cs:428,433; mscorlib/system/timezone.cs:90]");
                 // receiverType == null is the fold's FIRST resolution (the
                 // callvirt receiver carries the zone tag -- the members are
                 // VIRTUAL, see the header): DEFER to the receiver-aware
@@ -156,13 +158,20 @@ public static partial class MethodRefResolver
                 // TimeZoneInfo.ToLocalTime(DateTime) -> DateTime (utc + offset).
                 // The receiver is dropped (the tag never reached an icall);
                 // the DateTime arg passes by value ("dt" result kind).
+                // impl-tz2: net48 has NO TimeZoneInfo.ToLocalTime member at
+                // all -- the only net48 ToLocalTime is the obsolete
+                // TimeZone.ToLocalTime(DateTime) (timezone.cs:112), 1-arg, so
+                // any non-1-arg shape cannot come from net48.
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"ToLocalTime with {ps.Length} arg(s) not wired: the runtime has only the (DateTime) converter");
+                    throw new NotSupportedException($"ToLocalTime with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: net48 has no TimeZoneInfo.ToLocalTime member and TimeZone.ToLocalTime is the 1-arg (DateTime) form only) [Reference Source mscorlib/system/timezone.cs:112]");
                 return I("il2cpp::runtime::il2cpp_datetime_to_local", 1, true, false, true,
                     new[] { "drop", "" }, "dt", returnTypeName: "System.DateTime");
             case "ToUniversalTime":
+                // impl-tz2: same evidence as ToLocalTime -- the only net48
+                // ToUniversalTime is TimeZone.ToUniversalTime(DateTime)
+                // (timezone.cs:95), 1-arg.
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"ToUniversalTime with {ps.Length} arg(s) not wired: the runtime has only the (DateTime) converter");
+                    throw new NotSupportedException($"ToUniversalTime with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: net48 has no TimeZoneInfo.ToUniversalTime member and TimeZone.ToUniversalTime is the 1-arg (DateTime) form only) [Reference Source mscorlib/system/timezone.cs:95]");
                 return I("il2cpp::runtime::il2cpp_datetime_from_local", 1, true, false, true,
                     new[] { "drop", "" }, "dt", returnTypeName: "System.DateTime");
             case "IsDaylightSavingTime":
@@ -171,15 +180,29 @@ public static partial class MethodRefResolver
                 // date (timezone.h per-date family). A no-DST host is a
                 // constant false -- byte-exact with net48.
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"IsDaylightSavingTime with {ps.Length} arg(s) not wired: the runtime has only the per-date probe");
+                {
+                    // impl-tz2: the obsolete TimeZone.IsDaylightSavingTime(
+                    // DateTime, DaylightTime) 2-arg form (timezone.cs:132)
+                    // needs a DaylightTime VALUE, which GetDaylightChanges
+                    // would produce -- but the DaylightTime object has no
+                    // runtime box class/descriptor, so the value cannot exist
+                    // in the wired surface. Every other non-1-arg shape is
+                    // not a net48 arity (TimeZoneInfo exposes only the 1-arg
+                    // DateTime/DateTimeOffset forms, timezoneinfo.cs:542/549).
+                    if (owner == "System.TimeZone" && ps.Length == 2)
+                        throw new NotSupportedException($"IsDaylightSavingTime with 2 arg(s) not wired: LOUD whitelist (runtime descriptor: the net48 (DateTime, DaylightTime) overload needs a DaylightTime value and the DaylightTime object has no runtime box class/descriptor) [Reference Source mscorlib/system/timezone.cs:124,132]");
+                    throw new NotSupportedException($"IsDaylightSavingTime with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: TimeZoneInfo exposes only the 1-arg DateTime/DateTimeOffset forms; the TimeZone 2-arg DaylightTime form has no runtime descriptor) [Reference Source mscorlib/system/timezoneinfo.cs:542,549]");
+                }
                 return I("il2cpp::runtime::il2cpp_timezone_get_is_daylight_saving_at", 1, true, false, true,
                     new[] { "drop", "" });
             case "IsInvalidTime":
                 // net48 IsInvalidTime(DateTime): 1 when the wall clock falls
                 // in the non-existent spring-forward hour (the per-date DST
                 // model); a no-DST host is a constant false.
+                // impl-tz2: the only net48 form is the 1-arg (DateTime)
+                // (timezoneinfo.cs:620) -- any other arity is not net48.
                 if (ps.Length != 1)
-                    throw new NotSupportedException($"IsInvalidTime with {ps.Length} arg(s) not wired: the runtime has only the per-date probe");
+                    throw new NotSupportedException($"IsInvalidTime with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: the only net48 overload is IsInvalidTime(DateTime)) [Reference Source mscorlib/system/timezoneinfo.cs:620]");
                 return I("il2cpp::runtime::il2cpp_timezone_get_is_invalid_time", 1, true, false, true,
                     new[] { "drop", "" });
 
@@ -189,39 +212,49 @@ public static partial class MethodRefResolver
                 // timezone_registry.cpp resolves the closed set (Eastern/
                 // Pacific/Central Standard Time + UTC) to a STABLE handle;
                 // unknown ids throw NotSupportedException carrying the id.
+                // impl-tz2: the only net48 form is (string) (timezoneinfo.cs:1944).
                 if (count == 1 && ps[0] == 0x0E)
                     return I("il2cpp::runtime::il2cpp_timezone_find_by_id", 1, true, true, false,
                         new[] { "s" }, returnTypeName: "System.TimeZoneInfo");
                 throw new NotSupportedException(
-                    $"FindSystemTimeZoneById with {count} arg(s) not wired: the runtime registry takes a single zone id string");
+                    $"FindSystemTimeZoneById with {count} arg(s) not wired: LOUD whitelist (net48 arity: the only net48 overload is FindSystemTimeZoneById(string)) [Reference Source mscorlib/system/timezoneinfo.cs:1944]");
             case "ConvertTimeFromUtc":
                 // Static: DateTime ConvertTimeFromUtc(DateTime, TimeZoneInfo).
                 // The per-date offset comes from the zone handle (US 2007+
                 // DST rules); a pre-2007 instant throws the LOUD boundary.
+                // impl-tz2: the only net48 form is (DateTime, TimeZoneInfo)
+                // (timezoneinfo.cs:831) -- any other arity is not net48.
                 if (count == 2)
                     return I("il2cpp::runtime::il2cpp_timezone_convert_from_utc", 2, true, false, false,
                         new[] { "", "" }, "dt", returnTypeName: "System.DateTime");
                 throw new NotSupportedException(
-                    $"ConvertTimeFromUtc with {count} arg(s) not wired: the runtime takes (DateTime, TimeZoneInfo)");
+                    $"ConvertTimeFromUtc with {count} arg(s) not wired: LOUD whitelist (net48 arity: the only net48 overload is ConvertTimeFromUtc(DateTime, TimeZoneInfo)) [Reference Source mscorlib/system/timezoneinfo.cs:831]");
 
-            // --- LOUD rejections: net48 members with no runtime icall ---
-            // (the name/registry/zone-table surface -- timezone.h ships only
-            // the offset/conversion/daylight icalls).
-            case "get_Id":
-            case "get_DisplayName":
-            case "get_StandardName":
-            case "get_DaylightName":
-            case "get_BaseUtcOffset":
-            case "get_SupportsDaylightSavingTime":
-            case "GetSystemTimeZones":
-            case "CreateCustomTimeZone":
-            case "ClearCachedData":
-            case "ConvertTime":
-            case "ConvertTimeBySystemTimeZoneId":
-            case "GetAmbiguousTimeOffsets":
-            case "GetDaylightChanges":
+            // --- LOUD whitelist rejections: net48 members with no runtime
+            // icall (the name/registry/zone-table surface -- timezone.h ships
+            // only the offset/conversion/daylight icalls). impl-tz2: the
+            // members split on the sanctioned category -- the registry
+            // NAME/state family reads the MACHINE's zone registry (whitelist
+            // 1, machine state); the members that need a TimeZoneInfo /
+            // DaylightTime OBJECT have no runtime box class/descriptor for
+            // it (whitelist 3).
+            case "get_Id":                       // timezoneinfo.cs:279
+            case "get_DisplayName":              // timezoneinfo.cs:285
+            case "get_StandardName":             // timezoneinfo.cs:291
+            case "get_DaylightName":             // timezoneinfo.cs:297
+            case "get_BaseUtcOffset":            // timezoneinfo.cs:303
+            case "get_SupportsDaylightSavingTime": // timezoneinfo.cs:309
+            case "GetSystemTimeZones":           // timezoneinfo.cs:923
+            case "ClearCachedData":              // timezoneinfo.cs:647
+            case "ConvertTimeBySystemTimeZoneId": // timezoneinfo.cs:658,665,671
+            case "GetAmbiguousTimeOffsets":      // timezoneinfo.cs:339,376
                 throw new NotSupportedException(
-                    $"{owner}.{name} not wired: the runtime timezone.h surface has no per-zone registry, names, or zone-table icalls (only the current-instant offset/conversion/daylight probes)");
+                    $"{owner}.{name} not wired: LOUD whitelist (machine state: the value is the machine zone registry's identity/base-bias/zone table, which the single-zone runtime does not model) [Reference Source mscorlib/system/timezoneinfo.cs:279-309,647,658-691,923,339-376]");
+            case "CreateCustomTimeZone":         // timezoneinfo.cs:1144,1166,1194
+            case "ConvertTime":                  // timezoneinfo.cs:703,727,746
+            case "GetDaylightChanges":           // timezone.cs:124
+                throw new NotSupportedException(
+                    $"{owner}.{name} not wired: LOUD whitelist (runtime descriptor: the TimeZoneInfo/DaylightTime object has no runtime box class/descriptor, so a zone object cannot exist in the wired surface) [Reference Source mscorlib/system/timezoneinfo.cs:1144,703,727,746; mscorlib/system/timezone.cs:124]");
             default: return null;
         }
     }

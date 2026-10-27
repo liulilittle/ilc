@@ -111,14 +111,19 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_dtoffset_compare", 1, true, false, true, new[] { "deref:dto", "" });
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException("CompareTo(object) not wired: a boxed DateTimeOffset has no runtime box class, so the boxed value cannot reach the icall");
+                    // impl-tz2: whitelist 3 -- a boxed DateTimeOffset has no
+                    // runtime box class, so the boxed value cannot reach the
+                    // icall (the header's OBJECT MODEL note).
+                    throw new NotSupportedException("CompareTo(object) not wired: LOUD whitelist (runtime descriptor: a boxed DateTimeOffset has no runtime box class, so the boxed value cannot reach the icall) [Reference Source mscorlib/system/datetimeoffset.cs:455,468]");
                 return null;
             // bool Equals(DateTimeOffset): UTC-instant equality.
             case "Equals":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_dtoffset_equals", 1, true, false, true, new[] { "deref:dto", "" });
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    throw new NotSupportedException("Equals(object) not wired: a boxed DateTimeOffset has no runtime box class, so the boxed value cannot reach the icall");
+                    // impl-tz2: whitelist 3 -- same boxed-value wall as
+                    // CompareTo(object) (the header's OBJECT MODEL note).
+                    throw new NotSupportedException("Equals(object) not wired: LOUD whitelist (runtime descriptor: a boxed DateTimeOffset has no runtime box class, so the boxed value cannot reach the icall) [Reference Source mscorlib/system/datetimeoffset.cs:482,489]");
                 return null;
             // AddDays/AddHours/AddMinutes/AddSeconds/AddMilliseconds(double):
             // the double rides the "d" cast, the receiver is the deref:dto

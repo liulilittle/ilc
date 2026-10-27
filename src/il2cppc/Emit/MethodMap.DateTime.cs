@@ -56,7 +56,12 @@ public static partial class MethodRefResolver
                 if (ps.Length == 8 && ps[7] == 0x11)
                     return I("il2cpp::runtime::icall_datetime_from_ymdhms_ms_kind", 8, false, false, true,
                         null, "dt", resultIsReceiver: true);
-                throw new NotSupportedException($"DateTime ctor with {ps.Length} arg(s) not wired in M5 (the runtime has from_ticks/from_ymd/from_ymdhms only)");
+                // impl-tz2: every other shape that net48 can emit takes a
+                // Calendar argument (datetime.cs:188/229/306/337) -- the
+                // calendar's GetYear/GetMonth/ToDateTime dispatch is VIRTUAL
+                // and the concrete calendar is not known at emit time, so the
+                // shape stays LOUD under the dynamic-dispatch whitelist.
+                throw new NotSupportedException($"DateTime ctor with {ps.Length} arg(s) not wired: LOUD whitelist (dynamic dispatch: the Calendar argument dispatches GetYear/GetMonth/ToDateTime virtually and the concrete calendar is not known at emit time) [Reference Source mscorlib/system/datetime.cs:188,229,306,337]");
             case "get_UtcNow":
                 return I("il2cpp::runtime::icall_datetime_utc_now", 0, true, false, false, null, "dt");
             case "get_Now":
@@ -139,8 +144,20 @@ public static partial class MethodRefResolver
                             new[] { "deref:dt", "ts_ticks" }, "dt");
                     return I("il2cpp::runtime::icall_datetime_subtract", 1, true, false, true, new[] { "deref:dt", "" }, "ts");
                 }
-                throw new NotSupportedException("DateTime.Subtract not wired: the runtime has only the (DateTime, DateTime) -> TimeSpan icall and the (DateTime, TimeSpan) -> DateTime tick subtraction");
+                // impl-tz2: net48 has exactly two Subtract overloads, both
+                // arity-1 (datetime.cs:1332 Subtract(DateTime), 1336
+                // Subtract(TimeSpan), both wired above) -- any other shape
+                // cannot come from net48.
+                throw new NotSupportedException("DateTime.Subtract not wired: LOUD whitelist (net48 arity: both net48 overloads are arity-1 -- Subtract(DateTime) and Subtract(TimeSpan), both wired above) [Reference Source mscorlib/system/datetime.cs:1332,1336]");
             case "op_Subtraction":
+                // impl-tz2 (dtextra2 e2e find): DateTime - TimeSpan -> DateTime
+                // (the static operator form of Subtract(TimeSpan)) rides the
+                // same tick-subtraction icall with the "ts_ticks" cast; the
+                // operand-type text disambiguates the two 0x11-arity-2 shapes
+                // (the instance Subtract precedent above).
+                if ((paramTypes ?? arg1Type ?? "").Contains("System.TimeSpan", StringComparison.Ordinal))
+                    return I("il2cpp::runtime::il2cpp_datetime_subtract_ticks", 2, true, false, false,
+                        new[] { "", "ts_ticks" }, "dt", returnTypeName: "System.DateTime");
                 // DateTime - DateTime -> TimeSpan (static).
                 return I("il2cpp::runtime::icall_datetime_subtract", 2, true, false, false, new[] { "", "" }, "ts");
             case "op_Equality":
@@ -194,8 +211,11 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_datetime_to_string_format", 1, true, true, true,
                         new[] { "deref:dt", "", "drop" }, providerCulture: true, argOrder: new[] { 0, -1, 1 });
                 if (ps.Length == 1)
-                    throw new NotSupportedException($"DateTime.ToString with single {ps[0]:X2} arg not wired in M5");
-                throw new NotSupportedException($"DateTime.ToString with {ps.Length} arg(s) not wired in M5");
+                    // impl-tz2: the only net48 1-arg ToString overloads take a
+                    // string (datetime.cs:1447) or an IFormatProvider
+                    // (datetime.cs:1452), both wired above.
+                    throw new NotSupportedException($"DateTime.ToString with single {ps[0]:X2} arg not wired: LOUD whitelist (net48 arity: the only net48 1-arg overloads are ToString(string) and ToString(IFormatProvider), both wired above) [Reference Source mscorlib/system/datetime.cs:1447,1452]");
+                throw new NotSupportedException($"DateTime.ToString with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: the largest net48 overload is ToString(string, IFormatProvider), wired above) [Reference Source mscorlib/system/datetime.cs:1440,1447,1452,1457]");
             // P6: DateTime internal methods (stubs).
             case "GetSystemTimeAsFileTime": return I("il2cpp::runtime::icall_datetime_get_system_time_as_file_time", 0, true, false, false, null, "l");
             case "ValidateSystemTime": return I("il2cpp::runtime::icall_datetime_validate_system_time", 1, true, false, false, new[] { "l" });

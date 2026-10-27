@@ -31,7 +31,10 @@ public static partial class MethodRefResolver
                 if (ps.Length == 5)
                     // TimeSpan(days, hours, minutes, seconds, milliseconds).
                     return I("il2cpp::runtime::icall_timespan_from_dhmsm", 5, false, false, true, null, "ts", resultIsReceiver: true);
-                throw new NotSupportedException($"TimeSpan ctor with {ps.Length} arg(s) not wired in M5 (the runtime has from_ticks/from_hms/from_dhms/from_dhmsm only)");
+                // impl-tz2: net48's ctor set is exactly {1, 3, 4, 5} args
+                // (timespan.cs:79/83/87/92), all wired above -- any other
+                // shape cannot come from net48.
+                throw new NotSupportedException($"TimeSpan ctor with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: the net48 ctor set is exactly (long), (h,m,s), (d,h,m,s) and (d,h,m,s,ms), all wired above) [Reference Source mscorlib/system/timespan.cs:79,83,87,92]");
             case "get_Ticks": return I("il2cpp::runtime::icall_timespan_get_ticks", 0, true, false, true, new[] { "deref:ts" }, "l");
             case "get_Days": return I("il2cpp::runtime::icall_timespan_get_days", 0, true, false, true, new[] { "deref:ts" });
             case "get_Hours": return I("il2cpp::runtime::icall_timespan_get_hours", 0, true, false, true, new[] { "deref:ts" });

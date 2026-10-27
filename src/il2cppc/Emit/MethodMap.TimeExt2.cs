@@ -63,7 +63,10 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[1] == 0x12 && ps[2] == 0x11)
                     return I("il2cpp::runtime::il2cpp_datetime_parse_styles", 3, true, false, false,
                         new[] { "", "drop", "i" }, "dt");
-                throw new NotSupportedException($"DateTime.Parse with {ps.Length} arg(s) not wired: the runtime has the (string), (string, IFormatProvider) and (string, IFormatProvider, DateTimeStyles) forms");
+                // impl-tz2: the net48 Parse set is exactly the three overloads
+                // wired above (datetime.cs:1293/1301/1305) -- any other shape
+                // cannot come from net48.
+                throw new NotSupportedException($"DateTime.Parse with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: the net48 overloads are exactly (string), (string, IFormatProvider) and (string, IFormatProvider, DateTimeStyles), all wired above) [Reference Source mscorlib/system/datetime.cs:1293,1301,1305]");
             case "ParseExact":
                 // ParseExact(string input, string format) -> DateTime.
                 if (ps.Length == 2)
@@ -89,7 +92,10 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::il2cpp_datetime_parse_exact_multi", 4, true, false, false,
                             new[] { "", "a", "drop", "i" }, "dt");
                 }
-                throw new NotSupportedException($"DateTime.ParseExact with {ps.Length} arg(s) not wired: the runtime has (string,string)[,IFormatProvider[,DateTimeStyles]] and the string[] format-array forms");
+                // impl-tz2: the net48 ParseExact set is exactly the five
+                // overloads wired above (datetime.cs:1314/1322/1327) -- any
+                // other shape cannot come from net48.
+                throw new NotSupportedException($"DateTime.ParseExact with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: the net48 overloads are (string,string), (string,string,IFormatProvider), (string,string,IFormatProvider,DateTimeStyles) and the string[] format-array forms, all wired above) [Reference Source mscorlib/system/datetime.cs:1314,1322,1327]");
             case "TryParseExact":
                 // pdtx1 (2026-10-24): the 5-arg styles overloads --
                 // (string, string, IFormatProvider, DateTimeStyles, out
@@ -105,7 +111,10 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::il2cpp_datetime_try_parse_exact_multi", 5, true, false, false,
                             new[] { "", "a", "drop", "i", "" });
                 }
-                throw new NotSupportedException($"DateTime.TryParseExact with {ps.Length} arg(s) not wired: the runtime has (string,string,provider,styles,out DateTime) and the string[] format-array form");
+                // impl-tz2: the net48 TryParseExact set is exactly the two
+                // 5-arg overloads wired above (datetime.cs:1475/1480) -- any
+                // other shape cannot come from net48.
+                throw new NotSupportedException($"DateTime.TryParseExact with {ps.Length} arg(s) not wired: LOUD whitelist (net48 arity: the net48 overloads are (string,string,IFormatProvider,DateTimeStyles,out DateTime) and the string[] format-array form, both wired above) [Reference Source mscorlib/system/datetime.cs:1475,1480]");
             case "AddTicks":
                 // DateTime.AddTicks(long ticks) -> DateTime (100 ns units).
                 return I("il2cpp::runtime::il2cpp_datetime_add_ticks", 1, true, false, true, new[] { "deref:dt", "l" }, "dt");

@@ -898,6 +898,183 @@ Il2CppTimeSpan icall_datetime_get_time_of_day(Il2CppDateTime dt)
     return Il2CppTimeSpan(dt.ticks % kTicksPerDay);
 }
 
+//------------------------------------------------------------------------------
+// impl-tz2 -- DateTime.Today / ToOADate / FromOADate / ToBinary / FromBinary /
+// IsDaylightSavingTime / GetTypeCode (the DateTimeExtra analyzable surface;
+// net48 references: datetime.cs:1262, 1346-1361, 1300-1329/779, 808-831,
+// 700-742, 797-802; typecode.cs:44).
+//------------------------------------------------------------------------------
+// .NET dateData flag bits (datetime.cs:123-131): the 2-bit kind lives in the
+// top bits of the 64-bit image; TicksCeiling is the wrap point the Local
+// flavor uses to store out-of-range ticks as negative-looking values.
+constexpr uint64_t kDateTimeTicksMask = 0x3FFFFFFFFFFFFFFFULL;
+constexpr uint64_t kDateTimeKindMask = 0xC000000000000000ULL;
+constexpr int64_t kTicksCeiling = 0x4000000000000000LL;
+constexpr int64_t kLocalFlagBit = static_cast<int64_t>(0x8000000000000000ULL);
+// net48 MaxMillis = (long)DaysTo10000 * MillisPerDay (NOT the
+// Add(value, scale) Int64 bound above) -- the DoubleDateToTicks wall.
+constexpr int64_t kNetMaxMillis = 3652059LL * kMillisPerDay;
+// OLE Automation date constants (datetime.cs:113-118): the 1899-12-30 epoch
+// and the OA range walls (min 0100/01/01, max 9999/12/31).
+constexpr int64_t kDoubleDateOffset = 693593LL * kTicksPerDay; // 599266080000000000
+constexpr int64_t kOADateMinAsTicks = 36159LL * kTicksPerDay;  // (36524-365) days
+constexpr double kOADateMinAsDouble = -657435.0;
+constexpr double kOADateMaxAsDouble = 2958466.0;
+
+// Throws the managed ArgumentException("dateData") for a malformed binary
+// image (net48 Argument_DateTimeBadBinaryData). Never returns.
+static void ThrowBadBinaryData()
+{
+    il2cpp_throw_new_param_explicit("System.ArgumentException,System.ArgumentException,System.SystemException,System.Exception",
+                                  "The value of the binary data is not valid.", "dateData", 1);
+}
+
+Il2CppDateTime icall_datetime_today()
+{
+    // net48 Today == Now.Date (datetime.cs:1262-1268); the Date projection
+    // preserves the Kind bits (datetime.cs:843-848), so a Local Now stays
+    // Kind=Local -- the net48 oracle prints DateTimeKind.Local.
+    const Il2CppDateTime now = icall_datetime_now();
+    return Il2CppDateTime(now.ticks - (now.ticks % kTicksPerDay), now.kind);
+}
+
+double icall_datetime_to_oa_date(Il2CppDateTime dt)
+{
+    // net48 TicksToOADate (datetime.cs:1346-1361), branch-for-branch.
+    int64_t value = dt.ticks;
+    if (value == 0)
+    {
+        return 0.0; // OleAut's zero'ed date value.
+    }
+    if (value < kTicksPerDay)
+    {
+        // VB fixup: the default day is 1/1/0001, not 12/30/1899.
+        value += kDoubleDateOffset;
+    }
+    if (value < kOADateMinAsTicks)
+    {
+        ThrowOverflow(); // net48 OverflowException(Arg_OleAutDateInvalid).
+    }
+    int64_t millis = (value - kDoubleDateOffset) / kTicksPerMillisecond;
+    if (millis < 0)
+    {
+        const int64_t frac = millis % kMillisPerDay;
+        if (frac != 0)
+        {
+            millis -= (kMillisPerDay + frac) * 2;
+        }
+    }
+    return static_cast<double>(millis) / static_cast<double>(kMillisPerDay);
+}
+
+Il2CppDateTime icall_datetime_from_oa_date(double value)
+{
+    // net48 DoubleDateToTicks (datetime.cs:1300-1329), branch-for-branch.
+    // The NaN-safe range wall: !(v < max) || !(v > min) rejects NaN and both
+    // ends (ArgumentException Arg_OleAutDateInvalid).
+    if (!(value < kOADateMaxAsDouble) || !(value > kOADateMinAsDouble))
+    {
+        il2cpp_throw_argument_exception("Not a legal OleAut date.");
+    }
+    int64_t millis = static_cast<int64_t>(value * static_cast<double>(kMillisPerDay)
+                                          + (value >= 0 ? 0.5 : -0.5));
+    // The negative-day fixup: -12.25 is -12 days but +6 hours, i.e. the
+    // user meant -11.75 -- fold the fractional day back over the boundary.
+    if (millis < 0)
+    {
+        millis -= (millis % kMillisPerDay) * 2;
+    }
+    millis += kDoubleDateOffset / kTicksPerMillisecond;
+    if (millis < 0 || millis >= kNetMaxMillis)
+    {
+        il2cpp_throw_argument_exception("Cannot store the OleAut date scale.");
+    }
+    return Il2CppDateTime(millis * kTicksPerMillisecond, 0 /* Unspecified */);
+}
+
+int64_t icall_datetime_to_binary(Il2CppDateTime dt)
+{
+    // net48 ToBinary (datetime.cs:808-831). A Kind=Local value stores
+    // ticks - machineOffset under the Local flag bit, with negative stored
+    // ticks wrapped above TicksCeiling; the other kinds return the raw
+    // ticks|kind-bits dateData image.
+    if (dt.kind == 2 /* Local */)
+    {
+        // The machine's per-date offset at the LOCAL wall clock (the
+        // GetLocalUtcOffset NoThrowOnInvalidTime shape).
+        const int64_t offsetTicks = il2cpp_timezone_get_utc_offset_at(dt) * kTicksPerSecond;
+        int64_t storedTicks = dt.ticks - offsetTicks;
+        if (storedTicks < 0)
+        {
+            storedTicks = kTicksCeiling + storedTicks;
+        }
+        return storedTicks | kLocalFlagBit;
+    }
+    const uint64_t kindBits = (dt.kind >= 0 && dt.kind <= 2)
+        ? (static_cast<uint64_t>(dt.kind) << 62)
+        : 0;
+    return static_cast<int64_t>((static_cast<uint64_t>(dt.ticks) & kDateTimeTicksMask) | kindBits);
+}
+
+Il2CppDateTime icall_datetime_from_binary(int64_t dateData)
+{
+    // net48 FromBinary (datetime.cs:700-742). The Local flag reverses the
+    // ToBinary transform: the stored ticks ARE a UTC instant (GetUtcOffsetFromUtc),
+    // the day wrap applies to small negative results, out-of-range ticks throw
+    // ArgumentException(dateData). The other flavors are FromBinaryRaw
+    // (datetime.cs:746-751): ticks + the raw kind bits.
+    if ((dateData & kLocalFlagBit) != 0)
+    {
+        int64_t ticks = dateData & static_cast<int64_t>(kDateTimeTicksMask);
+        if (ticks > kTicksCeiling - kTicksPerDay)
+        {
+            ticks -= kTicksCeiling;
+        }
+        // The per-date machine offset AT the stored UTC instant (the UTC
+        // input arm of the timezone.h per-date family).
+        const int64_t offsetTicks =
+            il2cpp_timezone_get_utc_offset_at(Il2CppDateTime(ticks, 1 /* Utc */)) * kTicksPerSecond;
+        ticks += offsetTicks;
+        if (ticks < 0)
+        {
+            // Another behavior of parsing: small times wrap around to the
+            // end of the day (net48 datetime.cs:729-733).
+            ticks += kTicksPerDay;
+        }
+        if (ticks < 0 || ticks > kMaxDateTimeTicks)
+        {
+            ThrowBadBinaryData();
+        }
+        return Il2CppDateTime(ticks, 2 /* Local */);
+    }
+    const int64_t ticks = dateData & static_cast<int64_t>(kDateTimeTicksMask);
+    if (ticks < 0 || ticks > kMaxDateTimeTicks)
+    {
+        ThrowBadBinaryData();
+    }
+    const uint64_t kindBits = (static_cast<uint64_t>(dateData) & kDateTimeKindMask) >> 62;
+    // net48's Kind property maps every non-{Unspecified, Utc} flag to Local.
+    const int32_t kind = kindBits == 0 ? 0 : (kindBits == 1 ? 1 : 2);
+    return Il2CppDateTime(ticks, kind);
+}
+
+int32_t icall_datetime_is_daylight_saving(Il2CppDateTime dt)
+{
+    // net48 DateTime.IsDaylightSavingTime() (datetime.cs:797-802): a Kind=Utc
+    // input is false; anything else evaluates the per-date machine DST probe.
+    if (dt.kind == 1 /* Utc */)
+    {
+        return 0;
+    }
+    return il2cpp_timezone_get_is_daylight_saving_at(dt);
+}
+
+int32_t icall_datetime_get_type_code(Il2CppDateTime dt)
+{
+    (void)dt;
+    return 16; // TypeCode.DateTime (referencesource mscorlib/system/typecode.cs:44).
+}
+
 // Equals: pure ticks equality (no Kind bits in this runtime).
 bool icall_datetime_equals(Il2CppDateTime left, Il2CppDateTime right)
 {

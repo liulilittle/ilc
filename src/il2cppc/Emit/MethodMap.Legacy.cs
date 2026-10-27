@@ -37,8 +37,12 @@ public static partial class MethodRefResolver
             case "System.Runtime.Remoting.Messaging.Message":
             case "System.Runtime.Remoting.Messaging.StackBuilderSink":
             case "System.Runtime.Remoting.Channels.ChannelServices":
+                // impl-tz2: whitelist 3 -- the runtime has no remoting object
+                // model, so no member of the family can receive or return a
+                // value (no transparent proxies / ObjRef / channels /
+                // context-bound objects exist as runtime descriptors).
                 throw new NotSupportedException(
-                    $"{name} is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reject'): the runtime has no remoting infrastructure (no transparent proxies / ObjRef / channels / context-bound objects), so the member cannot be wired");
+                    $"{name} is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reject'): LOUD whitelist (runtime descriptor: the runtime has no remoting object model -- no transparent proxies / ObjRef / channels / context-bound objects, so the member's values cannot exist in the wired surface) [Reference Source mscorlib/system/runtime/remoting/remotingservices.cs:46]");
             case "System.AppDomain":
                 // adm1 (AppDomain minimal object closure): the public default-
                 // domain surface wires to the appdomain.cpp object model (the
@@ -181,8 +185,13 @@ public static partial class MethodRefResolver
                     case "nUnload":
                         return I("il2cpp::runtime::icall_appdomain_n_unload", 1, false, false, false, new[] { "i" });
                 }
+                // impl-tz2: whitelist 3 -- the AppDomain object model covers
+                // only the adm1 closure above; the remaining CAS/loader
+                // members need AppDomain/domain objects the runtime does not
+                // describe (CreateDomain/Unload would fabricate a domain the
+                // single-domain AOT process cannot represent).
                 throw new NotSupportedException(
-                    $"{name} is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): the AOT process IS the default domain and CreateDomain/Unload/evidence probing are meaningless here; the CAS/loader members (PermissionSet/Evidence/ApplicationTrust/GetAssemblies/ExecuteAssembly/ToString) are mapped to a runtime NotSupportedException in the adm1 closure");
+                    $"{name} is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT process IS the default domain and CreateDomain/Unload/evidence probing would need AppDomain objects the runtime does not model; the CAS/loader members are mapped to a runtime NotSupportedException in the adm1 closure) [Reference Source mscorlib/system/appdomain.cs:2737,2238]");
             case "System.AppDomainSetup":
                 // adm1: the SetupInformation carrier's probed getters derive
                 // from the process exe path (ApplicationBase == AppDomain.
@@ -200,8 +209,12 @@ public static partial class MethodRefResolver
                     case "GetType":
                         return I("il2cpp::runtime::icall_object_get_type", 0, true, true, true);
                 }
+                // impl-tz2: whitelist 3 -- only the probed getter arms are
+                // backed by the process exe path; the remaining setup
+                // properties need an AppDomainSetup object the runtime does
+                // not model.
                 throw new NotSupportedException(
-                    $"{name} is part of System.AppDomainSetup -- only the probed ApplicationBase/ConfigurationFile rack-arms are wired in the adm1 closure; the remaining setup properties are LOUD");
+                    $"{name} is part of System.AppDomainSetup -- only the probed ApplicationBase/ConfigurationFile rack-arms are wired in the adm1 closure: LOUD whitelist (runtime descriptor: the remaining setup properties need an AppDomainSetup object the runtime does not model) [Reference Source mscorlib/system/AppDomainSetup.cs:48,933]");
             case "System.Runtime.Remoting.ObjectHandle":
                 // adm1: the CreateInstance wrapper carrier -- Unwrap returns the
                 // wrapped object (the only probed member of the handle).
@@ -209,18 +222,25 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_objecthandle_unwrap", 0, true, true, true);
                 if (name == "GetType")
                     return I("il2cpp::runtime::icall_object_get_type", 0, true, true, true);
+                // impl-tz2: whitelist 3 -- the remoting carrier object has no
+                // runtime model beyond the Unwrap arm.
                 throw new NotSupportedException(
-                    $"{name} is part of System.Runtime.Remoting.ObjectHandle -- only the CreateInstance wrapper carrier (Unwrap) is wired in the adm1 closure; the rest of the remoting surface is rejected per the net48 audit section 3");
+                    $"{name} is part of System.Runtime.Remoting.ObjectHandle -- only the CreateInstance wrapper carrier (Unwrap) is wired in the adm1 closure: LOUD whitelist (runtime descriptor: the ObjectHandle carrier object has no runtime model beyond the Unwrap arm, the rest of the remoting surface is rejected per the net48 audit section 3) [Reference Source mscorlib/system/runtime/remoting/objecthandle.cs:32,49]");
             case "System.ArgIterator":
+                // impl-tz2: whitelist 3 -- varargs reflection (__arglist) has
+                // no runtime support/descriptor in the M3 model.
                 throw new NotSupportedException(
-                    $"{name} is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3) with no runtime support: __arglist is not in the M3 model");
+                    $"{name} is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3): LOUD whitelist (runtime descriptor: __arglist is not in the M3 model, the ArgIterator frame has no runtime support) [Reference Source mscorlib/system/argiterator.cs:18,29]");
             case "System.Threading.ReaderWriterLock":
                 // net48 closure: AnyWritersSince wires to the constant-false
                 // stub (stubs.cpp); the rest of the legacy lock stays LOUD.
                 if (name == "AnyWritersSince" && count == 1)
                     return I("il2cpp::runtime::icall_reader_writer_lock_any_writers_since", 1, true, false, false, new[] { "i" });
+                // impl-tz2: whitelist 3 -- the legacy lock has no runtime
+                // object model (the AnyWritersSince constant stub above is
+                // the only wired arm); Monitor/Interlocked cover the need.
                 throw new NotSupportedException(
-                    $"{name} is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3) with no runtime icall: use the Monitor domain (monitor.h) or the Interlocked atomics (il2cpp_interlocked.h) instead");
+                    $"{name} is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime descriptor: the legacy lock has no runtime object model -- use the Monitor domain (monitor.h) or the Interlocked atomics (il2cpp_interlocked.h) instead) [Reference Source mscorlib/system/threading/readerwriterlock.cs:33,126]");
             default:
                 return null;
         }

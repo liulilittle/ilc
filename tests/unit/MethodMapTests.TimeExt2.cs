@@ -245,12 +245,17 @@ public class MethodMapTestsTimeExt2
     }
 
     [Fact]
-    public void Resolve_DateTime_GetToday_ThrowsLoud()
+    public void Resolve_DateTime_GetToday_MapsToTodayIcall()
     {
-        var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "DateTime", "get_Today", Sig(0x0A)), "get_Today"));
+        // impl-tz2: DateTime.Today == Now.Date (net48 datetime.cs:1262) is
+        // compile-time analyzable -- wired to icall_datetime_today
+        // (MethodMap.DateTimeExtra.cs), no longer a loud-rejection gap.
+        var resolved = ResolveMember(Synthesize("System", "DateTime", "get_Today", Sig(0x0A)), "get_Today");
 
-        Assert.Contains("System.DateTime::get_Today", ex.Message);
+        Assert.Equal("il2cpp::runtime::icall_datetime_today", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.Equal("dt", resolved.ResultKind);
     }
 
     [Fact]

@@ -31,12 +31,15 @@ namespace Il2Cpp.Transpiler.Emit;
 // (icall_calendar_get_month(year, dayOfYear) etc.) are internal helpers
 // covered by test_calendar.cpp, not reachable from transpiled code.
 //
-// Known-unwireable members throw NotSupportedException (LOUD):
-//   * ToDateTime(int, int, int, int, int, int, int) -- the DateTime-returning
-//     ctor shape is a separate follow-up (the runtime has no to_datetime
-//     icall yet).
-//   * GetLeapMonth / AddMonths / AddYears / GetEra / GetWeekOfYear -- the
-//     calendar arithmetic/era surface is out of scope for this domain.
+// Known-unwireable members: the impl-tz2 audit found ZERO remaining
+// NotSupportedException throw sites in this file -- the header's old
+// "ToDateTime / GetLeapMonth / AddMonths / AddYears / GetEra / GetWeekOfYear
+// throw LOUD" note is obsolete: ToDateTime(year..ms) is wired (the
+// icall_calendar_to_datetime arm below) and the calendar arithmetic/era
+// surface (GetLeapMonth / AddMonths / AddYears / GetEra / GetWeekOfYear)
+// returns null -> the generated-name fallback (the standard unwired
+// behavior, the TimeZone.cs:87 convention) -- no silent-emit regression
+// because those members cannot reach a mapped symbol.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {

@@ -229,8 +229,39 @@ Il2CppDateTime icall_datetime_specify_kind(Il2CppDateTime dt, int32_t kind);
 // midnight as a TimeSpan.
 Il2CppDateTime icall_datetime_get_date(Il2CppDateTime dt);
 Il2CppTimeSpan icall_datetime_get_time_of_day(Il2CppDateTime dt);
+// impl-tz2: DateTime.Today -- Now's date part with the Kind=Local flavor
+// preserved (net48 Today == Now.Date, referencesource datetime.cs:1262).
+Il2CppDateTime icall_datetime_today();
 // Equals: pure ticks equality.
 bool icall_datetime_equals(Il2CppDateTime left, Il2CppDateTime right);
+
+//------------------------------------------------------------------------------
+// impl-tz2 -- the DateTimeExtra analyzable surface (MethodMap.DateTimeExtra).
+//------------------------------------------------------------------------------
+// DateTime.ToOADate() -> double: the net48 TicksToOADate algorithm
+// (referencesource datetime.cs:1346-1361) -- the 1899-12-30 epoch shift,
+// the VB 1/1/0001 fixup, and the OverflowException below OADateMinAsTicks.
+double icall_datetime_to_oa_date(Il2CppDateTime dt);
+// DateTime.FromOADate(double) -> DateTime (Kind=Unspecified): the net48
+// DoubleDateToTicks algorithm (datetime.cs:1300-1329, referenced from
+// FromOADate at datetime.cs:779) with its ArgumentException range walls.
+Il2CppDateTime icall_datetime_from_oa_date(double value);
+// DateTime.ToBinary() -> int64 (net48 datetime.cs:808-831): a Kind=Local
+// value stores ticks - machineOffset under the Local flag bit (negative
+// ticks wrap above TicksCeiling); the other kinds return the raw
+// ticks|kind-bits dateData image.
+int64_t icall_datetime_to_binary(Il2CppDateTime dt);
+// DateTime.FromBinary(int64) -> DateTime (net48 datetime.cs:700-742): the
+// Local flag reverses the ToBinary transform (per-date machine offset at
+// the stored UTC instant, the day wrap for negative ticks, the
+// ArgumentException range wall); the other flavors restore ticks + kind.
+Il2CppDateTime icall_datetime_from_binary(int64_t dateData);
+// DateTime.IsDaylightSavingTime() (net48 datetime.cs:797-802): a Kind=Utc
+// input is 0; anything else evaluates the per-date machine DST window.
+int32_t icall_datetime_is_daylight_saving(Il2CppDateTime dt);
+// DateTime.GetTypeCode() -> TypeCode.DateTime == 16 (referencesource
+// mscorlib/system/typecode.cs:44).
+int32_t icall_datetime_get_type_code(Il2CppDateTime dt);
 
 // TimeSpan.ToString(): the constant "c" format (see time.cpp).
 Il2CppObject* icall_timespan_to_string(Il2CppTimeSpan ts);
