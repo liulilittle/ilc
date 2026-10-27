@@ -83,6 +83,7 @@
 #include "il2cpp_array.h"
 #include "il2cpp_time.h" // A3: Il2CppDateTime/Il2CppTimeSpan by-value entries
 #include "decimal.h"     // p0grp: the 16-byte System.Decimal enumerator carrier
+#include "guid.h"        // impl-linq2 (C): the System.Guid enumerator carrier
 #include <cstdint>
 #include <cstring>       // il2cpp_ienum_get_current_tuple_t (payload copy)
 
@@ -565,6 +566,19 @@ Il2CppObject* il2cpp_ienum_get_current_ref(Il2CppObject* receiver);
 // reference array of BOXED decimals; any other layout raises
 // InvalidCastException rather than reinterpreting memory.
 void il2cpp_ienum_get_current_dec(runtime::Il2CppDecimal* result, Il2CppObject* receiver);
+
+// impl-linq2 (C): the System.DateTime / System.Guid carriers for the GroupBy
+// bucket traversal (IEnumerator<DateTime/_Guid>.get_Current). The DateTime is
+// an 8-byte struct and returns BY VALUE (the get_key_dt precedent -- the
+// resultKind "dt" emission assigns the call result); the Guid is a 16-byte
+// struct and follows the get_key_guid output-buffer contract (the resultKind
+// "guid" emission passes the caller's slot LAST as a raw 16-byte buffer). The
+// snapshot array holds either the bucket's own value cells (kElemKindDateTime
+// / kElemKindGuid) or BOXED elements (the grouping enumerator boxes each
+// cell); any other layout raises InvalidCastException rather than
+// reinterpreting memory.
+runtime::Il2CppDateTime il2cpp_ienum_get_current_dt(Il2CppObject* receiver);
+void il2cpp_ienum_get_current_guid(Il2CppObject* receiver, uint8_t bytes[16]);
 
 // The NON-generic IEnumerator.get_Current -- always the object-returning slot
 // ("r:System.Object()"). Distinct from il2cpp_ienum_get_current_ref, which

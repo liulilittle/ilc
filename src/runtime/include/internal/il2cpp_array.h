@@ -67,7 +67,14 @@ enum ArrayElemKind : int32_t
     kElemKindD = 4,        // System.Double
     kElemKindU4 = 5,       // System.UInt32 -- signedness differs from I4
     kElemKindDateTime = 6, // System.DateTime (packed kind<<62|ticks cell)
-    kElemKindTimeSpan = 7  // System.TimeSpan (ticks)
+    kElemKindTimeSpan = 7, // System.TimeSpan (ticks)
+    // impl-linq2 (C): the 16-byte bucket cells (the GroupBy element families).
+    // The element-kind Array scans reject them LOUD (a decimal/guid cell is
+    // not a primitive scan shape) -- the recorded kind exists so the grouping
+    // enumerator and the get_Current carriers can tell a 16-byte System.Decimal
+    // cell from a 16-byte System.Guid cell (the widths are IDENTICAL).
+    kElemKindDecimal = 8,  // System.Decimal (16-byte cell)
+    kElemKindGuid = 9      // System.Guid (16-byte cell)
 };
 
 // Managed array: object header + length + element metadata + payload.

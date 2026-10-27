@@ -48,6 +48,7 @@
 #include "genericcomparer_obj.h"  // the default EqualityComparer/Comparer singletons
 #include "il2cpp_boxing_ext.h"    // icall_box_double
 #include "il2cpp_boxing_ext2.h"   // icall_box_long
+#include "il2cpp_nullable.h"      // impl-linq2 (C): icall_box_date_time / icall_box_guid
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
@@ -1119,6 +1120,13 @@ void GrowGroupElements(Il2CppObject** resultSlot, int32_t bucketIndex)
     }
     Il2CppArray* newElems = il2cpp_array_new(
         nullptr, grp->elements->elemSize, isRef, newLength);
+    // impl-linq2 (C): the grown backing store keeps the bucket's recorded
+    // element kind. The old reallocation reset elemKind to kElemKindNone, so a
+    // grown 16-byte cell array (System.Decimal vs System.Guid vs the padded
+    // System.DateTime {ticks,kind}) lost the only identity that tells the
+    // bucket-enumerator box dispatch apart -- every grown DateTime/Guid cell
+    // was re-boxed as a System.Decimal.
+    newElems->elemKind = grp->elements->elemKind;
     res = AsGroupingResult(*resultSlot); // re-derive after the (possibly collecting) allocation
     grp = AsGrouping(
         *reinterpret_cast<Il2CppObject**>(res->groups->data + bucketIndex * sizeof(void*))); // re-derive the bucket
@@ -4410,17 +4418,25 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
 }
 
 // NewGroupElementArray -- the bucket storage for one element family.
+// impl-linq2 (C): the element KIND is recorded on the array (kElemKindI4 /
+// kElemKindDateTime / kElemKindDecimal / kElemKindGuid) so the bucket
+// enumerator and the get_Current carriers can tell the 16-byte System.Decimal
+// cell from the 16-byte System.Guid cell (identical widths -- the old
+// elemSize-only dispatch misboxed every Guid cell as a decimal).
 Il2CppArray* NewGroupElementArray(GroupElemKind kind, int32_t length)
 {
     if (kind == GroupElemKind::Decimal)
-        return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, length);
+        return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)),
+                                      kElemKindDecimal, length);
     if (kind == GroupElemKind::DateTime)
-        return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDateTime)), false, length);
+        return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(runtime::Il2CppDateTime)),
+                                      kElemKindDateTime, length);
     if (kind == GroupElemKind::Guid)
-        return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(Il2CppGuid)), false, length);
-    return kind == GroupElemKind::Int32
-        ? il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(int32_t)), false, length)
-        : il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, length);
+        return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(Il2CppGuid)),
+                                      kElemKindGuid, length);
+    if (kind == GroupElemKind::Int32)
+        return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(int32_t)), kElemKindI4, length);
+    return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, length);
 }
 
 // B4-1 (P0-04): narrow the raw int32 read of a narrow-TKey selector result
@@ -4808,6 +4824,14 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
             // vtsrc: the key-only Guid-source overload -- the bucket element
             // IS the 16-byte source Guid.
             elemGuid = gs;
+        }
+        else if (dtSource && kind == GroupElemKind::DateTime)
+        {
+            // impl-linq2 (C): the key-only DateTime-source overload -- the
+            // bucket element IS the source DateTime struct. The old code had
+            // no arm here, so every key-only bucket cell stayed the default
+            // (ticks 0 -> 0001-01-01).
+            elemDt = dts;
         }
 
         res = AsGroupingResult(result);
@@ -5211,8 +5235,14 @@ Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keyS
         // key-only: the element IS the source element. An int32 source keeps
         // the int32 bucket; a REFERENCE source keeps the reference bucket (the
         // element is the source Il2CppObject*); a GUID source keeps the 16-byte
-        // Guid bucket.
-        elemKind = srcKind == 4 ? 6 : ((src->isRefElem != 0) ? 1 : 0);
+        // Guid bucket. impl-linq2 (C): a DATETIME source keeps the DateTime
+        // bucket -- the old derivation fell through to the int32 code for a
+        // DateTime source, so every key-only bucket cell was a ZERO int32 (the
+        // source element is read as the 16-byte runtime struct and the Int32
+        // arm stored elemI4 = 0 -- a silent wrong bucket).
+        elemKind = srcKind == 4 ? 6
+            : srcKind == 3 ? 5
+            : ((src->isRefElem != 0) ? 1 : 0);
     }
     GroupElemKind kind = GroupElemKind::Int32;
     switch (elemKind)
@@ -5628,23 +5658,58 @@ Il2CppObject* il2cpp_linq_grouping_get_enumerator(Il2CppObject* grouping)
         }
         else
         {
-            // p0grp: VALUE cells dispatch on the bucket's OWN element width.
-            // The int32 family boxes a 4-byte cell (the i4 get_Current carrier
-            // unboxes it); a decimal-source bucket holds 16-byte
-            // System.Decimal cells and boxes them as System.Decimal (the
-            // reference carrier + `(decimal)o` unboxes them). Any other width
-            // is a loud wiring gap, never a wild read.
-            const int32_t elemSize = AsGrouping(grouping)->elements->elemSize;
-            if (elemSize == static_cast<int32_t>(sizeof(int32_t)))
+            // p0grp / impl-linq2 (C): VALUE cells dispatch on the bucket's OWN
+            // recorded element kind (elemSize alone cannot tell the 16-byte
+            // System.Decimal cell from the 16-byte System.Guid cell -- the old
+            // width-only dispatch misboxed every Guid cell as a decimal and
+            // threw for the 8-byte DateTime cell). The int32 family boxes a
+            // 4-byte cell (the i4 get_Current carrier unboxes it); a DateTime
+            // / decimal / Guid bucket boxes its own struct so the matching
+            // get_Current carrier unboxes it.
+            const Il2CppArray* cells = AsGrouping(grouping)->elements;
+            const int32_t elemSize = cells->elemSize;
+            if (cells->elemKind == kElemKindDecimal
+                || (cells->elemKind == kElemKindNone
+                    && elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDecimal))))
+            {
+                const runtime::Il2CppDecimal v = *DecAt(AsGrouping(grouping)->elements, i);
+                boxed = runtime::icall_box_decimal(&v);
+            }
+            else if (cells->elemKind == kElemKindGuid)
+            {
+                Il2CppGuid v{};
+                std::memcpy(&v, il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i), sizeof(v));
+                boxed = runtime::icall_box_guid(&v);
+            }
+            else if (cells->elemKind == kElemKindDateTime)
+            {
+                const runtime::Il2CppDateTime v = *reinterpret_cast<const runtime::Il2CppDateTime*>(
+                    il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+                boxed = runtime::icall_box_date_time(v);
+            }
+            else if (cells->elemKind == kElemKindTimeSpan)
+            {
+                // A TimeSpan bucket element is not produced by any grouping
+                // surface today; the recorded kind still has a safe carrier
+                // (an 8-byte ticks cell) so the snapshot stays well-typed.
+                const int64_t v = *reinterpret_cast<const int64_t*>(
+                    il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+                boxed = runtime::icall_box_long(v);
+            }
+            else if (cells->elemKind == kElemKindNone
+                     && elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)))
+            {
+                // The legacy untyped 16-byte cell bucket (the pre-impl-linq2
+                // decimal bucket allocation) -- keep the historical decimal
+                // box. A stamped bucket never reaches this arm.
+                const runtime::Il2CppDecimal v = *DecAt(AsGrouping(grouping)->elements, i);
+                boxed = runtime::icall_box_decimal(&v);
+            }
+            else if (elemSize == static_cast<int32_t>(sizeof(int32_t)))
             {
                 const int32_t v = *reinterpret_cast<int32_t*>(
                     il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
                 boxed = il2cpp_box_int32(nullptr, v);
-            }
-            else if (elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)))
-            {
-                const runtime::Il2CppDecimal v = *DecAt(AsGrouping(grouping)->elements, i);
-                boxed = runtime::icall_box_decimal(&v);
             }
             else
             {

@@ -228,6 +228,40 @@ public class MethodMapTestsCollections
     }
 
     //--------------------------------------------------------------------------
+    // impl-linq2 (C): the VALUE-TYPE get_Current carriers for the GroupBy
+    // bucket traversal. foreach over a bucket whose TElement is System.DateTime
+    // / System.Guid emits get_Current on the tracked instantiation
+    // IEnumerator`1_System.DateTime / _System.Guid; the 8-/16-byte struct
+    // cannot ride the i4 register slot (the old mapping fell through to the
+    // int32 carrier and the emitted C++ assigned int32_t into an
+    // Il2CppDateTime/Il2CppGuid temp -- a compile error).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_IEnumeratorDateTimeGetCurrent_MapsToDtCarrier()
+    {
+        var resolved = ResolveInstancedInterface(
+            "System.Collections.Generic.IEnumerator`1", "System.DateTime", "get_Current",
+            Blob(0x20, 0x00, 0x13, 0x00));
+
+        Assert.Equal("il2cpp::il2cpp_ienum_get_current_dt", resolved.CppName);
+        Assert.Equal("dt", resolved.ResultKind);
+        Assert.Equal("System.DateTime", resolved.ReturnTypeName);
+        Assert.True(resolved.IsInstance);
+    }
+
+    [Fact]
+    public void Resolve_IEnumeratorGuidGetCurrent_MapsToGuidCarrier()
+    {
+        var resolved = ResolveInstancedInterface(
+            "System.Collections.Generic.IEnumerator`1", "System.Guid", "get_Current",
+            Blob(0x20, 0x00, 0x13, 0x00));
+
+        Assert.Equal("il2cpp::il2cpp_ienum_get_current_guid", resolved.CppName);
+        Assert.Equal("guid", resolved.ResultKind);
+        Assert.Equal("System.Guid", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as the resolver)
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveInterface(string ownerName, string memberName, byte[] signature,
@@ -266,5 +300,52 @@ public class MethodMapTestsCollections
         var blob = new BlobBuilder();
         peBuilder.Serialize(blob);
         return new MemoryStream(blob.ToArray());
+    }
+
+    //--------------------------------------------------------------------------
+    // impl-linq2 (C): the MemberRef parent is a TypeSpecification
+    // (IEnumerator`1<T>) so the resolver derives the tracked instantiation name
+    // ("System.Collections.Generic.IEnumerator`1_<elem>") -- the get_Current
+    // carrier dispatches on it.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod ResolveInstancedInterface(string openOwnerName, string elemTypeName,
+        string memberName, byte[] signature)
+    {
+        using var reader = new PEReader(SynthesizeInstanced(openOwnerName, elemTypeName, memberName, signature));
+        var md = reader.GetMetadataReader();
+        var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
+            null, false, null, null);
+    }
+
+    private static MemoryStream SynthesizeInstanced(string openOwnerName, string elemTypeName,
+        string memberName, byte[] signature)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var ns = openOwnerName.Contains('.') ? openOwnerName[..openOwnerName.LastIndexOf('.')] : "";
+        var name = openOwnerName.Contains('.') ? openOwnerName[(openOwnerName.LastIndexOf('.') + 1)..] : openOwnerName;
+        var openRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(name));
+        var lastDot = elemTypeName.LastIndexOf('.');
+        var elemRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(elemTypeName[..lastDot]),
+            mdb.GetOrAddString(elemTypeName[(lastDot + 1)..]));
+        // GENERICINST IEnumerator`1<elem>: 0x15 0x12 <open coded> 0x01 <elem byte>.
+        // The element is a named VALUETYPE TypeRef (0x11 + coded) so the
+        // instantiation name decodes the full name.
+        var elemCoded = (MetadataTokens.GetRowNumber(elemRef) << 2) | 1;
+        var openCoded = (MetadataTokens.GetRowNumber(openRef) << 2) | 1; // tag 1 = TypeRef
+        var tsBlob = new BlobBuilder();
+        tsBlob.WriteByte(0x15);
+        tsBlob.WriteByte(0x12);
+        tsBlob.WriteCompressedInteger(openCoded);
+        tsBlob.WriteCompressedInteger(1);
+        tsBlob.WriteByte(0x11);
+        tsBlob.WriteCompressedInteger(elemCoded);
+        var typeSpec = mdb.AddTypeSpecification(mdb.GetOrAddBlob(tsBlob.ToArray()));
+        mdb.AddMemberReference(typeSpec, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
+        return Serialize(mdb);
     }
 }

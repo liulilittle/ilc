@@ -2489,10 +2489,16 @@ var userRecvLike = receiverType ?? arg0Type;
                     case "get_Current":
                         // The generic IEnumerator<T>.get_Current carrier from
                         // the T instantiation (the Task instName pattern).
+                        // impl-linq2 (C): a USER-STRUCT T has no runtime box
+                        // descriptor at the call site -- LOUD whitelist (no
+                        // runtime descriptor), never a silent mis-carrier.
                         if (instName?.Contains("_valuetype", StringComparison.Ordinal) == true)
                             throw new NotSupportedException(
-                                $"IEnumerator<T>.get_Current for VALUETYPE T (instName '{instName}') is not built -- " +
-                                "the 16-byte struct carriers are out of scope; only the primitive/ref carriers exist");
+                                "LOUD whitelist (no runtime descriptor for the user-struct box): " +
+                                $"IEnumerator<T>.get_Current for VALUETYPE T (instName '{instName}') is " +
+                                "not built -- a user struct has no generated box descriptor at this call " +
+                                "site, so no get_Current carrier can read its payload " +
+                                "[Reference Source System.Core/System/Linq/Enumerable.cs:776]");
                         // nb9 fix P0-3: a GROUPING element is ALWAYS a managed
                         // reference (the bucket object), whatever TElement is.
                         // This arm must run BEFORE the primitive-name probes:
@@ -2516,12 +2522,23 @@ var userRecvLike = receiverType ?? arg0Type;
                         // also contains "System.Decimal". The 16-byte struct
                         // cannot ride a register return slot, so the runtime
                         // entry follows the decimal T3 result-slot contract
-                        // (the slot is the FIRST C++ parameter). Every OTHER
-                        // value type keeps the LOUD path below.
+                        // (the slot is the FIRST C++ parameter).
                         if (instName?.EndsWith("_System.Decimal", StringComparison.Ordinal) == true
                             || instName?.EndsWith("System.Decimal", StringComparison.Ordinal) == true)
                             return I("il2cpp::il2cpp_ienum_get_current_dec", 0, true, false, true,
                                 resultKind: "dec", returnTypeName: "System.Decimal");
+                        // impl-linq2 (C): the System.DateTime / System.Guid
+                        // carriers for the GroupBy bucket traversal (foreach
+                        // over a bucket whose TElement is a value type). The
+                        // old mapping fell through to the int32 carrier and the
+                        // emitted C++ assigned an int32_t into an
+                        // Il2CppDateTime/Il2CppGuid temp (a compile error).
+                        if (instName?.EndsWith("_System.DateTime", StringComparison.Ordinal) == true)
+                            return I("il2cpp::il2cpp_ienum_get_current_dt", 0, true, false, true,
+                                resultKind: "dt", returnTypeName: "System.DateTime");
+                        if (instName?.EndsWith("_System.Guid", StringComparison.Ordinal) == true)
+                            return I("il2cpp::il2cpp_ienum_get_current_guid", 0, true, false, true,
+                                resultKind: "guid", returnTypeName: "System.Guid");
                         if (instName?.Contains("_long", StringComparison.Ordinal) == true
                             || instName?.Contains("_ulong", StringComparison.Ordinal) == true)
                             return I("il2cpp::il2cpp_ienum_get_current_i8", 0, true, false, true, resultKind: "l");

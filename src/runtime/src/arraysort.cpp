@@ -47,6 +47,7 @@
 #include "il2cpp_string.h"
 #include "il2cpp_time.h" // A3: DateTime[]/TimeSpan[] tick mask + values
 #include "linq_map.h" // nb9: GroupBy result/bucket enumerator dispatch
+#include "il2cpp_nullable.h" // impl-linq2 (C): icall_unbox_date_time / icall_unbox_guid
 #include "string_compare.h" // a5reds: ordinal / ordinal-ignore-case helpers
 #include "sortedlist.h" // P25d: array snapshot enumerator re-use
 #include "sortedlistint_obj.h" // P3-extra: SortedList<string,int> values view enumerator
@@ -5005,6 +5006,94 @@ void il2cpp_ienum_get_current_dec(runtime::Il2CppDecimal* result, Il2CppObject* 
     {
         *result = *reinterpret_cast<const runtime::Il2CppDecimal*>(
             arr->data + static_cast<size_t>(idx) * static_cast<size_t>(arr->elemSize));
+        return;
+    }
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+        "Specified cast is not valid.");
+}
+
+//------------------------------------------------------------------------------
+// impl-linq2 (C): the System.DateTime / System.Guid carriers for the GroupBy
+// bucket traversal (IEnumerator<DateTime/_Guid>.get_Current). The snapshot
+// array holds either the bucket's own value cells (kElemKindDateTime /
+// kElemKindGuid) or BOXED elements (the grouping enumerator boxes each cell
+// through icall_box_date_time / icall_box_guid). Any other element layout
+// raises InvalidCastException instead of reinterpreting memory.
+//------------------------------------------------------------------------------
+runtime::Il2CppDateTime il2cpp_ienum_get_current_dt(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    if (receiver->klass != &System_Collections_SortedList_Enumerator_class)
+    {
+        il2cpp_throw_new(
+            "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+            "Specified cast is not valid: the IEnumerator<DateTime> receiver is not the snapshot enumerator.");
+        return runtime::Il2CppDateTime{};
+    }
+    Il2CppArray* arr = ArrayEnum(receiver)->array;
+    const int32_t idx = ArrayEnum(receiver)->index;
+    if (arr == nullptr || idx < 0 || idx >= arr->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "index", "Index was out of range. Must be non-negative and less than the size of the collection.");
+        return runtime::Il2CppDateTime{}; // unreachable (the factory throws)
+    }
+    if (arr->isRefElem)
+    {
+        Il2CppObject* boxed = reinterpret_cast<Il2CppObject* const*>(arr->data)[idx];
+        return runtime::icall_unbox_date_time(boxed);
+    }
+    if (arr->elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDateTime)))
+    {
+        return *reinterpret_cast<const runtime::Il2CppDateTime*>(
+            arr->data + static_cast<size_t>(idx) * static_cast<size_t>(arr->elemSize));
+    }
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+        "Specified cast is not valid: the snapshot element is neither a boxed DateTime nor a DateTime cell.");
+    return runtime::Il2CppDateTime{}; // unreachable (the factory throws)
+}
+
+void il2cpp_ienum_get_current_guid(Il2CppObject* receiver, uint8_t bytes[16])
+{
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    if (receiver->klass != &System_Collections_SortedList_Enumerator_class)
+    {
+        il2cpp_throw_new(
+            "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+            "Specified cast is not valid.");
+        return;
+    }
+    Il2CppArray* arr = ArrayEnum(receiver)->array;
+    const int32_t idx = ArrayEnum(receiver)->index;
+    if (arr == nullptr || idx < 0 || idx >= arr->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception(
+            "index", "Index was out of range. Must be non-negative and less than the size of the collection.");
+        return;
+    }
+    if (arr->isRefElem)
+    {
+        Il2CppObject* boxed = reinterpret_cast<Il2CppObject* const*>(arr->data)[idx];
+        const Il2CppGuid v = runtime::icall_unbox_guid(boxed);
+        std::memcpy(bytes, &v, sizeof(v));
+        return;
+    }
+    if (arr->elemSize == static_cast<int32_t>(sizeof(Il2CppGuid)))
+    {
+        std::memcpy(bytes, arr->data + static_cast<size_t>(idx) * static_cast<size_t>(arr->elemSize),
+                    sizeof(Il2CppGuid));
         return;
     }
     il2cpp_throw_new(

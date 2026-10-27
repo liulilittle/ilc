@@ -471,9 +471,13 @@ public static partial class MethodRefResolver
                 case "ToArray":
                     // The exact-size snapshot IS the get_elements contract
                     // (the bucket's backing store is growable), so no separate
-                    // wrapper icall is needed.
+                    // wrapper icall is needed. impl-linq2 (C): a DECIMAL bucket
+                    // stores 16-byte decimal cells -- the tracked type follows
+                    // the bucket family (the old tracking said System.Int32[]
+                    // and downstream element reads resolved the int32 family
+                    // against a 16-byte array).
                     return I("il2cpp::il2cpp_linq_grouping_get_elements", 1, true, true, false, new[] { "" },
-                        returnTypeName: "System.Int32[]");
+                        returnTypeName: decBucket ? "System.Decimal[]" : "System.Int32[]");
                 case "Any" when count < 2:
                     return I("il2cpp::il2cpp_linq_grouping_any", 1, true, false, false, new[] { "" });
                 case "Any":

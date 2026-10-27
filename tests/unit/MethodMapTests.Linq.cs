@@ -1431,6 +1431,23 @@ public class MethodMapTestsLinq
         Assert.Contains("non-decimal accumulator", ex.Message);
     }
 
+    //--------------------------------------------------------------------------
+    // impl-linq2 (C): ToArray over a DECIMAL bucket materializes the 16-byte
+    // decimal cells (grouping_get_elements copies the bucket's own element
+    // width), so the tracked result type is System.Decimal[] -- the old
+    // tracking said System.Int32[] and downstream element reads/foreaches
+    // resolved the int32 family against a 16-byte array.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_GroupingDecimalBucket_ToArray_TracksDecimalArray()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGroupingDecToArray(),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_get_elements", resolved.CppName);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
     // The decimal-bucket GroupBy SELECTOR aggregate (net48
     // Sum<decimal>(IGrouping<,decimal>, Func<decimal,decimal>)): the 16-byte
     // result rides an explicit result slot and the bucket's decimal cells feed
@@ -2930,6 +2947,44 @@ public class MethodMapTestsLinq
         {
             spec.WriteByte(argByte);
         }
+    }
+
+    // impl-linq2 (C): ToArray<decimal>() over a DECIMAL GroupBy bucket
+    // (net48 Enumerable.ToArray<TSource>(IEnumerable<TSource>) -- Enumerable.cs
+    // :942): genCount 1, paramCount 1, TSource is the named System.Decimal
+    // VALUETYPE TypeRef, the return is TSource[] (SZARRAY of the valuetype).
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Decimal              (coded 0x0D)
+    private static MemoryStream SynthesizeGroupingDecToArray()
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x01);
+        sig.WriteByte(0x01);
+        sig.WriteByte(0x1D);                                            // return TSource[]
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);      //   of System.Decimal
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       // IEnumerable<TSource>
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("ToArray"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(1);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
     }
 
     // Decimal-bucket GroupBy selector aggregate (net48
