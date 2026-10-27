@@ -1,4 +1,4 @@
-using System.Reflection.Metadata;
+﻿using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
@@ -2915,7 +2915,16 @@ public static class CodeGenerator
                     // instantiation would be an undeclared type (cmake build
                     // FAIL). The dead slot declares as the ref carrier + frame
                     // root (the initobj zero-store stays well-formed).
-                    if (defName.Contains("__InlineArray", StringComparison.Ordinal))
+                    // P3-2: the gate is the COMPILER-SYNTHESIZED NAME COMBINATION
+                    // -- the <PrivateImplementationDetails> declaring type PLUS
+                    // the __InlineArray element ("+__InlineArrayN`1" nested
+                    // shape). A plain Contains("__InlineArray") also captured a
+                    // USER generic struct whose name merely contains the token
+                    // ("Cases.__InlineArray4`1"), misdeclaring its instantiation
+                    // local as the dead ref carrier instead of the concrete R77
+                    // struct clone (the unit test pins the user shape).
+                    if (defName.StartsWith("<PrivateImplementationDetails>", StringComparison.Ordinal)
+                        && defName.Contains("__InlineArray", StringComparison.Ordinal))
                     {
                         refLocals.Add(d);
                         w.Line($"Il2CppObject* {d} = nullptr;");
@@ -12680,7 +12689,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     //--------------------------------------------------------------------------
-    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section 鈶?
+    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section 閳?
     // RF-N6): construct the MEMBER-level custom attribute instances (methods /
     // fields / properties) and register each annotated member's array in the
     // RF-N6 member registry (attribute.h) under the "FullName::memberName"
@@ -13114,7 +13123,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         h.Open();
         h.Line("return il2cpp::il2cpp_report_unhandled_exception(__il2cpp_unhandled.message_text());");
         h.Close();
-        // GN-17 (鏂规涔?: a native std::exception or any other C++ escape that
+        // GN-17 (閺傝顢嶆稊?: a native std::exception or any other C++ escape that
         // slips past the P/Invoke boundary wrap (il2cpp_pinvoke_call) must NOT
         // reach std::terminate/abort -- report and exit non-zero (the .NET
         // process contract: an uncaught native exception is a reported,
