@@ -2508,7 +2508,7 @@ public class MethodMapTestsLinq
                 0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x0E },
             genericSignature: new byte[] { 0x0A, 0x01, 0x0A })));
 
-        Assert.Contains("wide-source selector-aggregate surface", ex.Message);
+        Assert.Contains("value-source selector-aggregate surface", ex.Message);
     }
 
     //==========================================================================
