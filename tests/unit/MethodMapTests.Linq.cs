@@ -1666,6 +1666,65 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
     }
 
+    //==========================================================================
+    // impl-linq3 (C): Select over a DECIMAL bucket (net48
+    // Select<IGrouping,TResult>): the bucket snapshot feeds the DECIMAL-SOURCE
+    // select_dec_* / select_idx_dec_* kernels. Before this change the bucket
+    // Select LOUD-rejected ("the int32 predicate/selector operators have no
+    // decimal bucket kernel"). The result family follows the projection.
+    //==========================================================================
+    [Theory]
+    [InlineData(0x11, 2, "il2cpp::il2cpp_linq_grouping_select_dec_dec", "System.Decimal[]")]
+    [InlineData(0x08, 2, "il2cpp::il2cpp_linq_grouping_select_dec_i4", "System.Int32[]")]
+    [InlineData(0x0A, 2, "il2cpp::il2cpp_linq_grouping_select_dec_i8", "System.Int64[]")]
+    [InlineData(0x0D, 2, "il2cpp::il2cpp_linq_grouping_select_dec_d", "System.Double[]")]
+    [InlineData(0x0C, 2, "il2cpp::il2cpp_linq_grouping_select_dec_f", "System.Double[]")]
+    [InlineData(0x11, 3, "il2cpp::il2cpp_linq_grouping_select_idx_dec_dec", "System.Decimal[]")]
+    [InlineData(0x08, 3, "il2cpp::il2cpp_linq_grouping_select_idx_dec_i4", "System.Int32[]")]
+    [InlineData(0x0A, 3, "il2cpp::il2cpp_linq_grouping_select_idx_dec_i8", "System.Int64[]")]
+    [InlineData(0x0D, 3, "il2cpp::il2cpp_linq_grouping_select_idx_dec_d", "System.Double[]")]
+    [InlineData(0x0C, 3, "il2cpp::il2cpp_linq_grouping_select_idx_dec_f", "System.Double[]")]
+    public void Resolve_DecimalBucket_Select_MapsToDecimalSourceSelectKernel(
+        byte resByte, int funcArgs, string icall, string retType)
+    {
+        var memberRef = funcArgs == 3
+            ? new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x03, 0x13, 0x00, 0x08, resByte }
+            : new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, resByte };
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericDecimalSource("Select", memberRef, resByte),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(retType, resolved.ReturnTypeName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    // The bucket INDEX Select with a REFERENCE result stays LOUD (the decimal
+    // index reference-result entry does not exist; the decimal-SOURCE surface
+    // has the same gap).
+    [Fact]
+    public void Resolve_DecimalBucket_Select_IndexRef_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpecWithReceiver(
+            SynthesizeGenericDecimalSource("Select",
+                new byte[] { 0x10, 0x02, 0x02,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x0D, 0x03, 0x13, 0x00, 0x08, 0x0E },
+                0x0E),
+            receiverType: "System.Linq.IGrouping"));
+
+        Assert.Contains("not wired", ex.Message);
+    }
+
     // Aggregate with a DECIMAL accumulator (net48 Aggregate<TSource,decimal>):
     // the 16-byte result rides an explicit result slot and the seed crosses as a
     // decimal value slot.

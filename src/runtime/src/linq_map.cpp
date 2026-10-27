@@ -7761,6 +7761,61 @@ bool il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDe
         ThrowIfNullReceiver(grouping);                                                 \
         return il2cpp_linq_where_dec(RequireDecGroupElements(grouping), pred);         \
     }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_dec_dec(Il2CppObject* grouping, Il2CppObject* sel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_dec_dec(RequireDecGroupElements(grouping), sel);     \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_dec_i4(Il2CppObject* grouping, Il2CppObject* sel)  \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_dec_i4(RequireDecGroupElements(grouping), sel);      \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_dec_i8(Il2CppObject* grouping, Il2CppObject* sel)  \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_dec_i8(RequireDecGroupElements(grouping), sel);      \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_dec_d(Il2CppObject* grouping, Il2CppObject* sel)   \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_dec_d(RequireDecGroupElements(grouping), sel);       \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_dec_f(Il2CppObject* grouping, Il2CppObject* sel)   \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_dec_f(RequireDecGroupElements(grouping), sel);       \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_dec_ref(Il2CppObject* grouping, Il2CppObject* sel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_dec_ref(RequireDecGroupElements(grouping), sel);     \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_idx_dec_dec(Il2CppObject* grouping, Il2CppObject* sel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_idx_dec_dec(RequireDecGroupElements(grouping), sel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_idx_dec_i4(Il2CppObject* grouping, Il2CppObject* sel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_idx_dec_i4(RequireDecGroupElements(grouping), sel);  \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_idx_dec_i8(Il2CppObject* grouping, Il2CppObject* sel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_idx_dec_i8(RequireDecGroupElements(grouping), sel);  \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_idx_dec_d(Il2CppObject* grouping, Il2CppObject* sel)  \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_idx_dec_d(RequireDecGroupElements(grouping), sel);   \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_idx_dec_f(Il2CppObject* grouping, Il2CppObject* sel)  \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_idx_dec_f(RequireDecGroupElements(grouping), sel);   \
+    }                                                                                  \
     void il2cpp_linq_grouping_first_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping) \
     {                                                                                  \
         ThrowIfNullReceiver(grouping);                                                 \

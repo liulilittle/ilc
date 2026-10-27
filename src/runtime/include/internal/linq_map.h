@@ -1019,6 +1019,22 @@ void          il2cpp_linq_grouping_single_pred_dec(runtime::Il2CppDecimal* resul
 void          il2cpp_linq_grouping_single_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred);
 void          il2cpp_linq_grouping_element_at_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, int32_t index);
 Il2CppArray*  il2cpp_linq_grouping_where_dec(Il2CppObject* grouping, Il2CppObject* pred);
+// impl-linq3 (C): the DECIMAL-bucket Select surface -- each entry snapshots
+// the bucket's decimal cells (RequireDecGroupElements) and reuses the
+// DECIMAL-SOURCE select_dec_* / select_idx_dec_* kernel over the snapshot;
+// the result family follows the projection (decimal/int32/int64/double/float
+// cells, or a fresh reference array).
+Il2CppArray*  il2cpp_linq_grouping_select_dec_dec(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_dec_i4(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_dec_i8(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_dec_d(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_dec_f(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_dec_ref(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_dec(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_i4(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_i8(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_d(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_f(Il2CppObject* grouping, Il2CppObject* sel);
 Il2CppArray*  il2cpp_linq_grouping_reverse_dec(Il2CppObject* grouping);
 Il2CppArray*  il2cpp_linq_grouping_take_dec(Il2CppObject* grouping, int32_t count);
 Il2CppArray*  il2cpp_linq_grouping_skip_dec(Il2CppObject* grouping, int32_t count);

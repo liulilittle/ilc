@@ -628,6 +628,45 @@ public static partial class MethodRefResolver
                 case "Where":
                     return I("il2cpp::il2cpp_linq_grouping_where", 2, true, true, false, new[] { "", "" },
                         returnTypeName: "System.Int32[]");
+                case "Select" when decBucket:
+                {
+                    // impl-linq3 (C): the DECIMAL-bUCKET Select -- the bucket
+                    // snapshot feeds the DECIMAL-SOURCE select_dec_* kernels
+                    // (the same dispatch as the decimal-source Select). The
+                    // (element, index) selector form has no decimal index
+                    // reference-result entry and stays LOUD. Casts ["", ""]:
+                    // OBJECT receivers, never Il2CppArray*.
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    bool selIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
+                    if (genArgs[1] == 0x11 && IsDecimalGenArg(genArgNames, 1))
+                        return I(selIdx
+                                ? "il2cpp::il2cpp_linq_grouping_select_idx_dec_dec"
+                                : "il2cpp::il2cpp_linq_grouping_select_dec_dec",
+                            2, true, true, false, new[] { "", "" }, returnTypeName: "System.Decimal[]");
+                    string? vs = LinqValueResultSuffix(genArgs[1]);
+                    if (vs is null)
+                    {
+                        if (IsRefFamilyByte(genArgs[1]))
+                        {
+                            if (selIdx)
+                                throw new NotSupportedException(
+                                    "Enumerable.Select over a System.Decimal GroupBy bucket with an " +
+                                    "(element, index) selector returning a reference is not wired " +
+                                    "(the runtime has no decimal index reference-result entry)");
+                            return I("il2cpp::il2cpp_linq_grouping_select_dec_ref",
+                                2, true, true, false, new[] { "", "" },
+                                returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
+                        }
+                        throw new NotSupportedException(
+                            $"Enumerable.Select over a System.Decimal GroupBy bucket with result " +
+                            $"{GenericArgTypeName(genArgs[1])} not wired: the decimal-bucket select " +
+                            "surface covers a System.Decimal result, the int32/int64/double/float " +
+                            "VALUE results and a reference result (see docs/audit/b5-gaps.md)");
+                    }
+                    return I($"il2cpp::il2cpp_linq_grouping_select{(selIdx ? "_idx" : "")}_dec_{vs}",
+                        2, true, true, false, new[] { "", "" }, returnTypeName: LinqValueResultArrayName(vs));
+                }
                 case "Select":
                     return I("il2cpp::il2cpp_linq_grouping_select", 2, true, true, false, new[] { "", "" },
                         returnTypeName: "System.Int32[]");
