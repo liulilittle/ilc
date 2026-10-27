@@ -1335,6 +1335,72 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
     }
 
+    //--------------------------------------------------------------------------
+    // impl-linq2 (B-1): the REFERENCE-source selector aggregates with a DECIMAL
+    // projection (net48 Sum/Min/Max/Average<TSource>(source,
+    // Func<TSource,decimal>) -- Enumerable.cs:1528/1735/1939/2133). The old
+    // mapping LOUD-rejected the decimal projection ("the reference selector-
+    // aggregate surface covers an int32-slot (char/int32), int64, double or
+    // float projection only").
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_RefSelectorDecimalProjection_MapsToDecimalResultSlotKernels()
+    {
+        foreach (var (name, icall) in new[]
+        {
+            ("Sum", "il2cpp::il2cpp_linq_sum_sel_ref_dec"),
+            ("Min", "il2cpp::il2cpp_linq_min_sel_ref_dec"),
+            ("Max", "il2cpp::il2cpp_linq_max_sel_ref_dec"),
+            ("Average", "il2cpp::il2cpp_linq_average_sel_ref_dec"),
+        })
+        {
+            var resolved = ResolveMethodSpec(SynthesizeRefSelectorDecimalProjection(name));
+            Assert.Equal(icall, resolved.CppName);
+            Assert.Equal("dec", resolved.ResultKind);
+            Assert.Equal(2, resolved.ParamCount);
+            Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // impl-linq2 (B-2): the DECIMAL-BUCKET projection aggregates (net48
+    // Sum/Min/Max/Average<decimal>(bucket, Func<decimal,int32/int64/float/
+    // double>)). The bucket's decimal cells feed the selector and the fold runs
+    // over the projected values. The old mapping LOUD-rejected every
+    // non-decimal projection.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("Sum", "i", "il2cpp::il2cpp_linq_grouping_sum_dec_proj_i4", null)]
+    [InlineData("Sum", "l", "il2cpp::il2cpp_linq_grouping_sum_dec_proj_i8", "l")]
+    [InlineData("Sum", "f", "il2cpp::il2cpp_linq_grouping_sum_dec_proj_f", "d")]
+    [InlineData("Sum", "d", "il2cpp::il2cpp_linq_grouping_sum_dec_proj_d", "d")]
+    [InlineData("Min", "i", "il2cpp::il2cpp_linq_grouping_min_dec_proj_i4", null)]
+    [InlineData("Min", "l", "il2cpp::il2cpp_linq_grouping_min_dec_proj_i8", "l")]
+    [InlineData("Max", "i", "il2cpp::il2cpp_linq_grouping_max_dec_proj_i4", null)]
+    [InlineData("Max", "d", "il2cpp::il2cpp_linq_grouping_max_dec_proj_d", "d")]
+    [InlineData("Average", "i", "il2cpp::il2cpp_linq_grouping_average_dec_proj_i4", "d")]
+    [InlineData("Average", "l", "il2cpp::il2cpp_linq_grouping_average_dec_proj_i8", "d")]
+    [InlineData("Average", "f", "il2cpp::il2cpp_linq_grouping_average_dec_proj_f", "d")]
+    [InlineData("Average", "d", "il2cpp::il2cpp_linq_grouping_average_dec_proj_d", "d")]
+    public void Resolve_GroupingDecimalProjectionAggregate_MapsToProjectionKernel(
+        string name, string projCode, string icall, string? resultKind)
+    {
+        byte projByte = projCode switch
+        {
+            "i" => 0x08,
+            "l" => 0x0A,
+            "f" => 0x0C,
+            _ => 0x0D,
+        };
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericGroupingDecSelProj(name, projByte), receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
     // Aggregate with a DECIMAL accumulator (net48 Aggregate<TSource,decimal>):
     // the 16-byte result rides an explicit result slot and the seed crosses as a
     // decimal value slot.
@@ -2947,6 +3013,90 @@ public class MethodMapTestsLinq
         {
             spec.WriteByte(argByte);
         }
+    }
+
+    // impl-linq2 (B-1): the REFERENCE-source selector aggregate with a DECIMAL
+    // projection (net48 Sum/Min/Max/Average<TSource>(Func<TSource,decimal>)):
+    // genCount 1, paramCount 2, the return IS System.Decimal and the Func`2
+    // carries (TSource, decimal).
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11)
+    private static MemoryStream SynthesizeRefSelectorDecimalProjection(string methodName, byte srcByte = 0x0E)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x01);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);      // return System.Decimal
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       // IEnumerable<TSource>
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       // Func<TSource, decimal>
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(1);
+        spec.WriteByte(srcByte);                                        // TSource (0x0E string)
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // impl-linq2 (B-2): the decimal-bucket PROJECTION aggregate (net48
+    // Sum/Min/Max/Average<decimal>(bucket, Func<decimal,TProj>)): genCount 1,
+    // paramCount 2, TSource is the named System.Decimal VALUETYPE TypeRef and
+    // the Func`2 carries (decimal, TProj) with a raw TProj byte.
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11)
+    private static MemoryStream SynthesizeGenericGroupingDecSelProj(string methodName, byte projByte)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x01);
+        sig.WriteByte(0x02);
+        sig.WriteByte(projByte);                                        // return TProj
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);      // IEnumerable<decimal>
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);      // Func<decimal, TProj>
+        sig.WriteByte(projByte);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(1);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
     }
 
     // impl-linq2 (C): ToArray<decimal>() over a DECIMAL GroupBy bucket

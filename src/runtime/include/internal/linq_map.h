@@ -304,6 +304,16 @@ void il2cpp_linq_min_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, I
 void il2cpp_linq_max_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
 void il2cpp_linq_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
 
+// impl-linq2 (B-1): the REFERENCE-source selector aggregates with a DECIMAL
+// projection (net48 Sum/Min/Max/Average<TSource>(source, Func<TSource,decimal>)
+// -- Enumerable.cs:1528/1735/1939/2133). The selector takes the reference
+// element and returns the decimal BY VALUE; the 16-byte result rides the
+// explicit result slot (the decimal T3 contract).
+void il2cpp_linq_sum_sel_ref_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_min_sel_ref_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_max_sel_ref_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_average_sel_ref_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+
 // P0LINQ1 (D2) follow-up: Aggregate with a DECIMAL accumulator (net48
 // Aggregate<TSource,decimal>(source, seed, Func<decimal,TSource,decimal>)).
 // The 16-byte decimal result rides an explicit result slot (the decimal T3
@@ -840,6 +850,27 @@ void          il2cpp_linq_grouping_sum_dec_sel(runtime::Il2CppDecimal* result, I
 void          il2cpp_linq_grouping_min_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* sel);
 void          il2cpp_linq_grouping_max_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* sel);
 void          il2cpp_linq_grouping_average_dec_sel(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* sel);
+// impl-linq2 (B-2): the decimal-bucket PROJECTION aggregates (net48
+// Sum/Min/Max/Average<decimal>(bucket, Func<decimal,int32/int64/float/double>)
+// -- Enumerable.cs:1496-1536/1703-1739/1907-1943/2101-2137 generic forms). The
+// bucket's decimal cells feed the selector and the fold runs over the
+// PROJECTED values (int32/int64 sums CHECKED, net48 semantics).
+int32_t       il2cpp_linq_grouping_sum_dec_proj_i4(Il2CppObject* grouping, Il2CppObject* sel);
+int64_t       il2cpp_linq_grouping_sum_dec_proj_i8(Il2CppObject* grouping, Il2CppObject* sel);
+float         il2cpp_linq_grouping_sum_dec_proj_f(Il2CppObject* grouping, Il2CppObject* sel);
+double        il2cpp_linq_grouping_sum_dec_proj_d(Il2CppObject* grouping, Il2CppObject* sel);
+int32_t       il2cpp_linq_grouping_min_dec_proj_i4(Il2CppObject* grouping, Il2CppObject* sel);
+int64_t       il2cpp_linq_grouping_min_dec_proj_i8(Il2CppObject* grouping, Il2CppObject* sel);
+float         il2cpp_linq_grouping_min_dec_proj_f(Il2CppObject* grouping, Il2CppObject* sel);
+double        il2cpp_linq_grouping_min_dec_proj_d(Il2CppObject* grouping, Il2CppObject* sel);
+int32_t       il2cpp_linq_grouping_max_dec_proj_i4(Il2CppObject* grouping, Il2CppObject* sel);
+int64_t       il2cpp_linq_grouping_max_dec_proj_i8(Il2CppObject* grouping, Il2CppObject* sel);
+float         il2cpp_linq_grouping_max_dec_proj_f(Il2CppObject* grouping, Il2CppObject* sel);
+double        il2cpp_linq_grouping_max_dec_proj_d(Il2CppObject* grouping, Il2CppObject* sel);
+double        il2cpp_linq_grouping_average_dec_proj_i4(Il2CppObject* grouping, Il2CppObject* sel);
+double        il2cpp_linq_grouping_average_dec_proj_i8(Il2CppObject* grouping, Il2CppObject* sel);
+float         il2cpp_linq_grouping_average_dec_proj_f(Il2CppObject* grouping, Il2CppObject* sel);
+double        il2cpp_linq_grouping_average_dec_proj_d(Il2CppObject* grouping, Il2CppObject* sel);
 bool          il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDecimal value);
 Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result);
 

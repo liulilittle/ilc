@@ -2675,6 +2675,91 @@ void il2cpp_linq_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* sr
 }
 
 //------------------------------------------------------------------------------
+// impl-linq2 (B-1): the selector aggregates with a DECIMAL projection over a
+// REFERENCE source (net48 Sum/Min/Max/Average<TSource>(source,
+// Func<TSource,decimal>) -- Enumerable.cs:1528/1735/1939/2133). The selector
+// takes the reference element and returns the decimal BY VALUE (the
+// SelRefDecKey ABI -- the ref-source GroupBy element-selector precedent);
+// the 16-byte result rides an explicit result slot (the decimal T3 contract).
+// GC SAFETY: the delegate and the source are rooted across every callback.
+//------------------------------------------------------------------------------
+void il2cpp_linq_sum_sel_ref_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelRefDecKey(d, RefAt(src, i));
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+}
+
+void il2cpp_linq_min_sel_ref_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best = InvokeSelRefDecKey(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelRefDecKey(d, RefAt(src, i));
+        if (runtime::icall_decimal_compare(&elem, &best) < 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_max_sel_ref_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best = InvokeSelRefDecKey(d, RefAt(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelRefDecKey(d, RefAt(src, i));
+        if (runtime::icall_decimal_compare(&elem, &best) > 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_average_sel_ref_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem = InvokeSelRefDecKey(d, RefAt(src, i));
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+    runtime::Il2CppDecimal count;
+    std::memset(&count, 0, sizeof(runtime::Il2CppDecimal));
+    runtime::icall_decimal_ctor_int32(&count, src->length);
+    runtime::icall_decimal_div(result, result, &count);
+}
+
+//------------------------------------------------------------------------------
 // P0LINQ1 (D2) follow-up: Aggregate with a DECIMAL accumulator (net48
 // Aggregate<TSource,decimal>(source, seed, Func<decimal,TSource,decimal>)).
 // The 16-byte decimal result rides an explicit result slot (the decimal T3
@@ -6945,6 +7030,172 @@ void il2cpp_linq_grouping_average_dec_sel(runtime::Il2CppDecimal* result, Il2Cpp
     std::memset(&count, 0, sizeof(runtime::Il2CppDecimal));
     runtime::icall_decimal_ctor_int32(&count, elems->length);
     runtime::icall_decimal_div(result, result, &count);
+}
+
+//------------------------------------------------------------------------------
+// impl-linq2 (B-2): the decimal-bucket PROJECTION aggregates (net48
+// Sum/Min/Max/Average<decimal>(bucket, Func<decimal,int32/int64/float/double>)
+// -- Enumerable.cs:1496-1536 / 1703-1739 / 1907-1943 / 2101-2137 generic
+// forms). The bucket's decimal cells feed the selector (the InvokeSelDec*
+// ABIs -- the decimal element crosses by value) and the fold runs over the
+// PROJECTED values: the int32/int64 sums are CHECKED (net48 Sum semantics),
+// the float/double folds are IEEE, and Average divides by the count. The old
+// mapping LOUD-rejected every non-decimal projection over a decimal bucket.
+// GC SAFETY: the delegate and the bucket snapshot are rooted across every
+// callback.
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_grouping_sum_dec_proj_i4(Il2CppObject* grouping, Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = RequireDecGroupElements(grouping);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&elems));
+    int32_t sum = 0;
+    for (int32_t i = 0; i < elems->length; ++i)
+    {
+        const int32_t v = InvokeSelDecI4(d, *DecAt(elems, i));
+        // net48 Sum<TSource>(Func<TSource,int>) is CHECKED.
+        if ((v > 0 && sum > INT32_MAX - v) || (v < 0 && sum < INT32_MIN - v))
+        {
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        }
+        sum += v;
+    }
+    return sum;
+}
+
+int64_t il2cpp_linq_grouping_sum_dec_proj_i8(Il2CppObject* grouping, Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = RequireDecGroupElements(grouping);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&elems));
+    int64_t sum = 0;
+    for (int32_t i = 0; i < elems->length; ++i)
+    {
+        const int64_t v = InvokeSelDecI8(d, *DecAt(elems, i));
+        // net48 Sum<TSource>(Func<TSource,long>) is CHECKED.
+        if ((v > 0 && sum > INT64_MAX - v) || (v < 0 && sum < INT64_MIN - v))
+        {
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        }
+        sum += v;
+    }
+    return sum;
+}
+
+float il2cpp_linq_grouping_sum_dec_proj_f(Il2CppObject* grouping, Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = RequireDecGroupElements(grouping);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&elems));
+    // net48 Sum<TSource>(Func<TSource,float>) accumulates in DOUBLE and casts
+    // the total to float at the end.
+    double sum = 0.0;
+    for (int32_t i = 0; i < elems->length; ++i)
+    {
+        sum += InvokeSelDecF(d, *DecAt(elems, i));
+    }
+    return static_cast<float>(sum);
+}
+
+double il2cpp_linq_grouping_sum_dec_proj_d(Il2CppObject* grouping, Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = RequireDecGroupElements(grouping);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&elems));
+    double sum = 0.0;
+    for (int32_t i = 0; i < elems->length; ++i)
+    {
+        sum += InvokeSelDecD(d, *DecAt(elems, i));
+    }
+    return sum;
+}
+
+// The MIN/MAX/AVG entries share one fold shape per projection; a macro keeps
+// the sixteen bodies in lockstep with the net48 semantics.
+#define IL2CPP_LINQ_GRP_DEC_MINMAX(NAME, RES, INVOKE, CMP_LT)                          \
+    RES NAME(Il2CppObject* grouping, Il2CppObject* sel)                                \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        Il2CppArray* elems = RequireDecGroupElements(grouping);                        \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                          \
+        RootScope roots;                                                               \
+        roots.Add(reinterpret_cast<void**>(&d));                                       \
+        roots.Add(reinterpret_cast<void**>(&elems));                                   \
+        if (elems->length == 0)                                                        \
+            il2cpp_throw_invalid_operation_exception("Sequence contains no elements"); \
+        RES best = INVOKE(d, *DecAt(elems, 0));                                        \
+        for (int32_t i = 1; i < elems->length; ++i)                                    \
+        {                                                                              \
+            const RES v = INVOKE(d, *DecAt(elems, i));                                 \
+            if (CMP_LT) best = v;                                                      \
+        }                                                                              \
+        return best;                                                                   \
+    }
+
+IL2CPP_LINQ_GRP_DEC_MINMAX(il2cpp_linq_grouping_min_dec_proj_i4, int32_t, InvokeSelDecI4, v < best)
+IL2CPP_LINQ_GRP_DEC_MINMAX(il2cpp_linq_grouping_max_dec_proj_i4, int32_t, InvokeSelDecI4, v > best)
+IL2CPP_LINQ_GRP_DEC_MINMAX(il2cpp_linq_grouping_min_dec_proj_i8, int64_t, InvokeSelDecI8, v < best)
+IL2CPP_LINQ_GRP_DEC_MINMAX(il2cpp_linq_grouping_max_dec_proj_i8, int64_t, InvokeSelDecI8, v > best)
+IL2CPP_LINQ_GRP_DEC_MINMAX(il2cpp_linq_grouping_min_dec_proj_f, float, InvokeSelDecF, v < best)
+IL2CPP_LINQ_GRP_DEC_MINMAX(il2cpp_linq_grouping_max_dec_proj_f, float, InvokeSelDecF, v > best)
+IL2CPP_LINQ_GRP_DEC_MINMAX(il2cpp_linq_grouping_min_dec_proj_d, double, InvokeSelDecD, v < best)
+IL2CPP_LINQ_GRP_DEC_MINMAX(il2cpp_linq_grouping_max_dec_proj_d, double, InvokeSelDecD, v > best)
+#undef IL2CPP_LINQ_GRP_DEC_MINMAX
+
+#define IL2CPP_LINQ_GRP_DEC_AVG(NAME, RES, INVOKE)                                     \
+    double NAME(Il2CppObject* grouping, Il2CppObject* sel)                             \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        Il2CppArray* elems = RequireDecGroupElements(grouping);                        \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                          \
+        RootScope roots;                                                               \
+        roots.Add(reinterpret_cast<void**>(&d));                                       \
+        roots.Add(reinterpret_cast<void**>(&elems));                                   \
+        if (elems->length == 0)                                                        \
+            il2cpp_throw_invalid_operation_exception("Sequence contains no elements"); \
+        double sum = 0.0;                                                              \
+        for (int32_t i = 0; i < elems->length; ++i)                                    \
+        {                                                                              \
+            sum += static_cast<double>(INVOKE(d, *DecAt(elems, i)));                   \
+        }                                                                              \
+        return sum / static_cast<double>(elems->length);                               \
+    }
+
+IL2CPP_LINQ_GRP_DEC_AVG(il2cpp_linq_grouping_average_dec_proj_i4, int32_t, InvokeSelDecI4)
+IL2CPP_LINQ_GRP_DEC_AVG(il2cpp_linq_grouping_average_dec_proj_i8, int64_t, InvokeSelDecI8)
+IL2CPP_LINQ_GRP_DEC_AVG(il2cpp_linq_grouping_average_dec_proj_d, double, InvokeSelDecD)
+#undef IL2CPP_LINQ_GRP_DEC_AVG
+
+// net48 Average<TSource>(Func<TSource,float>) accumulates in DOUBLE and casts
+// to FLOAT at the end.
+float il2cpp_linq_grouping_average_dec_proj_f(Il2CppObject* grouping, Il2CppObject* sel)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = RequireDecGroupElements(grouping);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&elems));
+    if (elems->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    double sum = 0.0;
+    for (int32_t i = 0; i < elems->length; ++i)
+    {
+        sum += InvokeSelDecF(d, *DecAt(elems, i));
+    }
+    return static_cast<float>(sum / static_cast<double>(elems->length));
 }
 
 bool il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDecimal value)

@@ -167,6 +167,42 @@ public static partial class MethodRefResolver
                                 return I(decSelEntry, 2, true, false, false,
                                     new[] { "", "" }, resultKind: "dec");
                         }
+                        // impl-linq2 (B-2): a NON-decimal projection (net48
+                        // Sum/Min/Max/Average<decimal>(bucket,
+                        // Func<decimal,int32/int64/float/double>) -- the generic
+                        // forms Enumerable.cs:1496-1536/1703-1739/1907-1943/
+                        // 2101-2137). The bucket's decimal cells feed the
+                        // selector and the fold runs over the PROJECTED values;
+                        // the old mapping LOUD-rejected every non-decimal
+                        // projection.
+                        string? projSuffix = decProj switch
+                        {
+                            "i" or "c" => "i4",
+                            "l" => "i8",
+                            "f" => "f",
+                            "d" => "d",
+                            _ => null,
+                        };
+                        if (projSuffix != null)
+                        {
+                            var projEntry = name switch
+                            {
+                                "Sum" => $"il2cpp::il2cpp_linq_grouping_sum_dec_proj_{projSuffix}",
+                                "Min" => $"il2cpp::il2cpp_linq_grouping_min_dec_proj_{projSuffix}",
+                                "Max" => $"il2cpp::il2cpp_linq_grouping_max_dec_proj_{projSuffix}",
+                                "Average" => $"il2cpp::il2cpp_linq_grouping_average_dec_proj_{projSuffix}",
+                                _ => null,
+                            };
+                            if (projEntry != null)
+                            {
+                                string? prk = name == "Average"
+                                    ? (projSuffix == "f" ? "d" : "d")
+                                    : projSuffix == "i8" ? "l"
+                                    : projSuffix is "f" or "d" ? "d" : null;
+                                return I(projEntry, 2, true, false, false,
+                                    new[] { "", "" }, resultKind: prk);
+                            }
+                        }
                     }
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a System.Decimal-element GroupBy bucket is not wired: " +
@@ -223,12 +259,17 @@ public static partial class MethodRefResolver
                 // float/double the F-stack carrier _d / _f. net48 has every one
                 // of these overloads, so none may stay LOUD.
                 var refProj = LinqSelectorProjectionType(md, sigHandle);
+                // impl-linq2 (B-1): a DECIMAL projection rides the 16-byte
+                // result-slot kernels (net48 has the Sum/Min/Max/Average
+                // Func<TSource,decimal> overloads -- Enumerable.cs:1528/1735/
+                // 1939/2133). The old mapping LOUD-rejected it.
                 string suffix = refProj switch
                 {
                     "i" or "c" => "i4",
                     "l" => "i8",
                     "d" => "d",
                     "f" => "f",
+                    "System.Decimal" or "V:System.Decimal" => "dec",
                     _ => "",
                 };
                 if (suffix.Length == 0)
@@ -236,7 +277,7 @@ public static partial class MethodRefResolver
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},...> with a selector is not wired: " +
                         "the reference selector-aggregate surface covers an int32-slot (char/int32), int64, " +
-                        "double or float projection only");
+                        "double, float or decimal projection only");
                 }
                 string entry = name switch
                 {
@@ -245,7 +286,8 @@ public static partial class MethodRefResolver
                     "Max" => $"il2cpp::il2cpp_linq_max_sel_ref_{suffix}",
                     _ => $"il2cpp::il2cpp_linq_average_sel_ref_{suffix}",
                 };
-                string? rk = name == "Average" ? "d"
+                string? rk = suffix == "dec" ? "dec"
+                    : name == "Average" ? "d"
                     : suffix == "i8" ? "l"
                     : suffix is "f" or "d" ? "d" : null;
                 return I(entry, 2, true, false, false, TwoArg, resultKind: rk);
