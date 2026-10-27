@@ -962,3 +962,37 @@ Per-site table (batch-8 implemented sites marked `WIRED`):
 
 Totals: analyzable=303, not-analyzable=134
 
+
+## 9. The local ReadOnlySpan<char> variable form (P3-3) -- documented limitation, LOUD at build
+
+The AUDITED-UNSUPPORTED shape:
+
+```csharp
+ReadOnlySpan<char> r = "x";
+sb.Append(r);
+```
+
+The span VALUE local (a generic struct `System.ReadOnlySpan`1<char>`) has no
+declaration path: the M6 model materializes no span struct type (the carrier
+model represents a span as its BACKING object, and only at the wired call
+sites), so a named span local is an unrepresentable slot. Registered as a
+documented limitation -- NOT silent.
+
+Measured failure mode (net9 probe, 2026-10-27): the net9 compiler lowers the
+string-to-ReadOnlySpan conversion to `call System.String::op_Implicit(string)`
+(the ReadOnlySpan<char> operator referenced through the string type). The
+String domain has no `op_Implicit` arm, the member falls to the generated-name
+fallback, and the emitted call (`System_String_op_Implicit_<hash>(...)`) has no
+definition -- the cmake build fails LOUD with
+`'System_String_op_Implicit_...' was not declared in this scope` (a
+transpile-time emitted phantom, caught at link/layout). No silent wrong value
+is possible: the symbol cannot link.
+
+The WHOLE-OBJECT span carrier forms ARE supported and e2e-pinned
+(`tests/cases/loud-sbfmt`): `sb.Append(str.AsSpan())` (the string-backed
+carrier, section D) and `sb.Append((ReadOnlySpan<char>)charArray)` (the
+char[]-backed carrier, section E). The wired arm is
+`MethodMap.StringBuilder.cs:119` (`ps[0]==0x15` ->
+`icall_stringbuilder_append_span`, the kernel dispatching on the backing
+object class) -- it consumes a materialized carrier expression, which a local
+span variable never becomes.
