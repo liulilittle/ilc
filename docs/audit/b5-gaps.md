@@ -1136,6 +1136,24 @@ ElementAt / Single / SingleOrDefault over `DateTime[]`, `TimeSpan[]`,
    the bucket `ToArray` returnTypeName is exact only for the decimal bucket;
    for a value-family bucket the snapshot is `object[]` (the bucket cell
    operators are LOUD anyway -- 11.4).
+   operators are LOUD anyway -- 11.4).
+7. **The THROW paths of the value-family entries are not e2e-pinned yet.**
+   `tests/cases/loud-linq-vtfam` pins the VALUE paths only (31 records: the
+   Take / Skip / Reverse / Distinct / Concat / Except / Union / Intersect /
+   DefaultIfEmpty / LongCount / SequenceEqual / Contains / ElementAt / Single /
+   SingleOrDefault results). The net48 EXCEPTION semantics -- `Single` over a
+   multi-element source (`InvalidOperationException`) and `ElementAt` out of
+   range (`ArgumentOutOfRangeException`) -- are guaranteed by the runtime
+   kernels, not by the transpiler, but no case asserts them yet. **Change
+   surface**: two more records in the e2e case (the throw type + the message
+   shape) -- a follow-up, not a functional gap.
+8. **The predicate-family LOUD messages are unit-pinned only.** The
+   `Where` / `All` / `TakeWhile` / `SkipWhile` / `Count(predicate)` /
+   `Any(predicate)` LOUD over a DateTime / TimeSpan / Guid source is asserted
+   in `tests/unit/MethodMapTests.Linq.cs` (the message text), but no e2e case
+   exercises the LOUD build path for these shapes (a LOUD shape cannot reach
+   the runtime, so the e2e would assert a transpile-time failure). Accepted:
+   the unit pin is the only observable surface.
 
 ### 11.4 The grouping-bucket byte gate (`:142` / `:528`) -- reachable, and now LOUD
 
