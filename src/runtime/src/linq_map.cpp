@@ -2678,24 +2678,211 @@ void il2cpp_linq_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* sr
 typedef runtime::Il2CppDecimal (*DecAccFn)(runtime::Il2CppDecimal acc, int32_t elem);
 typedef runtime::Il2CppDecimal (*DecAccThisFn)(Il2CppObject* self, runtime::Il2CppDecimal acc, int32_t elem);
 
-void il2cpp_linq_aggregate_seed_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
-                                   const runtime::Il2CppDecimal* seed, Il2CppObject* func)
+static runtime::Il2CppDecimal FoldDecimalAccI4Src(Il2CppArray* src,
+                                                  const runtime::Il2CppDecimal* seed,
+                                                  Il2CppDelegate* d)
 {
-    RequireArray(src);
-    Il2CppDelegate* d = RequireCallback(func, "func");
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
     runtime::Il2CppDecimal acc = *seed;
-    for (int32_t i = 0; i < src->length; ++i)
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
     {
         const int32_t elem = I4At(src, i);
         acc = d->target != nullptr
             ? reinterpret_cast<DecAccThisFn>(d->methodPtr)(d->target, acc, elem)
             : reinterpret_cast<DecAccFn>(d->methodPtr)(acc, elem);
     }
+    return acc;
+}
+
+void il2cpp_linq_aggregate_seed_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                   const runtime::Il2CppDecimal* seed, Il2CppObject* func)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(func, "func");
+    const runtime::Il2CppDecimal acc = FoldDecimalAccI4Src(src, seed, d);
     std::memcpy(result, &acc, sizeof(runtime::Il2CppDecimal));
 }
+
+//------------------------------------------------------------------------------
+// impl-linq2 (A): the DECIMAL-SOURCE Aggregate family (net48 Aggregate
+// over a System.Decimal source -- Enumerable.cs:1379/1391/1399). The decimal
+// cells are read BY VALUE (DecAt) and the callback folds decimal x decimal ->
+// decimal; the 16-byte result rides the explicit result slot (the decimal T3
+// contract -- the slot is the FIRST parameter). The old mapping answered null
+// for the no-seed form and ran the int32-reader fold (I4At) over the 16-byte
+// decimal cells (a silent wrong value).
+// GC SAFETY: the delegate and the source are rooted across every callback.
+//------------------------------------------------------------------------------
+typedef runtime::Il2CppDecimal (*DecBinDecFn)(runtime::Il2CppDecimal acc, runtime::Il2CppDecimal elem);
+typedef runtime::Il2CppDecimal (*DecBinDecThisFn)(Il2CppObject* self, runtime::Il2CppDecimal acc, runtime::Il2CppDecimal elem);
+
+static runtime::Il2CppDecimal InvokeDecBinDec(Il2CppDelegate* d, runtime::Il2CppDecimal acc,
+                                              runtime::Il2CppDecimal elem)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<DecBinDecThisFn>(d->methodPtr)(d->target, acc, elem)
+        : reinterpret_cast<DecBinDecFn>(d->methodPtr)(acc, elem);
+}
+
+static runtime::Il2CppDecimal FoldDecimalAccDecSrc(Il2CppArray* src,
+                                                   const runtime::Il2CppDecimal* seed,
+                                                   Il2CppDelegate* d)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    runtime::Il2CppDecimal acc = *seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        acc = InvokeDecBinDec(d, acc, *DecAt(src, i));
+    }
+    return acc;
+}
+
+void il2cpp_linq_aggregate_seed_dec_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                        const runtime::Il2CppDecimal* seed, Il2CppObject* func)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(func, "func");
+    const runtime::Il2CppDecimal acc = FoldDecimalAccDecSrc(src, seed, d);
+    std::memcpy(result, &acc, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_aggregate_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* func)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(func, "func");
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    runtime::Il2CppDecimal acc = *DecAt(src, 0);
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        acc = InvokeDecBinDec(d, acc, *DecAt(src, i));
+    }
+    std::memcpy(result, &acc, sizeof(runtime::Il2CppDecimal));
+}
+
+//------------------------------------------------------------------------------
+// impl-linq2 (A): Aggregate(seed, func, resultSelector) with a DECIMAL
+// accumulator (net48 Aggregate<TSource,TAccumulate,TResult> -- Enumerable.cs
+// :1399). The fold runs first (int32 source: DecAccFn ABI; decimal source:
+// DecBinDecFn ABI), then the result selector runs ONCE on the final decimal
+// accumulator. TResult picks the projection ABI (the managed leaf returns
+// int32_t / int64_t / float / double / Il2CppDecimal-by-value / reference).
+// The old mapping answered the 3-parameter seed kernel for this arity (the
+// resultSelector was dropped and the emitter consumed one stack value too
+// few -- a stack desync).
+//------------------------------------------------------------------------------
+#define IL2CPP_LINQ_AGG_DEC_RS(NAME, FOLDEXPR)                                     \
+    int32_t NAME##_rs_i4(Il2CppArray* src, const runtime::Il2CppDecimal* seed,     \
+                         Il2CppObject* func, Il2CppObject* resSel)                 \
+    {                                                                              \
+        RequireArray(src);                                                         \
+        Il2CppDelegate* fd = RequireCallback(func, "func");                        \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");            \
+        RootScope roots;                                                           \
+        roots.Add(reinterpret_cast<void**>(&rd));                                  \
+        const runtime::Il2CppDecimal acc = FOLDEXPR;                               \
+        typedef int32_t (*ResFn)(runtime::Il2CppDecimal);                          \
+        typedef int32_t (*ResThisFn)(Il2CppObject*, runtime::Il2CppDecimal);       \
+        return rd->target != nullptr                                               \
+            ? reinterpret_cast<ResThisFn>(rd->methodPtr)(rd->target, acc)          \
+            : reinterpret_cast<ResFn>(rd->methodPtr)(acc);                         \
+    }                                                                              \
+    int64_t NAME##_rs_i8(Il2CppArray* src, const runtime::Il2CppDecimal* seed,     \
+                         Il2CppObject* func, Il2CppObject* resSel)                 \
+    {                                                                              \
+        RequireArray(src);                                                         \
+        Il2CppDelegate* fd = RequireCallback(func, "func");                        \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");            \
+        RootScope roots;                                                           \
+        roots.Add(reinterpret_cast<void**>(&rd));                                  \
+        const runtime::Il2CppDecimal acc = FOLDEXPR;                               \
+        typedef int64_t (*ResFn)(runtime::Il2CppDecimal);                          \
+        typedef int64_t (*ResThisFn)(Il2CppObject*, runtime::Il2CppDecimal);       \
+        return rd->target != nullptr                                               \
+            ? reinterpret_cast<ResThisFn>(rd->methodPtr)(rd->target, acc)          \
+            : reinterpret_cast<ResFn>(rd->methodPtr)(acc);                         \
+    }                                                                              \
+    double NAME##_rs_f(Il2CppArray* src, const runtime::Il2CppDecimal* seed,       \
+                       Il2CppObject* func, Il2CppObject* resSel)                   \
+    {                                                                              \
+        RequireArray(src);                                                         \
+        Il2CppDelegate* fd = RequireCallback(func, "func");                        \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");            \
+        RootScope roots;                                                           \
+        roots.Add(reinterpret_cast<void**>(&rd));                                  \
+        const runtime::Il2CppDecimal acc = FOLDEXPR;                               \
+        typedef float (*ResFn)(runtime::Il2CppDecimal);                            \
+        typedef float (*ResThisFn)(Il2CppObject*, runtime::Il2CppDecimal);         \
+        return static_cast<double>(rd->target != nullptr                           \
+            ? reinterpret_cast<ResThisFn>(rd->methodPtr)(rd->target, acc)          \
+            : reinterpret_cast<ResFn>(rd->methodPtr)(acc));                        \
+    }                                                                              \
+    double NAME##_rs_d(Il2CppArray* src, const runtime::Il2CppDecimal* seed,       \
+                       Il2CppObject* func, Il2CppObject* resSel)                   \
+    {                                                                              \
+        RequireArray(src);                                                         \
+        Il2CppDelegate* fd = RequireCallback(func, "func");                        \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");            \
+        RootScope roots;                                                           \
+        roots.Add(reinterpret_cast<void**>(&rd));                                  \
+        const runtime::Il2CppDecimal acc = FOLDEXPR;                               \
+        typedef double (*ResFn)(runtime::Il2CppDecimal);                           \
+        typedef double (*ResThisFn)(Il2CppObject*, runtime::Il2CppDecimal);        \
+        return rd->target != nullptr                                               \
+            ? reinterpret_cast<ResThisFn>(rd->methodPtr)(rd->target, acc)          \
+            : reinterpret_cast<ResFn>(rd->methodPtr)(acc);                         \
+    }                                                                              \
+    Il2CppObject* NAME##_rs_ref(Il2CppArray* src, const runtime::Il2CppDecimal* seed, \
+                                Il2CppObject* func, Il2CppObject* resSel)          \
+    {                                                                              \
+        RequireArray(src);                                                         \
+        Il2CppDelegate* fd = RequireCallback(func, "func");                        \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");            \
+        RootScope roots;                                                           \
+        roots.Add(reinterpret_cast<void**>(&rd));                                  \
+        const runtime::Il2CppDecimal acc = FOLDEXPR;                               \
+        typedef Il2CppObject* (*ResFn)(runtime::Il2CppDecimal);                    \
+        typedef Il2CppObject* (*ResThisFn)(Il2CppObject*, runtime::Il2CppDecimal); \
+        return rd->target != nullptr                                               \
+            ? reinterpret_cast<ResThisFn>(rd->methodPtr)(rd->target, acc)          \
+            : reinterpret_cast<ResFn>(rd->methodPtr)(acc);                         \
+    }                                                                              \
+    void NAME##_rs_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,           \
+                       const runtime::Il2CppDecimal* seed, Il2CppObject* func,     \
+                       Il2CppObject* resSel)                                       \
+    {                                                                              \
+        RequireArray(src);                                                         \
+        Il2CppDelegate* fd = RequireCallback(func, "func");                        \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");            \
+        RootScope roots;                                                           \
+        roots.Add(reinterpret_cast<void**>(&rd));                                  \
+        const runtime::Il2CppDecimal acc = FOLDEXPR;                               \
+        typedef runtime::Il2CppDecimal (*ResFn)(runtime::Il2CppDecimal);           \
+        typedef runtime::Il2CppDecimal (*ResThisFn)(Il2CppObject*, runtime::Il2CppDecimal); \
+        const runtime::Il2CppDecimal r = rd->target != nullptr                     \
+            ? reinterpret_cast<ResThisFn>(rd->methodPtr)(rd->target, acc)          \
+            : reinterpret_cast<ResFn>(rd->methodPtr)(acc);                         \
+        std::memcpy(result, &r, sizeof(runtime::Il2CppDecimal));                   \
+    }
+
+IL2CPP_LINQ_AGG_DEC_RS(il2cpp_linq_aggregate_seed_dec,
+                       FoldDecimalAccI4Src(src, seed, fd))
+IL2CPP_LINQ_AGG_DEC_RS(il2cpp_linq_aggregate_seed_decsrc,
+                       FoldDecimalAccDecSrc(src, seed, fd))
+#undef IL2CPP_LINQ_AGG_DEC_RS
 
 //------------------------------------------------------------------------------
 // P0LINQ1 (D3) -- Select with TResult = System.Decimal.

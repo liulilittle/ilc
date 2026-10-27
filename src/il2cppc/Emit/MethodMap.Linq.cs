@@ -2047,6 +2047,23 @@ public static partial class MethodRefResolver
                     // nb9 fix P0-1: the no-seed accumulator IS TSource, so the
                     // source element family decides the kernel (a float/double
                     // Select result is a double[] here).
+                    //
+                    // impl-linq2 (A): a DECIMAL source folds decimal x decimal
+                    // (net48 Aggregate<decimal>(source, Func<decimal,decimal>)
+                    // -- Enumerable.cs:1379). The old mapping answered null (the
+                    // phantom "no BCL mapping").
+                    if (IsLinqDecimalSource(genArgs, receiverType, arg0Type))
+                    {
+                        if (!IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type))
+                            throw new NotSupportedException(
+                                "LOUD whitelist (no runtime value-struct fold ABI): Enumerable.Aggregate " +
+                                $"over a {(genArgNames is { Length: >= 1 } ? genArgNames[0] : "value-type")} " +
+                                "source is not wired: the runtime folds decimal x decimal and the primitive " +
+                                "families only; a DateTime/TimeSpan/Guid/user-struct fold has no by-value " +
+                                "callback ABI [Reference Source System.Core/System/Linq/Enumerable.cs:1379]");
+                        return I("il2cpp::il2cpp_linq_aggregate_dec", 2, true, false, false, TwoArg,
+                            resultKind: "dec");
+                    }
                     var noSeedFam = LinqElementFamily(genArgs, receiverType, arg0Type);
                     return noSeedFam switch
                     {
@@ -2089,6 +2106,95 @@ public static partial class MethodRefResolver
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "ref",
                         _ => "",
                     };
+                    // impl-linq2 (A): the DECIMAL accumulator family. The
+                    // SOURCE family decides the fold's element reader: a
+                    // decimal[] source folds decimal x decimal (the DecBinDec
+                    // ABI), an int32 source the int32 reader (DecAccFn).
+                    if (accByte == 0x11 && IsDecimalGenArg(genArgNames, 1))
+                    {
+                        bool decSrc = IsLinqDecimalSource(genArgs, receiverType, arg0Type)
+                            && IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
+                        if (!decSrc && IsLinqValueTypeSource(genArgs, receiverType, arg0Type)
+                            && IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type))
+                        {
+                            // A non-decimal value-type source with a decimal
+                            // accumulator: the fold's element reader is the
+                            // struct's own -- no by-value callback ABI.
+                            throw new NotSupportedException(
+                                "LOUD whitelist (no runtime value-struct fold ABI): Enumerable.Aggregate " +
+                                $"over a {(genArgNames is { Length: >= 1 } ? genArgNames[0] : "value-type")} " +
+                                "source with a System.Decimal accumulator is not wired: the runtime folds " +
+                                "decimal x decimal and the primitive families only [Reference Source " +
+                                "System.Core/System/Linq/Enumerable.cs:1391]");
+                        }
+                        if (count == 3)
+                        {
+                            return decSrc
+                                ? I("il2cpp::il2cpp_linq_aggregate_seed_dec_dec", 3, true, false, false,
+                                    new[] { "a", "dec", "" }, resultKind: "dec")
+                                : I("il2cpp::il2cpp_linq_aggregate_seed_dec", 3, true, false, false,
+                                    new[] { "a", "dec", "" }, resultKind: "dec");
+                        }
+                        // count == 4: the result selector runs ONCE on the
+                        // final decimal accumulator (net48
+                        // Aggregate(seed, func, resultSelector) --
+                        // Enumerable.cs:1399). The TResult byte picks the
+                        // projection ABI. The old mapping answered the
+                        // 3-parameter seed kernel here (the resultSelector was
+                        // dropped and the emitter consumed one stack value too
+                        // few -- a stack desync).
+                        string decBase = decSrc
+                            ? "il2cpp::il2cpp_linq_aggregate_seed_decsrc_rs"
+                            : "il2cpp::il2cpp_linq_aggregate_seed_dec_rs";
+                        var decCasts = new[] { "a", "dec", "", "" };
+                        if (resByte == 0x11)
+                        {
+                            if (!IsDecimalGenArg(genArgNames, 2))
+                                throw new NotSupportedException(
+                                    "LOUD whitelist (no runtime descriptor for the TResult struct): " +
+                                    "Enumerable.Aggregate TResult " +
+                                    $"{(genArgNames is { Length: >= 3 } ? genArgNames[2] : "valuetype")} " +
+                                    "is not a supported result family -- the runtime projects the decimal " +
+                                    "accumulator to int32/int64/float/double/decimal/reference only " +
+                                    "[Reference Source System.Core/System/Linq/Enumerable.cs:1399]");
+                            return I(decBase + "_dec", 4, true, false, false, decCasts, resultKind: "dec");
+                        }
+                        switch (resByte)
+                        {
+                            case 0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09:
+                                return I(decBase + "_i4", 4, true, false, false, decCasts);
+                            case 0x0A or 0x0B:
+                                return I(decBase + "_i8", 4, true, false, false, decCasts, resultKind: "l");
+                            case 0x0C:
+                                return I(decBase + "_f", 4, true, false, false, decCasts, resultKind: "d");
+                            case 0x0D:
+                                return I(decBase + "_d", 4, true, false, false, decCasts, resultKind: "d");
+                            case 0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E:
+                                return I(decBase + "_ref", 4, true, true, false, decCasts);
+                            default:
+                                throw new NotSupportedException(
+                                    "LOUD whitelist (no runtime descriptor for the TResult struct): " +
+                                    "Enumerable.Aggregate TResult " +
+                                    $"{GenericArgTypeName(resByte)} is not a supported result family -- " +
+                                    "the runtime projects the decimal accumulator to int32/int64/float/" +
+                                    "double/decimal/reference only [Reference Source System.Core/System/" +
+                                    "Linq/Enumerable.cs:1399]");
+                        }
+                    }
+                    // impl-linq2 (A): a DECIMAL source with a NON-decimal
+                    // accumulator has no fold (the old mapping silently routed
+                    // it through the ref/int32 folds -- a wild read of the
+                    // 16-byte cells). It must be a transpile-time LOUD.
+                    if (IsLinqDecimalSource(genArgs, receiverType, arg0Type)
+                        && IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type)
+                        && acc.Length > 0)
+                    {
+                        throw new NotSupportedException(
+                            "Enumerable.Aggregate over a System.Decimal source with a non-decimal " +
+                            $"accumulator ({GenericArgTypeName(accByte)}) is not wired: the runtime folds " +
+                            "decimal x decimal and the int32 source reader only; no decimal-element fold " +
+                            "exists for the other accumulator families (see docs/audit/b5-gaps.md)");
+                    }
                     if (acc.Length == 0 && accByte == 0x11 && IsDecimalGenArg(genArgNames, 1))
                     {
                         // DECIMAL accumulator (net48 Aggregate<TSource,decimal>):
@@ -2282,6 +2388,24 @@ public static partial class MethodRefResolver
         if (genArgs is { Length: >= 1 }) return genArgs[0] == 0x11;
         var name = receiverType ?? arg0Type;
         return name != null && name.EndsWith("System.Decimal[]", StringComparison.Ordinal);
+    }
+
+    // impl-linq2 (A): is the 0x11 VALUETYPE source really System.Decimal? The
+    // 0x11 byte covers every value type, so the decoded MethodSpec FULL NAME is
+    // the authority -- the same rule LinqFamilyAggregate applies (a null name
+    // table is the non-generic MemberRef path, whose only value-type aggregate
+    // overload IS decimal).
+    private static bool IsDecimalSourceNamed(byte[]? genArgs, string[]? genArgNames,
+        string? receiverType, string? arg0Type)
+    {
+        if (genArgs is not { Length: >= 1 })
+        {
+            var name = receiverType ?? arg0Type;
+            return name != null && name.EndsWith("System.Decimal[]", StringComparison.Ordinal);
+        }
+        return genArgNames is null
+            || IsDecimalGenArg(genArgNames, 0)
+            || (genArgNames is { Length: >= 1 } && genArgNames[0] == "?");
     }
 
     // IsLinqValueTypeSource -- the source element is a 0x11 VALUETYPE (decimal /

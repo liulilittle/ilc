@@ -1348,6 +1348,89 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "a", "dec", "" }, resolved.ParamTypeNames);
     }
 
+    //--------------------------------------------------------------------------
+    // impl-linq2 (A): the DECIMAL-SOURCE Aggregate family (net48 Aggregate
+    // over a System.Decimal source -- Enumerable.cs:1379/1391/1399). The old
+    // mapping answered null (the phantom "no BCL mapping") for the no-seed
+    // form, ran the 3-arity seed fold over the int32 reader (I4At) for a
+    // decimal source (a silent wrong value) and mapped the 4-arity
+    // (seed, func, resultSelector) form to the 3-parameter kernel (the
+    // resultSelector was dropped and the emitter consumed one stack value too
+    // few -- a stack desync).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_AggregateDecimalSource_NoSeed_MapsToDecimalFoldKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeAggregateDecNoSeed());
+
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_AggregateDecimalSource_Seed_MapsToDecimalSourceFoldKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeAggregateDecSeed());
+
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_dec_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "dec", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_AggregateDecimalAccumulator_ResultSelector_MapsToRsKernel()
+    {
+        // int32 source, decimal accumulator, decimal TResult
+        // (net48 Aggregate<int,decimal,decimal>(source, seed, func, resultSelector)).
+        var resolved = ResolveMethodSpec(SynthesizeAggregateDecRs(0x08, 0x11, 0x11));
+
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_dec_rs_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "dec", "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_AggregateDecimalAccumulator_ResultSelectorTResultFamilies()
+    {
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_dec_rs_i4",
+            ResolveMethodSpec(SynthesizeAggregateDecRs(0x08, 0x11, 0x08)).CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_dec_rs_i8",
+            ResolveMethodSpec(SynthesizeAggregateDecRs(0x08, 0x11, 0x0A)).CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_dec_rs_f",
+            ResolveMethodSpec(SynthesizeAggregateDecRs(0x08, 0x11, 0x0C)).CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_dec_rs_d",
+            ResolveMethodSpec(SynthesizeAggregateDecRs(0x08, 0x11, 0x0D)).CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_dec_rs_ref",
+            ResolveMethodSpec(SynthesizeAggregateDecRs(0x08, 0x11, 0x0E)).CppName);
+    }
+
+    [Fact]
+    public void Resolve_AggregateDecimalSource_ResultSelector_MapsToDecimalSourceRsKernel()
+    {
+        // decimal source, decimal accumulator, decimal TResult.
+        var resolved = ResolveMethodSpec(SynthesizeAggregateDecRs(0x11, 0x11, 0x11));
+
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_decsrc_rs_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "dec", "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_AggregateDecimalSource_NonDecimalAccumulator_ThrowsLoud()
+    {
+        // A decimal source with a non-decimal accumulator has no fold: the old
+        // mapping silently routed it through the ref/int32 fold kernels (a
+        // wild read of the 16-byte cells). It must be a transpile-time LOUD.
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMethodSpec(SynthesizeAggregateDecRs(0x11, 0x0A, 0x0A)));
+        Assert.Contains("non-decimal accumulator", ex.Message);
+    }
+
     // The decimal-bucket GroupBy SELECTOR aggregate (net48
     // Sum<decimal>(IGrouping<,decimal>, Func<decimal,decimal>)): the 16-byte
     // result rides an explicit result slot and the bucket's decimal cells feed
@@ -2692,6 +2775,161 @@ public class MethodMapTestsLinq
         spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TAccumulate = System.Decimal
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
+    }
+
+    //--------------------------------------------------------------------------
+    // impl-linq2 (A): the DECIMAL-SOURCE Aggregate helpers.
+    //
+    // SynthesizeAggregateDecNoSeed -- Aggregate<decimal>(IEnumerable<decimal>,
+    // Func<decimal,decimal,decimal>): genCount 1, paramCount 2, ret VAR 0.
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`3               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11)
+    //--------------------------------------------------------------------------
+    private static MemoryStream SynthesizeAggregateDecNoSeed()
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`3"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x01);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       // return TSource (VAR 0)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   IEnumerable<decimal>
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   Func<decimal, decimal, decimal>
+        sig.WriteByte(0x13); sig.WriteByte(0x00);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Aggregate"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(1);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // SynthesizeAggregateDecSeed -- Aggregate<decimal,decimal>(
+    // IEnumerable<decimal>, decimal, Func<decimal,decimal,decimal>): genCount 2,
+    // paramCount 3, ret VAR 1, the seed is TAccumulate (VAR 1).
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`3               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11)
+    private static MemoryStream SynthesizeAggregateDecSeed()
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`3"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x03);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // return TAccumulate (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   IEnumerable<decimal>
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // TAccumulate (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x03);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   Func<TAcc, TSrc, TAcc>
+        sig.WriteByte(0x13); sig.WriteByte(0x00);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Aggregate"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TAccumulate = System.Decimal
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // SynthesizeAggregateDecRs -- Aggregate<TSource,TAccumulate,TResult>(
+    // source, seed, Func<TAcc,TSource,TAcc>, Func<TAcc,TResult>): genCount 3,
+    // paramCount 4, ret VAR 2. The named decimal slots (tSrc/tAcc/tRes == 0x11)
+    // are written as the named System.Decimal VALUETYPE TypeRef so the decoded
+    // full-name table says System.Decimal.
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`3               (coded 0x0D)
+    //   row 4: System.Func`2               (coded 0x11)
+    //   row 5: System.Decimal              (coded 0x15)
+    private static MemoryStream SynthesizeAggregateDecRs(byte tSrc, byte tAcc, byte tRes)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`3"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x03);
+        sig.WriteByte(0x04);
+        sig.WriteByte(0x13); sig.WriteByte(0x02);                       // return TResult (VAR 2)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   IEnumerable<TSource>
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // TAccumulate (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x03);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   Func<TAcc, TSrc, TAcc>
+        sig.WriteByte(0x13); sig.WriteByte(0x00);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x11); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   Func<TAcc, TResult>
+        sig.WriteByte(0x13); sig.WriteByte(0x02);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Aggregate"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        // One decimal TypeRef row (row 5) -> coded (5<<2)|1 = 0x15.
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(3);
+        WriteSpecArg(spec, tSrc, decCoded);
+        WriteSpecArg(spec, tAcc, decCoded);
+        WriteSpecArg(spec, tRes, decCoded);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    private static void WriteSpecArg(BlobBuilder spec, byte argByte, int decCoded)
+    {
+        if (argByte == 0x11)
+        {
+            spec.WriteByte(0x11);
+            spec.WriteCompressedInteger(decCoded);
+        }
+        else
+        {
+            spec.WriteByte(argByte);
+        }
     }
 
     // Decimal-bucket GroupBy selector aggregate (net48

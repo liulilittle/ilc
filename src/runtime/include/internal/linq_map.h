@@ -312,6 +312,49 @@ void il2cpp_linq_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppArray* sr
 void il2cpp_linq_aggregate_seed_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
                                    const runtime::Il2CppDecimal* seed, Il2CppObject* func);
 
+// impl-linq2 (A): the DECIMAL-SOURCE Aggregate family (net48 Aggregate over a
+// System.Decimal source -- Enumerable.cs:1379/1391/1399). The decimal cells are
+// read BY VALUE; the fold callback is decimal x decimal -> decimal. The 3-arity
+// form folds from 'seed' (an empty source returns it unchanged); the no-seed
+// form seeds from the FIRST cell (empty -> InvalidOperationException).
+void il2cpp_linq_aggregate_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* func);
+void il2cpp_linq_aggregate_seed_dec_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                        const runtime::Il2CppDecimal* seed, Il2CppObject* func);
+
+// impl-linq2 (A): Aggregate(seed, func, resultSelector) with a DECIMAL
+// accumulator (net48 Aggregate<TSource,TAccumulate,TResult> -- Enumerable.cs
+// :1399). The fold runs first, then the result selector runs ONCE on the final
+// decimal accumulator; TResult picks the projection ABI (int32/int64/float/
+// double/decimal-by-value/reference). The "_dec" base folds the INT32 source
+// reader (TSource = int32); the "_decsrc" base reads 16-byte decimal cells
+// (TSource = System.Decimal).
+int32_t il2cpp_linq_aggregate_seed_dec_rs_i4(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                             Il2CppObject* func, Il2CppObject* resSel);
+int64_t il2cpp_linq_aggregate_seed_dec_rs_i8(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                             Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_dec_rs_f(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                           Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_dec_rs_d(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                           Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_dec_rs_ref(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                    Il2CppObject* func, Il2CppObject* resSel);
+void il2cpp_linq_aggregate_seed_dec_rs_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                           const runtime::Il2CppDecimal* seed,
+                                           Il2CppObject* func, Il2CppObject* resSel);
+int32_t il2cpp_linq_aggregate_seed_decsrc_rs_i4(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+int64_t il2cpp_linq_aggregate_seed_decsrc_rs_i8(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_decsrc_rs_f(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_decsrc_rs_d(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_decsrc_rs_ref(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                       Il2CppObject* func, Il2CppObject* resSel);
+void il2cpp_linq_aggregate_seed_decsrc_rs_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                              const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, Il2CppObject* resSel);
+
 //------------------------------------------------------------------------------
 // P0LINQ1 (D3) -- Select with TResult = System.Decimal. net48's Select is
 // generic in TResult and decimal is a 16-byte value type, so the selector is
