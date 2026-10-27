@@ -3598,10 +3598,19 @@ public static class StackFold
                 }
                 if ((sctOwner == "System.Span`1" || sctOwner == "System.ReadOnlySpan`1")
                     && sctName == "op_Implicit"
-                    && SpanCarrierIdentitySig(md, (int)ins.Operand, "r:c[]", "r:System.Char[]")
+                    && SpanCarrierIdentitySig(md, (int)ins.Operand, "r:c[]", "r:System.Char[]", "r:i[]")
                     && stack.Count > 0)
                 {
-                    // The char[]-backed carrier: the array IS the span.
+                    // The char[]-backed carrier: the array IS the span. The
+                    // reachable encoding is the OPEN-GENERIC operator (the
+                    // MemberRef parent is the TypeSpec ReadOnlySpan`1<char>,
+                    // the operator signature carries VAR -- MethodSignatureCoder
+                    // consumes VAR to "i", so the T[] param decodes "r:i[]");
+                    // the closed element type is invisible at this layer and
+                    // not needed (the array object IS the carrier -- the
+                    // append_span kernel dispatches on the runtime class).
+                    // "r:c[]" / "r:System.Char[]" stay as the defensive
+                    // closed-element shapes.
                     var carrier = stack.Pop();
                     Push(carrier, ins);
                     return;
@@ -7217,6 +7226,14 @@ public static class StackFold
                     var spec = md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent);
                     var sig = md.GetBlobReader(spec.Signature);
                     if (sig.ReadByte() != 0x15) return null;
+                    // The GENERICINST header is followed by the UNDERLYING type
+                    // marker (0x11 VALUETYPE / 0x12 CLASS) BEFORE the TypeDefOrRef
+                    // coded index -- not consuming it made ReadTypeHandle decode
+                    // the MARKER as the coded index, so every TypeSpec-parent
+                    // span call (ReadOnlySpan`1<char>::op_Implicit) resolved a
+                    // garbage owner and the char[] carrier gate never matched
+                    // (P3-1② e2e red: "op_Implicit not wired in M5").
+                    _ = sig.ReadByte();
                     var th = sig.ReadTypeHandle();
                     owner = th.Kind switch
                     {
@@ -7232,10 +7249,16 @@ public static class StackFold
             return owner == null ? null : (name, owner);
         }
 
-        // The identity-carrier gate: the call signature must be EXACTLY
-        // (paramTypes...) -- a sliced AsSpan(string,int,int) or a foreign
-        // op_Implicit overload must not ride the identity (LOUD default
-        // instead).
+        // The identity-carrier gate: the call signature must be EXACTLY one of
+        // paramTypesShapes (a sliced AsSpan(string,int,int) or a foreign
+        // op_Implicit overload must not ride the identity -- LOUD default
+        // instead). The shapes are an ANY-OF ALTERNATIVE list: the JOINED
+        // ParamTypes string already pins the whole parameter sequence (each
+        // parameter renders one segment), so the old
+        // ParamCount==paramTypesShapes.Length precondition compared the CALL's
+        // parameter count against the ALTERNATIVE COUNT -- every multi-shape
+        // gate with a 1-parameter call was structurally dead (P3-1② e2e red:
+        // the char[] op_Implicit carrier never matched either shape).
         static bool SpanCarrierIdentitySig(MetadataReader md, int token, params string[] paramTypesShapes)
         {
             var handle = MetadataTokens.Handle(token);
@@ -7246,8 +7269,7 @@ public static class StackFold
                 sigHandle = md.GetMemberReference((MemberReferenceHandle)md.GetMethodSpecification((MethodSpecificationHandle)handle).Method).Signature;
             else return false;
             var decoded = MethodSignatureCoder.Decode(md, sigHandle);
-            return decoded.ParamCount == paramTypesShapes.Length
-                && paramTypesShapes.Contains(decoded.ParamTypes);
+            return paramTypesShapes.Contains(decoded.ParamTypes);
         }
 
         // The System.Object TypeRef token (the inline-array materialization's
