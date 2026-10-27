@@ -201,7 +201,7 @@ public static class TypeEmitter
                 }
                 else
                 {
-                    var (kind, typeName) = DecodeNestedFieldSignature(md, fd.Signature);
+                    var (kind, typeName) = DecodeNestedFieldSignature(md, fd.Signature, nested.FullName, fName);
                     nested.InstanceFields.Add(new FieldDef
                     {
                         Name = fName,
@@ -329,7 +329,7 @@ public static class TypeEmitter
 
     // Nested-type field signature decode -- mirrors
     // MetadataLoader.DecodeFieldSignature (FIELD 0x06 + element type).
-    private static (FieldTypeKind Kind, string TypeName) DecodeNestedFieldSignature(MetadataReader md, BlobHandle sigHandle)
+    private static (FieldTypeKind Kind, string TypeName) DecodeNestedFieldSignature(MetadataReader md, BlobHandle sigHandle, string ownerName, string fieldName)
     {
         var sig = md.GetBlobReader(sigHandle);
         var header = sig.ReadByte();
@@ -369,7 +369,7 @@ public static class TypeEmitter
             0x1D or 0x14 => (FieldTypeKind.Reference, "System.Array"),
             0x13 => (FieldTypeKind.Int32, ""),
             0x15 => (FieldTypeKind.Reference, GenericNestedInstantiationName(md, ref sig)),
-            0x11 => GuidOrInt32NestedField(md, sig.ReadTypeHandle()),
+            0x11 => ValueTypeNestedField(md, sig.ReadTypeHandle(), ownerName, fieldName),
             // GN-18 B1 (fnptr fields): a `delegate*` (0x1B) NESTED-type field
             // rides the same full-width void* pointer carrier as top-level
             // fields (NativeInt kind + empty TypeName marker -- see
@@ -380,15 +380,55 @@ public static class TypeEmitter
         };
     }
 
-    // B3: a nested value-type field of System.Guid keeps the 16-byte value
-    // layout (guid.h Il2CppGuid); every other value type keeps the historical
-    // int32 slot.
-    private static (FieldTypeKind Kind, string TypeName) GuidOrInt32NestedField(MetadataReader md, EntityHandle handle)
+    //--------------------------------------------------------------------------
+    // A nested (closure display class) INSTANCE field of a VALUE type.
+    //
+    // Three cases, in this order:
+    //   1. a BCL runtime value struct (Guid / DateTime / TimeSpan / Decimal /
+    //      DateTimeOffset) -> the REAL runtime value shape. The member is the
+    //      runtime struct itself, so the slot holds the whole value; the old
+    //      int32 fallback truncated it (a captured DateTime store (->d = t1)
+    //      did not compile, and the read silently took 8 bytes out of a
+    //      4-byte slot);
+    //   2. an ENUM -> the int32 carrier slot (the D5 / com17type doctrine:
+    //      the enum rides its underlying int32; the IR models every enum
+    //      value as an int64 constant);
+    //   3. any OTHER value type (a user struct, a Nullable, an unknown BCL
+    //      struct) -> LOUD rejection. There is no runtime value shape for it
+    //      on the nested path, and an int32 member would be a silently
+    //      mis-typed slot (or an ill-formed C++ store).
+    //--------------------------------------------------------------------------
+    private static (FieldTypeKind Kind, string TypeName) ValueTypeNestedField(
+        MetadataReader md, EntityHandle handle, string ownerName, string fieldName)
     {
         var name = ResolveNestedTypeName(md, handle);
-        return name == "System.Guid"
-            ? (FieldTypeKind.Guid, name)
-            : (FieldTypeKind.Int32, name);
+        if (TypeKindResolver.TryGetValueStructFieldKind(name, out var valueKind))
+            return (valueKind, name);
+        if (IsEnumValueType(md, handle, name))
+            return (FieldTypeKind.Int32, name);
+        throw new NotSupportedException(
+            $"nested type '{ownerName}' field '{fieldName}': value-type field of type '{name}' has no runtime value slot -- supported value types are System.Guid / System.DateTime / System.TimeSpan / System.Decimal / System.DateTimeOffset (the runtime value struct) and enums (the int32 carrier); user structs and other value types are not supported");
+    }
+
+    // Whether the field's value type is an ENUM -- the int32 carrier. The
+    // decision is taken from the METADATA (not from the expanded model), so
+    // it does not depend on the expansion order: a USER enum is a TypeDef
+    // whose base is System.Enum; a BCL enum is a TypeRef on the whitelist
+    // (CodeGenerator.IsKnownBclEnumName).
+    private static bool IsEnumValueType(MetadataReader md, EntityHandle handle, string name)
+    {
+        switch (handle.Kind)
+        {
+            case HandleKind.TypeDefinition:
+            {
+                var td = md.GetTypeDefinition((TypeDefinitionHandle)handle);
+                return !td.BaseType.IsNil && ResolveNestedTypeName(md, td.BaseType) == "System.Enum";
+            }
+            case HandleKind.TypeReference:
+                return CodeGenerator.IsKnownBclEnumName(name);
+            default:
+                return false;
+        }
     }
 
     private static string ResolveNestedTypeName(MetadataReader md, EntityHandle handle) =>
@@ -863,6 +903,20 @@ public static class TypeEmitter
         }
         foreach (var f in t.InstanceFields)
         {
+            // A runtime VALUE struct member whose natural alignment exceeds
+            // the pointer size (the 8-byte alignment of the int64-based value
+            // structs on a 32-bit target) starts on an aligned slot -- exactly
+            // where the C++ compiler places it, so the emitted member offsets
+            // and the metadata offsets stay in lockstep.
+            if (TypeKindResolver.IsValueStructFieldKind(f.TypeKind))
+            {
+                var shape = TypeKindResolver.ValueStructFieldShape(f.TypeKind);
+                if (shape.AlignBytes > t.PointerSize)
+                {
+                    int alignSlots = shape.AlignBytes / t.PointerSize;
+                    slot = (slot + alignSlots - 1) / alignSlots * alignSlots;
+                }
+            }
             f.SlotIndex = slot;
             f.ByteOffset = slot * t.PointerSize;
             if (f.TypeKind == FieldTypeKind.Reference)
@@ -882,10 +936,19 @@ public static class TypeEmitter
             }
             // B3: a 16-byte Guid occupies multiple pointer-size slots, so the
             // emitted C++ member (Il2CppGuid) and the metadata offsets stay in
-            // lockstep for the following fields.
-            slot += f.TypeKind == FieldTypeKind.Guid
-                ? (16 + t.PointerSize - 1) / t.PointerSize
-                : 1;
+            // lockstep for the following fields. The same holds for the other
+            // runtime value structs (DateTime/Decimal/DateTimeOffset 16
+            // bytes, TimeSpan 8 bytes) -- their member is the runtime struct
+            // itself, so the slot must span the whole value.
+            if (TypeKindResolver.IsValueStructFieldKind(f.TypeKind))
+            {
+                var shape = TypeKindResolver.ValueStructFieldShape(f.TypeKind);
+                slot += (shape.SizeBytes + t.PointerSize - 1) / t.PointerSize;
+            }
+            else
+            {
+                slot += 1;
+            }
         }
         t.RefFieldBitmap = bitmap;
         t.RefFieldCount = refCount;
@@ -977,6 +1040,12 @@ public static class TypeEmitter
             FieldTypeKind.NativeInt => (pointerSize, pointerSize),
             // B3: net48 Guid alignment is 4 (Data1 int32 first); size 16.
             FieldTypeKind.Guid => (16, 4),
+            // The runtime value structs keep their own size/alignment
+            // (il2cpp_time.h / decimal.h / il2cpp_dtoffset.h).
+            FieldTypeKind.DateTime => (16, 8),
+            FieldTypeKind.TimeSpan => (8, 8),
+            FieldTypeKind.Decimal => (16, 8),
+            FieldTypeKind.DateTimeOffset => (16, 8),
             FieldTypeKind.Reference => (pointerSize, pointerSize),
             _ => (pointerSize, pointerSize),
         };
@@ -1096,6 +1165,13 @@ public static class TypeEmitter
                 FieldTypeKind.NativeInt => "intptr_t",
                 // B3: System.Guid is the 16-byte guid.h value struct.
                 FieldTypeKind.Guid => "il2cpp::Il2CppGuid",
+                // The runtime value structs (a closure-captured DateTime and
+                // friends): the member IS the runtime struct, so the slot
+                // holds the whole value (never an int32 truncation).
+                FieldTypeKind.DateTime => "il2cpp::runtime::Il2CppDateTime",
+                FieldTypeKind.TimeSpan => "il2cpp::runtime::Il2CppTimeSpan",
+                FieldTypeKind.Decimal => "il2cpp::runtime::Il2CppDecimal",
+                FieldTypeKind.DateTimeOffset => "il2cpp::runtime::Il2CppDateTimeOffset",
                 FieldTypeKind.Reference => ReferenceCppType(f.FieldTypeName, allTypes),
                 _ => throw new NotSupportedException($"field kind {f.TypeKind} not supported in M2"),
             };

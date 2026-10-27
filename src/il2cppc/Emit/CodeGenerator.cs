@@ -4343,20 +4343,21 @@ public static class CodeGenerator
                         ? $"reinterpret_cast<Il2CppObject*>({EmitExpr(fa.Value, md, types)})"
                         : NullSafePtrCast(faValueCpp, EmitExpr(fa.Value, md, types)));
                 var faTarget = FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject, _curLocKinds);
-                // B3: a System.Guid field store is a plain value assignment --
-                // the member is the guid.h Il2CppGuid POD struct, the same
-                // type every Guid slot names. An ADDRESS source (ldloca/ldflda
-                // feeding stfld) is dereferenced first (stfld copies the
-                // value, not the pointer).
-                if (fa.RefTargetFullName == "System.Guid"
-                    || TypeLookup.Find(types, fa.OwnerFullName)?.InstanceFields
-                        .Any(f => f.TypeKind == FieldTypeKind.Guid && TypeEmitter.Sanitize(f.Name) == fa.FieldCppName) == true)
+                // B3: a runtime VALUE struct field (Guid / DateTime /
+                // TimeSpan / Decimal / DateTimeOffset) store is a plain value
+                // assignment -- the member is the runtime struct POD, the
+                // same type every value slot names. An ADDRESS source
+                // (ldloca/ldflda feeding stfld) is dereferenced first (stfld
+                // copies the value, not the pointer). A closure-captured
+                // DateTime rides this path too: its display class member is
+                // the 16-byte Il2CppDateTime, not an int32 slot.
+                if (IsValueStructFieldStore(fa, types))
                 {
-                    var guidVal = fa.Value is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    var structVal = fa.Value is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
                         ? $"(*{EmitExpr(fa.Value, md, types)})"
                         : EmitExpr(fa.Value, md, types);
-                    w.LineAligned($"{faTarget} = {guidVal};",
-                        $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- store Guid value into {fa.OwnerFullName}.{fa.FieldCppName}");
+                    w.LineAligned($"{faTarget} = {structVal};",
+                        $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- store value-struct value into {fa.OwnerFullName}.{fa.FieldCppName}");
                     break;
                 }
                 if (fa.IsRefField && !fa.IsValueTypeObject)
@@ -4412,8 +4413,12 @@ public static class CodeGenerator
                         retKind = retKind is "guid" or "dec" or "dt" or "ts" or "dto" or "bi"
                             ? retKind
                             : StaticFieldExprIsReference(md, types, sfe.FieldName) ? "ref" : "val";
-                    else if (r.Value is FieldExpr feRet && IsGuidField(feRet, types))
-                        retKind = "guid";
+                    else if (r.Value is FieldExpr feRet && ValueStructFieldKind(feRet, types) is FieldTypeKind fieldKind)
+                        // A value-struct FIELD read carries the same carrier as
+                        // the value-typed LOCAL of that type ("dt"/"ts"/"dec"/
+                        // "dto"/"guid"), so the return bridge treats both
+                        // identically (a closure-captured DateTime included).
+                        retKind = TypeKindResolver.ValueStructExprKind(fieldKind) ?? retKind;
                     // Return type bridge: method signature return type differs from expression kind.
                     // Case 1: returns Il2CppObject* (ref) but expression is int/val -> reinterpret_cast through intptr_t.
                     // Case 2: returns int32_t but expression is ref/ptr -> static_cast<int32_t> narrow (lossy but preserves slot-reuse semantics).
@@ -10873,6 +10878,41 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         }
         return owner?.InstanceFields.Any(fd => fd.TypeKind == FieldTypeKind.Guid
                                                && TypeEmitter.Sanitize(fd.Name) == f.FieldCppName) == true;
+    }
+
+    //--------------------------------------------------------------------------
+    // The runtime VALUE struct field kinds (Guid / DateTime / TimeSpan /
+    // Decimal / DateTimeOffset) -- the members that hold a runtime struct
+    // value instead of an int32 carrier.
+    //
+    // The kind comes from the OWNER's model, so a closure display class
+    // member is classified exactly like any other value-struct field (the
+    // display class IS a nested type: TypeEmitter.ExpandNestedTypes decodes
+    // its instance fields).
+    //--------------------------------------------------------------------------
+    private static FieldTypeKind? ValueStructFieldKind(FieldExpr f, IReadOnlyList<TypeDef> types)
+    {
+        var owner = TypeLookup.Find(types, f.OwnerFullName);
+        if (owner == null)
+        {
+            owner = types.FirstOrDefault(x => x.GenericArity > 0
+                                              && f.OwnerFullName.StartsWith(x.FullName + "_", StringComparison.Ordinal));
+        }
+        var field = owner?.InstanceFields.FirstOrDefault(fd => TypeEmitter.Sanitize(fd.Name) == f.FieldCppName);
+        if (field == null || !TypeKindResolver.IsValueStructFieldKind(field.TypeKind)) return null;
+        return field.TypeKind;
+    }
+
+    // Whether the store target is a runtime value-struct field -- the store
+    // is then a plain value assignment of the runtime struct (the emitted
+    // member type and the stored value type are the same struct).
+    private static bool IsValueStructFieldStore(FieldAssignStmt fa, IReadOnlyList<TypeDef> types)
+    {
+        if (TypeKindResolver.TryGetValueStructFieldKind(fa.RefTargetFullName, out _)) return true;
+        var owner = TypeLookup.Find(types, fa.OwnerFullName);
+        return owner?.InstanceFields
+            .Any(f => TypeKindResolver.IsValueStructFieldKind(f.TypeKind)
+                      && TypeEmitter.Sanitize(f.Name) == fa.FieldCppName) == true;
     }
 
     // B3: the guid.h byte-slot argument for a Guid VALUE expression. The

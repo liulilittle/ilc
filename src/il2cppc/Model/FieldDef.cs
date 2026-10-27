@@ -123,5 +123,9 @@ public enum FieldTypeKind
     Double,   // 64-bit floating point
     NativeInt, // native int (IntPtr/UIntPtr -- 0x18/0x19 ELEMENT_TYPE_I/U): full-width pointer carrier
     Guid,      // 16-byte System.Guid value (guid.h Il2CppGuid; value semantics, never a GC reference)
+    DateTime,     // 16-byte System.DateTime value (il2cpp_time.h Il2CppDateTime)
+    TimeSpan,     // 8-byte System.TimeSpan value (il2cpp_time.h Il2CppTimeSpan)
+    Decimal,      // 16-byte System.Decimal value (decimal.h Il2CppDecimal)
+    DateTimeOffset, // 16-byte System.DateTimeOffset value (il2cpp_dtoffset.h Il2CppDateTimeOffset)
     Reference // managed GC reference
 }

@@ -44,6 +44,64 @@ public static class TypeKindResolver
 
     public static (FieldTypeKind Kind, string FullName, string CppKind) ResolveFromFullName(string fullName) => ArgKind(fullName);
 
+    //--------------------------------------------------------------------------
+    // The BCL runtime VALUE structs whose INSTANCE field (a closure display
+    // class member, a nested-type field) must keep the REAL runtime value
+    // shape -- never an int32 slot.
+    //
+    // The int32 fallback silently truncated the value: a captured DateTime
+    // became `int32_t d;` while the IL value is the 16-byte
+    // il2cpp::runtime::Il2CppDateTime -- the store (->d = t1) failed to
+    // compile and the read silently took 8 bytes out of a 4-byte slot.
+    //
+    // The sizes/alignments are the runtime structs' own (il2cpp_time.h /
+    // decimal.h / il2cpp_dtoffset.h / guid.h): Guid 16/4 (alignas(4)),
+    // DateTime 16/8, TimeSpan 8/8, Decimal 16/8, DateTimeOffset 16/8.
+    //--------------------------------------------------------------------------
+    public static bool TryGetValueStructFieldKind(string fullName, out FieldTypeKind kind)
+    {
+        switch (fullName)
+        {
+            case "System.Guid": kind = FieldTypeKind.Guid; return true;
+            case "System.DateTime": kind = FieldTypeKind.DateTime; return true;
+            case "System.TimeSpan": kind = FieldTypeKind.TimeSpan; return true;
+            case "System.Decimal": kind = FieldTypeKind.Decimal; return true;
+            case "System.DateTimeOffset": kind = FieldTypeKind.DateTimeOffset; return true;
+            default: kind = FieldTypeKind.Int32; return false;
+        }
+    }
+
+    // The emitted C++ member type and the native (size, alignment) of a
+    // value-struct field kind.
+    public static (string CppType, int SizeBytes, int AlignBytes) ValueStructFieldShape(FieldTypeKind kind) => kind switch
+    {
+        FieldTypeKind.Guid => ("il2cpp::Il2CppGuid", 16, 4),
+        FieldTypeKind.DateTime => ("il2cpp::runtime::Il2CppDateTime", 16, 8),
+        FieldTypeKind.TimeSpan => ("il2cpp::runtime::Il2CppTimeSpan", 8, 8),
+        FieldTypeKind.Decimal => ("il2cpp::runtime::Il2CppDecimal", 16, 8),
+        FieldTypeKind.DateTimeOffset => ("il2cpp::runtime::Il2CppDateTimeOffset", 16, 8),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "not a value-struct field kind"),
+    };
+
+    // Whether the kind is one of the runtime value-struct field kinds (the
+    // member holds a value struct, never a GC reference and never an int32).
+    public static bool IsValueStructFieldKind(FieldTypeKind kind)
+        => kind is FieldTypeKind.Guid or FieldTypeKind.DateTime or FieldTypeKind.TimeSpan
+            or FieldTypeKind.Decimal or FieldTypeKind.DateTimeOffset;
+
+    // The expression kind of a value-struct field read -- the same carrier
+    // names the value-typed LOCALS use ("dt"/"ts"/"dec"/"dto"/"guid"), so a
+    // field read and a local read bridge identically.
+    public static string? ValueStructExprKind(FieldTypeKind kind) => kind switch
+    {
+        FieldTypeKind.Guid => "guid",
+        FieldTypeKind.DateTime => "dt",
+        FieldTypeKind.TimeSpan => "ts",
+        FieldTypeKind.Decimal => "dec",
+        FieldTypeKind.DateTimeOffset => "dto",
+        _ => null,
+    };
+
     private static (FieldTypeKind Kind, string FullName, string CppKind) ArgKind(string fullName) => fullName switch
     {
         "System.Int64" => (FieldTypeKind.Int64, fullName, "int64_t"),

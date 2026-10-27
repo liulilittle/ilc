@@ -104,9 +104,11 @@ namespace Cases
                 words.OrderByDescending(x => guidKeysR[Array.IndexOf(words, x)]).ToArray()));
 
             // Empty and single-element sources. The key selector builds the
-            // DateTime inline (a captured DateTime local is declared as an
-            // int32 closure slot -- a transpiler surface gap outside this
-            // family).
+            // DateTime inline: a CAPTURED DateTime local used to be declared
+            // as an int32 closure slot (a transpiler surface gap outside this
+            // family). That gap is closed -- a captured value type now keeps
+            // its real runtime value slot (tests/cases/closure-dt) -- but this
+            // case stays inside the LINQ ordering family either way.
             Console.WriteLine("empty: " + string.Join(",", new int[0].OrderBy(
                 x => new DateTime(2020, 5, 17, 9, 30, 0, DateTimeKind.Utc)).ToArray()) +
                 "|" + string.Join(",", new string[0].OrderBy(x => G[0]).ToArray()));

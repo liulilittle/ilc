@@ -996,3 +996,53 @@ char[]-backed carrier, section E). The wired arm is
 `icall_stringbuilder_append_span`, the kernel dispatching on the backing
 object class) -- it consumes a materialized carrier expression, which a local
 span variable never becomes.
+
+## 10. Closure-captured VALUE types -- fixed for the BCL value structs, LOUD for the rest
+
+A captured value-type local of a closure lives in the compiler-generated
+NESTED display class (`<>c__DisplayClassN_0`), so its slot is decided by the
+NESTED field decode (`TypeEmitter.DecodeNestedFieldSignature`). That decode
+collapsed every value type to an int32 slot, so a captured `DateTime` became
+`int32_t d;` while the IL value is the 16-byte
+`il2cpp::runtime::Il2CppDateTime`: the store (`->d = t1`) did not compile, and
+the read (`icall_datetime_get_year(*reinterpret_cast<Il2CppDateTime*>(&->d))`)
+silently took 8 bytes out of a 4-byte slot.
+
+FIXED in this batch: the BCL runtime value structs keep their REAL value slot
+-- `System.Guid` (16 bytes, align 4), `System.DateTime` (16/8),
+`System.TimeSpan` (8/8), `System.Decimal` (16/8) and
+`System.DateTimeOffset` (16/8) -- and the class slot grid advances by the
+value's own width (a 16-byte member spans two pointer-size slots, so the
+following fields and the GC `refFieldBitmap` stay in lockstep). An ENUM keeps
+the int32 carrier slot (the D5 / com17type doctrine -- the IR models every
+enum value as an int64 constant). e2e lock: `tests/cases/closure-dt` (a pure
+and an impure DateTime closure, plus TimeSpan / decimal / Guid closures).
+
+LOUD (transpile-time `NotSupportedException`, never a silently mis-typed
+slot): every OTHER value type on the nested path -- a user struct
+(`struct Pt`), a `Nullable<T>`, an unknown BCL struct. The nested path has no
+runtime value shape for them: the member would have to be the generated C++
+struct, whose definition order, size accounting and interior-reference GC
+semantics are not wired for the closure layout. The top-level instance path
+already rejects the same shapes ("value-type instance fields not supported in
+M2", `MetadataLoader.DecodeFieldSignature`), so the nested path now matches
+that contract instead of diverging into an int32 slot. Measured corpus impact:
+of the 1045 built case assemblies, only 25 nested value-type instance fields
+exist -- 23 user-enum fields (still the int32 carrier) and 2 `System.Guid`
+fields -- so the rejection has no case-level regression.
+
+PRE-EXISTING gap found while fixing the above (NOT touched by this batch, and
+NOT a closure-slot issue): a DECIMAL comparison whose operand is a PRVALUE --
+e.g. `f() == 2.5m` where `f` is a `Func<decimal>` -- emits
+`icall_decimal_equals((&(delegate_result)), ...)`; the decimal icall takes
+`const Il2CppDecimal*`, so the emitter takes the operand's address, and the
+address of a prvalue is ill-formed C++ ("taking address of rvalue", gcc
+`-fpermissive`). The Guid byte-pointer path avoids this by materializing a
+temporary through a const reference (`CodeGenerator.GuidValueBytePtr`); the
+decimal "dec" argument cast (`CodeGenerator.cs` "dec" arm) has no such arm.
+The gap is reachable only when the decimal operand is an un-folded call
+result -- an ordinary decimal comparison materializes its operands into
+temporaries first (`tests/cases/guidmethod2`), so the existing corpus does
+not hit it. `tests/cases/closure-dt` keeps the comparison INSIDE the closure
+(the operand is then the captured field, an lvalue).
+
