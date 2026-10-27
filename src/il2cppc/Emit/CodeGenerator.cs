@@ -2916,15 +2916,25 @@ public static class CodeGenerator
                     // FAIL). The dead slot declares as the ref carrier + frame
                     // root (the initobj zero-store stays well-formed).
                     // P3-2: the gate is the COMPILER-SYNTHESIZED NAME COMBINATION
-                    // -- the <PrivateImplementationDetails> declaring type PLUS
-                    // the __InlineArray element ("+__InlineArrayN`1" nested
-                    // shape). A plain Contains("__InlineArray") also captured a
-                    // USER generic struct whose name merely contains the token
-                    // ("Cases.__InlineArray4`1"), misdeclaring its instantiation
-                    // local as the dead ref carrier instead of the concrete R77
-                    // struct clone (the unit test pins the user shape).
-                    if (defName.StartsWith("<PrivateImplementationDetails>", StringComparison.Ordinal)
-                        && defName.Contains("__InlineArray", StringComparison.Ordinal))
+                    // -- both Roslyn shapes carry the reserved '<'/'>' identifier
+                    // characters, which user C# code cannot declare:
+                    //   * <PrivateImplementationDetails>+__InlineArrayN`1 -- the
+                    //     NESTED form the arm was originally written against, and
+                    //   * <>y__InlineArrayN`1 -- the TOP-LEVEL namespace-less form
+                    //     the net9 compiler actually emits (measured: the
+                    //     loud-sbfmt span-params buffer locals decode
+                    //     "g:<>y__InlineArray4`1:object", the TypeDef is NOT
+                    //     nested under <PrivateImplementationDetails>).
+                    // The first P3-2 cut (prefix + token) missed the net9 shape:
+                    // the buffer locals fell to the R77 clone path whose M6 model
+                    // emits the int32 variant only, so the object instantiation
+                    // had no clone and the cmake build failed LOUD
+                    // ("__y__InlineArray4_1_object was not declared"). A USER
+                    // generic struct ("Cases.__InlineArray4`1") matches NEITHER
+                    // shape (the unit test pins the user exclusion).
+                    if ((defName.StartsWith("<PrivateImplementationDetails>", StringComparison.Ordinal)
+                            && defName.Contains("__InlineArray", StringComparison.Ordinal))
+                        || defName.StartsWith("<>y__InlineArray", StringComparison.Ordinal))
                     {
                         refLocals.Add(d);
                         w.Line($"Il2CppObject* {d} = nullptr;");
