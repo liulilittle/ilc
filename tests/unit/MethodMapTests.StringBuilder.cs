@@ -272,6 +272,299 @@ public class MethodMapStringBuilderTests
     }
 
     //--------------------------------------------------------------------------
+    // net6+ handler / span-params / CompositeFormat wiring (impl-sb). The
+    // reachable netcore-only Append/AppendLine/AppendFormat shapes:
+    //   A  AppendLine(ref AppendInterpolatedStringHandler) + provider variant
+    //   B  AppendFormat(string[, provider], params ReadOnlySpan<object?>)
+    //   C  AppendFormat<TArg...>(provider, CompositeFormat, TArg...)
+    //   D  Append(ReadOnlySpan<char>) / Append(ref handler)
+    // The nested handler owner routes through the DefaultInterpolatedStringHandler
+    // mapping (the ctor binds the REAL builder into the handler slot).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_AppendLine_Handler_MapsToAppendLineIcall()
+    {
+        // AppendLine(ref AppendInterpolatedStringHandler): the BYREF(0x10)
+        // VALUETYPE(0x11) handler param. The handler appends already landed in
+        // the builder (the ctor bound it), so the outer call only appends the
+        // newline; the handler address is popped in lockstep and dropped.
+        var resolved = ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendLine",
+            new byte[] { 0x00, 0x01, 0x1C, 0x10, 0x11, 0x05 }), "AppendLine");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_line", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "", "drop" }, resolved.ParamTypeNames);
+        AssertChains(resolved);
+    }
+
+    [Fact]
+    public void Resolve_AppendLine_ProviderHandler_MapsToAppendLineIcall()
+    {
+        // AppendLine(IFormatProvider, ref handler): the provider slot is
+        // popped and dropped (the newline needs no culture).
+        var resolved = ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendLine",
+            new byte[] { 0x00, 0x02, 0x1C, 0x12, 0x05, 0x10, 0x11, 0x05 }), "AppendLine");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_line", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "drop", "drop" }, resolved.ParamTypeNames);
+        AssertChains(resolved);
+    }
+
+    [Fact]
+    public void Resolve_Append_Handler_MapsToNoOpAppendS()
+    {
+        // Append(ref AppendInterpolatedStringHandler): the handler content is
+        // already in the builder -- the outer call is a no-op that returns the
+        // builder (append_s with a null literal appends nothing and chains).
+        var resolved = ResolveMember(Synthesize("System.Text", "StringBuilder", "Append",
+            new byte[] { 0x00, 0x01, 0x1C, 0x10, 0x11, 0x05 }), "Append", receiverIsAddress: true);
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_s", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "", "drop" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "nullptr" }, resolved.AppendLiterals);
+        AssertChains(resolved);
+    }
+
+    [Fact]
+    public void Resolve_Append_SpanChar_MapsToAppendCharArrayKernel()
+    {
+        // Append(ReadOnlySpan<char>): the span carrier is the backing object
+        // (string / char[] identity materialized by the fold) -- the runtime
+        // span kernel appends its units.
+        var resolved = ResolveMember(Synthesize("System.Text", "StringBuilder", "Append",
+            new byte[] { 0x00, 0x01, 0x1C, 0x15, 0x11, 0x05, 0x01, 0x03 }), "Append");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_span", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        AssertChains(resolved);
+    }
+
+    [Fact]
+    public void Resolve_AppendFormat_SpanParams_MapsToArgsArrayKernel()
+    {
+        // AppendFormat(string, params ReadOnlySpan<object?>) -- the span tail
+        // (0x15) rides the SAME argsArray composite kernel the params-object[]
+        // form uses (the fold materializes the object[] from the inline array).
+        var resolved = ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendFormat",
+            new byte[] { 0x00, 0x02, 0x1C, 0x0E, 0x15, 0x11, 0x05, 0x01, 0x1C }), "AppendFormat");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_format", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        AssertChains(resolved);
+    }
+
+    [Fact]
+    public void Resolve_AppendFormat_ProviderSpanParams_MapsToProviderArgsArrayKernel()
+    {
+        // AppendFormat(IFormatProvider, string, params ReadOnlySpan<object?>).
+        var resolved = ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendFormat",
+            new byte[] { 0x00, 0x03, 0x1C, 0x12, 0x05, 0x0E, 0x15, 0x11, 0x05, 0x01, 0x1C }), "AppendFormat");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_format_provider", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        AssertChains(resolved);
+    }
+
+    [Fact]
+    public void Resolve_AppendFormat_CompositeFormat_ParamsArray_MapsToProviderArgsArrayKernel()
+    {
+        // AppendFormat(IFormatProvider, CompositeFormat, params object?[]) --
+        // the second CLASS slot is CompositeFormat (0x12 0x12), the tail the
+        // SZARRAY params form.
+        var resolved = ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendFormat",
+            new byte[] { 0x00, 0x03, 0x1C, 0x12, 0x05, 0x12, 0x05, 0x1D, 0x1C }), "AppendFormat");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_format_provider", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        AssertChains(resolved);
+    }
+
+    [Fact]
+    public void Resolve_AppendFormat_CompositeFormat_OneGenericArg_MapsToProvider1()
+    {
+        // AppendFormat<TArg0>(IFormatProvider, CompositeFormat, TArg0) -- the
+        // MethodSpec closes TArg0; the closed value rides the per-slot box cast.
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Text", "StringBuilder", "AppendFormat",
+            new byte[] { 0x30, 0x01, 0x03, 0x1C, 0x12, 0x05, 0x12, 0x05, 0x1E, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x08 },
+            "System", "Int32"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_format_1_provider", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "", "", "box:i" }, resolved.ParamTypeNames);
+        AssertChains(resolved);
+    }
+
+    [Fact]
+    public void Resolve_AppendFormat_CompositeFormat_TwoGenericArgs_MapsToProvider2()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Text", "StringBuilder", "AppendFormat",
+            new byte[] { 0x30, 0x02, 0x04, 0x1C, 0x12, 0x05, 0x12, 0x05, 0x1E, 0x00, 0x1E, 0x01 },
+            new byte[] { 0x0A, 0x02, 0x08, 0x08 },
+            "System", "Int32"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_format_2_provider", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+        AssertChains(resolved);
+    }
+
+    [Fact]
+    public void Resolve_AppendFormat_CompositeFormat_DecimalArg_BoxesDecimal()
+    {
+        // A closed VALUE-type TArg boxes through the BCL decimal box (the
+        // composite engine renders the box).
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(
+            "System.Text", "StringBuilder", "AppendFormat",
+            new byte[] { 0x30, 0x01, 0x03, 0x1C, 0x12, 0x05, 0x12, 0x05, 0x1E, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x11, 0x09 },
+            "System", "Decimal"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_format_1_provider", resolved.CppName);
+        Assert.Equal(new[] { "", "", "", "box:dec" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_AppendFormat_CompositeFormat_FourGenericArgs_ThrowsLoud()
+    {
+        // netcore defines TArg0..TArg2 generic overloads only -- a 4-slot
+        // closed instantiation must reject LOUD (the kernel family tops at 3).
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMethodSpec(SynthesizeGeneric(
+                "System.Text", "StringBuilder", "AppendFormat",
+                new byte[] { 0x30, 0x04, 0x06, 0x1C, 0x12, 0x05, 0x12, 0x05, 0x1E, 0x00, 0x1E, 0x01, 0x1E, 0x02, 0x1E, 0x03 },
+                new byte[] { 0x0A, 0x04, 0x08, 0x08, 0x08, 0x08 },
+                "System", "Int32")));
+
+        Assert.Contains("LOUD whitelist (", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
+    // The NESTED handler owner (System.Text.StringBuilder+AppendInterpolatedStringHandler)
+    // routes into the DefaultInterpolatedStringHandler mapping: the ctor BINDS
+    // the real builder into the handler slot (icall_interp_handler_bind), the
+    // appends deref:r into it, and the provider ctor drops the provider
+    // (documented net6+ deviation).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_NestedHandlerCtor_ThreeArgs_MapsToBindKernel()
+    {
+        // Hand-built blob (the Sig helper cannot express a CLASS param's
+        // trailing TypeDefOrRef index): (int, int, StringBuilder).
+        var resolved = ResolveMember(SynthesizeNested("System.Text", "StringBuilder", "AppendInterpolatedStringHandler",
+            ".ctor", new byte[] { 0x00, 0x03, 0x01, 0x08, 0x08, 0x12, 0x05 }), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_interp_handler_bind", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "drop", "drop", "" }, resolved.ParamTypeNames);
+        Assert.False(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_NestedHandlerCtor_Provider_MapsToBindKernel()
+    {
+        // (int, int, StringBuilder, IFormatProvider) -- the provider overload.
+        var resolved = ResolveMember(SynthesizeNested("System.Text", "StringBuilder", "AppendInterpolatedStringHandler",
+            ".ctor", new byte[] { 0x00, 0x04, 0x01, 0x08, 0x08, 0x12, 0x05, 0x12, 0x05 }), ".ctor");
+
+        Assert.Equal("il2cpp::runtime::icall_interp_handler_bind", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "", "drop", "drop", "", "drop" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_NestedHandlerAppendLiteral_MapsToBuilderAppend()
+    {
+        var resolved = ResolveMember(SynthesizeNested("System.Text", "StringBuilder", "AppendInterpolatedStringHandler",
+            "AppendLiteral", Sig(0x01, 0x0E)), "AppendLiteral");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_s", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "deref:r" }, resolved.ParamTypeNames);
+        Assert.False(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_NestedHandlerAppendFormatted_String_MapsToBuilderAppend()
+    {
+        var resolved = ResolveMember(SynthesizeNested("System.Text", "StringBuilder", "AppendInterpolatedStringHandler",
+            "AppendFormatted", Sig(0x01, 0x0E)), "AppendFormatted");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_s", resolved.CppName);
+        Assert.Equal(new[] { "deref:r" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_NestedHandlerAppendFormatted_Int32_MapsToAppendI()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericNested(
+            "System.Text", "StringBuilder", "AppendInterpolatedStringHandler", "AppendFormatted",
+            new byte[] { 0x30, 0x01, 0x01, 0x01, 0x1E, 0x00 },
+            new byte[] { 0x0A, 0x01, 0x08 },
+            "System", "Int32"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_i", resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "deref:r" }, resolved.ParamTypeNames);
+        Assert.False(resolved.ReturnsValue);
+    }
+
+    [Fact]
+    public void Resolve_NestedHandlerAppendFormatted_Decimal_MapsToBoxedAppendO()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericNested(
+            "System.Text", "StringBuilder", "AppendInterpolatedStringHandler", "AppendFormatted",
+            new byte[] { 0x30, 0x01, 0x01, 0x01, 0x1E, 0x00 },
+            // The genArg TypeRef is ROW 3 of the synthetic table (outer=1,
+            // nested=2, Decimal=3) -> coded index (3<<2)|1 = 0x0D.
+            new byte[] { 0x0A, 0x01, 0x11, 0x0D },
+            "System", "Decimal"));
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_append_o", resolved.CppName);
+        Assert.Equal(new[] { "deref:r", "box:dec" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_NestedHandlerToStringAndClear_MapsToBuilderToString()
+    {
+        var resolved = ResolveMember(SynthesizeNested("System.Text", "StringBuilder", "AppendInterpolatedStringHandler",
+            "ToStringAndClear", Sig(0x1C)), "ToStringAndClear");
+
+        Assert.Equal("il2cpp::runtime::icall_stringbuilder_to_string", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+    }
+
+    //--------------------------------------------------------------------------
+    // The surviving catch-alls stay LOUD and now carry the defensive marker:
+    // no reference assembly defines these shapes.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_AppendFormat_UnwiredArity_DefensiveMarker()
+    {
+        // 6 args -- no net48/netcore AppendFormat defines this arity.
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Text", "StringBuilder", "AppendFormat",
+                Sig(0x1C, 0x0E, 0x1C, 0x1C, 0x1C, 0x1C, 0x1C)), "AppendFormat"));
+
+        Assert.Contains("defensive; no reference assembly defines this shape", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_Insert_UnwiredValueParam_DefensiveMarker()
+    {
+        // Insert(int, <TypeHandle 0x40 value>) -- the Insert value-param
+        // catch-all (no reference assembly defines the shape).
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize("System.Text", "StringBuilder", "Insert",
+                new byte[] { 0x00, 0x02, 0x1C, 0x08, 0x40, 0x05 }), "Insert"));
+
+        Assert.Contains("defensive; no reference assembly defines this shape", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same harness as the other
     // MethodMapTests: real ECMA-335 assembly whose only MemberReference is
     // the member under test)
@@ -386,10 +679,19 @@ public class MethodMapStringBuilderTests
 
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName)
     {
+        return ResolveMember(pe, memberName, receiverIsAddress: false);
+    }
+
+    // The fold's first-pass resolve passes "the stack top is an ADDRESS"
+    // (arg0IsAddr -- the ldloca byref argument shape). The handler overloads
+    // dispatch on it (a 0x11 VALUETYPE byte is either a decimal VALUE arg or
+    // the BYREF-wrapped nested handler address).
+    private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName, bool receiverIsAddress)
+    {
         using var reader = new PEReader(pe);
         var md = reader.GetMetadataReader();
         var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
-        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>());
+        return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(), null, receiverIsAddress, null, null);
     }
 
     // Signature blob: header 0x00 (DEFAULT, non-generic), param count (=
@@ -421,6 +723,24 @@ public class MethodMapStringBuilderTests
             new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
         var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
         mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
+        return Serialize(mdb);
+    }
+
+    // A NESTED-type MemberRef: the resolution scope is the DECLARING TypeRef
+    // (StringBuilder) and the nested name carries an empty namespace -- the
+    // resolver's GetFullName walks the scope chain to
+    // "System.Text.StringBuilder+AppendInterpolatedStringHandler".
+    private static MemoryStream SynthesizeNested(string ns, string typeName, string nestedName,
+        string memberName, byte[] signature)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var outerRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        var nestedRef = mdb.AddTypeReference(outerRef, default(StringHandle), mdb.GetOrAddString(nestedName));
+        mdb.AddMemberReference(nestedRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
         return Serialize(mdb);
     }
 
@@ -459,6 +779,25 @@ public class MethodMapStringBuilderTests
         var typeRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
         mdb.AddTypeReference(asmRef, mdb.GetOrAddString(genArgNs), mdb.GetOrAddString(genArgName));
         var memberRef = mdb.AddMemberReference(typeRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(memberRefSignature));
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
+        return Serialize(mdb);
+    }
+
+    // The nested-handler MethodSpec form: the underlying MemberRef's parent is
+    // a NESTED TypeRef (scope = the StringBuilder TypeRef), so the owner full
+    // name is the '+' form the resolver's scope walk produces.
+    private static MemoryStream SynthesizeGenericNested(string ns, string typeName, string nestedName,
+        string memberName, byte[] memberRefSignature, byte[] genericSignature, string genArgNs, string genArgName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var outerRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        var nestedRef = mdb.AddTypeReference(outerRef, default(StringHandle), mdb.GetOrAddString(nestedName));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString(genArgNs), mdb.GetOrAddString(genArgName));
+        var memberRef = mdb.AddMemberReference(nestedRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(memberRefSignature));
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(genericSignature));
         return Serialize(mdb);
     }

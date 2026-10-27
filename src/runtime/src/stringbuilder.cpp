@@ -2551,5 +2551,51 @@ Il2CppObject* icall_stringbuilder_append_o_wf(Il2CppObject* self, Il2CppObject* 
     return InterpAppendFormatted(self, value, width, format);
 }
 
+//------------------------------------------------------------------------------
+// A (impl-sb): icall_interp_handler_bind -- the NESTED
+// StringBuilder.AppendInterpolatedStringHandler::.ctor (the net6+
+// `sb.AppendLine($"...")` / `sb.Append($"...")` lowering). The nested handler
+// holds the CALLER'S builder (the reference impl stores the StringBuilder
+// argument), so this icall writes the passed builder INTO the slot address;
+// the deref:r appends then land in the real builder and the outer
+// AppendLine/Append call finishes the operation. The slot is the GC frame
+// root the transpiler registered for the handler local.
+//------------------------------------------------------------------------------
+void icall_interp_handler_bind(Il2CppObject** slot, Il2CppObject* stringBuilder)
+{
+    *slot = stringBuilder;
+}
+
+//------------------------------------------------------------------------------
+// D (impl-sb): icall_stringbuilder_append_span -- Append(ReadOnlySpan<char>)
+// (netcoreapp2.1+). The transpiler materializes the span carrier as the
+// BACKING object identity: the string from MemoryExtensions.AsSpan(string),
+// or the char[] from Span<char>.op_Implicit(char[]). A string appends its
+// UTF-16 units, a char[] appends its elements; a null source appends nothing
+// (the net48 Append(char[]) null contract). Returns the SAME builder.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_stringbuilder_append_span(Il2CppObject* self, Il2CppObject* source)
+{
+    ThrowIfNullReceiver(self);
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&self));
+    scope.Add(reinterpret_cast<void**>(&source));
+    if (source == nullptr)
+    {
+        return self;
+    }
+    if (source->klass == il2cpp_string_class())
+    {
+        const Il2CppString* s = reinterpret_cast<const Il2CppString*>(source);
+        AppendUnits(&self, s->chars, s->length);
+        return self;
+    }
+    // char[]-backed carrier: the elements are UTF-16 units in the payload.
+    const Il2CppArray* arr = reinterpret_cast<const Il2CppArray*>(source);
+    const auto* units = reinterpret_cast<const char16_t*>(arr->data);
+    AppendUnits(&self, units, arr->length);
+    return self;
+}
+
 } // namespace runtime
 } // namespace il2cpp

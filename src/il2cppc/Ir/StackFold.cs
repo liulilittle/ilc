@@ -179,6 +179,15 @@ public static class StackFold
         // crash. LOCAL to this Fold invocation (per-method IL offsets), so it
         // can never leak across methods.
         var gn18SkipOffsets = new HashSet<int>();
+        // impl-sb (B): the net9 span-params lowering element capture -- local
+        // name -> (element index -> the stored value expr). The C# 13
+        // `params ReadOnlySpan<object?>` lowering stores every argument
+        // through `<PrivateImplementationDetails>::InlineArrayElementRef`
+        // byrefs (`stind.ref` into element i), then materializes the span
+        // with `InlineArrayAsReadOnlySpan` -- the fold records the stores
+        // here so the span materialization can rebuild the object[] the
+        // composite kernels consume. LOCAL to this Fold invocation.
+        var spanElements = new Dictionary<string, SortedDictionary<int, Expr>>();
         // GN-18 P2/D1 (S3): the offset of the Ldelem_ref the GetGenericArguments
         // element fold CONSUMED (the last instruction of the folded
         // `GetGenericArguments(); ldc.i4.i; ldelem_ref` segment). The element
@@ -1683,6 +1692,27 @@ public static class StackFold
                     {
                         var stindValue = stack.Pop();
                         var stindAddr = stack.Pop();
+                        // impl-sb (B): the C# 13 span-params lowering stores
+                        // each argument through an InlineArrayElementRef byref
+                        // (the "__iae_<local>_<index>" LocAddrExpr marker the
+                        // call arm pushed). Record the element instead of
+                        // emitting a store through the unrepresentable marker
+                        // -- the InlineArrayAsReadOnlySpan materialization
+                        // rebuilds the object[] from these. A marker consumed
+                        // by anything else keeps the LOUD default (the emitter
+                        // rejects the unknown symbol at cmake).
+                        if (stindAddr is LocAddrExpr iaeMarker
+                            && iaeMarker.Name.StartsWith("__iae_", StringComparison.Ordinal)
+                            && TryParseInlineArrayMarker(iaeMarker.Name, out var iaeLocal, out var iaeIndex))
+                        {
+                            if (!spanElements.TryGetValue(iaeLocal, out var iaeSlot))
+                            {
+                                iaeSlot = new SortedDictionary<int, Expr>();
+                                spanElements[iaeLocal] = iaeSlot;
+                            }
+                            iaeSlot[iaeIndex] = stindValue;
+                            break;
+                        }
                         stmts.Add(new CallStmt
                         {
                             Function = $"stind_{ins.OpCode}",
@@ -3475,6 +3505,131 @@ public static class StackFold
                             return;
                         }
                     }
+                }
+            }
+
+            //--------------------------------------------------------------------------
+            // impl-sb (B/D): the net6+/net9 SPAN-CARRIER call patterns. The C# 13
+            // `params ReadOnlySpan<object?>` lowering (net9 StringBuilder.
+            // AppendFormat, reference :1522/:1569) materializes the argument
+            // list through the compiler-synthesized inline-array helpers, and
+            // the netcoreapp2.1+ Append(ReadOnlySpan<char>) shape carries its
+            // span as the backing object. Both are unrepresentable in the IR
+            // as written (byref-returning helpers, span structs) -- fold them
+            // to the carrier model the wired arms consume:
+            //   * InlineArrayElementRef(ref buf, i) -> the "__iae_<loc>_<i>"
+            //     marker the stind.* arm captures (no emission);
+            //   * InlineArrayAsReadOnlySpan(ref buf, n) -> a materialized
+            //     object[] temp (newarr + stelem_ref) pushed as ONE slot -- the
+            //     composite kernels' argsArray form (the popped count stays the
+            //     signature arity);
+            //   * Span`1/ReadOnlySpan`1<char>::op_Implicit(char[]) and
+            //     MemoryExtensions::AsSpan(string) -> the backing-object
+            //     identity (the string/array IS the span carrier the
+            //     icall_stringbuilder_append_span kernel dispatches on).
+            // Any shape outside these gates falls through to the normal
+            // resolution (the external-BCL LOUD guard -- never a silent wrong
+            // carrier).
+            //--------------------------------------------------------------------------
+            if (md != null && SpanCarrierCallTarget(md, (int)ins.Operand) is { } sct)
+            {
+                var (sctName, sctOwner) = sct;
+                if (sctOwner == "<PrivateImplementationDetails>" && sctName == "InlineArrayElementRef"
+                    && stack.Count >= 2 && stack.Peek() is IntConstExpr
+                    && stack.ElementAt(1) is LocAddrExpr iaeBuf)
+                {
+                    var iaeIdx = (IntConstExpr)stack.Pop();
+                    stack.Pop(); // the buffer local address
+                    // The carrier marker is a synthetic LocAddrExpr (NOT a
+                    // CallExpr): the fold's Push() materializes every CallExpr
+                    // into an assignment temp, which would both emit the
+                    // undefined helper symbol and lose the marker shape. The
+                    // LocAddrExpr rides the shadow stack untouched; the stind.*
+                    // arm consumes it (anything else reaching emission is a
+                    // LOUD undefined-identifier cmake failure, never a silent
+                    // wrong store).
+                    stack.Push(new LocAddrExpr { Name = $"__iae_{iaeBuf.Name}_{iaeIdx.Value}" });
+                    return;
+                }
+                if (sctOwner == "<PrivateImplementationDetails>" && sctName == "InlineArrayAsReadOnlySpan"
+                    && stack.Count >= 2 && stack.Peek() is IntConstExpr iasLen
+                    && stack.ElementAt(1) is LocAddrExpr iasBuf)
+                {
+                    if (spanElements.TryGetValue(iasBuf.Name, out var iasElems)
+                        && iasLen.Value is >= 0 and <= int.MaxValue
+                        && Enumerable.Range(0, (int)iasLen.Value).All(i => iasElems.ContainsKey(i)))
+                    {
+                        stack.Pop(); // the span length
+                        stack.Pop(); // the buffer local address
+                        // The compiler NEVER emits a zero-argument span form here
+                        // (params with 0 args lower to a static Empty span), but a
+                        // synthesized 0-length array is still the correct carrier:
+                        // the composite engine treats it as "no placeholders".
+                        var iasObjTok = SystemObjectTypeToken(md)
+                            ?? throw new NotSupportedException(
+                                "span-params lowering: no System.Object TypeRef in the assembly -- the inline-array element carrier cannot be materialized (impl-sb B LOUD whitelist)");
+                        var iasTemp = $"t{temps.Count}";
+                        temps.Add(iasTemp);
+                        var iasArr = new CallExpr { Function = $"newarr_{iasObjTok}", ReturnsRef = true };
+                        iasArr.Args.Add(new IntConstExpr { Value = iasLen.Value });
+                        stmts.Add(new AssignStmt
+                        {
+                            Target = iasTemp,
+                            Value = iasArr,
+                            SourceOffset = ins.Offset,
+                            SourceOpName = OpName(ins.OpCode),
+                        });
+                        for (var i = 0; i < iasLen.Value; i++)
+                        {
+                            stmts.Add(new CallStmt
+                            {
+                                Function = "stelem_ref",
+                                Args = { new LocExpr { Name = iasTemp }, new IntConstExpr { Value = i }, iasElems[i] },
+                                SourceOffset = ins.Offset,
+                                SourceOpName = OpName(ins.OpCode),
+                            });
+                        }
+                        objTypes[iasTemp] = "System.Object[]";
+                        Push(new LocExpr { Name = iasTemp }, ins);
+                        return;
+                    }
+                    // Missing/short element capture: fall through to the LOUD
+                    // default (the resolver rejects the foreign generic shape).
+                }
+                if ((sctOwner == "System.Span`1" || sctOwner == "System.ReadOnlySpan`1")
+                    && sctName == "op_Implicit"
+                    && SpanCarrierIdentitySig(md, (int)ins.Operand, "r:c[]", "r:System.Char[]")
+                    && stack.Count > 0)
+                {
+                    // The char[]-backed carrier: the array IS the span.
+                    var carrier = stack.Pop();
+                    Push(carrier, ins);
+                    return;
+                }
+                if (sctOwner == "System.MemoryExtensions" && sctName == "AsSpan"
+                    && SpanCarrierIdentitySig(md, (int)ins.Operand, "r:System.String")
+                    && stack.Count > 0)
+                {
+                    // The string-backed carrier: the string IS the span.
+                    var carrier = stack.Pop();
+                    Push(carrier, ins);
+                    return;
+                }
+                if (sctOwner == "System.Text.CompositeFormat" && sctName == "Parse"
+                    && SpanCarrierIdentitySig(md, (int)ins.Operand, "r:System.String")
+                    && stack.Count > 0)
+                {
+                    // C (impl-sb): the pre-parsed CompositeFormat is the FORMAT
+                    // STRING itself in the carrier model -- the composite
+                    // kernels re-parse the format text (the documented
+                    // pre-parse deviation; the validation surface of the
+                    // netcore pre-parse is not modeled). Without the identity
+                    // the static Parse call falls to the fictional generated
+                    // name (CompositeFormat has no generated body) and dies at
+                    // cmake -- the C arms' only value source.
+                    var carrier = stack.Pop();
+                    Push(carrier, ins);
+                    return;
                 }
             }
 
@@ -7024,6 +7179,106 @@ public static class StackFold
             if (mr.Parent.Kind != HandleKind.TypeReference) return false;
             return md.GetFullName((TypeReferenceHandle)mr.Parent) == "System.Console"
                 && md.GetString(mr.Name) == "WriteLine";
+        }
+
+        //--------------------------------------------------------------------------
+        // impl-sb (B/D): the span-carrier call target decode. Returns
+        // (member name, owner name) for the tokens the interception gates on:
+        //   * the MethodSpecs on the compiler-synthesized
+        //     <PrivateImplementationDetails> helpers (the owner is the bare
+        //     metadata name -- the module-level synthetic type);
+        //   * the MemberRefs whose parent is a TypeReference OR a TypeSpec
+        //     generic instance (Span`1<char>::op_Implicit -- the owner
+        //     normalizes to the generic DEFINITION name, the same rule
+        //     ResolveOwnerFullName applies).
+        // Everything else answers null (the normal resolution path).
+        //--------------------------------------------------------------------------
+        static (string Name, string Owner)? SpanCarrierCallTarget(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind == HandleKind.MethodSpecification)
+            {
+                var ms = md.GetMethodSpecification((MethodSpecificationHandle)handle);
+                if (ms.Method.Kind != HandleKind.MethodDefinition) return null;
+                var m = md.GetMethodDefinition((MethodDefinitionHandle)ms.Method);
+                return (md.GetString(m.Name), md.GetString(md.GetTypeDefinition(m.GetDeclaringType()).Name));
+            }
+            if (handle.Kind != HandleKind.MemberReference) return null;
+            var mr = md.GetMemberReference((MemberReferenceHandle)handle);
+            var name = md.GetString(mr.Name);
+            string? owner;
+            switch (mr.Parent.Kind)
+            {
+                case HandleKind.TypeReference:
+                    owner = md.GetFullName((TypeReferenceHandle)mr.Parent);
+                    break;
+                case HandleKind.TypeSpecification:
+                {
+                    var spec = md.GetTypeSpecification((TypeSpecificationHandle)mr.Parent);
+                    var sig = md.GetBlobReader(spec.Signature);
+                    if (sig.ReadByte() != 0x15) return null;
+                    var th = sig.ReadTypeHandle();
+                    owner = th.Kind switch
+                    {
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)th),
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)th),
+                        _ => null,
+                    };
+                    break;
+                }
+                default:
+                    return null;
+            }
+            return owner == null ? null : (name, owner);
+        }
+
+        // The identity-carrier gate: the call signature must be EXACTLY
+        // (paramTypes...) -- a sliced AsSpan(string,int,int) or a foreign
+        // op_Implicit overload must not ride the identity (LOUD default
+        // instead).
+        static bool SpanCarrierIdentitySig(MetadataReader md, int token, params string[] paramTypesShapes)
+        {
+            var handle = MetadataTokens.Handle(token);
+            BlobHandle sigHandle;
+            if (handle.Kind == HandleKind.MemberReference)
+                sigHandle = md.GetMemberReference((MemberReferenceHandle)handle).Signature;
+            else if (handle.Kind == HandleKind.MethodSpecification)
+                sigHandle = md.GetMemberReference((MemberReferenceHandle)md.GetMethodSpecification((MethodSpecificationHandle)handle).Method).Signature;
+            else return false;
+            var decoded = MethodSignatureCoder.Decode(md, sigHandle);
+            return decoded.ParamCount == paramTypesShapes.Length
+                && paramTypesShapes.Contains(decoded.ParamTypes);
+        }
+
+        // The System.Object TypeRef token (the inline-array materialization's
+        // element class). Every assembly the span lowering compiles into
+        // references System.Object; a miss is a LOUD whitelist (never a
+        // fabricated token).
+        static int? SystemObjectTypeToken(MetadataReader md)
+        {
+            foreach (var trh in md.TypeReferences)
+            {
+                var tr = md.GetTypeReference(trh);
+                if (md.GetString(tr.Namespace) == "System" && md.GetString(tr.Name) == "Object"
+                    && tr.ResolutionScope.Kind != HandleKind.TypeReference)
+                    return MetadataTokens.GetToken(trh);
+            }
+            return null;
+        }
+
+        // "__iae_<local>_<index>" -> (local, index). The local names are the
+        // emitter's "loc<N>" shapes (no underscores), so the LAST '_' splits
+        // the index; a foreign marker shape answers false (the stind keeps
+        // its LOUD default).
+        static bool TryParseInlineArrayMarker(string function, out string local, out int index)
+        {
+            local = "";
+            index = -1;
+            var body = function["__iae_".Length..];
+            var split = body.LastIndexOf('_');
+            if (split <= 0 || split == body.Length - 1) return false;
+            local = body[..split];
+            return int.TryParse(body[(split + 1)..], out index);
         }
 
         // Type full name -> short name (net48 semantics of typeof(X).Name):

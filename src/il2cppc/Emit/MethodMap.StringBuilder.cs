@@ -8,7 +8,7 @@ namespace Il2Cpp.Transpiler.Emit;
 public static partial class MethodRefResolver
 {
     private static ResolvedMethod? TryMapStringBuilder(string owner, string name, byte[] ps, int count, byte[]? genArgs,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type, string[]? genArgNames = null)
     {
         switch (name)
         {
@@ -92,7 +92,31 @@ public static partial class MethodRefResolver
                     // Append(decimal) -- the 0x11 VALUETYPE slot boxes through
                     // the BCL decimal box and renders via the Object.ToString
                     // dispatch (net48 Append(decimal) = Append(ToString())).
+                    // D (impl-sb): the net6+ interpolation handler overload
+                    // Append(ref AppendInterpolatedStringHandler) decodes to the
+                    // SAME 0x11 byte (ReadParamByte strips the BYREF wrapper) --
+                    // the discriminator is receiverIsAddress (the fold's stack
+                    // top): the handler arg is the ldloca ADDRESS of the handler
+                    // slot, a decimal argument is a plain value slot. The
+                    // handler's content already landed in the builder (the
+                    // nested ctor bound the REAL builder into the slot), so the
+                    // outer call is a NO-OP that returns the builder:
+                    // append_s with an appended nullptr literal appends nothing
+                    // and chains (the kernel's documented null contract).
+                    0x11 when receiverIsAddress => I("il2cpp::runtime::icall_stringbuilder_append_s", 1, true, true, true,
+                        new[] { "", "drop" }, null, false, false, false, "System.Text.StringBuilder",
+                        appendLiterals: new[] { "nullptr" }),
                     0x11 => I("il2cpp::runtime::icall_stringbuilder_append_o", 1, true, true, true, new[] { "", "box:dec" }, null, false, false, false, "System.Text.StringBuilder"),
+                    // D (impl-sb): Append(ReadOnlySpan<char>) -- netcoreapp2.1+
+                    // (reference/netcore/.../StringBuilder.cs:1133). The span
+                    // carrier is the BACKING object identity the fold
+                    // materializes (MemoryExtensions.AsSpan(string) -> the
+                    // string; Span<char>.op_Implicit(char[]) -> the array), so
+                    // the runtime span kernel dispatches on the object class
+                    // (string units vs char[] elements). A sliced span (offset
+                    // / count) is not representable -- the compiler lowering
+                    // for these call sites only produces whole-source spans.
+                    0x15 => I("il2cpp::runtime::icall_stringbuilder_append_span", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     0x1C => I("il2cpp::runtime::icall_stringbuilder_append_o", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     _ => throw new NotSupportedException($"StringBuilder.Append param type 0x{ps[0]:X2} not wired in M5 -- LOUD whitelist (net48 Append value families are bool/char/char[]/decimal/double/short/int/long/float/sbyte/string/uint/ulong/ushort/object/StringBuilder plus (char,int) and (char[],int,int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:554-1037"),
                 };
@@ -133,7 +157,7 @@ public static partial class MethodRefResolver
                         // BCL decimal box first).
                         0x1C => I("il2cpp::runtime::icall_stringbuilder_insert_o", 2, true, true, true, new[] { "", "i", "" }, null, false, false, false, "System.Text.StringBuilder"),
                         0x11 => I("il2cpp::runtime::icall_stringbuilder_insert_o", 2, true, true, true, new[] { "", "i", "box:dec" }, null, false, false, false, "System.Text.StringBuilder"),
-                        _ => throw new NotSupportedException($"StringBuilder.Insert value param type 0x{ps[1]:X2} not wired in M5 -- LOUD whitelist (net48 Insert value families are bool/char/char[]/decimal/double/short/int/long/float/sbyte/string/uint/ulong/ushort/object plus (int,string,int) and (int,char[],int,int)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:820,1037-1251"),
+                        _ => throw new NotSupportedException($"StringBuilder.Insert value param type 0x{ps[1]:X2} not wired in M5 -- LOUD whitelist (net48 Insert value families are bool/char/char[]/decimal/double/short/int/long/float/sbyte/string/uint/ulong/ushort/object plus (int,string,int) and (int,char[],int,int)) (defensive; no reference assembly defines this shape); net48 RefSrc mscorlib/system/text/stringbuilder.cs:820,1037-1251"),
                     };
                 }
                 if (count == 3 && ps[0] == 0x08 && ps[1] == 0x0E && ps[2] == 0x08)
@@ -154,13 +178,77 @@ public static partial class MethodRefResolver
             case "AppendLine":
                 if (count == 0) return I("il2cpp::runtime::icall_stringbuilder_append_line", 0, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                 if (count == 1 && ps[0] == 0x0E) return I("il2cpp::runtime::icall_stringbuilder_append_line_s", 1, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
-                throw new NotSupportedException($"StringBuilder.AppendLine signature not wired in M5 -- LOUD whitelist (net48 AppendLine has only () and (string)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:742-748");
+                // A (impl-sb): the net6+ interpolation handler overloads
+                // (reference/netcore/.../StringBuilder.cs:1155/:1161) -- the
+                // BYREF(0x10) to the nested AppendInterpolatedStringHandler
+                // VALUETYPE decodes to the 0x11 element byte (no net48
+                // AppendLine carries a VALUETYPE first parameter, so the byte
+                // cannot collide). The handler's appends already landed in the
+                // builder (the nested ctor bound the REAL builder into the
+                // handler slot), so the outer call only appends the newline:
+                // the handler address (and the provider slot on the 2-arg form)
+                // pop in lockstep and drop. The provider is ignored -- the
+                // newline is culture-free (the composite culture surface of the
+                // nested handler's AppendFormatted is the documented net6+
+                // deviation of the bind model).
+                if (count == 1 && ps[0] == 0x11)
+                    return I("il2cpp::runtime::icall_stringbuilder_append_line", 1, true, true, true,
+                        new[] { "", "drop" }, null, false, false, false, "System.Text.StringBuilder");
+                if (count == 2 && ps[0] == 0x12 && ps[1] == 0x11)
+                    return I("il2cpp::runtime::icall_stringbuilder_append_line", 2, true, true, true,
+                        new[] { "", "drop", "drop" }, null, false, false, false, "System.Text.StringBuilder");
+                throw new NotSupportedException($"StringBuilder.AppendLine signature not wired in M5 -- LOUD whitelist (net48 AppendLine has only () and (string); the net6+ interpolation-handler forms (ref handler / (provider, ref handler)) are wired (net6+ handler, no net48 counterpart)); net48 RefSrc mscorlib/system/text/stringbuilder.cs:742-748");
             case "AppendFormat":
                 // net48 overloads: (string, object[, object[, object[,
                 // object]]]), the params-object[] form, and the
                 // IFormatProvider-prefixed forms. All share the
                 // AppendFormatCore composite engine (stringbuilder.cpp).
                 // IFormatProvider crosses as the CLASS element byte 0x12.
+                // C (impl-sb): the net6+ CompositeFormat overloads
+                // (reference/netcore/.../StringBuilder.cs:1852-1894/:1912) put a
+                // SECOND CLASS slot (CompositeFormat, 0x12) before the args --
+                // net48 has no (IFormatProvider, CLASS, ...) AppendFormat
+                // shape, so the byte cannot collide. The generic TArg slots
+                // arrive as MVAR (0x1E) bytes with the CLOSED types in genArgs
+                // (the MethodSpec decode); each slot's cast follows the
+                // AppendFormatted vk table (the value families box through the
+                // matching BCL box helper). SEMANTICS NOTE: the kernel takes
+                // the composite FORMAT STRING -- a pre-parsed CompositeFormat
+                // is (per the netcore reference) an immutable pre-validated
+                // wrapper; the runtime re-parses the underlying format text,
+                // which yields the same output for the shapes the parse
+                // accepts (the pre-parse validation surface is not modeled).
+                if (ps.Length >= 2 && ps[0] == 0x12 && ps[1] == 0x12)
+                {
+                    // (provider, CompositeFormat, params object?[]) -- the
+                    // SZARRAY params form (reference :1912).
+                    if (ps.Length == 3 && ps[2] == 0x1D)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_format_provider", 3, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                    // (provider, CompositeFormat, TArg0[, TArg1[, TArg2]]) --
+                    // the closed generic slots (reference :1852/:1872/:1894).
+                    if (ps.Length >= 3 && ps[2] == 0x1E)
+                    {
+                        var slots = ps.Length - 2;
+                        if (genArgs == null || genArgs.Length != slots)
+                            throw new NotSupportedException(
+                                $"StringBuilder.AppendFormat CompositeFormat with {slots} closed slot(s) has no MethodSpec generic-arg table (genArgs={(genArgs == null ? "null" : genArgs.Length.ToString())}) -- LOUD whitelist (net6+ handler, no net48 counterpart; the closed TArg carrier cannot be generated without the MethodSpec decode)");
+                        var argCasts = new string[slots];
+                        for (var i = 0; i < slots; i++)
+                            argCasts[i] = CompositeArgCast(genArgs[i], genArgNames != null && i < genArgNames.Length ? genArgNames[i] : null);
+                        return slots switch
+                        {
+                            1 => I("il2cpp::runtime::icall_stringbuilder_append_format_1_provider", 3, true, true, true,
+                                new[] { "", "", "" }.Concat(argCasts).ToArray(), null, false, false, false, "System.Text.StringBuilder"),
+                            2 => I("il2cpp::runtime::icall_stringbuilder_append_format_2_provider", 4, true, true, true,
+                                new[] { "", "", "" }.Concat(argCasts).ToArray(), null, false, false, false, "System.Text.StringBuilder"),
+                            3 => I("il2cpp::runtime::icall_stringbuilder_append_format_3_provider", 5, true, true, true,
+                                new[] { "", "", "" }.Concat(argCasts).ToArray(), null, false, false, false, "System.Text.StringBuilder"),
+                            _ => throw new NotSupportedException(
+                                $"StringBuilder.AppendFormat CompositeFormat with {slots} closed slots not wired in M5 -- LOUD whitelist (netcore defines TArg0..TArg2 generic overloads only) (net6+ handler, no net48 counterpart); netcore ref System.Private.CoreLib/src/System/Text/StringBuilder.cs:1852-1894"),
+                        };
+                    }
+                    throw new NotSupportedException($"StringBuilder.AppendFormat CompositeFormat signature not wired in M5 -- LOUD whitelist (netcore CompositeFormat forms are (provider,CompositeFormat,params object[]) and the TArg0..TArg2 generic family) (net6+ handler, no net48 counterpart); netcore ref System.Private.CoreLib/src/System/Text/StringBuilder.cs:1852-1938");
+                }
                 if (ps.Length >= 2 && ps[0] == 0x12 && ps[1] == 0x0E)
                 {
                     // (provider, string) / (provider, string, params object[])
@@ -168,6 +256,14 @@ public static partial class MethodRefResolver
                     // object) / (provider, string, object, object, object).
                     if (ps.Length == 2)
                         return I("il2cpp::runtime::icall_stringbuilder_append_format_provider", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                    // B (impl-sb): the netcore span-params form
+                    // (provider, string, params ReadOnlySpan<object?>)
+                    // (reference :1569). The span tail (0x15) rides the SAME
+                    // argsArray kernel: the fold materializes the object[] from
+                    // the compiler's inline-array lowering, so the popped count
+                    // stays the SIGNATURE arity (the array carries the elements).
+                    if (ps.Length == 3 && ps[2] == 0x15)
+                        return I("il2cpp::runtime::icall_stringbuilder_append_format_provider", 3, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                     if (ps.Length == 3 && ps[2] == 0x1D)
                         return I("il2cpp::runtime::icall_stringbuilder_append_format_provider", 3, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                     if (ps.Length == 3 && ps[2] == 0x1C)
@@ -176,7 +272,7 @@ public static partial class MethodRefResolver
                         return I("il2cpp::runtime::icall_stringbuilder_append_format_2_provider", 4, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                     if (ps.Length == 5 && ps[2] == 0x1C && ps[3] == 0x1C && ps[4] == 0x1C)
                         return I("il2cpp::runtime::icall_stringbuilder_append_format_3_provider", 5, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
-                    throw new NotSupportedException($"StringBuilder.AppendFormat provider signature not wired in M5 -- LOUD whitelist (net48 AppendFormat provider forms are (provider,string), (provider,string,object), (provider,string,object,object), (provider,string,object,object,object) and (provider,string,params object[])); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1290-1305");
+                    throw new NotSupportedException($"StringBuilder.AppendFormat provider signature not wired in M5 -- LOUD whitelist (net48 AppendFormat provider forms are (provider,string), (provider,string,object), (provider,string,object,object), (provider,string,object,object,object) and (provider,string,params object[]); the netcore span-params form is wired) (net6+ handler, no net48 counterpart); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1290-1305");
                 }
                 if (count < 2 || ps[0] != 0x0E)
                     throw new NotSupportedException($"StringBuilder.AppendFormat signature not wired in M5 -- LOUD whitelist (net48 AppendFormat requires a string format as its first argument); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1262-1305");
@@ -184,15 +280,20 @@ public static partial class MethodRefResolver
                 // consumed by the signature walk (ps[1] == 0x1D).
                 if (ps[1] == 0x1D)
                     return I("il2cpp::runtime::icall_stringbuilder_append_format", ps.Length, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
+                // B (impl-sb): the netcore span-params form (string, params
+                // ReadOnlySpan<object?>) (reference :1522) -- the same argsArray
+                // kernel over the fold-materialized object[].
+                if (ps.Length == 2 && ps[1] == 0x15)
+                    return I("il2cpp::runtime::icall_stringbuilder_append_format", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder");
                 if (ps[1] != 0x1C)
-                    throw new NotSupportedException($"StringBuilder.AppendFormat signature not wired in M5 -- LOUD whitelist (net48 AppendFormat's second argument is object or params object[]); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1262-1305");
+                    throw new NotSupportedException($"StringBuilder.AppendFormat signature not wired in M5 -- LOUD whitelist (net48 AppendFormat's second argument is object or params object[]; the netcore span-params form is wired) (net6+ handler, no net48 counterpart); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1262-1305");
                 return count switch
                 {
                     2 => I("il2cpp::runtime::icall_stringbuilder_append_format_1", 2, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     3 => I("il2cpp::runtime::icall_stringbuilder_append_format_2", 3, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     4 => I("il2cpp::runtime::icall_stringbuilder_append_format_3", 4, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
                     5 => I("il2cpp::runtime::icall_stringbuilder_append_format_4", 5, true, true, true, null, null, false, false, false, "System.Text.StringBuilder"),
-                    _ => throw new NotSupportedException($"StringBuilder.AppendFormat with {count} args not wired in M5 -- LOUD whitelist (net48 AppendFormat defines no overload with this arity); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1262-1305"),
+                    _ => throw new NotSupportedException($"StringBuilder.AppendFormat with {count} args not wired in M5 -- LOUD whitelist (no reference assembly defines an AppendFormat overload with this arity) (defensive; no reference assembly defines this shape); net48 RefSrc mscorlib/system/text/stringbuilder.cs:1262-1305"),
                 };
             case "Replace":
                 // SB-REST: the 4-arg range forms
@@ -286,6 +387,52 @@ public static partial class MethodRefResolver
     }
 
     //--------------------------------------------------------------------------
+    // C (impl-sb): the CompositeFormat generic slot cast -- the closed TArg
+    // rides the composite-engine OBJECT kernel, so a value family must box
+    // through its BCL box helper first (the same per-vk table the
+    // AppendFormatted arms use; the box casts mirror the ScalarTable box
+    // helpers). Reference families ride the object slot raw.
+    //--------------------------------------------------------------------------
+    private static string CompositeArgCast(byte vk, string? vtypeName)
+    {
+        if (vk == 0x11)
+        {
+            // The BCL value types keep their dedicated box helpers; a USER
+            // struct or enum boxes through "box:us:<name>" (the emitter
+            // resolves the TypeDef and applies the GC-safety gate).
+            return vtypeName switch
+            {
+                "System.Decimal" => "box:dec",
+                "System.DateTime" => "box:dt",
+                "System.Guid" => "box:guid",
+                "System.TimeSpan" => "box:ts",
+                null => throw new NotSupportedException(
+                    "StringBuilder.AppendFormat CompositeFormat value-type slot has no MethodSpec generic-arg name (M5) -- LOUD whitelist (the MethodSpec generic-argument name is unavailable, so the boxed value-type carrier cannot be generated) (net6+ handler, no net48 counterpart); netcore ref System.Private.CoreLib/src/System/Text/StringBuilder.cs:1852-1894"),
+                _ => "box:us:" + vtypeName,
+            };
+        }
+        return vk switch
+        {
+            // int32 + the narrow integer family (the small types are widened
+            // to the int32 box -- the documented Append narrow deviation).
+            0x08 or 0x04 or 0x05 or 0x06 or 0x07 => "box:i",
+            // The UNSIGNED/64-bit/float/bool/char boxes keep their OWN box
+            // klass so the composite engine renders the right type text.
+            0x09 => "box:u4",
+            0x0A => "box:l",
+            0x0B => "box:u8",
+            0x0C => "box:f",
+            0x0D => "box:d",
+            0x02 => "box:b",
+            0x03 => "box:c",
+            // Reference families: the slot is already an Il2CppObject*.
+            0x0E or 0x12 or 0x1C or 0x1D or 0x1F or 0x15 => "",
+            _ => throw new NotSupportedException(
+                $"StringBuilder.AppendFormat CompositeFormat closed slot 0x{vk:X2} not wired in M5 -- LOUD whitelist (the closed TArg families are the primitive/reference families) (net6+ handler, no net48 counterpart); netcore ref System.Private.CoreLib/src/System/Text/StringBuilder.cs:1852-1894"),
+        };
+    }
+
+    //--------------------------------------------------------------------------
     // TryMapDefaultInterpHandler -- P25f (dhprobe): the net6+ string
     // interpolation lowering. A `$"...{x}..."` compiles to an address-taken
     // System.Runtime.CompilerServices.DefaultInterpolatedStringHandler VALUE
@@ -306,9 +453,28 @@ public static partial class MethodRefResolver
         {
             case ".ctor":
                 // (int32 literalLength, int32 formattedCount) -- capacity hints.
-                return count == 2
-                    ? I("il2cpp::runtime::icall_interp_handler_ctor", 2, false, false, true, new[] { "", "i", "i" })
-                    : null;
+                if (count == 2)
+                    return I("il2cpp::runtime::icall_interp_handler_ctor", 2, false, false, true, new[] { "", "i", "i" });
+                // A (impl-sb): the NESTED StringBuilder.AppendInterpolatedStringHandler
+                // ctor shapes (the owner routes here from MethodRefResolver) --
+                // (literalLength, formattedCount, StringBuilder) and the
+                // IFormatProvider-prefixed 4-arg form
+                // (reference/netcore/.../StringBuilder.cs:2962/:2975). Unlike the
+                // DefaultInterpolatedStringHandler (a FRESH builder in the
+                // slot), the nested handler holds the CALLER'S builder: the
+                // bind kernel stores the passed StringBuilder INTO the slot so
+                // the deref:r appends land in the real builder, and the outer
+                // AppendLine/Append call finishes the operation. The provider
+                // overload drops the provider (the bind model does not thread a
+                // culture into the append kernels -- the documented net6+
+                // deviation, same posture as the whitelist below).
+                if (count == 3 && ps.Length == 3 && ps[0] == 0x08 && ps[1] == 0x08 && ps[2] == 0x12)
+                    return I("il2cpp::runtime::icall_interp_handler_bind", 3, false, false, true,
+                        new[] { "", "drop", "drop", "" });
+                if (count == 4 && ps.Length == 4 && ps[0] == 0x08 && ps[1] == 0x08 && ps[2] == 0x12 && ps[3] == 0x12)
+                    return I("il2cpp::runtime::icall_interp_handler_bind", 4, false, false, true,
+                        new[] { "", "drop", "drop", "", "drop" });
+                return null;
             case "AppendLiteral":
                 return count == 1
                     ? I("il2cpp::runtime::icall_stringbuilder_append_s", 1, false, false, true, new[] { "deref:r" })

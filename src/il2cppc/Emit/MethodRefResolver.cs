@@ -1519,7 +1519,21 @@ public static partial class MethodRefResolver
             // get_ParameterType / get_Position / get_IsOut decode it.
             case "System.Reflection.ParameterInfo":
                 return TryMapParameterInfo(owner, name, ps, count);
-            case "System.Text.StringBuilder": return TryMapStringBuilder(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+            case "System.Text.StringBuilder": return TryMapStringBuilder(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames);
+            // A (impl-sb): the net6+ NESTED interpolation handler
+            // (System.Text.StringBuilder+AppendInterpolatedStringHandler -- a
+            // VALUETYPE nested struct, reference/netcore/.../StringBuilder.cs:2936).
+            // Without this case the owner falls to the external-BCL LOUD guard
+            // (the phantom never links); WITH it, the .ctor binds the caller's
+            // builder into the handler slot (icall_interp_handler_bind), and
+            // AppendLiteral/AppendFormatted/ToStringAndClear ride the SAME
+            // mapping the DefaultInterpolatedStringHandler uses (deref:r
+            // appends into the bound builder). The '+'-form is what
+            // MetadataExtensions.GetFullName produces for the nested TypeRef
+            // scope chain; the dotted form is accepted defensively.
+            case "System.Text.StringBuilder+AppendInterpolatedStringHandler":
+            case "System.Text.StringBuilder.AppendInterpolatedStringHandler":
+                return TryMapDefaultInterpHandler(owner, name, ps, count, genArgs, genArgNames, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // P25f (dhprobe): the net6+ interpolation lowering -- an
             // address-taken DefaultInterpolatedStringHandler VALUE local + the
             // .ctor/AppendLiteral/AppendFormatted<T>/ToStringAndClear instance

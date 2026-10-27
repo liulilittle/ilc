@@ -2904,6 +2904,24 @@ public static class CodeGenerator
                 {
                     var defName = gParts[0];
                     var suffix = gParts[1];
+                    // B (impl-sb): the C# 13 compiler-synthesized INLINE-ARRAY
+                    // buffer local (<PrivateImplementationDetails>+__InlineArrayN`1
+                    // -- the `params ReadOnlySpan<object?>` lowering's element
+                    // backing). The StackFold span-carrier model never reads
+                    // this local (the element stores are captured in the fold's
+                    // element table; the AsReadOnlySpan materialization
+                    // rebuilds the object[] temp), and the M6 model emits only
+                    // the int32-instantiated struct variant -- an object
+                    // instantiation would be an undeclared type (cmake build
+                    // FAIL). The dead slot declares as the ref carrier + frame
+                    // root (the initobj zero-store stays well-formed).
+                    if (defName.Contains("__InlineArray", StringComparison.Ordinal))
+                    {
+                        refLocals.Add(d);
+                        w.Line($"Il2CppObject* {d} = nullptr;");
+                        locKind[d] = "ref";
+                        continue;
+                    }
                     var genericTypeDef = TypeLookup.Find(types, defName);
                     if (genericTypeDef != null)
                     {
@@ -2986,6 +3004,21 @@ public static class CodeGenerator
                 // AppendFormatted/ToStringAndClear deref:r it). Same ref
                 // carrier + frame root as the KeyValuePair`2 branch above.
                 if (ilKind == "v:System.Runtime.CompilerServices.DefaultInterpolatedStringHandler")
+                {
+                    refLocals.Add(d);
+                    w.Line($"Il2CppObject* {d} = nullptr;");
+                    continue;
+                }
+                // A (impl-sb): the net6+ NESTED StringBuilder interpolation
+                // handler (System.Text.StringBuilder+AppendInterpolatedStringHandler
+                // -- the `sb.AppendLine($"...")` / `sb.Append($"...")` lowering's
+                // address-taken VALUETYPE local). The SAME ref-carrier doctrine:
+                // the runtime models the handler slot as the BOUND StringBuilder
+                // OBJECT (icall_interp_handler_bind writes it; the appends
+                // deref:r it), so the local is an Il2CppObject* slot + frame
+                // root -- the declared C++ struct name would otherwise be the
+                // mangled undefined nested type (cmake build FAIL).
+                if (ilKind == "v:System.Text.StringBuilder+AppendInterpolatedStringHandler")
                 {
                     refLocals.Add(d);
                     w.Line($"Il2CppObject* {d} = nullptr;");
@@ -11347,6 +11380,36 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "box:i" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
                     ? code
                     : $"il2cpp::il2cpp_box_int32(nullptr, static_cast<int32_t>({code}))",
+                // C (impl-sb): the CompositeFormat closed TArg primitive families
+                // -- the value slot boxes through its OWN BCL box helper so the
+                // composite engine renders the right type text (the ScalarTable
+                // box helpers; mirrors box:dec/dt below). A reference-shaped arg
+                // (the box:i passthrough rule) keeps the object slot.
+                "box:l" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
+                    ? code
+                    : $"il2cpp::runtime::icall_box_long(static_cast<int64_t>({code}))",
+                "box:u4" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
+                    ? code
+                    // icall_box_uint takes the int32_t slot (the runtime
+                    // reinterprets the unsigned pattern) -- the bit pattern
+                    // passes through unchanged.
+                    : $"il2cpp::runtime::icall_box_uint(static_cast<int32_t>({code}))",
+                "box:u8" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
+                    ? code
+                    : $"il2cpp::runtime::icall_box_ulong(static_cast<uint64_t>({code}))",
+                "box:f" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
+                    ? code
+                    : $"il2cpp::runtime::icall_box_float(static_cast<double>({code}))",
+                "box:d" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
+                    ? code
+                    : $"il2cpp::runtime::icall_box_double(static_cast<double>({code}))",
+                "box:b" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
+                    ? code
+                    : $"il2cpp::runtime::icall_box_bool(static_cast<bool>({code}))",
+                "box:c" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
+                    ? code
+                    // icall_box_char takes the int32_t UTF-16 carrier.
+                    : $"il2cpp::runtime::icall_box_char(static_cast<int32_t>({code}))",
                 // P25h: the DefaultInterpolatedStringHandler.AppendFormatted<T>
                 // value-type (0x11) forms -- the value slot is boxed through the
                 // matching BCL box helper (the composite engine renders the box):

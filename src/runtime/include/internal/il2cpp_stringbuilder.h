@@ -539,6 +539,29 @@ Il2CppObject* icall_stringbuilder_replace_buffer_ansi_internal(Il2CppObject* sel
 // builder grows); they exist so the icall arity matches the IL exactly.
 void icall_interp_handler_ctor(Il2CppObject** slot, int32_t literalLength, int32_t formattedCount);
 
+// A (impl-sb): the NESTED StringBuilder.AppendInterpolatedStringHandler::.ctor
+// (the net6+ `sb.AppendLine($"...")` / `sb.Append($"...")` lowering). Unlike
+// the DefaultInterpolatedStringHandler (a FRESH builder in the slot), the
+// nested handler holds the CALLER'S builder: this icall stores the passed
+// StringBuilder INTO the slot so the deref:r appends land in the real builder
+// and the outer AppendLine/Append call finishes the operation. literalLength /
+// formattedCount are compile-time capacity hints (ignored -- the icall arity
+// matches the IL; the drop casts keep the fold lockstep). The provider-prefixed
+// overload routes through the same kernel with the provider dropped (the bind
+// model does not thread a culture into the append kernels -- the documented
+// net6+ deviation).
+void icall_interp_handler_bind(Il2CppObject** slot, Il2CppObject* stringBuilder);
+
+// D (impl-sb): Append(ReadOnlySpan<char>) (netcoreapp2.1+). The transpiler
+// materializes the span carrier as the BACKING object identity (the string
+// from MemoryExtensions.AsSpan(string), or the char[] from
+// Span<char>.op_Implicit(char[])) -- this kernel dispatches on the object
+// class: a string appends its UTF-16 units, a char[] appends its elements. A
+// null source appends nothing. Returns the SAME builder. A SLICED span
+// (offset/count) is not representable in the carrier model -- the compiler
+// lowering for the wired call sites only produces whole-source spans.
+Il2CppObject* icall_stringbuilder_append_span(Il2CppObject* self, Il2CppObject* source);
+
 // P25g (dhprobe): AppendFormatted<T> ALIGNMENT + FORMAT-SPEC overloads -- the
 // '{x,5}' field-width and '{x:D3}' format-string composite components. One
 // {T} x {w,f,wf} trio per value type: 'w' = (T, int32 width), 'f' =
