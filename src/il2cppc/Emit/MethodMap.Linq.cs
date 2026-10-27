@@ -299,15 +299,26 @@ public static partial class MethodRefResolver
             }
             if (genArgs[0] != 0x08)
             {
-                // The WIDE source families (long / float / double): the
-                // selector's RESULT slot picks the kernel, exactly like the
-                // reference family. net48 has every overload, so none stays
-                // LOUD (the stage-1 surface was int32-only here).
+                // The WIDE source families (long / float / double) and the
+                // NARROW-INTEGRAL source families (sbyte / byte / short /
+                // ushort / uint / char -- impl-linq3 A): the selector's RESULT
+                // slot picks the kernel, exactly like the reference family.
+                // A narrow element is widened to int32 (the arrayext2 narrow
+                // value model), so the selector ABI is the int32 one and the
+                // kernel suffix mirrors the arrayext2 narrow families. net48
+                // has every overload, so none stays LOUD (the stage-1 surface
+                // was int32-only here).
                 string? srcSuffix = genArgs[0] switch
                 {
                     0x0A or 0x0B => "i8src",
                     0x0C => "fsrc",
                     0x0D => "dsrc",
+                    0x04 => "i1src", // sbyte
+                    0x05 => "u1src", // byte
+                    0x06 => "i2src", // short
+                    0x07 => "u2src", // ushort
+                    0x09 => "u4src", // uint
+                    0x03 => "csrc",  // char
                     _ => null,
                 };
                 string? projSuffix = srcSuffix is null ? null : LinqSelectorProjectionType(md, sigHandle) switch
@@ -323,8 +334,9 @@ public static partial class MethodRefResolver
                     string argType = GenericArgTypeName(genArgs[0]);
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{argType},...> with a selector not wired: " +
-                        "the wide-source selector-aggregate surface covers long/float/double elements " +
-                        "with an int32/int64/double/float projection only");
+                        "the value-source selector-aggregate surface covers sbyte/byte/short/" +
+                        "ushort/uint/char/long/float/double elements with an int32/int64/double/" +
+                        "float projection only (see docs/audit/b5-gaps.md)");
                 }
                 string entry = name switch
                 {

@@ -6825,6 +6825,239 @@ double il2cpp_linq_average_sel_fsrc_d(Il2CppArray* src, Il2CppObject* sel)
 double il2cpp_linq_average_sel_fsrc_f(Il2CppArray* src, Il2CppObject* sel)
 { Il2CppDelegate* d = RequireCallback(sel, "selector"); return WideSelAverageT<float,float>(src, d, LinqReadDElem, InvokeSelFSrcF); }
 
+//------------------------------------------------------------------------------
+// impl-linq3 (A): the NARROW-INTEGRAL source selector aggregates (net48
+// Sum/Min/Max/Average<TSource,TResult> with TSource = sbyte / byte / short /
+// ushort / uint / char). The transpiler stores every narrow integral in an
+// int32 slot (the arrayext2 narrow value model), so each element cell is read
+// at its REAL width and WIDENED to int32 before the int32 selector ABI
+// (a Func<byte,int> leaf is emitted as int32_t(int32_t) -- InvokeSelI4*).
+// The fold runs over the PROJECTED values with the net48 semantics of the
+// dec-projection aggregates (impl-linq2 B-2): the int32/int64 sums are
+// CHECKED, the float sum accumulates in DOUBLE and casts at the end,
+// Min/Max/Average throw InvalidOperationException on an empty source and Sum
+// returns the identity. The delegate is rooted across the projection loop
+// (it may allocate); the source is only read, never written.
+//------------------------------------------------------------------------------
+template <typename TCell>
+static void RequireNarrowFamily(Il2CppArray* a)
+{
+    RequireArray(a);
+    if (a->isRefElem || a->elemSize != static_cast<int32_t>(sizeof(TCell)))
+    {
+        il2cpp_throw_not_supported_exception(
+            "The narrow-source selector aggregate requires a one-dimensional "
+            "narrow-integral array of the matching element width.");
+    }
+}
+
+template <typename TCell, typename InvokeSel>
+static int32_t NarrowSelSumI4(Il2CppArray* src, Il2CppDelegate* d, InvokeSel invoke)
+{
+    RequireNarrowFamily<TCell>(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int32_t v = invoke(d, static_cast<int32_t>(
+            *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(src, i))));
+        // net48 Sum<TSource>(Func<TSource,int>) is CHECKED.
+        if ((v > 0 && sum > INT32_MAX - v) || (v < 0 && sum < INT32_MIN - v))
+        {
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        }
+        sum += v;
+    }
+    return sum;
+}
+
+template <typename TCell, typename InvokeSel>
+static int64_t NarrowSelSumI8(Il2CppArray* src, Il2CppDelegate* d, InvokeSel invoke)
+{
+    RequireNarrowFamily<TCell>(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int64_t sum = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const int64_t v = invoke(d, static_cast<int32_t>(
+            *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(src, i))));
+        // net48 Sum<TSource>(Func<TSource,long>) is CHECKED.
+        if ((v > 0 && sum > INT64_MAX - v) || (v < 0 && sum < INT64_MIN - v))
+        {
+            il2cpp_throw_overflow_exception("Arithmetic operation resulted in an overflow.");
+        }
+        sum += v;
+    }
+    return sum;
+}
+
+// net48 Sum<TSource>(Func<TSource,float>) accumulates in DOUBLE and casts the
+// total to FLOAT at the end.
+template <typename TCell, typename InvokeSel>
+static float NarrowSelSumF(Il2CppArray* src, Il2CppDelegate* d, InvokeSel invoke)
+{
+    RequireNarrowFamily<TCell>(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += invoke(d, static_cast<int32_t>(
+            *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(src, i))));
+    }
+    return static_cast<float>(sum);
+}
+
+template <typename TCell, typename InvokeSel>
+static double NarrowSelSumD(Il2CppArray* src, Il2CppDelegate* d, InvokeSel invoke)
+{
+    RequireNarrowFamily<TCell>(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += invoke(d, static_cast<int32_t>(
+            *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(src, i))));
+    }
+    return sum;
+}
+
+// The MIN/MAX/AVERAGE folds share one shape per projection (the dec-projection
+// macro pattern): empty -> InvalidOperationException, the first projected
+// value seeds the fold, then a single compare per element.
+template <typename TCell, typename TResult, typename InvokeSel>
+static TResult NarrowSelMinMax(Il2CppArray* src, Il2CppDelegate* d, InvokeSel invoke, bool wantMax)
+{
+    RequireNarrowFamily<TCell>(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    TResult best = invoke(d, static_cast<int32_t>(
+        *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(src, 0))));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const TResult v = invoke(d, static_cast<int32_t>(
+            *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(src, i))));
+        if (wantMax ? (v > best) : (v < best)) best = v;
+    }
+    return best;
+}
+
+// net48 Average<TSource> divides the projected total by the count; the float
+// form accumulates in DOUBLE and casts at the end (Average(Func<T,float>)
+// returns float).
+template <typename TCell, typename TResult, typename InvokeSel>
+static double NarrowSelAverage(Il2CppArray* src, Il2CppDelegate* d, InvokeSel invoke)
+{
+    RequireNarrowFamily<TCell>(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += static_cast<double>(invoke(d, static_cast<int32_t>(
+            *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(src, i)))));
+    }
+    return sum / static_cast<double>(src->length);
+}
+
+template <typename TCell, typename InvokeSel>
+static float NarrowSelAverageF(Il2CppArray* src, Il2CppDelegate* d, InvokeSel invoke)
+{
+    RequireNarrowFamily<TCell>(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    double sum = 0.0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        sum += invoke(d, static_cast<int32_t>(
+            *reinterpret_cast<const TCell*>(il2cpp_array_get_elem_ptr(src, i))));
+    }
+    return static_cast<float>(sum / static_cast<double>(src->length));
+}
+
+// The 96 explicit narrow-source entries: a macro keeps every (source, fold)
+// pair in lockstep with the semantics above. NREAD expands to the widened
+// int32 read of the source's cell type.
+#define IL2CPP_LINQ_NARROW_AGG(SRC, CELL)                                              \
+    int32_t il2cpp_linq_sum_sel_##SRC##_i4(Il2CppArray* src, Il2CppObject* sel)        \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelSumI4<CELL>(src, d, InvokeSelI4I4); }                            \
+    int64_t il2cpp_linq_sum_sel_##SRC##_i8(Il2CppArray* src, Il2CppObject* sel)        \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelSumI8<CELL>(src, d, InvokeSelI4I8); }                            \
+    float il2cpp_linq_sum_sel_##SRC##_f(Il2CppArray* src, Il2CppObject* sel)           \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelSumF<CELL>(src, d, InvokeSelI4F); }                              \
+    double il2cpp_linq_sum_sel_##SRC##_d(Il2CppArray* src, Il2CppObject* sel)          \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelSumD<CELL>(src, d, InvokeSelI4D); }                              \
+    int32_t il2cpp_linq_min_sel_##SRC##_i4(Il2CppArray* src, Il2CppObject* sel)        \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelMinMax<CELL, int32_t>(src, d, InvokeSelI4I4, false); }           \
+    int64_t il2cpp_linq_min_sel_##SRC##_i8(Il2CppArray* src, Il2CppObject* sel)        \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelMinMax<CELL, int64_t>(src, d, InvokeSelI4I8, false); }           \
+    float il2cpp_linq_min_sel_##SRC##_f(Il2CppArray* src, Il2CppObject* sel)           \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelMinMax<CELL, float>(src, d, InvokeSelI4F, false); }              \
+    double il2cpp_linq_min_sel_##SRC##_d(Il2CppArray* src, Il2CppObject* sel)          \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelMinMax<CELL, double>(src, d, InvokeSelI4D, false); }             \
+    int32_t il2cpp_linq_max_sel_##SRC##_i4(Il2CppArray* src, Il2CppObject* sel)        \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelMinMax<CELL, int32_t>(src, d, InvokeSelI4I4, true); }            \
+    int64_t il2cpp_linq_max_sel_##SRC##_i8(Il2CppArray* src, Il2CppObject* sel)        \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelMinMax<CELL, int64_t>(src, d, InvokeSelI4I8, true); }            \
+    float il2cpp_linq_max_sel_##SRC##_f(Il2CppArray* src, Il2CppObject* sel)           \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelMinMax<CELL, float>(src, d, InvokeSelI4F, true); }               \
+    double il2cpp_linq_max_sel_##SRC##_d(Il2CppArray* src, Il2CppObject* sel)          \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelMinMax<CELL, double>(src, d, InvokeSelI4D, true); }              \
+    double il2cpp_linq_average_sel_##SRC##_i4(Il2CppArray* src, Il2CppObject* sel)     \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelAverage<CELL, int32_t>(src, d, InvokeSelI4I4); }                 \
+    double il2cpp_linq_average_sel_##SRC##_i8(Il2CppArray* src, Il2CppObject* sel)     \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelAverage<CELL, int64_t>(src, d, InvokeSelI4I8); }                 \
+    float il2cpp_linq_average_sel_##SRC##_f(Il2CppArray* src, Il2CppObject* sel)       \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelAverageF<CELL>(src, d, InvokeSelI4F); }                          \
+    double il2cpp_linq_average_sel_##SRC##_d(Il2CppArray* src, Il2CppObject* sel)      \
+    { Il2CppDelegate* d = RequireCallback(sel, "selector");                            \
+      return NarrowSelAverage<CELL, double>(src, d, InvokeSelI4D); }
+
+IL2CPP_LINQ_NARROW_AGG(i1src, int8_t)
+IL2CPP_LINQ_NARROW_AGG(u1src, uint8_t)
+IL2CPP_LINQ_NARROW_AGG(i2src, int16_t)
+IL2CPP_LINQ_NARROW_AGG(u2src, uint16_t)
+IL2CPP_LINQ_NARROW_AGG(u4src, uint32_t)
+IL2CPP_LINQ_NARROW_AGG(csrc, char16_t)
+#undef IL2CPP_LINQ_NARROW_AGG
+
 double il2cpp_linq_average_sel_i4(Il2CppArray* src, Il2CppObject* sel)
 {
     RequireArray(src);

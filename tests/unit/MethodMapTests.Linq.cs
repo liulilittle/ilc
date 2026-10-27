@@ -2369,6 +2369,103 @@ public class MethodMapTestsLinq
     }
 
     //==========================================================================
+    // impl-linq3 (A): the NARROW-source selector-aggregate family (net48
+    // Sum/Min/Max/Average<TSource,TResult> with TSource = sbyte / byte / short
+    // / ushort / uint / char). Before this change every narrow source with a
+    // selector LOUD-rejected inside the wide-source gate. The kernel suffix
+    // mirrors the arrayext2 narrow families: _i1src/_u1src/_i2src/_u2src/
+    // _u4src/_csrc; the projection picks the fold kernel.
+    //==========================================================================
+    [Theory]
+    [InlineData("Sum", 0x04, 0x08, "il2cpp::il2cpp_linq_sum_sel_i1src_i4", null)]
+    [InlineData("Min", 0x04, 0x08, "il2cpp::il2cpp_linq_min_sel_i1src_i4", null)]
+    [InlineData("Max", 0x04, 0x08, "il2cpp::il2cpp_linq_max_sel_i1src_i4", null)]
+    [InlineData("Average", 0x04, 0x08, "il2cpp::il2cpp_linq_average_sel_i1src_i4", "d")]
+    [InlineData("Sum", 0x05, 0x08, "il2cpp::il2cpp_linq_sum_sel_u1src_i4", null)]
+    [InlineData("Min", 0x05, 0x08, "il2cpp::il2cpp_linq_min_sel_u1src_i4", null)]
+    [InlineData("Max", 0x05, 0x08, "il2cpp::il2cpp_linq_max_sel_u1src_i4", null)]
+    [InlineData("Average", 0x05, 0x08, "il2cpp::il2cpp_linq_average_sel_u1src_i4", "d")]
+    [InlineData("Sum", 0x06, 0x08, "il2cpp::il2cpp_linq_sum_sel_i2src_i4", null)]
+    [InlineData("Min", 0x06, 0x08, "il2cpp::il2cpp_linq_min_sel_i2src_i4", null)]
+    [InlineData("Max", 0x06, 0x08, "il2cpp::il2cpp_linq_max_sel_i2src_i4", null)]
+    [InlineData("Average", 0x06, 0x08, "il2cpp::il2cpp_linq_average_sel_i2src_i4", "d")]
+    [InlineData("Sum", 0x07, 0x08, "il2cpp::il2cpp_linq_sum_sel_u2src_i4", null)]
+    [InlineData("Min", 0x07, 0x08, "il2cpp::il2cpp_linq_min_sel_u2src_i4", null)]
+    [InlineData("Max", 0x07, 0x08, "il2cpp::il2cpp_linq_max_sel_u2src_i4", null)]
+    [InlineData("Average", 0x07, 0x08, "il2cpp::il2cpp_linq_average_sel_u2src_i4", "d")]
+    [InlineData("Sum", 0x09, 0x08, "il2cpp::il2cpp_linq_sum_sel_u4src_i4", null)]
+    [InlineData("Min", 0x09, 0x08, "il2cpp::il2cpp_linq_min_sel_u4src_i4", null)]
+    [InlineData("Max", 0x09, 0x08, "il2cpp::il2cpp_linq_max_sel_u4src_i4", null)]
+    [InlineData("Average", 0x09, 0x08, "il2cpp::il2cpp_linq_average_sel_u4src_i4", "d")]
+    [InlineData("Sum", 0x03, 0x08, "il2cpp::il2cpp_linq_sum_sel_csrc_i4", null)]
+    [InlineData("Min", 0x03, 0x08, "il2cpp::il2cpp_linq_min_sel_csrc_i4", null)]
+    [InlineData("Max", 0x03, 0x08, "il2cpp::il2cpp_linq_max_sel_csrc_i4", null)]
+    [InlineData("Average", 0x03, 0x08, "il2cpp::il2cpp_linq_average_sel_csrc_i4", "d")]
+    public void Resolve_NarrowSelectorAggregate_IntProjection_MapsToNarrowKernel(
+        string name, byte srcByte, byte projByte, string icall, string? rk)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericSelector(name,
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, srcByte,
+                0x15, 0x12, 0x09, 0x01, srcByte,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, projByte },
+            genericSignature: new byte[] { 0x0A, 0x01, srcByte }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(rk, resolved.ResultKind);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    // The wide projections over one representative narrow source (byte): the
+    // same _{srcSuffix}_{projSuffix} kernel naming as the wide family.
+    [Theory]
+    [InlineData("Sum", 0x05, 0x0A, "il2cpp::il2cpp_linq_sum_sel_u1src_i8", "l")]
+    [InlineData("Min", 0x05, 0x0A, "il2cpp::il2cpp_linq_min_sel_u1src_i8", "l")]
+    [InlineData("Max", 0x05, 0x0A, "il2cpp::il2cpp_linq_max_sel_u1src_i8", "l")]
+    [InlineData("Average", 0x05, 0x0A, "il2cpp::il2cpp_linq_average_sel_u1src_i8", "d")]
+    [InlineData("Sum", 0x05, 0x0C, "il2cpp::il2cpp_linq_sum_sel_u1src_f", "d")]
+    [InlineData("Min", 0x05, 0x0C, "il2cpp::il2cpp_linq_min_sel_u1src_f", "d")]
+    [InlineData("Max", 0x05, 0x0C, "il2cpp::il2cpp_linq_max_sel_u1src_f", "d")]
+    [InlineData("Average", 0x05, 0x0C, "il2cpp::il2cpp_linq_average_sel_u1src_f", "d")]
+    [InlineData("Sum", 0x05, 0x0D, "il2cpp::il2cpp_linq_sum_sel_u1src_d", "d")]
+    [InlineData("Min", 0x05, 0x0D, "il2cpp::il2cpp_linq_min_sel_u1src_d", "d")]
+    [InlineData("Max", 0x05, 0x0D, "il2cpp::il2cpp_linq_max_sel_u1src_d", "d")]
+    [InlineData("Average", 0x05, 0x0D, "il2cpp::il2cpp_linq_average_sel_u1src_d", "d")]
+    [InlineData("Sum", 0x03, 0x0D, "il2cpp::il2cpp_linq_sum_sel_csrc_d", "d")]
+    [InlineData("Average", 0x03, 0x0C, "il2cpp::il2cpp_linq_average_sel_csrc_f", "d")]
+    [InlineData("Max", 0x09, 0x0A, "il2cpp::il2cpp_linq_max_sel_u4src_i8", "l")]
+    [InlineData("Min", 0x06, 0x0C, "il2cpp::il2cpp_linq_min_sel_i2src_f", "d")]
+    public void Resolve_NarrowSelectorAggregate_WideProjection_MapsToNarrowKernel(
+        string name, byte srcByte, byte projByte, string icall, string? rk)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericSelector(name,
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, srcByte,
+                0x15, 0x12, 0x09, 0x01, srcByte,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, projByte },
+            genericSignature: new byte[] { 0x0A, 0x01, srcByte }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(rk, resolved.ResultKind);
+    }
+
+    // A narrow-source selector with an unsupported projection (a reference
+    // result) stays LOUD.
+    [Fact]
+    public void Resolve_NarrowSelectorAggregate_RefProjection_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGenericSelector("Sum",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x05,
+                0x15, 0x12, 0x09, 0x01, 0x05,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x0E },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x05 })));
+
+        Assert.Contains("value-source selector-aggregate surface", ex.Message);
+    }
+
+    //==========================================================================
     // The reference-source Select with a VALUE result (net48
     // Select<TSource,TResult> over a reference source): int32 / int64 / double /
     // float. Before this change the non-reference non-decimal results LOUD-
