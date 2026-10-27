@@ -483,23 +483,132 @@ public static partial class MethodRefResolver
             // above; the family-agnostic members (Count()/Any()/ToArray()/
             // get_Key) stay here.
             bool decBucket = genArgs is { Length: >= 1 } && genArgs[0] == 0x11;
-            if (decBucket)
-            {
-                bool agnostic = name == "ToArray"
-                    || (name == "Count" && count < 2)
-                    || (name == "Any" && count < 2)
-                    || (name == "Contains" && count >= 2);
-                if (!agnostic)
-                {
-                    throw new NotSupportedException(
-                        $"Enumerable.{name} over a System.Decimal-element GroupBy bucket is not wired: " +
-                        "the decimal bucket surface covers the aggregate family (Sum/Min/Max/Average) " +
-                        "plus Count()/Any()/Contains()/ToArray()/get_Key; the int32 predicate/selector " +
-                        "operators have no decimal bucket kernel (see docs/audit/b5-gaps.md)");
-                }
-            }
             switch (name)
             {
+                // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each
+                // entry snapshots the bucket's exact-size decimal cells (the
+                // runtime RequireDecGroupElements) and reuses the DECIMAL-SOURCE
+                // kernel, the same operator set net48 exposes over
+                // IEnumerable<decimal> (Enumerable.cs:591-1213 / 1341-1352 /
+                // 605-661 / 732-744). The old mapping rejected every
+                // non-agnostic operator over a decimal bucket ("the int32
+                // predicate/selector operators have no decimal bucket kernel").
+                // The element returns ride the decimal result slot; the
+                // predicate crosses as bool(*)(decimal) BY VALUE.
+                case "Where" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_where_dec", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Decimal[]");
+                case "First" when count < 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_first_dec", 1, true, false, false,
+                        new[] { "" }, resultKind: "dec");
+                case "FirstOrDefault" when count < 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_first_or_default_dec", 1, true, false, false,
+                        new[] { "" }, resultKind: "dec");
+                case "First" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_first_pred_dec", 2, true, false, false,
+                        new[] { "", "" }, resultKind: "dec");
+                case "FirstOrDefault" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_first_or_default_pred_dec", 2, true, false, false,
+                        new[] { "", "" }, resultKind: "dec");
+                case "Last" when count < 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_last_dec", 1, true, false, false,
+                        new[] { "" }, resultKind: "dec");
+                case "LastOrDefault" when count < 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_last_or_default_dec", 1, true, false, false,
+                        new[] { "" }, resultKind: "dec");
+                case "Last" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_last_pred_dec", 2, true, false, false,
+                        new[] { "", "" }, resultKind: "dec");
+                case "LastOrDefault" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_last_or_default_pred_dec", 2, true, false, false,
+                        new[] { "", "" }, resultKind: "dec");
+                case "Single" when count < 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_single_dec", 1, true, false, false,
+                        new[] { "" }, resultKind: "dec");
+                case "SingleOrDefault" when count < 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_single_or_default_dec", 1, true, false, false,
+                        new[] { "" }, resultKind: "dec");
+                case "Single" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_single_pred_dec", 2, true, false, false,
+                        new[] { "", "" }, resultKind: "dec");
+                case "SingleOrDefault" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_single_or_default_pred_dec", 2, true, false, false,
+                        new[] { "", "" }, resultKind: "dec");
+                case "ElementAt" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_element_at_dec", 2, true, false, false,
+                        new[] { "", "i" }, resultKind: "dec");
+                case "Reverse" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_reverse_dec", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Decimal[]");
+                case "Take" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_take_dec", 2, true, true, false,
+                        new[] { "", "i" }, returnTypeName: "System.Decimal[]");
+                case "Skip" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_skip_dec", 2, true, true, false,
+                        new[] { "", "i" }, returnTypeName: "System.Decimal[]");
+                case "TakeWhile" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_take_while_dec", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Decimal[]");
+                case "SkipWhile" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_skip_while_dec", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Decimal[]");
+                case "Distinct" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_distinct_dec", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Decimal[]");
+                case "Except" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_except_dec", 2, true, true, false,
+                        new[] { "", "a" }, returnTypeName: "System.Decimal[]");
+                case "Concat" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_concat_dec", 2, true, true, false,
+                        new[] { "", "a" }, returnTypeName: "System.Decimal[]");
+                case "DefaultIfEmpty" when count >= 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_default_if_empty_dec", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Decimal[]");
+                case "DefaultIfEmpty" when decBucket:
+                    // The source-only form: the empty bucket yields the single
+                    // default(decimal) cell (the empty bucket itself is NOT the
+                    // result -- net48 DefaultIfEmpty, Enumerable.cs:998).
+                    return I("il2cpp::il2cpp_linq_default_if_empty1_dec", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Decimal[]");
+                case "SequenceEqual" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_sequence_equal_dec", 2, true, false, false,
+                        new[] { "", "a" });
+                case "LongCount" when count < 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_long_count_dec", 1, true, false, false,
+                        new[] { "" }, resultKind: "l");
+                case "Count" when count >= 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_count_pred_dec", 2, true, false, false,
+                        new[] { "", "" });
+                case "Any" when count >= 2 && decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_any_pred_dec", 2, true, false, false,
+                        new[] { "", "" });
+                case "All" when decBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_all_dec", 2, true, false, false,
+                        new[] { "", "" });
+                case "OrderBy" or "OrderByDescending" when decBucket:
+                {
+                    // The bucket keyed sort: the key selector projects a decimal
+                    // element to a key of the int32/int64/double/decimal
+                    // families (the same dispatch as the decimal-source
+                    // OrderBy); a DateTime/Guid key stays LOUD.
+                    bool desc = name == "OrderByDescending";
+                    byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                    string? decKeyFam = keyByte switch
+                    {
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+                        0x0A or 0x0B => "i8",
+                        0x0C or 0x0D => "d",
+                        0x11 when IsDecimalGenArg(genArgNames, 1) => "dec",
+                        _ => null,
+                    };
+                    if (decKeyFam == null)
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<System.Decimal,{GenericArgTypeName(keyByte)}> over a " +
+                            "System.Decimal bucket not wired: the bucket keyed sort covers int32/int64/" +
+                            "double/decimal keys only (see docs/audit/b5-gaps.md)");
+                    return I($"il2cpp::il2cpp_linq_grouping_order_by_key{(desc ? "_desc" : "")}_dec_{decKeyFam}",
+                        2, true, true, false, new[] { "", "" }, returnTypeName: "System.Decimal[]");
+                }
                 case "Count" when count < 2:
                     return I("il2cpp::il2cpp_linq_grouping_get_count", 1, true, false, false, new[] { "" });
                 case "Count":
@@ -546,6 +655,21 @@ public static partial class MethodRefResolver
                         new[] { "", "i" });
                 default:
                     break;
+            }
+            if (decBucket)
+            {
+                // Every operator the decimal-bucket surface does not cover stays
+                // LOUD instead of falling into the int32 bucket kernels or the
+                // generic resolver (which would report the phantom "no BCL
+                // mapping" or silently run an int32 kernel over 16-byte cells).
+                throw new NotSupportedException(
+                    $"Enumerable.{name} over a System.Decimal-element GroupBy bucket is not wired: " +
+                    "the decimal bucket surface covers the aggregate family (Sum/Min/Max/Average with " +
+                    "and without a selector), the element/predicate operators (Where/First/Last/Single " +
+                    "with and without a predicate, ElementAt, Contains), the range operators (Reverse/" +
+                    "Take/Skip/Distinct/TakeWhile/SkipWhile/Except/Concat/DefaultIfEmpty), the counts " +
+                    "(Count/LongCount/Any/All/SequenceEqual), OrderBy/OrderByDescending and get_Key " +
+                    "(see docs/audit/b5-gaps.md)");
             }
         }
 
@@ -694,6 +818,61 @@ public static partial class MethodRefResolver
             if (name == "Skip")
                 return I("il2cpp::il2cpp_linq_skip_dec", 2, true, true, false,
                     new[] { "a", "i" }, returnTypeName: "System.Decimal[]");
+            // impl-linq2 (B-3): the remaining DECIMAL-source element / predicate
+            // operators (net48 FirstOrDefault/LastOrDefault/Single/SingleOrDefault
+            // with and without a predicate -- Enumerable.cs:1056/1109/1157/1176/
+            // 1194/1213 -- plus Count(pred)/Any(pred)/All/LongCount/TakeWhile/
+            // SkipWhile at :1341/1352/605/618/647/661 and the source-only
+            // DefaultIfEmpty<decimal>() at :998). The element returns ride the
+            // decimal result slot; the predicate crosses as bool(*)(decimal) BY
+            // VALUE. Count(pred)/Any(pred) MUST be served here: the generic
+            // int32 entries below are element-family agnostic and would
+            // silently read the 16-byte decimal cells as int32 pairs.
+            if (name == "FirstOrDefault" && count < 2)
+                return I("il2cpp::il2cpp_linq_first_or_default_dec", 1, true, false, false,
+                    OneArg, resultKind: "dec");
+            if (name == "LastOrDefault" && count < 2)
+                return I("il2cpp::il2cpp_linq_last_or_default_dec", 1, true, false, false,
+                    OneArg, resultKind: "dec");
+            if (name == "Single" && count < 2)
+                return I("il2cpp::il2cpp_linq_single_dec", 1, true, false, false,
+                    OneArg, resultKind: "dec");
+            if (name == "SingleOrDefault" && count < 2)
+                return I("il2cpp::il2cpp_linq_single_or_default_dec", 1, true, false, false,
+                    OneArg, resultKind: "dec");
+            if (name == "First" && count >= 2)
+                return I("il2cpp::il2cpp_linq_first_pred_dec", 2, true, false, false,
+                    TwoArg, resultKind: "dec");
+            if (name == "FirstOrDefault" && count >= 2)
+                return I("il2cpp::il2cpp_linq_first_or_default_pred_dec", 2, true, false, false,
+                    TwoArg, resultKind: "dec");
+            if (name == "Last" && count >= 2)
+                return I("il2cpp::il2cpp_linq_last_pred_dec", 2, true, false, false,
+                    TwoArg, resultKind: "dec");
+            if (name == "LastOrDefault" && count >= 2)
+                return I("il2cpp::il2cpp_linq_last_or_default_pred_dec", 2, true, false, false,
+                    TwoArg, resultKind: "dec");
+            if (name == "Single" && count >= 2)
+                return I("il2cpp::il2cpp_linq_single_pred_dec", 2, true, false, false,
+                    TwoArg, resultKind: "dec");
+            if (name == "SingleOrDefault" && count >= 2)
+                return I("il2cpp::il2cpp_linq_single_or_default_pred_dec", 2, true, false, false,
+                    TwoArg, resultKind: "dec");
+            if (name == "Count" && count >= 2)
+                return I("il2cpp::il2cpp_linq_count_pred_dec", 2, true, false, false, TwoArg);
+            if (name == "Any" && count >= 2)
+                return I("il2cpp::il2cpp_linq_any_pred_dec", 2, true, false, false, TwoArg);
+            if (name == "All")
+                return I("il2cpp::il2cpp_linq_all_dec", 2, true, false, false, TwoArg);
+            if (name == "LongCount" && count < 2)
+                return I("il2cpp::il2cpp_linq_long_count_dec", 1, true, false, false,
+                    OneArg, resultKind: "l");
+            if (name == "TakeWhile")
+                return I("il2cpp::il2cpp_linq_take_while_dec", 2, true, true, false, TwoArg,
+                    returnTypeName: "System.Decimal[]");
+            if (name == "SkipWhile")
+                return I("il2cpp::il2cpp_linq_skip_while_dec", 2, true, true, false, TwoArg,
+                    returnTypeName: "System.Decimal[]");
             // p0grp: the DECIMAL-source set / concat / equality operators (net48
             // Distinct / Except / Concat / DefaultIfEmpty / SequenceEqual).
             if (name == "Distinct")
@@ -709,7 +888,11 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_default_if_empty_dec", 2, true, true, false,
                     new[] { "a", "" }, returnTypeName: "System.Decimal[]");
             if (name == "DefaultIfEmpty")
-                return I("il2cpp::il2cpp_linq_default_if_empty_dec", 1, true, true, false,
+                // impl-linq2 (B-3): the source-only form -- the old mapping
+                // pointed this 1-arity call at the 2-argument kernel (an
+                // under-arg'd call); the empty source now yields the single
+                // default(decimal) cell.
+                return I("il2cpp::il2cpp_linq_default_if_empty1_dec", 1, true, true, false,
                     OneArg, returnTypeName: "System.Decimal[]");
             if (name == "SequenceEqual")
                 return I("il2cpp::il2cpp_linq_sequence_equal_dec", 2, true, false, false, new[] { "a", "a" });

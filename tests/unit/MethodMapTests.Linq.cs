@@ -1401,6 +1401,271 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
     }
 
+    //--------------------------------------------------------------------------
+    // impl-linq2 (B-3): the DECIMAL-SOURCE element / predicate operators
+    // (net48 FirstOrDefault/LastOrDefault/Single/SingleOrDefault with and
+    // without a predicate, Count(pred), Any(pred), All, LongCount, TakeWhile /
+    // SkipWhile -- Enumerable.cs:1056/1109/1157/1176/1194/1213/1341/1352/605/
+    // 618/647/661) plus the source-only DefaultIfEmpty<decimal>() (:998). The
+    // element returns ride the decimal result slot; the predicate crosses as
+    // bool(*)(decimal) BY VALUE. Before this change the predicate forms fell
+    // into the int32-only gate (LOUD) and Count(pred)/Any(pred) silently ran
+    // the INT32 kernels over the 16-byte decimal cells.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("FirstOrDefault", "il2cpp::il2cpp_linq_first_or_default_dec")]
+    [InlineData("LastOrDefault", "il2cpp::il2cpp_linq_last_or_default_dec")]
+    [InlineData("Single", "il2cpp::il2cpp_linq_single_dec")]
+    [InlineData("SingleOrDefault", "il2cpp::il2cpp_linq_single_or_default_dec")]
+    public void Resolve_DecimalSource_ElementReturn_NoPredicate_MapsToDecimalKernel(
+        string name, string icall)
+    {
+        // decimal <Name>(IEnumerable<decimal>)
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource(name,
+            new byte[] { 0x10, 0x01, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            0x02));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData("First", "il2cpp::il2cpp_linq_first_pred_dec")]
+    [InlineData("FirstOrDefault", "il2cpp::il2cpp_linq_first_or_default_pred_dec")]
+    [InlineData("Last", "il2cpp::il2cpp_linq_last_pred_dec")]
+    [InlineData("LastOrDefault", "il2cpp::il2cpp_linq_last_or_default_pred_dec")]
+    [InlineData("Single", "il2cpp::il2cpp_linq_single_pred_dec")]
+    [InlineData("SingleOrDefault", "il2cpp::il2cpp_linq_single_or_default_pred_dec")]
+    public void Resolve_DecimalSource_ElementReturn_Predicate_MapsToDecimalPredKernel(
+        string name, string icall)
+    {
+        // decimal <Name>(IEnumerable<decimal>, Func<decimal,bool>)
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource(name,
+            new byte[] { 0x10, 0x01, 0x02, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
+            0x02));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DecimalSource_CountPredicate_MapsToDecimalCountKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource("Count",
+            new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
+            0x02));
+
+        Assert.Equal("il2cpp::il2cpp_linq_count_pred_dec", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData("Any", "il2cpp::il2cpp_linq_any_pred_dec")]
+    [InlineData("All", "il2cpp::il2cpp_linq_all_dec")]
+    public void Resolve_DecimalSource_BoolPredicate_MapsToDecimalBoolKernel(string name, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource(name,
+            new byte[] { 0x10, 0x01, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
+            0x02));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DecimalSource_LongCount_MapsToDecimalLongCountKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource("LongCount",
+            new byte[] { 0x10, 0x01, 0x01, 0x0A,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            0x02));
+
+        Assert.Equal("il2cpp::il2cpp_linq_long_count_dec", resolved.CppName);
+        Assert.Equal("l", resolved.ResultKind);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData("TakeWhile", "il2cpp::il2cpp_linq_take_while_dec")]
+    [InlineData("SkipWhile", "il2cpp::il2cpp_linq_skip_while_dec")]
+    public void Resolve_DecimalSource_TakeSkipWhile_MapsToDecimalRangeKernel(string name, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource(name,
+            new byte[] { 0x10, 0x01, 0x02, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
+            0x02));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DecimalSource_DefaultIfEmpty1_MapsToSourceOnlyKernel()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource("DefaultIfEmpty",
+            new byte[] { 0x10, 0x01, 0x01, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            0x02));
+
+        Assert.Equal("il2cpp::il2cpp_linq_default_if_empty1_dec", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+        Assert.Equal(1, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each entry
+    // snapshots the bucket's decimal cells and reuses the DECIMAL-SOURCE
+    // kernel. The old mapping LOUD-rejected every non-agnostic operator over
+    // a decimal bucket. OrderBy over the bucket sorts by a projected key of
+    // the int32/int64/double/decimal families.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData(BucketShape.ElementNoPred, "First", "il2cpp::il2cpp_linq_grouping_first_dec")]
+    [InlineData(BucketShape.ElementNoPred, "FirstOrDefault", "il2cpp::il2cpp_linq_grouping_first_or_default_dec")]
+    [InlineData(BucketShape.ElementNoPred, "Last", "il2cpp::il2cpp_linq_grouping_last_dec")]
+    [InlineData(BucketShape.ElementNoPred, "LastOrDefault", "il2cpp::il2cpp_linq_grouping_last_or_default_dec")]
+    [InlineData(BucketShape.ElementNoPred, "Single", "il2cpp::il2cpp_linq_grouping_single_dec")]
+    [InlineData(BucketShape.ElementNoPred, "SingleOrDefault", "il2cpp::il2cpp_linq_grouping_single_or_default_dec")]
+    [InlineData(BucketShape.ElementPred, "First", "il2cpp::il2cpp_linq_grouping_first_pred_dec")]
+    [InlineData(BucketShape.ElementPred, "FirstOrDefault", "il2cpp::il2cpp_linq_grouping_first_or_default_pred_dec")]
+    [InlineData(BucketShape.ElementPred, "Last", "il2cpp::il2cpp_linq_grouping_last_pred_dec")]
+    [InlineData(BucketShape.ElementPred, "LastOrDefault", "il2cpp::il2cpp_linq_grouping_last_or_default_pred_dec")]
+    [InlineData(BucketShape.ElementPred, "Single", "il2cpp::il2cpp_linq_grouping_single_pred_dec")]
+    [InlineData(BucketShape.ElementPred, "SingleOrDefault", "il2cpp::il2cpp_linq_grouping_single_or_default_pred_dec")]
+    [InlineData(BucketShape.ElementAt, "ElementAt", "il2cpp::il2cpp_linq_grouping_element_at_dec")]
+    public void Resolve_DecimalBucket_ElementOperators_MapsToSnapshotKernel(
+        BucketShape shape, string name, string icall)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericGroupingDecOp(name, BucketSig(shape)),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(shape == BucketShape.ElementNoPred ? 1 : 2, resolved.ParamCount);
+        Assert.Equal(
+            shape == BucketShape.ElementAt ? new[] { "", "i" }
+                : shape == BucketShape.ElementNoPred ? new[] { "" }
+                : new[] { "", "" },
+            resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(BucketShape.RangeNoPred, "Reverse", "il2cpp::il2cpp_linq_grouping_reverse_dec")]
+    [InlineData(BucketShape.RangeNoPred, "Distinct", "il2cpp::il2cpp_linq_grouping_distinct_dec")]
+    [InlineData(BucketShape.RangePred, "Where", "il2cpp::il2cpp_linq_grouping_where_dec")]
+    [InlineData(BucketShape.RangePred, "TakeWhile", "il2cpp::il2cpp_linq_grouping_take_while_dec")]
+    [InlineData(BucketShape.RangePred, "SkipWhile", "il2cpp::il2cpp_linq_grouping_skip_while_dec")]
+    [InlineData(BucketShape.RangeIndex, "Take", "il2cpp::il2cpp_linq_grouping_take_dec")]
+    [InlineData(BucketShape.RangeIndex, "Skip", "il2cpp::il2cpp_linq_grouping_skip_dec")]
+    [InlineData(BucketShape.TwoSeq, "Except", "il2cpp::il2cpp_linq_grouping_except_dec")]
+    [InlineData(BucketShape.TwoSeq, "Concat", "il2cpp::il2cpp_linq_grouping_concat_dec")]
+    [InlineData(BucketShape.SeqDecValue, "DefaultIfEmpty", "il2cpp::il2cpp_linq_grouping_default_if_empty_dec")]
+    public void Resolve_DecimalBucket_RangeOperators_MapsToSnapshotKernel(
+        BucketShape shape, string name, string icall)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericGroupingDecOp(name, BucketSig(shape)),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+        Assert.Equal(shape == BucketShape.RangeNoPred ? 1 : 2, resolved.ParamCount);
+        Assert.Equal(shape == BucketShape.RangeIndex ? new[] { "", "i" }
+            : shape == BucketShape.RangeNoPred ? new[] { "" }
+            : shape == BucketShape.TwoSeq ? new[] { "", "a" }
+            : new[] { "", "" },
+            resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(BucketShape.BoolPred, "Any", "il2cpp::il2cpp_linq_grouping_any_pred_dec")]
+    [InlineData(BucketShape.BoolPred, "All", "il2cpp::il2cpp_linq_grouping_all_dec")]
+    [InlineData(BucketShape.TwoSeqBool, "SequenceEqual", "il2cpp::il2cpp_linq_grouping_sequence_equal_dec")]
+    public void Resolve_DecimalBucket_BoolOperators_MapsToSnapshotKernel(
+        BucketShape shape, string name, string icall)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericGroupingDecOp(name, BucketSig(shape)),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(shape == BucketShape.TwoSeqBool ? new[] { "", "a" } : new[] { "", "" },
+            resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DecimalBucket_CountPredicate_MapsToSnapshotKernel()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericGroupingDecOp("Count", BucketSig(BucketShape.IntPred)),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_count_pred_dec", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_DecimalBucket_LongCount_MapsToSnapshotKernel()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericGroupingDecOp("LongCount", BucketSig(BucketShape.LongCount)),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_long_count_dec", resolved.CppName);
+        Assert.Equal("l", resolved.ResultKind);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData(0x08, false, "il2cpp::il2cpp_linq_grouping_order_by_key_dec_i4")]
+    [InlineData(0x0A, false, "il2cpp::il2cpp_linq_grouping_order_by_key_dec_i8")]
+    [InlineData(0x0D, false, "il2cpp::il2cpp_linq_grouping_order_by_key_dec_d")]
+    [InlineData(0x11, false, "il2cpp::il2cpp_linq_grouping_order_by_key_dec_dec")]
+    [InlineData(0x08, true, "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_i4")]
+    [InlineData(0x0A, true, "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_i8")]
+    [InlineData(0x0D, true, "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_d")]
+    [InlineData(0x11, true, "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_dec")]
+    public void Resolve_DecimalBucket_OrderBy_MapsToKeySortKernel(byte keyByte, bool desc, string icall)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericGroupingDecOp(desc ? "OrderByDescending" : "OrderBy",
+                new byte[] { 0x10, 0x02, 0x02, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, keyByte == 0x11 ? (byte)0x11 : keyByte },
+                genCount: 2, keyByte: keyByte),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
     // Aggregate with a DECIMAL accumulator (net48 Aggregate<TSource,decimal>):
     // the 16-byte result rides an explicit result slot and the seed crosses as a
     // decimal value slot.
@@ -3174,7 +3439,117 @@ public class MethodMapTestsLinq
         var spec = new BlobBuilder();
         spec.WriteByte(0x0A);
         spec.WriteCompressedInteger(1);
-        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);  // TSource = System.Decimal
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // impl-linq2 (B-3): MemberRef signature shapes for the decimal-bucket
+    // operator tests. The receiver row layout matches
+    // SynthesizeGenericGroupingDecSelProj (Enumerable / IEnumerable`1 /
+    // Func`2 / Decimal as rows 1-4, so a decimal element crosses as
+    // VALUETYPE(0x11) + coded(0x11)).
+    public enum BucketShape
+    {
+        ElementNoPred,   // decimal <Name>(IEnumerable<decimal>)
+        ElementPred,     // decimal <Name>(IEnumerable<decimal>, Func<decimal,bool>)
+        ElementAt,       // decimal ElementAt(IEnumerable<decimal>, int)
+        RangeNoPred,     // IEnumerable<decimal> <Name>(IEnumerable<decimal>)
+        RangePred,       // IEnumerable<decimal> <Name>(IEnumerable<decimal>, Func<decimal,bool>)
+        RangeIndex,      // IEnumerable<decimal> <Name>(IEnumerable<decimal>, int)
+        TwoSeq,          // IEnumerable<decimal> <Name>(IEnumerable<decimal>, IEnumerable<decimal>)
+        SeqDecValue,     // IEnumerable<decimal> DefaultIfEmpty(IEnumerable<decimal>, decimal)
+        BoolPred,        // bool <Name>(IEnumerable<decimal>, Func<decimal,bool>)
+        IntPred,         // int Count(IEnumerable<decimal>, Func<decimal,bool>)
+        TwoSeqBool,      // bool SequenceEqual(IEnumerable<decimal>, IEnumerable<decimal>)
+        LongCount,       // long LongCount(IEnumerable<decimal>)
+    }
+
+    private static byte[] BucketSig(BucketShape shape) => shape switch
+    {
+        // decimal <Name>(IEnumerable<decimal>)
+        BucketShape.ElementNoPred =>
+            new byte[] { 0x10, 0x01, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+        // decimal <Name>(IEnumerable<decimal>, Func<decimal,bool>)
+        BucketShape.ElementPred or BucketShape.RangePred or BucketShape.BoolPred
+            or BucketShape.IntPred =>
+            new byte[] { 0x10, 0x01, 0x02,
+                shape == BucketShape.ElementPred ? (byte)0x13
+                    : shape == BucketShape.BoolPred ? (byte)0x02 : (byte)0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
+        // decimal ElementAt / IEnumerable<decimal> Take|Skip(.., int)
+        BucketShape.ElementAt or BucketShape.RangeIndex =>
+            new byte[] { 0x10, 0x01, 0x02,
+                shape == BucketShape.ElementAt ? (byte)0x13 : (byte)0x15,
+                0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x08 },
+        // IEnumerable<decimal> <Name>(IEnumerable<decimal>)
+        BucketShape.RangeNoPred =>
+            new byte[] { 0x10, 0x01, 0x01, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+        // IEnumerable<decimal> <Name>(IEnumerable<decimal>, IEnumerable<decimal>)
+        BucketShape.TwoSeq =>
+            new byte[] { 0x10, 0x01, 0x02, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+        // IEnumerable<decimal> DefaultIfEmpty(IEnumerable<decimal>, decimal)
+        BucketShape.SeqDecValue =>
+            new byte[] { 0x10, 0x01, 0x02, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x11, 0x11 },
+        // bool SequenceEqual(IEnumerable<decimal>, IEnumerable<decimal>)
+        BucketShape.TwoSeqBool =>
+            new byte[] { 0x10, 0x01, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+        // long LongCount(IEnumerable<decimal>)
+        BucketShape.LongCount =>
+            new byte[] { 0x10, 0x01, 0x01, 0x0A,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+        _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+    };
+
+    // impl-linq2 (B-3): the decimal-BUCKET operator MethodSpec (TSource is the
+    // named System.Decimal TypeRef; genCount 2 carries a raw TKey byte for the
+    // OrderBy forms -- a 0x11 key crosses as VALUETYPE + the Decimal coded
+    // index so IsDecimalGenArg resolves it).
+    private static MemoryStream SynthesizeGenericGroupingDecOp(string methodName,
+        byte[] memberRefSignature, int genCount = 1, byte keyByte = 0x08)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(memberRefSignature));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(genCount);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
+        if (genCount >= 2)
+        {
+            if (keyByte == 0x11)
+            {
+                spec.WriteByte(0x11);
+                spec.WriteCompressedInteger(decCoded);
+            }
+            else
+            {
+                spec.WriteByte(keyByte);
+            }
+        }
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

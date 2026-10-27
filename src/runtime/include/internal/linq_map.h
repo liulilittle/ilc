@@ -871,6 +871,67 @@ double        il2cpp_linq_grouping_average_dec_proj_i4(Il2CppObject* grouping, I
 double        il2cpp_linq_grouping_average_dec_proj_i8(Il2CppObject* grouping, Il2CppObject* sel);
 float         il2cpp_linq_grouping_average_dec_proj_f(Il2CppObject* grouping, Il2CppObject* sel);
 double        il2cpp_linq_grouping_average_dec_proj_d(Il2CppObject* grouping, Il2CppObject* sel);
+
+// impl-linq2 (B-3): the remaining DECIMAL-source element / predicate operators
+// (net48 FirstOrDefault / LastOrDefault / Single / SingleOrDefault and their
+// predicate forms, LongCount, Count(pred), Any(pred), All, TakeWhile /
+// SkipWhile) plus the source-only DefaultIfEmpty<decimal>(). The default cell
+// is the zero decimal; the predicate ABI is bool(*)(decimal) by value.
+void          il2cpp_linq_first_or_default_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+void          il2cpp_linq_last_or_default_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+void          il2cpp_linq_first_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred);
+void          il2cpp_linq_first_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred);
+void          il2cpp_linq_last_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred);
+void          il2cpp_linq_last_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred);
+void          il2cpp_linq_single_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+void          il2cpp_linq_single_or_default_dec(runtime::Il2CppDecimal* result, Il2CppArray* src);
+void          il2cpp_linq_single_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred);
+void          il2cpp_linq_single_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred);
+int32_t       il2cpp_linq_count_pred_dec(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_any_pred_dec(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_all_dec(Il2CppArray* src, Il2CppObject* pred);
+int64_t       il2cpp_linq_long_count_dec(Il2CppArray* src);
+Il2CppArray*  il2cpp_linq_take_while_dec(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_skip_while_dec(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_default_if_empty1_dec(Il2CppArray* src);
+
+// impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each entry
+// snapshots the bucket's decimal cells and reuses the DECIMAL-SOURCE kernel
+// (the same operator set net48 exposes over IEnumerable<decimal>).
+void          il2cpp_linq_grouping_first_or_default_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+void          il2cpp_linq_grouping_last_or_default_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+void          il2cpp_linq_grouping_first_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred);
+void          il2cpp_linq_grouping_first_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred);
+void          il2cpp_linq_grouping_last_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred);
+void          il2cpp_linq_grouping_last_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred);
+void          il2cpp_linq_grouping_single_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+void          il2cpp_linq_grouping_single_or_default_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+void          il2cpp_linq_grouping_single_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred);
+void          il2cpp_linq_grouping_single_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred);
+void          il2cpp_linq_grouping_element_at_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, int32_t index);
+Il2CppArray*  il2cpp_linq_grouping_where_dec(Il2CppObject* grouping, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_grouping_reverse_dec(Il2CppObject* grouping);
+Il2CppArray*  il2cpp_linq_grouping_take_dec(Il2CppObject* grouping, int32_t count);
+Il2CppArray*  il2cpp_linq_grouping_skip_dec(Il2CppObject* grouping, int32_t count);
+Il2CppArray*  il2cpp_linq_grouping_take_while_dec(Il2CppObject* grouping, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_grouping_skip_while_dec(Il2CppObject* grouping, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_grouping_distinct_dec(Il2CppObject* grouping);
+Il2CppArray*  il2cpp_linq_grouping_except_dec(Il2CppObject* grouping, Il2CppArray* second);
+Il2CppArray*  il2cpp_linq_grouping_concat_dec(Il2CppObject* grouping, Il2CppArray* second);
+Il2CppArray*  il2cpp_linq_grouping_default_if_empty_dec(Il2CppObject* grouping, runtime::Il2CppDecimal value);
+bool          il2cpp_linq_grouping_sequence_equal_dec(Il2CppObject* grouping, Il2CppArray* second);
+int64_t       il2cpp_linq_grouping_long_count_dec(Il2CppObject* grouping);
+int32_t       il2cpp_linq_grouping_count_pred_dec(Il2CppObject* grouping, Il2CppObject* pred);
+bool          il2cpp_linq_grouping_any_pred_dec(Il2CppObject* grouping, Il2CppObject* pred);
+bool          il2cpp_linq_grouping_all_dec(Il2CppObject* grouping, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_dec_i4(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_dec_i8(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_dec_d(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_dec_dec(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_i4(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_i8(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_d(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_dec(Il2CppObject* grouping, Il2CppObject* keySel);
 bool          il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDecimal value);
 Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result);
 

@@ -43,6 +43,7 @@
 #include "linq_map.h"
 #include "linq.h"              // int32 array kernels reused by the grouping wrappers
 #include "linq_family.h"       // BATCH4: the decimal cell-equality kernel
+#include "linq_sort.h"         // BATCH4: order_by_key(_desc)_dec_* reuse by the bucket OrderBy wrappers
 
 #include "arraysort.h"            // FindVirtualSlotByNameAndSignature (user comparers)
 #include "genericcomparer_obj.h"  // the default EqualityComparer/Comparer singletons
@@ -3359,6 +3360,300 @@ Il2CppArray* il2cpp_linq_skip_dec(Il2CppArray* src, int32_t count)
 }
 
 //------------------------------------------------------------------------------
+// impl-linq2 (B-3): the remaining DECIMAL-source element / predicate operators
+// (net48 FirstOrDefault / LastOrDefault / Single / SingleOrDefault and their
+// Func<decimal,bool> predicate forms, LongCount, Count(pred), Any(pred), All,
+// TakeWhile / SkipWhile -- Enumerable.cs:1065/1079/1088/1109/1124/1145/1157/
+// 1176/1194/1213/1341/1352/605/618/647/661 applied to a decimal source). The
+// default(decimal) cell is the zero decimal. The predicate ABI is the shared
+// InvokeSelDecBool (bool(*)(decimal)); the element-returning entries follow
+// the decimal T3 result-slot contract.
+//------------------------------------------------------------------------------
+void il2cpp_linq_first_or_default_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length > 0)
+    {
+        std::memcpy(result, DecAt(src, 0), sizeof(runtime::Il2CppDecimal));
+        return;
+    }
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_last_or_default_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length > 0)
+    {
+        std::memcpy(result, DecAt(src, src->length - 1), sizeof(runtime::Il2CppDecimal));
+        return;
+    }
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_first_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        if (InvokeSelDecBool(d, v))
+        {
+            std::memcpy(result, &v, sizeof(runtime::Il2CppDecimal));
+            return;
+        }
+    }
+    il2cpp_throw_invalid_operation_exception("Sequence contains no matching element");
+}
+
+void il2cpp_linq_first_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        if (InvokeSelDecBool(d, v))
+        {
+            std::memcpy(result, &v, sizeof(runtime::Il2CppDecimal));
+            return;
+        }
+    }
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_last_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    // net48 Last(pred) walks FORWARD keeping the last match.
+    bool found = false;
+    runtime::Il2CppDecimal best{};
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        if (InvokeSelDecBool(d, v))
+        {
+            best = v;
+            found = true;
+        }
+    }
+    if (!found)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no matching element");
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_last_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        if (InvokeSelDecBool(d, v))
+        {
+            std::memcpy(result, &v, sizeof(runtime::Il2CppDecimal));
+        }
+    }
+}
+
+void il2cpp_linq_single_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    if (src->length > 1)
+        il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    std::memcpy(result, DecAt(src, 0), sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_single_or_default_dec(runtime::Il2CppDecimal* result, Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length > 1)
+        il2cpp_throw_invalid_operation_exception("Sequence contains more than one element");
+    if (src->length == 1)
+        std::memcpy(result, DecAt(src, 0), sizeof(runtime::Il2CppDecimal));
+    else
+        std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_single_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    // net48 Single(pred) walks every element and counts the matches.
+    bool found = false;
+    runtime::Il2CppDecimal best{};
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        if (InvokeSelDecBool(d, v))
+        {
+            if (found)
+                il2cpp_throw_invalid_operation_exception("Sequence contains more than one matching element");
+            best = v;
+            found = true;
+        }
+    }
+    if (!found)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no matching element");
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_single_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    bool found = false;
+    runtime::Il2CppDecimal best{};
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        if (InvokeSelDecBool(d, v))
+        {
+            if (found)
+                il2cpp_throw_invalid_operation_exception("Sequence contains more than one matching element");
+            best = v;
+            found = true;
+        }
+    }
+    if (found)
+        std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+    else
+        std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+}
+
+int32_t il2cpp_linq_count_pred_dec(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t n = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (InvokeSelDecBool(d, *DecAt(src, i))) ++n;
+    }
+    return n;
+}
+
+bool il2cpp_linq_any_pred_dec(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (InvokeSelDecBool(d, *DecAt(src, i))) return true;
+    }
+    return false;
+}
+
+bool il2cpp_linq_all_dec(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (!InvokeSelDecBool(d, *DecAt(src, i))) return false;
+    }
+    return true;
+}
+
+int64_t il2cpp_linq_long_count_dec(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    return static_cast<int64_t>(src->length);
+}
+
+Il2CppArray* il2cpp_linq_take_while_dec(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    // net48 TakeWhile: the longest PREFIX satisfying the predicate.
+    int32_t w = 0;
+    while (w < src->length && InvokeSelDecBool(d, *DecAt(src, w))) ++w;
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+    {
+        *reinterpret_cast<runtime::Il2CppDecimal*>(
+            il2cpp_array_get_elem_ptr(out, i)) = *DecAt(src, i);
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_skip_while_dec(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    // net48 SkipWhile: everything after the prefix; the first failing element
+    // is KEPT and the predicate is never called again.
+    int32_t s = 0;
+    while (s < src->length && InvokeSelDecBool(d, *DecAt(src, s))) ++s;
+    const int32_t n = src->length - s;
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        *reinterpret_cast<runtime::Il2CppDecimal*>(
+            il2cpp_array_get_elem_ptr(out, i)) = *DecAt(src, s + i);
+    }
+    return out;
+}
+
+//------------------------------------------------------------------------------
 // p0grp: the DECIMAL-source set / concat / equality operators (net48 Distinct /
 // Except / Concat / DefaultIfEmpty / SequenceEqual). The decimal equality is
 // icall_decimal_compare == 0 (net48's decimal.Equals).
@@ -3477,6 +3772,20 @@ Il2CppArray* il2cpp_linq_default_if_empty_dec(Il2CppArray* src, runtime::Il2CppD
     Il2CppArray* out = il2cpp_array_new(
         nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, 1);
     *reinterpret_cast<runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(out, 0)) = defaultValue;
+    return out;
+}
+
+// impl-linq2 (B-3): the source-only DefaultIfEmpty<decimal>() -- the empty
+// source yields the single default(decimal) (zero) cell. The old mapping
+// pointed the 1-arity call at the 2-argument kernel (an under-arg'd call).
+Il2CppArray* il2cpp_linq_default_if_empty1_dec(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDecimalFamily(src);
+    if (src->length != 0) return src;
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, 1);
+    std::memset(il2cpp_array_get_elem_ptr(out, 0), 0, sizeof(runtime::Il2CppDecimal));
     return out;
 }
 
@@ -7203,6 +7512,200 @@ bool il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDe
     ThrowIfNullReceiver(grouping);
     return il2cpp_linq_contains_family_dec(RequireDecGroupElements(grouping), value);
 }
+
+//------------------------------------------------------------------------------
+// impl-linq2 (B-3): the DECIMAL-bucket operator surface. Each entry snapshots
+// the bucket's exact-size decimal cells (RequireDecGroupElements) and reuses
+// the DECIMAL-SOURCE kernel over the snapshot -- the same operator set net48
+// exposes over IEnumerable<decimal> (Enumerable.cs:591-1213 / 1341-1352 /
+// 605-661 / 732-744). The old mapping rejected every non-agnostic operator
+// over a decimal bucket ("the int32 predicate/selector operators have no
+// decimal bucket kernel").
+//------------------------------------------------------------------------------
+#define IL2CPP_LINQ_GRP_DEC_OPS(GRP, SRC)                                              \
+    Il2CppArray* il2cpp_linq_grouping_where_dec(Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_where_dec(RequireDecGroupElements(grouping), pred);         \
+    }                                                                                  \
+    void il2cpp_linq_grouping_first_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_first_dec(result, RequireDecGroupElements(grouping));              \
+    }                                                                                  \
+    void il2cpp_linq_grouping_first_or_default_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_first_or_default_dec(result, RequireDecGroupElements(grouping));   \
+    }                                                                                  \
+    void il2cpp_linq_grouping_first_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_first_pred_dec(result, RequireDecGroupElements(grouping), pred);   \
+    }                                                                                  \
+    void il2cpp_linq_grouping_first_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_first_or_default_pred_dec(result, RequireDecGroupElements(grouping), pred); \
+    }                                                                                  \
+    void il2cpp_linq_grouping_last_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_last_dec(result, RequireDecGroupElements(grouping));               \
+    }                                                                                  \
+    void il2cpp_linq_grouping_last_or_default_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_last_or_default_dec(result, RequireDecGroupElements(grouping));    \
+    }                                                                                  \
+    void il2cpp_linq_grouping_last_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_last_pred_dec(result, RequireDecGroupElements(grouping), pred);    \
+    }                                                                                  \
+    void il2cpp_linq_grouping_last_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_last_or_default_pred_dec(result, RequireDecGroupElements(grouping), pred); \
+    }                                                                                  \
+    void il2cpp_linq_grouping_single_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_single_dec(result, RequireDecGroupElements(grouping));             \
+    }                                                                                  \
+    void il2cpp_linq_grouping_single_or_default_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_single_or_default_dec(result, RequireDecGroupElements(grouping));  \
+    }                                                                                  \
+    void il2cpp_linq_grouping_single_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_single_pred_dec(result, RequireDecGroupElements(grouping), pred);  \
+    }                                                                                  \
+    void il2cpp_linq_grouping_single_or_default_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_single_or_default_pred_dec(result, RequireDecGroupElements(grouping), pred); \
+    }                                                                                  \
+    void il2cpp_linq_grouping_element_at_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, int32_t index) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        il2cpp_linq_element_at_dec(result, RequireDecGroupElements(grouping), index);  \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_reverse_dec(Il2CppObject* grouping)              \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_reverse_dec(RequireDecGroupElements(grouping));             \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_take_dec(Il2CppObject* grouping, int32_t count)  \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_take_dec(RequireDecGroupElements(grouping), count);         \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_skip_dec(Il2CppObject* grouping, int32_t count)  \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_skip_dec(RequireDecGroupElements(grouping), count);         \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_take_while_dec(Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_take_while_dec(RequireDecGroupElements(grouping), pred);    \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_skip_while_dec(Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_skip_while_dec(RequireDecGroupElements(grouping), pred);    \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_distinct_dec(Il2CppObject* grouping)             \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_distinct_dec(RequireDecGroupElements(grouping));            \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_except_dec(Il2CppObject* grouping, Il2CppArray* second) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_except_dec(RequireDecGroupElements(grouping), second);      \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_concat_dec(Il2CppObject* grouping, Il2CppArray* second) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_concat_dec(RequireDecGroupElements(grouping), second);      \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_default_if_empty_dec(Il2CppObject* grouping, runtime::Il2CppDecimal value) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_default_if_empty_dec(RequireDecGroupElements(grouping), value); \
+    }                                                                                  \
+    bool il2cpp_linq_grouping_sequence_equal_dec(Il2CppObject* grouping, Il2CppArray* second) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_sequence_equal_dec(RequireDecGroupElements(grouping), second); \
+    }                                                                                  \
+    int64_t il2cpp_linq_grouping_long_count_dec(Il2CppObject* grouping)                \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_long_count_dec(RequireDecGroupElements(grouping));          \
+    }                                                                                  \
+    int32_t il2cpp_linq_grouping_count_pred_dec(Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_count_pred_dec(RequireDecGroupElements(grouping), pred);    \
+    }                                                                                  \
+    bool il2cpp_linq_grouping_any_pred_dec(Il2CppObject* grouping, Il2CppObject* pred) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_any_pred_dec(RequireDecGroupElements(grouping), pred);      \
+    }                                                                                  \
+    bool il2cpp_linq_grouping_all_dec(Il2CppObject* grouping, Il2CppObject* pred)      \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_all_dec(RequireDecGroupElements(grouping), pred);           \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_dec_i4(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_dec_i4(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_dec_i8(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_dec_i8(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_dec_d(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_dec_d(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_dec_dec(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_dec_dec(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_dec_i4(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_desc_dec_i4(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_dec_i8(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_desc_dec_i8(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_dec_d(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_desc_dec_d(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_dec_dec(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_desc_dec_dec(RequireDecGroupElements(grouping), keySel); \
+    }
+
+IL2CPP_LINQ_GRP_DEC_OPS(a, b)
+#undef IL2CPP_LINQ_GRP_DEC_OPS
 
 Il2CppArray* il2cpp_linq_grouping_to_array(Il2CppObject* grouping)
 {
