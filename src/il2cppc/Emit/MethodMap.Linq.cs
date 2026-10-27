@@ -915,21 +915,29 @@ public static partial class MethodRefResolver
             {
                 bool desc = name == "OrderByDescending";
                 byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                // impl-linq3 (B): a DateTime / Guid key rides the struct
+                // carrier sort over the decimal source (the ticks comparison /
+                // the net48 Guid field-wise contract).
+                if (keyByte == 0x11 && LinqStructKeyFamilyName(genArgNames, 1) is { } sk)
+                {
+                    return I($"il2cpp::il2cpp_linq_order_by_key{(desc ? "_desc" : "")}_dec_{sk}",
+                        2, true, true, false, TwoArg, returnTypeName: "System.Decimal[]");
+                }
                 string? decKeyFam = keyByte switch
                 {
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
                     0x0A or 0x0B => "i8",
                     0x0C or 0x0D => "d",
-                    // 0x11 is every value type; only a real System.Decimal key has
-                    // the decimal key comparison (DateTime/Guid stay LOUD).
+                    // 0x11 is every value type; a real System.Decimal key has
+                    // the decimal key comparison (other value types LOUD).
                     0x11 when IsDecimalGenArg(genArgNames, 1) => "dec",
                     _ => null,
                 };
                 if (decKeyFam == null)
                     throw new NotSupportedException(
                         $"Enumerable.{name}<System.Decimal,{GenericArgTypeName(keyByte)}> not wired: the " +
-                        "decimal-source keyed sort covers int32/int64/double/decimal keys only " +
-                        "(see docs/audit/b5-gaps.md)");
+                        "decimal-source keyed sort covers int32/int64/double/decimal and " +
+                        "System.DateTime/System.Guid keys only (see docs/audit/b5-gaps.md)");
                 string decKeyEntry = (decKeyFam == "i4" ? "i4"
                     : decKeyFam == "i8" ? "i8"
                     : decKeyFam == "d" ? "d" : "dec");
@@ -1361,7 +1369,7 @@ public static partial class MethodRefResolver
                             "OrderBy<TSource,TKey>(IEnumerable<TSource>, Func<TSource,TKey>) and " +
                             "OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) shape is a " +
                             ".NET 9 Index() family form (see docs/audit/b5-gaps.md)");
-                    string keySuffix = LinqKeyFamilySuffix(genArgs[1]);
+                    string keySuffix = LinqKeyFamilySuffixNamed(genArgs[1], genArgNames, 1);
                     if (genArgs[1] == 0x0E)
                         throw new NotSupportedException(
                             $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},System.String> not wired: " +
@@ -1372,7 +1380,7 @@ public static partial class MethodRefResolver
                         throw new NotSupportedException(
                             $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
                             "not wired: the reference-source key-selector surface covers int32/int64/" +
-                            "double/float and reference keys only");
+                            "double/float, reference and System.DateTime/System.Guid keys only");
                     // The desc flag is an APPENDED literal (0/1), never a
                     // consumed IL argument -- ParamCount stays the IL arity.
                     return I($"il2cpp::il2cpp_linq_order_by_key_ref_{keySuffix}", 2, true, true, false,
@@ -1984,13 +1992,13 @@ public static partial class MethodRefResolver
                 // downstream operators. The KEY family is int32 (the 0x08-slot
                 // primitives), int64 (long/ulong) or double/float (the F-stack
                 // carrier); anything else has no int32-source key icall.
-                return LinqOrderByKeyEntry(genArgs, desc: false);
+                return LinqOrderByKeyEntry(genArgs, genArgNames, desc: false);
             case "OrderByDescending":
                 // OrderByDescending(source, keySelector) ->
                 // il2cpp_linq_order_by_key[_desc]_* (the DESCENDING bridge):
                 // identical to OrderBy but with DESCENDING key order. The same
                 // key families as OrderBy.
-                return LinqOrderByKeyEntry(genArgs, desc: true);
+                return LinqOrderByKeyEntry(genArgs, genArgNames, desc: true);
             case "ThenBy":
             case "ThenByDescending":
                 // D-LO2-1 (linqorder2): Enumerable.ThenBy / ThenByDescending
@@ -2679,6 +2687,22 @@ public static partial class MethodRefResolver
     private static bool IsDecimalGenArg(string[]? genArgNames, int index) =>
         genArgNames is { } names && index < names.Length && names[index] == "System.Decimal";
 
+    // impl-linq3 (B): the name-aware STRUCT key family of a 0x11 generic
+    // argument slot: "dt" for System.DateTime, "guid" for System.Guid, null
+    // for every other value type (a user struct has no field-wise comparison
+    // carrier and stays LOUD). The GroupBy key-marker dispatch (LinqGroupingKeyMarker)
+    // accepts the bare type names too; a 0x11 VALUETYPE arg always carries a
+    // resolvable full name here, so the bare aliases are accepted defensively
+    // (the same "V:" prefix the tracked-type names carry).
+    private static string? LinqStructKeyFamilyName(string[]? genArgNames, int index)
+    {
+        if (genArgNames is not { } names || index >= names.Length) return null;
+        var n = names[index];
+        if (n is "System.DateTime" or "V:System.DateTime" or "DateTime") return "dt";
+        if (n is "System.Guid" or "V:System.Guid" or "Guid") return "guid";
+        return null;
+    }
+
     private static string LinqElementFamily(byte[]? genArgs, string? receiverType, string? arg0Type)
     {
         if (genArgs is { Length: >= 1 })
@@ -2982,6 +3006,16 @@ public static partial class MethodRefResolver
         _ => "",
     };
 
+    // impl-linq3 (B): the name-aware key-family suffix. A 0x11 VALUETYPE key
+    // byte is every struct, so the NAME decides: System.DateTime -> "dt" (the
+    // ticks carrier sort), System.Guid -> "guid" (the net48 field-wise
+    // contract); every other value type stays "" (LOUD).
+    private static string LinqKeyFamilySuffixNamed(byte b, string[]? genArgNames, int index) => b switch
+    {
+        0x11 => LinqStructKeyFamilyName(genArgNames, index) ?? "",
+        _ => LinqKeyFamilySuffix(b),
+    };
+
     // p0linq4 (D4): the runtime entry suffix of the fused composite sort for a
     // (TSource, TKey) byte pair, or null when no kernel exists:
     //   int32  source + int32  key -> "i4"
@@ -3006,9 +3040,9 @@ public static partial class MethodRefResolver
     // key from the int32 slot; a long/double key crosses in the int64 / F-stack
     // slot, so it needs its own runtime entry (linq_sort.h). The key families
     // are exactly the ones the runtime ships; anything else (a reference key --
-    // string is culture-aware -- or a value-type key) stays LOUD.
+    // string is culture-aware -- or a user struct key) stays LOUD.
     //--------------------------------------------------------------------------
-    private static ResolvedMethod LinqOrderByKeyEntry(byte[]? genArgs, bool desc)
+    private static ResolvedMethod LinqOrderByKeyEntry(byte[]? genArgs, string[]? genArgNames, bool desc)
     {
         string member = desc ? "OrderByDescending" : "OrderBy";
         if (genArgs is not { Length: >= 2 })
@@ -3018,6 +3052,21 @@ public static partial class MethodRefResolver
                 $"Enumerable.{member}<{elemArgType},?> not wired: the runtime int32-source " +
                 "key-selector surface covers int32/int64/double/float keys only " +
                 "(il2cpp_linq_order_by_key[_desc]_i4 / _i4_i8 / _i4_d)");
+        }
+        // impl-linq3 (B): a DateTime / Guid key rides the struct-carrier sort
+        // (the ticks comparison / the net48 Guid field-wise contract); other
+        // 0x11 value types (user structs) stay LOUD.
+        if (genArgs[1] == 0x11)
+        {
+            string? structKey = LinqStructKeyFamilyName(genArgNames, 1);
+            if (structKey == "dt")
+                return I(desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4_dt"
+                              : "il2cpp::il2cpp_linq_order_by_key_i4_dt",
+                    2, true, true, false, new[] { "a", "" }, returnTypeName: "System.Int32[]");
+            if (structKey == "guid")
+                return I(desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4_guid"
+                              : "il2cpp::il2cpp_linq_order_by_key_i4_guid",
+                    2, true, true, false, new[] { "a", "" }, returnTypeName: "System.Int32[]");
         }
         string entry = genArgs[1] switch
         {
@@ -3835,6 +3884,13 @@ public static partial class MethodRefResolver
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
                         "shape is a .NET 9 Index() family form (see docs/audit/b5-gaps.md)");
                 byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                // impl-linq3 (B): a DateTime / Guid key rides the struct
+                // carrier sort over the int64 source.
+                if (keyByte == 0x11 && LinqStructKeyFamilyName(genArgNames, 1) is { } sk)
+                {
+                    return I($"il2cpp::il2cpp_linq_order_by_key{(name == "OrderBy" ? "" : "_desc")}_i8_{sk}",
+                        2, true, true, false, TwoArg, returnTypeName: "System.Int64[]");
+                }
                 string? keyFam = keyByte switch
                 {
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
@@ -3847,8 +3903,9 @@ public static partial class MethodRefResolver
                     string elemName = genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?";
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{elemName},{GenericArgTypeName(keyByte)}> " +
-                        "not wired: the int64-source key-selector surface covers int32, int64 and " +
-                        "double/float keys only (a reference key has no int64-source kernel)");
+                        "not wired: the int64-source key-selector surface covers int32, int64, " +
+                        "double/float and System.DateTime/System.Guid keys only (a reference key " +
+                        "has no int64-source kernel)");
                 }
                 return I($"il2cpp::il2cpp_linq_order_by_key{(name == "OrderBy" ? "" : "_desc")}_i8_{keyFam}",
                     2, true, true, false, TwoArg, returnTypeName: "System.Int64[]");

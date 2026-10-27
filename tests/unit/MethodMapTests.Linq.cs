@@ -2283,6 +2283,90 @@ public class MethodMapTestsLinq
     }
 
     //==========================================================================
+    // impl-linq3 (B): OrderBy / OrderByDescending with a DateTime / Guid KEY
+    // over the i4 / i8 / dec / ref sources (net48 OrderBy<TSource,
+    // System.DateTime/Guid>). Before this change every 16-byte/8-byte struct
+    // key LOUD-rejected ("int32/int64/double/float keys only"). The key
+    // comparison rides the DateTime ticks carrier / the net48 Guid field-wise
+    // contract (il2cpp_guid_compare).
+    //==========================================================================
+    [Theory]
+    [InlineData("OrderBy", "DateTime", "il2cpp::il2cpp_linq_order_by_key_i4_dt")]
+    [InlineData("OrderByDescending", "DateTime", "il2cpp::il2cpp_linq_order_by_key_desc_i4_dt")]
+    [InlineData("OrderBy", "Guid", "il2cpp::il2cpp_linq_order_by_key_i4_guid")]
+    [InlineData("OrderByDescending", "Guid", "il2cpp::il2cpp_linq_order_by_key_desc_i4_guid")]
+    public void Resolve_OrderBy_Int32Source_StructKey_MapsToCarrierSort(
+        string name, string keyType, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeOrderByStructKey(name, 0x08, false, keyType));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("OrderBy", "DateTime", "il2cpp::il2cpp_linq_order_by_key_i8_dt")]
+    [InlineData("OrderByDescending", "DateTime", "il2cpp::il2cpp_linq_order_by_key_desc_i8_dt")]
+    [InlineData("OrderBy", "Guid", "il2cpp::il2cpp_linq_order_by_key_i8_guid")]
+    [InlineData("OrderByDescending", "Guid", "il2cpp::il2cpp_linq_order_by_key_desc_i8_guid")]
+    public void Resolve_OrderBy_Int64Source_StructKey_MapsToCarrierSort(
+        string name, string keyType, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeOrderByStructKey(name, 0x0A, false, keyType));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Int64[]", resolved.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("OrderBy", "DateTime", "il2cpp::il2cpp_linq_order_by_key_dec_dt")]
+    [InlineData("OrderByDescending", "DateTime", "il2cpp::il2cpp_linq_order_by_key_desc_dec_dt")]
+    [InlineData("OrderBy", "Guid", "il2cpp::il2cpp_linq_order_by_key_dec_guid")]
+    [InlineData("OrderByDescending", "Guid", "il2cpp::il2cpp_linq_order_by_key_desc_dec_guid")]
+    public void Resolve_OrderBy_DecimalSource_StructKey_MapsToCarrierSort(
+        string name, string keyType, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeOrderByStructKey(name, 0x00, true, keyType));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("OrderBy", "DateTime", "0", "il2cpp::il2cpp_linq_order_by_key_ref_dt")]
+    [InlineData("OrderByDescending", "DateTime", "1", "il2cpp::il2cpp_linq_order_by_key_ref_dt")]
+    [InlineData("OrderBy", "Guid", "0", "il2cpp::il2cpp_linq_order_by_key_ref_guid")]
+    [InlineData("OrderByDescending", "Guid", "1", "il2cpp::il2cpp_linq_order_by_key_ref_guid")]
+    public void Resolve_OrderBy_RefSource_StructKey_MapsToCarrierSort(
+        string name, string keyType, string desc, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeOrderByStructKey(name, 0x0E, false, keyType));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal(desc, resolved.AppendLiterals![0]);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+    }
+
+    // A user STRUCT key (a value type that is neither DateTime nor Guid) stays
+    // LOUD: the runtime has no field-wise comparison carrier for it.
+    [Fact]
+    public void Resolve_OrderBy_UserStructKey_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(
+            SynthesizeOrderByStructKey("OrderBy", 0x08, false, "KeyValuePair`2")));
+
+        Assert.Contains("not wired", ex.Message);
+    }
+
+    //==========================================================================
     // The reference-source selector-aggregate family (net48
     // Sum/Min/Max/Average<TSource>(Func<TSource,TResult>)): the projection's
     // RESULT slot picks the kernel. Before this change only Min/Max with an
@@ -3867,6 +3951,64 @@ public class MethodMapTestsLinq
         {
             spec.WriteByte(tKey);
         }
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // impl-linq3 (B): OrderBy / OrderByDescending with a STRUCT key (net48
+    // OrderBy<TSource,System.DateTime/Guid>): the 16-byte/8-byte key carrier
+    // sort. TSource is a raw dispatch byte (or the named decimal VALUETYPE for
+    // the decimal source); TKey is the named System.DateTime / System.Guid (or
+    // an arbitrary value type for the LOUD row) TypeRef so the genArgNames
+    // name table resolves it.
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`2               (coded 0x0D)
+    //   row 4: System.Decimal              (coded 0x11, decimal source only)
+    //   row 5: the TKey type               (coded 0x11)
+    private static MemoryStream SynthesizeOrderByStructKey(string methodName, byte srcByte,
+        bool decimalSource, string keyTypeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var keyNs = "System";
+        var keyRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(keyNs), mdb.GetOrAddString(keyTypeName));
+        var keyCoded = (MetadataTokens.GetRowNumber(keyRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       // return IEnumerable<TSource>
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       // IEnumerable<TSource>
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       // Func<TSource, TKey>
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(keyCoded);      //   TKey = the struct
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        if (decimalSource)
+        {
+            spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded); // TSource = System.Decimal
+        }
+        else
+        {
+            spec.WriteByte(srcByte);
+        }
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(keyCoded);    // TKey = the struct
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

@@ -219,6 +219,35 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject*
 Il2CppArray* il2cpp_linq_order_by_key_i8_d(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* keySel);
 
+//------------------------------------------------------------------------------
+// impl-linq3 (B): OrderBy / OrderByDescending with a DateTime / Guid KEY
+// (net48 OrderBy<TSource,System.DateTime/Guid>) over the i4 / i8 / dec / ref
+// sources. The key selector returns the struct BY VALUE; the keys are cached
+// EXACTLY ONCE per element (net48 EnumerableSorter) and the stable merge sort
+// orders by the carrier comparison: DateTime keys compare by their ticks
+// (net48 DateTime.CompareTo), Guid keys by the net48 field-wise CompareTo
+// contract (il2cpp_guid_compare). The result family follows the source (a
+// fresh int32[] / int64[] / decimal[] / reference array); `desc` non-zero
+// flips the order on the ref entries (an APPENDED literal, never a consumed
+// IL argument).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_order_by_key_i4_dt(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4_dt(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_i4_guid(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4_guid(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_i8_dt(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i8_dt(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_i8_guid(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i8_guid(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_dec_dt(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_dt(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_dec_guid(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_guid(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_ref_dt(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_ref_guid(Il2CppArray* src, Il2CppObject* keySel,
+                                               int32_t desc);
+
 // The DOUBLE-source key-selector entries: the elements are 8-byte double cells
 // and the key crosses in the F-stack slot (Func<double,double>). Same
 // cached-once / stable / fresh double[] result contract.

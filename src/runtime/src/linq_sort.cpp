@@ -44,6 +44,9 @@
 #include "il2cpp_gc.h"
 #include "il2cpp_string.h"
 #include "string_compare.h"
+#include "decimal.h"     // impl-linq3 (B): the decimal-source keyed sort cell
+#include "guid.h"        // impl-linq3 (B): the System.Guid key carrier + compare
+#include "il2cpp_time.h" // impl-linq3 (B): the System.DateTime key carrier
 
 #include <cstdint>
 #include <cstdlib>
@@ -173,6 +176,115 @@ double InvokeKeyI4D(Il2CppDelegate* d, int32_t value)
     return d->target != nullptr
         ? reinterpret_cast<KeyI4DThisFn>(d->methodPtr)(d->target, value)
         : reinterpret_cast<KeyI4DFn>(d->methodPtr)(value);
+}
+
+//------------------------------------------------------------------------------
+// impl-linq3 (B): the STRUCT key-selector ABIs (net48 OrderBy<TSource,
+// System.DateTime/Guid>). The generated leaf returns the key struct BY VALUE
+// (the MS x64 ABI lowers that to sret -- the same convention the GroupBy
+// key selectors use, linq_map.cpp SelI4DtKeyFn / SelI4GuidKeyFn):
+//   runtime::Il2CppDateTime (*)(int32_t)            (static)
+//   runtime::Il2CppDateTime (*)(Il2CppObject*, int32_t) (instance)
+//   Il2CppGuid (*)(int32_t) / (Il2CppObject*, int32_t)
+// The element slots follow the source family: int32 (i4), int64 (i8), the
+// 16-byte decimal BY VALUE (dec), Il2CppObject* (ref).
+//------------------------------------------------------------------------------
+typedef runtime::Il2CppDateTime (*KeyI4DtFn)(int32_t value);
+typedef runtime::Il2CppDateTime (*KeyI4DtThisFn)(Il2CppObject* self, int32_t value);
+typedef Il2CppGuid (*KeyI4GuidFn)(int32_t value);
+typedef Il2CppGuid (*KeyI4GuidThisFn)(Il2CppObject* self, int32_t value);
+
+runtime::Il2CppDateTime InvokeKeyI4Dt(Il2CppDelegate* d, int32_t value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyI4DtThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyI4DtFn>(d->methodPtr)(value);
+}
+
+Il2CppGuid InvokeKeyI4Guid(Il2CppDelegate* d, int32_t value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyI4GuidThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyI4GuidFn>(d->methodPtr)(value);
+}
+
+// The int64-source struct-key ABIs (Func<long,DateTime/Guid>).
+typedef runtime::Il2CppDateTime (*KeyI8SrcDtFn)(int64_t value);
+typedef runtime::Il2CppDateTime (*KeyI8SrcDtThisFn)(Il2CppObject* self, int64_t value);
+typedef Il2CppGuid (*KeyI8SrcGuidFn)(int64_t value);
+typedef Il2CppGuid (*KeyI8SrcGuidThisFn)(Il2CppObject* self, int64_t value);
+
+runtime::Il2CppDateTime InvokeKeyI8SrcDt(Il2CppDelegate* d, int64_t value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyI8SrcDtThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyI8SrcDtFn>(d->methodPtr)(value);
+}
+
+Il2CppGuid InvokeKeyI8SrcGuid(Il2CppDelegate* d, int64_t value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyI8SrcGuidThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyI8SrcGuidFn>(d->methodPtr)(value);
+}
+
+// The DECIMAL-source struct-key ABIs (Func<decimal,DateTime/Guid>): the
+// decimal element crosses BY VALUE (the InvokeKeyDec* convention).
+typedef runtime::Il2CppDateTime (*KeyDecDtFn)(runtime::Il2CppDecimal);
+typedef runtime::Il2CppDateTime (*KeyDecDtThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+typedef Il2CppGuid (*KeyDecGuidFn)(runtime::Il2CppDecimal);
+typedef Il2CppGuid (*KeyDecGuidThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+
+runtime::Il2CppDateTime InvokeKeyDecDt(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyDecDtThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<KeyDecDtFn>(d->methodPtr)(v);
+}
+
+Il2CppGuid InvokeKeyDecGuid(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyDecGuidThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<KeyDecGuidFn>(d->methodPtr)(v);
+}
+
+// The REFERENCE-source struct-key ABIs (Func<object,DateTime/Guid>).
+typedef runtime::Il2CppDateTime (*KeyRefDtFn)(Il2CppObject*);
+typedef runtime::Il2CppDateTime (*KeyRefDtThisFn)(Il2CppObject*, Il2CppObject*);
+typedef Il2CppGuid (*KeyRefGuidFn)(Il2CppObject*);
+typedef Il2CppGuid (*KeyRefGuidThisFn)(Il2CppObject*, Il2CppObject*);
+
+runtime::Il2CppDateTime InvokeKeyRefDt(Il2CppDelegate* d, Il2CppObject* elem)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyRefDtThisFn>(d->methodPtr)(d->target, elem)
+        : reinterpret_cast<KeyRefDtFn>(d->methodPtr)(elem);
+}
+
+Il2CppGuid InvokeKeyRefGuid(Il2CppDelegate* d, Il2CppObject* elem)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyRefGuidThisFn>(d->methodPtr)(d->target, elem)
+        : reinterpret_cast<KeyRefGuidFn>(d->methodPtr)(elem);
+}
+
+// The struct-key comparisons (the key comparison CARRIERS):
+//   * DateTime keys compare by their ticks (net48 DateTime.CompareTo is a
+//     pure ticks comparison; this runtime has a single-zone Kind model, so
+//     the kind field never orders -- icall_datetime_compare_to precedent).
+//   * Guid keys defer to the net48 field-wise CompareTo contract
+//     (il2cpp_guid_compare, guid.cpp).
+int32_t CmpDateTimeKey(const runtime::Il2CppDateTime& a, const runtime::Il2CppDateTime& b)
+{
+    if (a.ticks < b.ticks) return -1;
+    if (a.ticks > b.ticks) return 1;
+    return 0;
+}
+
+int32_t CmpGuidKey(const Il2CppGuid& a, const Il2CppGuid& b)
+{
+    return il2cpp_guid_compare(a.b, b.b);
 }
 
 // Key-selector callback shapes for a DOUBLE value SOURCE element (the
@@ -1489,6 +1601,152 @@ Il2CppArray* il2cpp_linq_then_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* k
     Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
     return SortInt64TwoKeysCopy<double>(s, d1, d2, true, InvokeKeyI8SrcD,
         CmpKeyValue<double>);
+}
+
+//------------------------------------------------------------------------------
+// impl-linq3 (B): OrderBy / OrderByDescending with a DateTime / Guid KEY
+// (net48 OrderBy<TSource,System.DateTime/Guid>). The key selector returns the
+// struct BY VALUE; the keys are cached EXACTLY ONCE (net48 EnumerableSorter),
+// the stable merge sort orders indices by the CARRIER comparison (DateTime
+// ticks / the net48 Guid field-wise contract) and the result materializes
+// from the element snapshot by index. Same GC two-shield contract as the
+// numeric key sorts. The 16-byte Guid carrier and the 16-byte
+// Il2CppDateTime{ticks,kind} struct are plain value caches in std::vector --
+// no managed allocation is involved in the key phase beyond the selector's
+// own (the delegate is rooted).
+//------------------------------------------------------------------------------
+// The INT32 source: a fresh int32[] result.
+Il2CppArray* il2cpp_linq_order_by_key_i4_dt(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt32KeyCopyT<runtime::Il2CppDateTime>(s, d, false, InvokeKeyI4Dt,
+        CmpDateTimeKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4_dt(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt32KeyCopyT<runtime::Il2CppDateTime>(s, d, true, InvokeKeyI4Dt,
+        CmpDateTimeKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_i4_guid(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt32KeyCopyT<Il2CppGuid>(s, d, false, InvokeKeyI4Guid,
+        CmpGuidKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4_guid(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt32KeyCopyT<Il2CppGuid>(s, d, true, InvokeKeyI4Guid,
+        CmpGuidKey);
+}
+
+// The INT64 source: a fresh int64[] result stamped elemKind I8.
+Il2CppArray* il2cpp_linq_order_by_key_i8_dt(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt64KeyCopy<runtime::Il2CppDateTime>(s, d, false, InvokeKeyI8SrcDt,
+        CmpDateTimeKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_i8_dt(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt64KeyCopy<runtime::Il2CppDateTime>(s, d, true, InvokeKeyI8SrcDt,
+        CmpDateTimeKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_i8_guid(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt64KeyCopy<Il2CppGuid>(s, d, false, InvokeKeyI8SrcGuid,
+        CmpGuidKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_i8_guid(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortInt64KeyCopy<Il2CppGuid>(s, d, true, InvokeKeyI8SrcGuid,
+        CmpGuidKey);
+}
+
+// The DECIMAL source: the decimal cells snapshot and a fresh decimal[] result.
+Il2CppArray* il2cpp_linq_order_by_key_dec_dt(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecKeyCopyT<runtime::Il2CppDateTime>(s, d, false, InvokeKeyDecDt,
+        CmpDateTimeKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_dt(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecKeyCopyT<runtime::Il2CppDateTime>(s, d, true, InvokeKeyDecDt,
+        CmpDateTimeKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_dec_guid(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecKeyCopyT<Il2CppGuid>(s, d, false, InvokeKeyDecGuid,
+        CmpGuidKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_guid(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecKeyCopyT<Il2CppGuid>(s, d, true, InvokeKeyDecGuid,
+        CmpGuidKey);
+}
+
+// The REFERENCE source: the elements are read FRESH through the rooted source
+// (no raw address crosses a selector call) and the result is a new reference
+// array; the desc flag arrives as an APPENDED literal.
+Il2CppArray* il2cpp_linq_order_by_key_ref_dt(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortRefsKeyCopy<runtime::Il2CppDateTime>(s, d, desc != 0, InvokeKeyRefDt,
+        CmpDateTimeKey);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_ref_guid(Il2CppArray* src, Il2CppObject* keySel,
+                                               int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortRefsKeyCopy<Il2CppGuid>(s, d, desc != 0, InvokeKeyRefGuid,
+        CmpGuidKey);
 }
 
 } // namespace il2cpp
