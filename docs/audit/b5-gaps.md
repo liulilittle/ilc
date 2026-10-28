@@ -1289,14 +1289,30 @@ Registered by the InitializeArray + ldelem/stelem value-element batch. Two
 pre-existing shapes stay outside that batch (NOT silently wrong -- they still
 reject loudly at transpile time):
 
-- **Multidim arrays of value structs / enums.** `new DateTime[2,2]` (and
+- **Multidim arrays of value structs / enums.** ~~`new DateTime[2,2]` (and
   Guid/DateTimeOffset/Decimal/any enum) is rejected at the `newobj` allocating
   ctor: `ReadMultidimElemSuffix` sees ELEMENT_TYPE_VALUETYPE (0x11) and throws
   `multidim array element byte 0x11 (VALUETYPE) in M3 (allocation)`
   (`src/il2cppc/Ir/StackFold.cs`). The multidim allocator
   (`il2cpp_array_new_multi_*`) only carries the M3 primitive suffix table, so
   closing this needs a value-element width/kind channel plus runtime support;
-  out of scope here.
+  out of scope here.~~ CLOSED (impl-multidimvt, commit 8c123d2b): the
+  allocation layer maps the 0x11 element through the value channel
+  (DateTime/TimeSpan 8-byte packed-image cells, Guid/Decimal/DateTimeOffset
+  16-byte value-struct cells, an enum its UNDERLYING primitive from the raw
+  value__ signature) and the runtime gained the typed rank-fixed accessors
+  (`il2cpp_array_md_vt.h`) plus the Address element-pointer form. Residuals
+  (all still LOUD, never silent): (a) a user STRUCT with possible reference
+  fields keeps the 0x11 reject -- the GC reference-field bitmap channel is
+  not modeled; (b) a nested value GENERIC (0x15 marker 0x11) keeps its
+  reject; (c) the boxed-object Array surface on a multidim enum array
+  (`GetValue/SetValue` through System.Object) trips the enum-box unbox wall
+  (`Specified cast is not valid: object is not a boxed Int32`) -- the object
+  boxing surface, not the multidim channel; (d) a pre-existing fold-stack
+  imbalance in the `ldloca; call Guid::.ctor(string)` address-init shape
+  (the `il2cpp_guid_ctor_string` mapping carries rv=true, so the fold pushes
+  the value the IL never leaves -- 4f1cde64) surfaces as a join-height error
+  when a loop/branch follows; test cases there use `Guid.Parse`.
 - **Enum array cell stride.** `ArrayElementType` currently allocates every
   user-enum SZARRAY with the pointer-size fallback (8-byte cells). That is
   self-consistent with csc's `stelem.i1/i2/i4/i8` choice (each store writes at
