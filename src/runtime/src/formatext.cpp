@@ -49,6 +49,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <string>
 
 namespace il2cpp { namespace runtime {
 
