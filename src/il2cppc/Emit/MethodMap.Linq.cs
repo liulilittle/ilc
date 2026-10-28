@@ -2713,8 +2713,18 @@ public static partial class MethodRefResolver
                     {
                         bool decSrc = IsLinqDecimalSource(genArgs, receiverType, arg0Type)
                             && IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
-                        if (!decSrc && IsLinqValueTypeSource(genArgs, receiverType, arg0Type)
-                            && IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type))
+                        // impl-aggvt: a NON-decimal VALUE-TYPE source has its own
+                        // cell-width family (System.DateTime -> 8-byte cells,
+                        // System.TimeSpan -> 8-byte ticks, System.Guid -> 16
+                        // bytes). The int32 reader of `aggregate_seed_dec` sliced
+                        // 4 bytes out of such a cell (a silent wrong value for the
+                        // Days fold, a wild read for the packed DateTime cell).
+                        // A USER STRUCT has no cell family: it stays LOUD.
+                        string? vtCell = decSrc
+                            ? null
+                            : LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type);
+                        if (!decSrc && vtCell is null
+                            && IsLinqValueTypeSource(genArgs, receiverType, arg0Type))
                         {
                             // A non-decimal value-type source with a decimal
                             // accumulator: the fold's element reader is the
@@ -2723,11 +2733,22 @@ public static partial class MethodRefResolver
                                 "LOUD whitelist (no runtime value-struct fold ABI): Enumerable.Aggregate " +
                                 $"over a {(genArgNames is { Length: >= 1 } ? genArgNames[0] : "value-type")} " +
                                 "source with a System.Decimal accumulator is not wired: the runtime folds " +
-                                "decimal x decimal and the primitive families only [Reference Source " +
+                                "decimal x decimal, the DateTime/TimeSpan/Guid cell families and the " +
+                                "primitive families only [Reference Source " +
                                 "System.Core/System/Linq/Enumerable.cs:1391]");
                         }
+                        string? vtBase = vtCell switch
+                        {
+                            "12" => "il2cpp::il2cpp_linq_aggregate_seed_dt_dec",
+                            "13" => "il2cpp::il2cpp_linq_aggregate_seed_ts_dec",
+                            "14" => "il2cpp::il2cpp_linq_aggregate_seed_guid_dec",
+                            _ => null,
+                        };
                         if (count == 3)
                         {
+                            if (vtBase != null)
+                                return I(vtBase, 3, true, false, false,
+                                    new[] { "a", "dec", "" }, resultKind: "dec");
                             return decSrc
                                 ? I("il2cpp::il2cpp_linq_aggregate_seed_dec_dec", 3, true, false, false,
                                     new[] { "a", "dec", "" }, resultKind: "dec")
@@ -2742,9 +2763,11 @@ public static partial class MethodRefResolver
                         // 3-parameter seed kernel here (the resultSelector was
                         // dropped and the emitter consumed one stack value too
                         // few -- a stack desync).
-                        string decBase = decSrc
-                            ? "il2cpp::il2cpp_linq_aggregate_seed_decsrc_rs"
-                            : "il2cpp::il2cpp_linq_aggregate_seed_dec_rs";
+                        string decBase = vtBase != null
+                            ? vtBase + "_rs"
+                            : decSrc
+                                ? "il2cpp::il2cpp_linq_aggregate_seed_decsrc_rs"
+                                : "il2cpp::il2cpp_linq_aggregate_seed_dec_rs";
                         var decCasts = new[] { "a", "dec", "", "" };
                         if (resByte == 0x11)
                         {

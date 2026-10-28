@@ -3490,10 +3490,86 @@ void il2cpp_linq_aggregate_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
         std::memcpy(result, &r, sizeof(runtime::Il2CppDecimal));                   \
     }
 
+//------------------------------------------------------------------------------
+// impl-aggvt: Aggregate with a DECIMAL accumulator over a NON-decimal
+// VALUE-TYPE source (System.DateTime / System.TimeSpan / System.Guid).
+//
+// net48's Aggregate<TSource,TAccumulate>(source, seed, Func<TAcc,TSource,TAcc>)
+// takes TSource BY VALUE (ParamTypesCpp: Il2CppDateTime / Il2CppTimeSpan /
+// Il2CppGuid), so the callback leaf is
+//   Il2CppDecimal (*)(Il2CppDecimal, DateTime|TimeSpan|Guid)
+// and the element MUST be read at the SOURCE ARRAY's real cell width
+// (8 / 8 / 16 bytes). The legacy int32 reader (FoldDecimalAccI4Src) sliced 4
+// bytes out of those cells: a SILENT wrong value for the Days fold and a wild
+// (out-of-bounds) read for the packed DateTime cell. Each entry validates its
+// own cell width through LinqRequireCell -- a mis-dispatched call is rejected
+// instead of reading a foreign width.
+//
+// The 16-byte decimal result keeps the T3 contract (explicit result slot as
+// the FIRST parameter; the seed crosses by pointer) and the 4-arity
+// (seed, func, resultSelector) forms reuse IL2CPP_LINQ_AGG_DEC_RS below.
+// GC SAFETY: the delegate and the source are rooted across every callback.
+//------------------------------------------------------------------------------
+typedef runtime::Il2CppDecimal (*DecAccDtFn)(runtime::Il2CppDecimal acc, runtime::Il2CppDateTime elem);
+typedef runtime::Il2CppDecimal (*DecAccDtThisFn)(Il2CppObject* self, runtime::Il2CppDecimal acc,
+                                                 runtime::Il2CppDateTime elem);
+typedef runtime::Il2CppDecimal (*DecAccTsFn)(runtime::Il2CppDecimal acc, runtime::Il2CppTimeSpan elem);
+typedef runtime::Il2CppDecimal (*DecAccTsThisFn)(Il2CppObject* self, runtime::Il2CppDecimal acc,
+                                                 runtime::Il2CppTimeSpan elem);
+typedef runtime::Il2CppDecimal (*DecAccGuidFn)(runtime::Il2CppDecimal acc, Il2CppGuid elem);
+typedef runtime::Il2CppDecimal (*DecAccGuidThisFn)(Il2CppObject* self, runtime::Il2CppDecimal acc,
+                                                   Il2CppGuid elem);
+
+#define IL2CPP_LINQ_DEF_DECACC_VT(FAM, FOLD, CELL, TYPE, READ, FN, THISFN)                    \
+    static runtime::Il2CppDecimal FoldDecimalAcc##FOLD##Src(Il2CppArray* src,                 \
+                                                           const runtime::Il2CppDecimal* seed,\
+                                                           Il2CppDelegate* d)                 \
+    {                                                                                         \
+        LinqRequireCell(src, CELL);                                                           \
+        RootScope roots;                                                                      \
+        roots.Add(reinterpret_cast<void**>(&d));                                              \
+        roots.Add(reinterpret_cast<void**>(&src));                                            \
+        runtime::Il2CppDecimal acc = *seed;                                                   \
+        for (int32_t i = 0; i < src->length; ++i)                                             \
+        {                                                                                     \
+            const TYPE elem = READ(src, i);                                                   \
+            acc = d->target != nullptr                                                        \
+                ? reinterpret_cast<THISFN>(d->methodPtr)(d->target, acc, elem)                 \
+                : reinterpret_cast<FN>(d->methodPtr)(acc, elem);                              \
+        }                                                                                     \
+        return acc;                                                                           \
+    }                                                                                         \
+    void il2cpp_linq_aggregate_seed_##FAM##_dec(runtime::Il2CppDecimal* result,               \
+                                                Il2CppArray* src,                             \
+                                                const runtime::Il2CppDecimal* seed,           \
+                                                Il2CppObject* func)                           \
+    {                                                                                         \
+        RequireArray(src);                                                                    \
+        Il2CppDelegate* d = RequireCallback(func, "func");                                    \
+        const runtime::Il2CppDecimal acc = FoldDecimalAcc##FOLD##Src(src, seed, d);           \
+        std::memcpy(result, &acc, sizeof(runtime::Il2CppDecimal));                            \
+    }
+
+IL2CPP_LINQ_DEF_DECACC_VT(dt, Dt, IL2CPP_LINQ_CELL_DATETIME, runtime::Il2CppDateTime,
+    LinqCellReadDt, DecAccDtFn, DecAccDtThisFn)
+IL2CPP_LINQ_DEF_DECACC_VT(ts, Ts, IL2CPP_LINQ_CELL_TIMESPAN, runtime::Il2CppTimeSpan,
+    LinqCellReadTs, DecAccTsFn, DecAccTsThisFn)
+IL2CPP_LINQ_DEF_DECACC_VT(guid, Guid, IL2CPP_LINQ_CELL_GUID, Il2CppGuid,
+    LinqCellReadGuid, DecAccGuidFn, DecAccGuidThisFn)
+
+#undef IL2CPP_LINQ_DEF_DECACC_VT
+
 IL2CPP_LINQ_AGG_DEC_RS(il2cpp_linq_aggregate_seed_dec,
                        FoldDecimalAccI4Src(src, seed, fd))
 IL2CPP_LINQ_AGG_DEC_RS(il2cpp_linq_aggregate_seed_decsrc,
                        FoldDecimalAccDecSrc(src, seed, fd))
+// impl-aggvt: the value-type SOURCE cell families (8 / 8 / 16-byte cells).
+IL2CPP_LINQ_AGG_DEC_RS(il2cpp_linq_aggregate_seed_dt_dec,
+                       FoldDecimalAccDtSrc(src, seed, fd))
+IL2CPP_LINQ_AGG_DEC_RS(il2cpp_linq_aggregate_seed_ts_dec,
+                       FoldDecimalAccTsSrc(src, seed, fd))
+IL2CPP_LINQ_AGG_DEC_RS(il2cpp_linq_aggregate_seed_guid_dec,
+                       FoldDecimalAccGuidSrc(src, seed, fd))
 #undef IL2CPP_LINQ_AGG_DEC_RS
 
 //------------------------------------------------------------------------------

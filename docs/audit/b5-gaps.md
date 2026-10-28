@@ -120,7 +120,8 @@ current state is the compile-time rejection (arrays and `List<T>`, lock:
 | `ThenBy` / `ThenByDescending` | LIST receiver, or a reference-element source | the chained-sorter fold only rewrites the ARRAY forms (impl-linqleft added the decimal-element and decimal-bucket forms with `System.DateTime` / `System.Guid` secondary keys) |
 | `GroupBy` | non-int32 key family / non-int32 list | the stage-1 grouping surface is int32 keys + int32 elements |
 | `Sum`/`Min`/`Max`/`Average` | reference-element source or LIST | numeric aggregates over a reference family have no kernel |
-| `Aggregate` | seed/accumulator family outside i4/i8/f/d/ref | no kernel |
+| `Aggregate` | seed/accumulator family outside i4/i8/f/d/ref/dec/dt/ts/guid | no kernel (impl-aggvt wired the DateTime/TimeSpan/Guid CELL families over a decimal accumulator: `il2cpp_linq_aggregate_seed_{dt,ts,guid}_dec` + the 6 `_rs` projections each, element read at the source array cell width 8/8/16 B) |
+| `Aggregate` | a USER-STRUCT source with any accumulator | no by-value callback ABI for the struct element (impl-aggvt keeps the transpile-time LOUD; the DateTime/TimeSpan/Guid cell families are the only value-struct folds) |
 | `ToList` | reference-element array | `Resolve_ToList_String_ThrowsLoud` (pre-existing) |
 | `Last(pred)` / `LastOrDefault(pred)` | `List<string>` (reference-element list) | no list predicate-last entry; the array entry exists |
 | `Zip` | TResult = `sbyte`/`byte`/`short`/`ushort` | transpile-time rejection: the wide/narrow zip surface writes 4- or 8-byte result cells, so a 1/2-byte result cell has no ABI |
@@ -1209,6 +1210,53 @@ bucket cells at the family's own width. A transpiler-only fix is NOT
 possible: the bucket's cell width is a runtime fact.
 
 **Not silent**: transpile-time LOUD naming the bucket element type.
+
+
+### 11.5 impl-aggvt: Aggregate with a DECIMAL accumulator over the value-cell sources -- WIRED (dt/ts/guid), LOUD (user struct)
+
+The `Aggregate(source, seed, func[, resultSelector])` arms gated their
+LOUD on `!decSrc && IsLinqValueTypeSource(...) &&
+IsDecimalSourceNamed(...)` -- a condition that is FALSE for every
+`DateTime` / `TimeSpan` / `Guid` source (`IsDecimalSourceNamed` answers
+false for exactly those names), so the gate could never fire and the
+shape fell through to the INT32-reader decimal kernels
+(`FoldDecimalAccI4Src`, the `DecAccFn` `Il2CppDecimal(*)(Il2CppDecimal,int32_t)`
+ABI): an 8-byte TimeSpan cell read as a 4-byte slice (the net48
+`TimeSpan[]{1d,2d}.Aggregate(0m,(acc,t)=>acc+t.Days)` fold answered 0
+instead of 3) and the packed DateTime cell read through a stale pointer
+(0xC0000005 -- UB, optimization-dependent, never assert "merely does not
+crash").
+
+The fix (`MethodMap.Linq.cs` Aggregate arm, count==3/4):
+`LinqValueFamilyCellCode` selects the kernel family ("12"/"13"/"14");
+only an unresolvable 0x11 name (a user struct) keeps the LOUD. The
+runtime grows `il2cpp_linq_aggregate_seed_{dt,ts,guid}_dec` (the T3
+decimal contract: result slot first, seed by pointer) plus the six
+`IL2CPP_LINQ_AGG_DEC_RS` `_rs` projections per family; each fold reads
+the element at the SOURCE ARRAY's own cell width (`LinqRequireCell`
+12/13/14 -> 8/8/16 B) and crosses it BY VALUE (`Il2CppDateTime` /
+`Il2CppTimeSpan` / `Il2CppGuid`) -- never the 16-byte decimal stride.
+
+E2E proof (byte equality with the net48 oracle): `tests/cases/agg-vtsrc`
+-- `ok=True`, oracle sha = runtime sha =
+`19fe5585ac0c5f370fed56de432b506851920b9b67b7ccf7d45f523ad75c6e68`
+(TimeSpan negative values + Days, empty-source seed, DateTime
+cross-month Day/Month, Guid, and the count==4 forms with
+TResult=int32/decimal).
+
+**Newly-registered pre-existing defect (NOT fixed here, blocks branchy
+decimal lambda bodies):** the stack-fold types a DECIMAL branch-merge
+phi temp as `int32_t` when a lambda body branches around a decimal
+value (e.g. `(acc, g) => acc + (g == Guid.Empty ? 1m : 100m)`: Roslyn
+duplicates the int->decimal conversion INTO each branch, so the merged
+`acc` copy is a decimal stack value, but the emitted temp was declared
+`int32_t` -- `t1 = arg1;` -- and `icall_decimal_add` then receives an
+`int32_t*`: a C++ compile error (a C0 build failure, NOT a wrong-value
+risk). The same shape compiles and runs correctly when the fold is
+branch-free (the ternary value converts AFTER the merge, or the body
+uses straight-line arithmetic). **Change surface**: the stack-fold's
+branch-merge temp typing must carry the merged slot's IL type (decimal
+-> `Il2CppDecimal`) instead of defaulting to int32.
 
 
 ## References (section 11)

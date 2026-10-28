@@ -2281,6 +2281,57 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "a", "dec", "", "" }, resolved.ParamTypeNames);
     }
 
+    //--------------------------------------------------------------------------
+    // impl-aggvt: non-decimal VALUE-TYPE sources (System.DateTime /
+    // System.TimeSpan / System.Guid) with a DECIMAL accumulator. The fold's
+    // element reader must match the SOURCE ARRAY cell width (8 / 8 / 16 bytes);
+    // the int32 reader (aggregate_seed_dec) read a 4-byte slice of the cell --
+    // a silent wrong value for the DAYS fold and a wild/OOB read for the
+    // DateTicks cell.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("System", "DateTime", "dt")]
+    [InlineData("System", "TimeSpan", "ts")]
+    [InlineData("System", "Guid", "guid")]
+    public void Resolve_AggregateValueTypeSource_DecimalAccumulator_MapsToCellFamilyKernel(
+        string ns, string typeName, string fam)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeAggregateValueTypeDecSeed(ns, typeName));
+
+        Assert.Equal($"il2cpp::il2cpp_linq_aggregate_seed_{fam}_dec", resolved.CppName);
+        Assert.Equal("dec", resolved.ResultKind);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "dec", "" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData("System", "DateTime", "dt", 0x08, "_rs_i4")]
+    [InlineData("System", "DateTime", "dt", 0x0D, "_rs_d")]
+    [InlineData("System", "DateTime", "dt", 0x11, "_rs_dec")]
+    [InlineData("System", "TimeSpan", "ts", 0x08, "_rs_i4")]
+    [InlineData("System", "TimeSpan", "ts", 0x11, "_rs_dec")]
+    [InlineData("System", "Guid", "guid", 0x0E, "_rs_ref")]
+    public void Resolve_AggregateValueTypeSource_DecimalAccumulator_ResultSelector_MapsToCellFamilyKernel(
+        string ns, string typeName, string fam, byte resByte, string suffix)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeAggregateValueTypeDecRs(ns, typeName, resByte));
+
+        Assert.Equal($"il2cpp::il2cpp_linq_aggregate_seed_{fam}_dec{suffix}", resolved.CppName);
+        Assert.Equal(4, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "dec", "", "" }, resolved.ParamTypeNames);
+        if (suffix == "_rs_dec") Assert.Equal("dec", resolved.ResultKind);
+    }
+
+    // A USER STRUCT source has no by-value callback ABI: it must stay LOUD
+    // (never dispatched to the decimal family kernels).
+    [Fact]
+    public void Resolve_AggregateUserStructSource_DecimalAccumulator_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMethodSpec(SynthesizeAggregateValueTypeDecSeed("Cases", "MyStruct")));
+        Assert.Contains("value-struct fold ABI", ex.Message);
+    }
+
     [Fact]
     public void Resolve_AggregateDecimalSource_NonDecimalAccumulator_ThrowsLoud()
     {
@@ -4186,6 +4237,98 @@ public class MethodMapTestsLinq
         WriteSpecArg(spec, tSrc, decCoded);
         WriteSpecArg(spec, tAcc, decCoded);
         WriteSpecArg(spec, tRes, decCoded);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // impl-aggvt: Aggregate<TSource,decimal> / <TSource,decimal,TResult> whose
+    // TSource is a NAMED value-type TypeRef (System.DateTime / System.TimeSpan
+    // / System.Guid / a user struct), so the decoded generic-argument FULL NAME
+    // table can tell the cell family apart (the 0x11 byte alone cannot).
+    //   row 1: System.Linq.Enumerable      (coded 0x05)
+    //   row 2: ...IEnumerable`1            (coded 0x09)
+    //   row 3: System.Func`3               (coded 0x0D)
+    //   row 4: <TSource value type>        (coded 0x11)
+    //   row 5: System.Decimal              (coded 0x15)
+    private static MemoryStream SynthesizeAggregateValueTypeDecSeed(string ns, string typeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`3"));
+        var srcRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        var srcCoded = (MetadataTokens.GetRowNumber(srcRef) << 2) | 1;
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x03);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // return TAccumulate (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   IEnumerable<TSource>
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // TAccumulate (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x03);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   Func<TAcc, TSrc, TAcc>
+        sig.WriteByte(0x13); sig.WriteByte(0x00);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Aggregate"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(srcCoded);    // TSource = the value type
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);    // TAccumulate = System.Decimal
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    private static MemoryStream SynthesizeAggregateValueTypeDecRs(string ns, string typeName, byte resByte)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`3"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var srcRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        var srcCoded = (MetadataTokens.GetRowNumber(srcRef) << 2) | 1;
+        var decRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Decimal"));
+        var decCoded = (MetadataTokens.GetRowNumber(decRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x03);
+        sig.WriteByte(0x04);
+        sig.WriteByte(0x13); sig.WriteByte(0x02);                       // return TResult (VAR 2)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   IEnumerable<TSource>
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       // TAccumulate (VAR 1)
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x03);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   Func<TAcc, TSrc, TAcc>
+        sig.WriteByte(0x13); sig.WriteByte(0x00);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x11); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   Func<TAcc, TResult>
+        sig.WriteByte(0x13); sig.WriteByte(0x02);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Aggregate"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(3);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(srcCoded);    // TSource = the value type
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);    // TAccumulate = System.Decimal
+        WriteSpecArg(spec, resByte, decCoded);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

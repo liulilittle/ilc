@@ -379,6 +379,64 @@ void il2cpp_linq_aggregate_seed_decsrc_rs_dec(runtime::Il2CppDecimal* result, Il
                                               const runtime::Il2CppDecimal* seed,
                                               Il2CppObject* func, Il2CppObject* resSel);
 
+// impl-aggvt: Aggregate over a NON-decimal VALUE-TYPE source (System.DateTime /
+// System.TimeSpan / System.Guid) with a DECIMAL accumulator (net48
+// Aggregate<TSource,decimal>/<TSource,decimal,TResult>). The element is read at
+// the source array's own cell width (8 / 8 / 16 bytes) and crosses the fold
+// callback BY VALUE (Il2CppDateTime / Il2CppTimeSpan / Il2CppGuid); the 16-byte
+// decimal result keeps the T3 contract (explicit result slot, seed by pointer).
+// A user-struct source has no cell family and stays a transpile-time LOUD.
+void il2cpp_linq_aggregate_seed_dt_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                       const runtime::Il2CppDecimal* seed, Il2CppObject* func);
+void il2cpp_linq_aggregate_seed_ts_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                       const runtime::Il2CppDecimal* seed, Il2CppObject* func);
+void il2cpp_linq_aggregate_seed_guid_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                         const runtime::Il2CppDecimal* seed, Il2CppObject* func);
+int32_t il2cpp_linq_aggregate_seed_dt_dec_rs_i4(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+int64_t il2cpp_linq_aggregate_seed_dt_dec_rs_i8(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_dt_dec_rs_f(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_dt_dec_rs_d(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_dt_dec_rs_ref(Il2CppArray* src,
+                                                       const runtime::Il2CppDecimal* seed,
+                                                       Il2CppObject* func, Il2CppObject* resSel);
+void il2cpp_linq_aggregate_seed_dt_dec_rs_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                              const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, Il2CppObject* resSel);
+int32_t il2cpp_linq_aggregate_seed_ts_dec_rs_i4(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+int64_t il2cpp_linq_aggregate_seed_ts_dec_rs_i8(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_ts_dec_rs_f(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_ts_dec_rs_d(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_ts_dec_rs_ref(Il2CppArray* src,
+                                                       const runtime::Il2CppDecimal* seed,
+                                                       Il2CppObject* func, Il2CppObject* resSel);
+void il2cpp_linq_aggregate_seed_ts_dec_rs_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                              const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, Il2CppObject* resSel);
+int32_t il2cpp_linq_aggregate_seed_guid_dec_rs_i4(Il2CppArray* src,
+                                                  const runtime::Il2CppDecimal* seed,
+                                                  Il2CppObject* func, Il2CppObject* resSel);
+int64_t il2cpp_linq_aggregate_seed_guid_dec_rs_i8(Il2CppArray* src,
+                                                  const runtime::Il2CppDecimal* seed,
+                                                  Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_guid_dec_rs_f(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+double il2cpp_linq_aggregate_seed_guid_dec_rs_d(Il2CppArray* src, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+Il2CppObject* il2cpp_linq_aggregate_seed_guid_dec_rs_ref(Il2CppArray* src,
+                                                         const runtime::Il2CppDecimal* seed,
+                                                         Il2CppObject* func, Il2CppObject* resSel);
+void il2cpp_linq_aggregate_seed_guid_dec_rs_dec(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                                                const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, Il2CppObject* resSel);
+
 //------------------------------------------------------------------------------
 // P0LINQ1 (D3) -- Select with TResult = System.Decimal. net48's Select is
 // generic in TResult and decimal is a 16-byte value type, so the selector is
