@@ -647,7 +647,11 @@ public static partial class MethodRefResolver
                     {
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
                         0x0A or 0x0B => "i8",
-                        0x0C or 0x0D => "d",
+                        // impl-orderfam: float gets its OWN entry (b5-gaps
+                        // §14 -- the 4-byte float return is never read
+                        // through the double reader).
+                        0x0C => "f",
+                        0x0D => "d",
                         0x11 when IsDecimalGenArg(genArgNames, 1) => "dec",
                         _ => null,
                     };
@@ -655,7 +659,7 @@ public static partial class MethodRefResolver
                         throw new NotSupportedException(
                             $"Enumerable.{name}<System.Decimal,{GenericArgTypeName(keyByte)}> over a " +
                             "System.Decimal bucket not wired: the bucket keyed sort covers int32/int64/" +
-                            "double/decimal keys only (see docs/audit/b5-gaps.md)");
+                            "double/float/decimal keys only (see docs/audit/b5-gaps.md)");
                     return I($"il2cpp::il2cpp_linq_grouping_order_by_key{(desc ? "_desc" : "")}_dec_{decKeyFam}",
                         2, true, true, false, new[] { "", "" }, returnTypeName: "System.Decimal[]");
                 }
@@ -1051,7 +1055,13 @@ public static partial class MethodRefResolver
                 {
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
                     0x0A or 0x0B => "i8",
-                    0x0C or 0x0D => "d",
+                    // impl-orderfam: float gets its OWN entry (a
+                    // Func<decimal,float> leaf returns a 4-byte float per the
+                    // MS x64 ABI; the shared _dec_d entry read it through a
+                    // double(*) fn-pointer and mixed the callee's XMM0 residue
+                    // into every key -- b5-gaps §14, thenby-decfkey).
+                    0x0C => "f",
+                    0x0D => "d",
                     // 0x11 is every value type; a real System.Decimal key has
                     // the decimal key comparison (other value types LOUD).
                     0x11 when IsDecimalGenArg(genArgNames, 1) => "dec",
@@ -1060,11 +1070,12 @@ public static partial class MethodRefResolver
                 if (decKeyFam == null)
                     throw new NotSupportedException(
                         $"Enumerable.{name}<System.Decimal,{GenericArgTypeName(keyByte)}> not wired: the " +
-                        "decimal-source keyed sort covers int32/int64/double/decimal and " +
+                        "decimal-source keyed sort covers int32/int64/double/float/decimal and " +
                         "System.DateTime/System.Guid keys only (see docs/audit/b5-gaps.md)");
                 string decKeyEntry = (decKeyFam == "i4" ? "i4"
                     : decKeyFam == "i8" ? "i8"
-                    : decKeyFam == "d" ? "d" : "dec");
+                    : decKeyFam == "d" ? "d"
+                    : decKeyFam == "f" ? "f" : "dec");
                 return I($"il2cpp::il2cpp_linq_order_by_key{(desc ? "_desc" : "")}_dec_{decKeyEntry}",
                     2, true, true, false, TwoArg, returnTypeName: "System.Decimal[]");
             }
@@ -3212,14 +3223,22 @@ public static partial class MethodRefResolver
 
     // impl-linqleft: the DECIMAL-element fused-composite key-family CODE of a
     // generic key argument (the trailing literal of the runtime dispatch):
-    //   0 int32 (incl. bool/char/narrow), 1 int64, 2 double/float,
-    //   3 decimal, 4 System.DateTime, 5 System.Guid.
+    //   0 int32 (incl. bool/char/narrow), 1 int64, 2 double,
+    //   3 decimal, 4 System.DateTime, 5 System.Guid, 6 float.
+    // impl-orderfam: float (0x0C) is deliberately SEPARATE from double (0x0D)
+    // -- a Func<decimal,float> leaf returns a 4-byte float per the MS x64 ABI,
+    // and the old "2" fold read it through the double(*) reader, mixing the
+    // callee's XMM0 residue into every key (the b5-gaps §14 misread,
+    // thenby-decfkey). The pre-existing 0..5 codes keep their meaning; the
+    // float column mirrors the impl-floatkey LinqValKeyFamilyCode split on the
+    // runtime SortDecTwoKeysDispatch matrix (code 6).
     // null when the key has no composite carrier (a user struct / reference).
     private static string? LinqKeyFamilyCode(byte b, string[]? genArgNames, int index) => b switch
     {
         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",
         0x0A or 0x0B => "1",
-        0x0C or 0x0D => "2",
+        0x0D => "2",
+        0x0C => "6",
         0x11 when IsDecimalGenArg(genArgNames, index) => "3",
         0x11 when LinqStructKeyFamilyName(genArgNames, index) == "dt" => "4",
         0x11 when LinqStructKeyFamilyName(genArgNames, index) == "guid" => "5",
@@ -3558,12 +3577,17 @@ public static partial class MethodRefResolver
     // The KEY-family suffix of the reference-source OrderBy entries
     // (il2cpp_linq_order_by_key_ref_<suffix>): "" when the key family has no
     // kernel. int32-slot primitives (incl. the narrow ones and bool/char) ride
-    // the i4 entry, float/double ride the d entry (the F-stack carrier).
+    // the i4 entry, double rides the d entry (the F-stack carrier), and float
+    // rides its OWN f entry (impl-orderfam: a Func<T,float> leaf returns a
+    // 4-byte float per the MS x64 ABI; the shared _ref_d entry read it through
+    // a double(*) fn-pointer and mixed the callee's XMM0 residue into every
+    // key -- the b5-gaps §14 misread, the thenby-refkey probe).
     private static string LinqKeyFamilySuffix(byte b) => b switch
     {
         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
         0x0A or 0x0B => "i8",
-        0x0C or 0x0D => "d",
+        0x0C => "f",
+        0x0D => "d",
         0x0E or 0x12 or 0x13 or 0x15 or 0x1C or 0x1D or 0x1E => "ref",
         _ => "",
     };
@@ -4157,19 +4181,29 @@ public static partial class MethodRefResolver
                 if (K == "4")
                 {
                     // A DOUBLE-element list: the snapshot is a double array and
-                    // the key crosses in the F-stack slot
-                    // (il2cpp_linq_list_order_by_key[_desc]_d). A non-double key
-                    // over a double list has no list kernel.
+                    // the key crosses in the F-stack slot. A DOUBLE key rides
+                    // the pre-existing il2cpp_linq_list_order_by_key[_desc]_d;
+                    // a FLOAT key rides its OWN _f entries (impl-orderfam: a
+                    // Func<double,float> leaf returns a 4-byte float per the
+                    // MS x64 ABI, and the shared _d entry read it through a
+                    // double(*) fn-pointer, mixing the callee's XMM0 residue
+                    // into every key -- b5-gaps §14, list-orderkey-float). A
+                    // non-double/float key over a double list has no list
+                    // kernel.
                     if (genArgs is not { Length: >= 2 })
                         return null;
                     if (genArgs[1] is not (0x0C or 0x0D))
                         throw new NotSupportedException(
                             $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
                             "over a List<double> not wired: the list double key-selector surface covers a " +
-                            "double/float key only (il2cpp_linq_list_order_by_key[_desc]_d)");
-                    return I(desc
-                            ? "il2cpp::il2cpp_linq_list_order_by_key_desc_d"
-                            : "il2cpp::il2cpp_linq_list_order_by_key_d",
+                            "double/float key only (il2cpp_linq_list_order_by_key[_desc]_d / _f)");
+                    return I(genArgs[1] == 0x0C
+                            ? (desc
+                                ? "il2cpp::il2cpp_linq_list_order_by_key_desc_f"
+                                : "il2cpp::il2cpp_linq_list_order_by_key_f")
+                            : (desc
+                                ? "il2cpp::il2cpp_linq_list_order_by_key_desc_d"
+                                : "il2cpp::il2cpp_linq_list_order_by_key_d"),
                         2, true, true, false, L2,
                         returnTypeName: "System.Double[]", appendLiterals: new[] { K });
                 }
@@ -4485,6 +4519,58 @@ public static partial class MethodRefResolver
                 }
                 return I($"il2cpp::il2cpp_linq_order_by_key{(name == "OrderBy" ? "" : "_desc")}_i8_{keyFam}",
                     2, true, true, false, TwoArg, returnTypeName: "System.Int64[]");
+            }
+            // impl-orderfam: OrderBy / OrderByDescending over a DOUBLE / FLOAT
+            // value SOURCE with a key selector (net48 OrderBy<double/float,
+            // TKey>). The int32-source entries read 4-byte cells and
+            // materialize an int32[] result, so a wide source needs its own
+            // element family: the elements are 8-byte double / 4-byte float
+            // cells and the result is a fresh array of the SOURCE's family
+            // (elemKind D / F). The element crosses to the selector in the
+            // F-stack slot (a float element widens to double -- the
+            // InvokePredF / FPredFn convention) and the key returns in its own
+            // family slot (a float key through the float(*) reader --
+            // impl-floatkey, b5-gaps §14). The source NAME gates the surface:
+            // ONLY System.Double[] / System.Single[] sources are wired here;
+            // every other element family keeps its own gate.
+            case "OrderBy" when (srcFam == "d" || srcFam == "f") && count >= 2:
+            case "OrderByDescending" when (srcFam == "d" || srcFam == "f") && count >= 2:
+            {
+                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a double/float-element source with an (element, index) key selector " +
+                        "is not wired: LOUD whitelist 閳?-- net48 has no (element, index) key selector overload. " +
+                        "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
+                        "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
+                        "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
+                        "shape is a .NET 9 Index() family form (see docs/audit/b5-gaps.md)");
+                byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                string? keyFam = keyByte switch
+                {
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+                    0x0A or 0x0B => "i8",
+                    // impl-floatkey: float gets its OWN entry (the 4-byte
+                    // float return is never read through a double fn-pointer).
+                    0x0C => "f",
+                    0x0D => "d",
+                    _ => null,
+                };
+                if (keyFam == null)
+                {
+                    string elemName = genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?";
+                    throw new NotSupportedException(
+                        $"Enumerable.{name}<{elemName},{GenericArgTypeName(keyByte)}> " +
+                        "not wired: the double/float-source key-selector surface covers int32, int64, " +
+                        "double and float keys only (a reference / struct key has no wide-source kernel)");
+                }
+                // The pre-existing plain _d entry IS the double-source
+                // double-key face; every other (source, key) pair rides the
+                // _<src>_<key> composite suffix (the int64-source naming).
+                string wideEntry = (srcFam == "d" && keyFam == "d")
+                    ? $"il2cpp::il2cpp_linq_order_by_key{(name == "OrderBy" ? "" : "_desc")}_d"
+                    : $"il2cpp::il2cpp_linq_order_by_key{(name == "OrderBy" ? "" : "_desc")}_{srcFam}_{keyFam}";
+                return I(wideEntry, 2, true, true, false, TwoArg,
+                    returnTypeName: srcFam == "d" ? "System.Double[]" : "System.Single[]");
             }
             case "Any" when count < 2:
                 // Family-agnostic: reads only the array header.

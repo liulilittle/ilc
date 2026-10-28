@@ -116,6 +116,21 @@ double InvokeKeyRefD(Il2CppDelegate* d, Il2CppObject* elem)
         : reinterpret_cast<KeyDRefFn>(d->methodPtr)(elem);
 }
 
+// impl-orderfam: the FLOAT-key reader for a REFERENCE source (the
+// Func<TRef,float> ABI). A float leaf returns a 4-byte float per the MS x64
+// ABI (XMM0 low 32 bits), NOT a double; reading that return through KeyDRefFn
+// mixed the callee's XMM0 residue into every key (the b5-gaps §14 misread --
+// the thenby-refkey probe).
+using KeyFRefFn = float (*)(Il2CppObject* elem);
+using KeyFRefThisFn = float (*)(Il2CppObject* self, Il2CppObject* elem);
+
+float InvokeKeyRefF(Il2CppDelegate* d, Il2CppObject* elem)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyFRefThisFn>(d->methodPtr)(d->target, elem)
+        : reinterpret_cast<KeyFRefFn>(d->methodPtr)(elem);
+}
+
 Il2CppObject* InvokeKeyRefRef(Il2CppDelegate* d, Il2CppObject* elem)
 {
     return d->target != nullptr
@@ -323,6 +338,42 @@ double InvokeKeyDSrcD(Il2CppDelegate* d, double value)
     return d->target != nullptr
         ? reinterpret_cast<KeyDSrcDThisFn>(d->methodPtr)(d->target, value)
         : reinterpret_cast<KeyDSrcDFn>(d->methodPtr)(value);
+}
+
+// impl-orderfam: the WIDE ELEMENT-SOURCE key readers (the Func<double,TKey> /
+// Func<float,TKey> ABI). The element crosses in the F-stack slot -- a float
+// element WIDENS to double, the linq-domain FPredFn / InvokePredF convention
+// (linq.cpp) -- and the key returns in its own family slot: int32 in the
+// int32 slot, int64 in the int64 slot, double in the F-stack slot, and a
+// FLOAT key through a float(*) reader (a 4-byte float return read through a
+// double(*) fn-pointer mixes the callee's XMM0 residue into every key -- the
+// impl-floatkey b5-gaps §14 misread, the orderwide-elem probe).
+using KeyDSrcI4Fn = int32_t (*)(double value);
+using KeyDSrcI4ThisFn = int32_t (*)(Il2CppObject* self, double value);
+using KeyDSrcI8Fn = int64_t (*)(double value);
+using KeyDSrcI8ThisFn = int64_t (*)(Il2CppObject* self, double value);
+using KeyDSrcFFn = float (*)(double value);
+using KeyDSrcFThisFn = float (*)(Il2CppObject* self, double value);
+
+int32_t InvokeKeyDSrcI4(Il2CppDelegate* d, double value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyDSrcI4ThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyDSrcI4Fn>(d->methodPtr)(value);
+}
+
+int64_t InvokeKeyDSrcI8(Il2CppDelegate* d, double value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyDSrcI8ThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyDSrcI8Fn>(d->methodPtr)(value);
+}
+
+float InvokeKeyDSrcF(Il2CppDelegate* d, double value)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyDSrcFThisFn>(d->methodPtr)(d->target, value)
+        : reinterpret_cast<KeyDSrcFFn>(d->methodPtr)(value);
 }
 
 // Per-binding dispatch. The target is re-read through the ROOTED delegate
@@ -872,6 +923,26 @@ Il2CppArray* SortDecDecKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool de
                                                    CmpDecKeyValue);
 }
 
+// impl-orderfam: the FLOAT-key reader for a DECIMAL source (the
+// Func<decimal,float> ABI). A float leaf returns a 4-byte float per the MS
+// x64 ABI, NOT a double; the old family-"2" fold read it through InvokeKeyDecD
+// and mixed the callee's XMM0 residue into every key (the b5-gaps §14
+// misread -- the thenby-decfkey probe).
+static float InvokeKeyDecF(Il2CppDelegate* keySel, const runtime::Il2CppDecimal& v)
+{
+    typedef float (*Fn)(runtime::Il2CppDecimal);
+    typedef float (*ThisFn)(Il2CppObject*, runtime::Il2CppDecimal);
+    return keySel->target != nullptr
+        ? reinterpret_cast<ThisFn>(keySel->methodPtr)(keySel->target, v)
+        : reinterpret_cast<Fn>(keySel->methodPtr)(v);
+}
+
+Il2CppArray* SortDecFKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc = false)
+{
+    return SortDecKeyCopyT<float>(src, keySel, desc, InvokeKeyDecF,
+                                  CmpKeyValue<float>);
+}
+
 //------------------------------------------------------------------------------
 // SortDoubleKeyCopy -- the DOUBLE-SOURCE counterpart of SortInt32KeyCopy (and
 // of the SortInt64KeyCopy template): build a new double array holding the
@@ -1278,6 +1349,28 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_d(Il2CppArray* src, Il2CppObject*
     return SortDecDKeyCopy(s, d, true);
 }
 
+//------------------------------------------------------------------------------
+// impl-orderfam: the DECIMAL-source FLOAT-key counterparts (the
+// Func<decimal,float> ABI). Same cached-once / stable / fresh decimal[]
+// result contract; the key returns in the float slot and is read through
+// InvokeKeyDecF, never through the double reader (b5-gaps §14).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_order_by_key_dec_f(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecFKeyCopy(s, d, false);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_f(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortDecFKeyCopy(s, d, true);
+}
+
 Il2CppArray* il2cpp_linq_order_by_key_dec_dec(Il2CppArray* src, Il2CppObject* keySel)
 {
     Il2CppArray* s = RequireLinqArray(src);
@@ -1560,6 +1653,22 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_d(Il2CppArray* src, Il2CppObject* keyS
         CmpKeyValue<double>);
 }
 
+//------------------------------------------------------------------------------
+// impl-orderfam: the REFERENCE-source FLOAT-key counterpart (the
+// Func<TRef,float> ABI). Same cached-once / stable / fresh reference-array
+// result contract; the key returns in the float slot and is read through
+// InvokeKeyRefF, never through the double reader (b5-gaps §14).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_order_by_key_ref_f(Il2CppArray* src, Il2CppObject* keySel,
+                                            int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortRefsKeyCopy<float>(s, d, desc != 0, InvokeKeyRefF,
+        CmpKeyValue<float>);
+}
+
 Il2CppArray* il2cpp_linq_order_by_key_ref_ref(Il2CppArray* src, Il2CppObject* keySel,
                                               int32_t desc)
 {
@@ -1675,6 +1784,203 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_d(Il2CppArray* src, Il2CppObject* key
     RequireValueLinqArray(s, sizeof(double));
     Il2CppDelegate* d = RequireKeySelector(keySel);
     return SortDoubleKeyCopy(s, d, true);
+}
+
+//------------------------------------------------------------------------------
+// impl-orderfam: the WIDE ELEMENT-SOURCE keyed sorts (the double[]/float[]
+// OrderBy(keySelector) surface). One template per element family serves every
+// key family the element ABI carries: the element crosses to the selector in
+// the F-stack slot (a float element WIDENS to double -- the InvokePredF /
+// FPredFn convention, linq.cpp) and the key returns in its own family slot
+// (a float key through the float(*) reader -- impl-floatkey, b5-gaps §14).
+// Same cached-once / stable / fresh-source-family result contract as
+// SortInt32KeyCopyT / SortInt64KeyCopyT: the elements are snapshotted before
+// any selector call, the delegate is rooted across the key phase, and the
+// result array carries the SOURCE's element kind (a float[] source yields a
+// fresh float[], a double[] source a fresh double[]).
+//------------------------------------------------------------------------------
+template <typename TElem, int32_t ElemKind, typename TKey, typename InvokeKey,
+          typename Cmp>
+Il2CppArray* SortWideElemKeyCopyT(Il2CppArray* src, Il2CppDelegate* keySel,
+                                  bool desc, InvokeKey invokeKey, Cmp cmp)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+
+    if (n > 0)
+    {
+        // Element snapshot taken before ANY selector call: no managed
+        // allocation preceded this memcpy, so 'src' cannot have been moved.
+        std::vector<TElem> elems(static_cast<size_t>(n));
+        std::memcpy(elems.data(), src->data,
+                    static_cast<size_t>(n) * sizeof(TElem));
+        std::vector<TKey> keys(static_cast<size_t>(n));
+        std::vector<int32_t> order(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            order[i] = i;
+        }
+        // Cache each element's key EXACTLY ONCE (net48 EnumerableSorter):
+        // a side-effecting selector is never re-invoked. A float element
+        // widens into the F-stack slot implicitly.
+        for (int32_t i = 0; i < n; ++i)
+        {
+            keys[i] = invokeKey(keySel, elems[i]);
+        }
+        std::vector<int32_t> scratch(static_cast<size_t>(n));
+        MergeSortStable(order.data(), scratch.data(), 0, n,
+                        [&](int32_t a, int32_t b) -> int32_t {
+                            const int32_t c = cmp(keys[a], keys[b]);
+                            return desc ? -c : c;
+                        });
+        Il2CppArray* result =
+            il2cpp_array_new_typed(static_cast<int32_t>(sizeof(TElem)),
+                                   ElemKind, n);
+        TElem* out = reinterpret_cast<TElem*>(result->data);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            out[i] = elems[order[i]];
+        }
+        return result;
+    }
+    return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(TElem)),
+                                  ElemKind, 0);
+}
+
+// The DOUBLE-source entries: the elements are 8-byte double cells and the
+// result is a fresh double[]. The pre-existing plain _d entry (above) is the
+// double-key face; the _d_<keyfam> composite names serve the other key
+// families (the int64-source naming convention, p0conv2 D3).
+Il2CppArray* il2cpp_linq_order_by_key_d_i4(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<double, kElemKindD, int32_t>(
+        s, d, false, InvokeKeyDSrcI4, CmpKeyValue<int32_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_d_i4(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<double, kElemKindD, int32_t>(
+        s, d, true, InvokeKeyDSrcI4, CmpKeyValue<int32_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_d_i8(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<double, kElemKindD, int64_t>(
+        s, d, false, InvokeKeyDSrcI8, CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_d_i8(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<double, kElemKindD, int64_t>(
+        s, d, true, InvokeKeyDSrcI8, CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_d_f(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<double, kElemKindD, float>(
+        s, d, false, InvokeKeyDSrcF, CmpKeyValue<float>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_d_f(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<double, kElemKindD, float>(
+        s, d, true, InvokeKeyDSrcF, CmpKeyValue<float>);
+}
+
+// The FLOAT-source entries: the elements are 4-byte float cells (widened
+// into the F-stack slot per selector call) and the result is a fresh
+// float[] stamped with elemKind F.
+Il2CppArray* il2cpp_linq_order_by_key_f_i4(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<float, kElemKindF, int32_t>(
+        s, d, false, InvokeKeyDSrcI4, CmpKeyValue<int32_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_f_i4(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<float, kElemKindF, int32_t>(
+        s, d, true, InvokeKeyDSrcI4, CmpKeyValue<int32_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_f_i8(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<float, kElemKindF, int64_t>(
+        s, d, false, InvokeKeyDSrcI8, CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_f_i8(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<float, kElemKindF, int64_t>(
+        s, d, true, InvokeKeyDSrcI8, CmpKeyValue<int64_t>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_f_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<float, kElemKindF, double>(
+        s, d, false, InvokeKeyDSrcD, CmpKeyValue<double>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_f_d(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<float, kElemKindF, double>(
+        s, d, true, InvokeKeyDSrcD, CmpKeyValue<double>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_f_f(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<float, kElemKindF, float>(
+        s, d, false, InvokeKeyDSrcF, CmpKeyValue<float>);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_desc_f_f(Il2CppArray* src, Il2CppObject* keySel)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortWideElemKeyCopyT<float, kElemKindF, float>(
+        s, d, true, InvokeKeyDSrcF, CmpKeyValue<float>);
 }
 
 //------------------------------------------------------------------------------
@@ -2034,7 +2340,12 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_guid(Il2CppArray* src, Il2CppObje
 // decimal GroupBy bucket. The primary and secondary key families are
 // INDEPENDENT, so one dispatch entry serves every combination the OrderBy
 // surface supports. Family codes: 0=int32, 1=int64, 2=double, 3=decimal,
-// 4=System.DateTime, 5=System.Guid. Each selector is cached EXACTLY ONCE.
+// 4=System.DateTime, 5=System.Guid, 6=float (impl-orderfam: the float family
+// has its own float(*) reader -- a 4-byte float return read through a double
+// fn-pointer mixes the callee's XMM0 residue into every key, the b5-gaps §14
+// misread; the numeric code column mirrors the impl-floatkey LinqValKeyFamily
+// split while the pre-existing 0..5 codes keep their meaning). Each selector
+// is cached EXACTLY ONCE.
 //------------------------------------------------------------------------------
 namespace
 {
@@ -2054,7 +2365,9 @@ Il2CppArray* SortDecTwoKeysDispatch(Il2CppArray* s, Il2CppDelegate* d1,
     case 4: return SortDecTwoKeysCopyT<K1TYPE, runtime::Il2CppDateTime>(s, d1, d2, k1Desc,   \
         k2Desc, K1INV, InvokeKeyDecDt, K1CMP, CmpDateTimeKey);                               \
     case 5: return SortDecTwoKeysCopyT<K1TYPE, Il2CppGuid>(s, d1, d2, k1Desc, k2Desc,        \
-        K1INV, InvokeKeyDecGuid, K1CMP, CmpGuidKey);
+        K1INV, InvokeKeyDecGuid, K1CMP, CmpGuidKey);                                         \
+    case 6: return SortDecTwoKeysCopyT<K1TYPE, float>(s, d1, d2, k1Desc, k2Desc, K1INV,      \
+        InvokeKeyDecF, K1CMP, CmpKeyValue<float>);
 
     switch (k1fam)
     {
@@ -2097,6 +2410,13 @@ Il2CppArray* SortDecTwoKeysDispatch(Il2CppArray* s, Il2CppDelegate* d1,
         switch (k2fam)
         {
             DEC_K2_CASES(Il2CppGuid, InvokeKeyDecGuid, CmpGuidKey)
+        default: break;
+        }
+        break;
+    case 6:
+        switch (k2fam)
+        {
+            DEC_K2_CASES(float, InvokeKeyDecF, CmpKeyValue<float>)
         default: break;
         }
         break;

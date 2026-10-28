@@ -108,6 +108,11 @@ Il2CppArray* il2cpp_linq_order_by_key_dec_i8(Il2CppArray* src, Il2CppObject* key
 Il2CppArray* il2cpp_linq_order_by_key_desc_dec_i8(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_dec_d(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_dec_d(Il2CppArray* src, Il2CppObject* keySel);
+// impl-orderfam: the DECIMAL-source FLOAT-key counterparts (impl-floatkey:
+// a 4-byte float return read through a double(*) fn-pointer mixes the
+// callee's XMM0 residue into every key -- b5-gaps §14).
+Il2CppArray* il2cpp_linq_order_by_key_dec_f(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_dec_f(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_dec_dec(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_dec_dec(Il2CppArray* src, Il2CppObject* keySel);
 
@@ -187,7 +192,11 @@ Il2CppArray* il2cpp_linq_then_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* k
 //   _i4  TKey is a 32-bit integral (bool/char/sbyte/byte/short/ushort/int/uint)
 //        -- the selector's return is read from the int32 slot;
 //   _i8  TKey is int64/uint64;
-//   _d   TKey is float/double (the F-stack carrier);
+//   _d   TKey is double (the 8-byte F-stack carrier);
+//   _f   TKey is float (impl-orderfam: the float family has its own float(*)
+//        reader -- a 4-byte float return read through a double fn-pointer
+//        mixes the callee's XMM0 residue into every key, the b5-gaps §14
+//        misread);
 //   _ref TKey is a reference: strings compare ORDINAL (Comparer<string>.Default
 //        -- the arraysort ordinal contract), any other reference type defers to
 //        IComparable.CompareTo on the first key (Comparer<T>.Default).
@@ -199,6 +208,8 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_i4(Il2CppArray* src, Il2CppObject* key
 Il2CppArray* il2cpp_linq_order_by_key_ref_i8(Il2CppArray* src, Il2CppObject* keySel,
                                              int32_t desc);
 Il2CppArray* il2cpp_linq_order_by_key_ref_d(Il2CppArray* src, Il2CppObject* keySel,
+                                            int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_ref_f(Il2CppArray* src, Il2CppObject* keySel,
                                             int32_t desc);
 Il2CppArray* il2cpp_linq_order_by_key_ref_ref(Il2CppArray* src, Il2CppObject* keySel,
                                               int32_t desc);
@@ -266,7 +277,9 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_guid(Il2CppArray* src, Il2CppObje
 // EXACTLY ONCE, the sort is stable, and the result is a fresh decimal[]. The
 // primary and secondary key families are INDEPENDENT and arrive as trailing
 // literals: k1desc (0/1), k2desc (0/1), k1fam, k2fam where 0=int32, 1=int64,
-// 2=double, 3=decimal, 4=System.DateTime, 5=System.Guid.
+// 2=double, 3=decimal, 4=System.DateTime, 5=System.Guid, 6=float
+// (impl-orderfam: the float family has its own float(*) reader -- b5-gaps
+// §14; the pre-existing 0..5 codes keep their meaning).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_then_by_key_dec(Il2CppArray* src, Il2CppObject* k1Sel,
                                          Il2CppObject* k2Sel, int32_t k1desc,
@@ -277,10 +290,34 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_guid(Il2CppArray* src, Il2CppObject* k
                                                int32_t desc);
 
 // The DOUBLE-source key-selector entries: the elements are 8-byte double cells
-// and the key crosses in the F-stack slot (Func<double,double>). Same
-// cached-once / stable / fresh double[] result contract.
+// and the key crosses in the F-stack slot. Same cached-once / stable / fresh
+// double[] result contract.
+//
+// impl-orderfam: the WIDE ELEMENT-SOURCE keyed-sort surface (net48
+// Enumerable.OrderBy over double[]/float[] sources). One entry per (source,
+// key) family pair; the element crosses in the F-stack slot (a float element
+// widens to double -- the InvokePredF / FPredFn convention) and the key
+// returns in its own family slot:
+//   _d_i4 / _d_i8 / _d (double key, the pre-existing entry) / _d_f,
+//   _f_i4 / _f_i8 / _f_d / _f_f.
+// The result family follows the SOURCE (a fresh double[] / float[] stamped
+// with the source's element kind).
 Il2CppArray* il2cpp_linq_order_by_key_d(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_d(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_d_i4(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_d_i4(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_d_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_d_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_d_f(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_d_f(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_f_i4(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_f_i4(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_f_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_f_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_f_d(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_f_d(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_f_f(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_f_f(Il2CppArray* src, Il2CppObject* keySel);
 
 //------------------------------------------------------------------------------
 // p0linq4 (D4): Enumerable.ThenBy / ThenByDescending over an INT64 (long[] /

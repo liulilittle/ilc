@@ -4837,6 +4837,10 @@ public static class StackFold
                     or "il2cpp::il2cpp_linq_order_by_key_desc_dec_i8" => "src_dec_i8",
                 "il2cpp::il2cpp_linq_order_by_key_dec_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_dec_d" => "src_dec_d",
+                // impl-orderfam: the DECIMAL-source FLOAT-key primaries (the
+                // float family has its own reader -- b5-gaps §14).
+                "il2cpp::il2cpp_linq_order_by_key_dec_f"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_dec_f" => "src_dec_f",
                 "il2cpp::il2cpp_linq_order_by_key_dec_dec"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_dec_dec" => "src_dec_dec",
                 "il2cpp::il2cpp_linq_order_by_key_dec_dt"
@@ -4849,6 +4853,9 @@ public static class StackFold
                     or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_i8" => "grp_dec_i8",
                 "il2cpp::il2cpp_linq_grouping_order_by_key_dec_d"
                     or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_d" => "grp_dec_d",
+                // impl-orderfam: the DECIMAL-bucket FLOAT-key primaries.
+                "il2cpp::il2cpp_linq_grouping_order_by_key_dec_f"
+                    or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_f" => "grp_dec_f",
                 "il2cpp::il2cpp_linq_grouping_order_by_key_dec_dec"
                     or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_dec" => "grp_dec_dec",
                 "il2cpp::il2cpp_linq_grouping_order_by_key_dec_dt"
@@ -4955,6 +4962,9 @@ public static class StackFold
                         "dec" => "3",
                         "dt" => "4",
                         "guid" => "5",
+                        // impl-orderfam: the float family has its own reader
+                        // column on the runtime dec dispatch (b5-gaps §14).
+                        "f" => "6",
                         _ => "3",
                     };
                     string secondaryCode = resolved.AppendLiterals is { Length: >= 1 }

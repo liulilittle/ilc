@@ -2594,6 +2594,18 @@ Il2CppArray* il2cpp_linq_list_order_by_key_ref_d(Il2CppObject* list, Il2CppObjec
     return il2cpp_linq_order_by_key_ref_d(snap, keySel, desc);
 }
 
+// impl-orderfam: the List REFERENCE-element FLOAT-key face (the
+// Func<TRef,float> ABI). The snapshot rides the array ref_f entry, whose
+// float(*) reader keeps the 4-byte float return out of the double misread
+// (b5-gaps §14).
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_f(Il2CppObject* list, Il2CppObject* keySel,
+                                                 int32_t desc, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    return il2cpp_linq_order_by_key_ref_f(snap, keySel, desc);
+}
+
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_ref(Il2CppObject* list, Il2CppObject* keySel,
                                                    int32_t desc, int32_t kind)
 {
@@ -2633,6 +2645,40 @@ Il2CppArray* il2cpp_linq_list_order_by_key_desc_d(Il2CppObject* list, Il2CppObje
             "for the double key-selector entry.");
     }
     return il2cpp_linq_order_by_key_desc_d(snap, keySel);
+}
+
+//------------------------------------------------------------------------------
+// impl-orderfam: the DOUBLE-element list FLOAT-key entries (the
+// Func<double,float> ABI). The snapshot is a double array (8-byte cells) and
+// the key returns in the float slot -- il2cpp_linq_order_by_key_d_f reads it
+// through the float(*) reader, never through the double reader (b5-gaps §14).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_list_order_by_key_f(Il2CppObject* list, Il2CppObject* keySel,
+                                             int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (kind != IL2CPP_LIST_KIND_D)
+    {
+        il2cpp_throw_not_supported_exception(
+            "OrderBy over a List of a non-double element family is not wired for the "
+            "float key-selector entry.");
+    }
+    return il2cpp_linq_order_by_key_d_f(snap, keySel);
+}
+
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_f(Il2CppObject* list, Il2CppObject* keySel,
+                                                  int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (kind != IL2CPP_LIST_KIND_D)
+    {
+        il2cpp_throw_not_supported_exception(
+            "OrderByDescending over a List of a non-double element family is not wired "
+            "for the float key-selector entry.");
+    }
+    return il2cpp_linq_order_by_key_desc_d_f(snap, keySel);
 }
 
 Il2CppArray* il2cpp_linq_list_then_by_key_i4(Il2CppObject* list, Il2CppObject* k1,

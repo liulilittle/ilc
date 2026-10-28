@@ -211,24 +211,32 @@ bool        il2cpp_linq_list_sequence_equal(Il2CppObject* list, Il2CppObject* se
 
 // Ordering over a REFERENCE-element list (List<string>/List<object>/...): the
 // snapshot is a reference array, so the reference key-selector surface runs on
-// it. The suffix is the KEY family (i4 / i8 / d / ref) exactly like the array
-// entries; `desc` non-zero flips the order.
+// it. The suffix is the KEY family (i4 / i8 / d / f / ref) exactly like the
+// array entries; `desc` non-zero flips the order. _ref_f is the impl-orderfam
+// float face (the float family has its own reader -- b5-gaps §14).
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_i4(Il2CppObject* list, Il2CppObject* keySel,
                                                   int32_t desc, int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_i8(Il2CppObject* list, Il2CppObject* keySel,
                                                   int32_t desc, int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_d(Il2CppObject* list, Il2CppObject* keySel,
                                                  int32_t desc, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_f(Il2CppObject* list, Il2CppObject* keySel,
+                                                 int32_t desc, int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_ref(Il2CppObject* list, Il2CppObject* keySel,
                                                    int32_t desc, int32_t kind);
 
 // The DOUBLE-element list key-selector entries: the snapshot is a double array
-// and the key crosses in the F-stack slot (Func<double,double>). The snapshot
-// is taken through the list's own accessor, so a List<double> is never cast to
-// an array header.
+// and the key crosses in the F-stack slot. The snapshot is taken through the
+// list's own accessor, so a List<double> is never cast to an array header.
+// _f is the impl-orderfam float-key face (Func<double,float>: the key returns
+// in the float slot and is read through the float(*) reader -- b5-gaps §14).
 Il2CppArray* il2cpp_linq_list_order_by_key_d(Il2CppObject* list, Il2CppObject* keySel,
                                             int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_desc_d(Il2CppObject* list, Il2CppObject* keySel,
+                                                  int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_f(Il2CppObject* list, Il2CppObject* keySel,
+                                             int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_f(Il2CppObject* list, Il2CppObject* keySel,
                                                   int32_t kind);
 
 // Ordering (int32 element + int32 key family: the array key-selector surface).
