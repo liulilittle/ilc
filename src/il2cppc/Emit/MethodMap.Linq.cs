@@ -2960,6 +2960,12 @@ public static partial class MethodRefResolver
     // was not resolvable) as System.Decimal, so ANY 0x11 source with a lost name
     // bound the 16-byte decimal kernels -- a SILENT wrong value (an 8-byte
     // DateTime cell read as a decimal half, a 4-byte read of the same array ...).
+    // NOTE the "?" placeholder is generic in GenericArgFullNames: it also stands
+    // for slots the name table never names (int/long/VAR/arrays). For THIS
+    // function "?" only has the "lost 0x11 type name" meaning because every
+    // caller asks after IsLinqDecimalSource/IsLinqValueTypeSource proved
+    // genArgs[0] == 0x11 (a legal TypeDefOrRef cannot decode to nil, so the
+    // placeholder here comes from truncated/corrupt metadata only).
     // The rule now is "prove it or refuse":
     //   * decoded name System.Decimal -> decimal;
     //   * decoded/tracked DateTime/TimeSpan/Guid family -> NOT decimal (the

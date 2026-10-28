@@ -1862,6 +1862,26 @@ public class MethodMapTestsLinq
         Assert.Equal("dec", first.ResultKind);
     }
 
+    // The other IsDecimalSourceNamed call sites use the same authority: a
+    // GroupBy bucket aggregate and the no-seed Aggregate over a lost-name 0x11
+    // source must LOUD, never borrow the decimal bucket/fold ABI (16-byte
+    // decimal cells read out of an 8-byte DateTime payload).
+    [Fact]
+    public void Resolve_0x11_NonameSource_BucketAndAggregate_StayLoud()
+    {
+        var unnamedSource = new byte[] { 0x0A, 0x01, 0x11 };
+
+        var bucketSum = Assert.Throws<NotSupportedException>(() => ResolveMethodSpecWithReceiver(
+            SynthesizeGeneric("Sum", BucketSig(BucketShape.ElementNoPred), unnamedSource),
+            receiverType: "System.Linq.IGrouping"));
+        Assert.DoesNotContain("_dec", bucketSum.Message);
+
+        var aggregate = Assert.Throws<NotSupportedException>(() => ResolveMethodSpecWithReceiver(
+            SynthesizeGeneric("Aggregate", ValueTypeSourceSignature("predicate"), unnamedSource),
+            receiverType: "System.DateTime[]"));
+        Assert.DoesNotContain("_dec", aggregate.Message);
+    }
+
     // The gate is NAME-based, not byte-based: a REAL System.Decimal source
     // still rides the decimal kernels.
     [Fact]
