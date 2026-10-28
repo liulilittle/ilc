@@ -1,0 +1,8 @@
+g1=00112233-4455-6677-8899-aabbccddeeff
+g2=0aa79e57-1c2b-4d3e-9f40-112233445566
+g2==g1: False
+acc=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+g3=0aa79e57-1c2b-4d3e-9f40-112233445566
+g3==g2pick: True
+g4=33333333-3333-3333-3333-333333333333
+g4 empty: False

@@ -146,8 +146,15 @@ public static partial class MethodRefResolver
                 // (ArgumentNullException on null, FormatException on invalid).
                 // The wrapper places the 16-byte output slot first to match the
                 // transpiler's in-place vctor call shape (slot, string).
+                // rv=false: the wrapper is `void il2cpp_guid_ctor_string(
+                // uint8_t[16], Il2CppString*)` (guid.h) -- a VOID output-slot
+                // writer, exactly the ctor_bytes ABI. rv=true used to push a
+                // stray fold value onto the shadow stack for the Roslyn
+                // `ldloca; ldstr; call .ctor(string)` shape (pop2/push0 in IL),
+                // so every later join died with "fall-through stack height 1
+                // != join slots 2" (guid-ctor-string / b5-gaps 13).
                 if (ps.Length == 1 && ps[0] == 0x0E)
-                    return I("il2cpp::il2cpp_guid_ctor_string", 1, true, false, true, new[] { "g", "s" });
+                    return I("il2cpp::il2cpp_guid_ctor_string", 1, false, false, true, new[] { "g", "s" });
                 // net48 Guid(int a, short b, short c, byte d..k) (guid.cs:115)
                 // and Guid(uint a, ushort b, ushort c, byte d..k) (guid.cs:72)
                 // -- the 11-component ctors. The runtime kernel
