@@ -114,8 +114,6 @@ current state is the compile-time rejection (arrays and `List<T>`, lock:
 | --- | --- | --- |
 | `Where` / `Select` | `Func<T,int,...>` (index overload) over a **LIST** source | no list index kernel (the ARRAY forms are wired: `where_idx_i4`, `where_idx_ref`, `select_idx_i4_*`, `select_idx_ref_ref`) |
 | `OrderBy` / `OrderByDescending` | `Func<T,int,TKey>` (index key selector) | no index key-selector entry |
-| `Select` | `Func<T,int,TResult>` over a reference source with a NON-reference `TResult` | the reference index-selector surface covers a REFERENCE `TResult` only (`select_idx_ref_ref`) |
-| `Select` | reference source with a NON-reference `TResult` | only `il2cpp_linq_select_ref_ref` exists for ref sources |
 | `OrderBy` / `OrderByDescending` | a user-STRUCT key (a 0x11 value type that is neither `System.DateTime` nor `System.Guid`) | no field-wise comparison carrier (impl-linq3 B wired the DateTime/Guid carriers over the i4/i8/dec/ref sources; impl-linqleft added the decimal GroupBy bucket) |
 | `OrderBy` / `OrderByDescending` | a `System.String` key -- STATIC (`TKey == string`) | transpile-time rejection (no collation) |
 | `OrderBy` / `OrderByDescending` | a key whose RUNTIME type is `System.String` (`object`/interface key) | runtime rejection in `CompareRefKeys` (no collation) |
