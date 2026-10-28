@@ -78,6 +78,12 @@ namespace Cases {
             Console.WriteLine("s2_hashNe=" + (p().GetHashCode() == q().GetHashCode()));
             Console.WriteLine("s2_str=" + p().ToString());
             Console.WriteLine("s2_strInv=" + p().ToString(CultureInfo.InvariantCulture));
+            // ADDRESS receiver + provider: the decimal ToString(IFormatProvider)
+            // shape that routes through the "decaddr" cast (ldloca), i.e. the
+            // arm the prvalue receiver never reaches.
+            decimal loc = 2.5m;
+            Console.WriteLine("s2_strLocProv=" + loc.ToString(CultureInfo.InvariantCulture));
+            Console.WriteLine("s2_strLocNegProv=" + (-loc).ToString(CultureInfo.InvariantCulture));
             Console.WriteLine("s2_strNeg=" + neg().ToString());
             Console.WriteLine("s2_decCmp=" + decimal.Compare(p(), q()));
             Console.WriteLine("s2_decCmpEq=" + decimal.Compare(p(), ten()));
@@ -164,3 +170,4 @@ namespace Cases {
         }
     }
 }
+
