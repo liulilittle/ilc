@@ -10943,6 +10943,26 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     private static string GuidValueBytePtr(string code) =>
         $"reinterpret_cast<uint8_t*>(const_cast<il2cpp::Il2CppGuid*>(&static_cast<const il2cpp::Il2CppGuid&>({code})))";
 
+    // decimal-domain T3 (blocker E): the `const Il2CppDecimal*` argument for a
+    // decimal VALUE expression (the "dec" argument cast). A decimal slot is a
+    // 16-byte Il2CppDecimal struct that does NOT decay to a pointer, so the
+    // icalls receive the operand's ADDRESS -- which exists only for an lvalue.
+    //
+    // A PRVALUE has no slot: the fold leaves exactly one decimal-producing
+    // expression inline (a decimal-returning delegate Invoke -- every other
+    // call is assigned to its result slot first), and `&(f())` is "taking
+    // address of rvalue", ill-formed C++. Binding it to a const reference
+    // first materializes a temporary whose lifetime covers the full call
+    // expression, which IS addressable (the GuidValueBytePtr precedent). The
+    // same spelling is an identity on an lvalue, so only the slot-NAME shapes
+    // (a local, a static field, an instance field read) skip it; Address
+    // expressions (ldloca/ldflda/ldsflda) never reach this helper -- the cast
+    // passes them through.
+    private static string DecimalValuePtr(Expr e, string code) =>
+        e is LocExpr or StaticFieldExpr or FieldExpr
+            ? $"(&({code}))"
+            : $"(&static_cast<const il2cpp::runtime::Il2CppDecimal&>({code}))";
+
     // B7 (AppendFormatted<T> user struct/enum): the box expression for a USER
     // value type. The GC-safety gate mirrors the box_ IL arm: a user struct
     // with GC reference fields is REJECTED (icall_box_user_struct copies the
@@ -11368,10 +11388,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // is a 16-byte Il2CppDecimal struct -- it does NOT decay to a
                 // pointer (unlike Guid's uint8_t[16] array), so a VALUE
                 // expression needs an explicit address-of. ADDRESS expressions
-                // (ldloca/ldsflda -- LocAddrExpr/StaticFieldAddrExpr) already
-                // render `(&x)` and must pass through UNCAST (address-of an
-                // address would be a double indirection). The cast code is
-                // SHAPE-AWARE on the arg.
+                // (ldloca/ldflda/ldsflda -- IsAddressExpr) already render
+                // `(&x)` and must pass through UNCAST (address-of an address
+                // would be `&(&x)`: address of an rvalue pointer, ill-formed --
+                // a closure-captured decimal's `d.CompareTo(x)` is the ldflda
+                // shape). The remaining shapes are split by lvalue-ness in
+                // DecimalValuePtr: a PRVALUE (an inline call result) cannot be
+                // addressed at all.
                 // LOUD P0-03: a decimal[] element address (ldelem/ldelema
                 // token) arrives as a "ptr" temp -- it is ALREADY the element
                 // pointer, so pass it as the icall's const Il2CppDecimal*
@@ -11380,7 +11403,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "dec" when args[srcIdx] is LocExpr dpref
                     && _curLocKinds.TryGetValue(dpref.Name, out var dprk) && dprk == "ptr"
                     => $"reinterpret_cast<const il2cpp::runtime::Il2CppDecimal*>({code})",
-                "dec" => args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr ? code : $"(&({code}))",
+                "dec" => IsAddressExpr(args[srcIdx]) ? code : DecimalValuePtr(args[srcIdx], code),
                 // batch 2026-10-05 (iopairprobe B_decimal): decimal
                 // ToString(IFormatProvider) with an ADDRESS receiver. The
                 // receiver is an address in two shapes: a LocAddrExpr /
