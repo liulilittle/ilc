@@ -169,8 +169,11 @@ public static class CodeGenerator
         // TimeSpan/Guid box icalls (il2cpp_nullable.h).
         generatedHeader.Line("#include \"il2cpp_nullable.h\"");
         generatedHeader.Line("#include \"il2cpp_exception_ext.h\"");
-        generatedHeader.Line("#include \"il2cpp_array_ext.h\"");
-        generatedHeader.Line("#include \"il2cpp_array_ext2.h\"");
+    generatedHeader.Line("#include \"il2cpp_array_ext.h\"");
+    generatedHeader.Line("#include \"il2cpp_array_ext2.h\"");
+    // b5-gaps 13: the value-element multidim accessors (dt/ts/dec/guid/dto
+    // cells and the narrow/8-byte primitives).
+    generatedHeader.Line("#include \"il2cpp_array_md_vt.h\"");
         generatedHeader.Line("#include \"il2cpp_format.h\"");
         generatedHeader.Line("#include \"il2cpp_conv.h\"");
         generatedHeader.Line("#include \"il2cpp_convert.h\"");
@@ -3264,8 +3267,9 @@ public static class CodeGenerator
             }
             // decimal-domain T3 (+T4b "dec2" out-last): decimal icall results
             // -> the 16-byte runtime value struct (decimal.h -- included by
-            // generated.h).
-            if (kind == "dec" || kind == "dec2")
+            // generated.h). b5-gaps 13: "decv" is the BY-VALUE decimal return
+            // (the multidim get_dec accessors) -- the same slot type.
+            if (kind == "dec" || kind == "dec2" || kind == "decv")
             {
                 w.Line($"{MuPrefix(d)}il2cpp::runtime::Il2CppDecimal {d};");
                 continue;
@@ -5735,7 +5739,7 @@ public static class CodeGenerator
         // Guid icall results are 16-byte raw value slots (uint8_t[16]; the
         // icalls WRITE through the output buffer -- the "guid" kind carries
         // the slot shape to the declaration site).
-        CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "guidv" or "dec" or "dec2" or "ptr" or "ip4" or "dto" or "bi" or "rect" or "point" or "msg" => c.ResultKind,
+                CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "guidv" or "dec" or "dec2" or "decv" or "ptr" or "ip4" or "dto" or "bi" or "rect" or "point" or "msg" => c.ResultKind,
         // P-D3 P0: a call whose result is a raw function pointer (fnptr
         // DllImport return) carries ResultKind "p" (void* slot) -- the same
         // carrier FuncPtrExpr/LocAddrExpr use. Without this arm the result
@@ -10442,6 +10446,20 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // width-independent -- il2cpp_array_get_elem_ptr, same as ldelem).
         if (c.Function.StartsWith("ldelema_", StringComparison.Ordinal))
         {
+            // b5-gaps 13: the MULTIDIM form (ldelema_md_<rank>, the fold's
+            // rank-aware arm) routes to the rank-fixed element-pointer helper
+            // (per-dim bounds checks; the raw cell pointer, the same shape
+            // the 1-D form yields).
+            if (c.Function.StartsWith("ldelema_md_", StringComparison.Ordinal)
+                && int.TryParse(c.Function["ldelema_md_".Length..], out var mdLdRank))
+            {
+                var mdLdArgs = string.Join(", ", c.Args.Select((a, i) => i == 0
+                    ? NullSafePtrCast("Il2CppArray*", EmitExpr(a, md, types))
+                    : $"static_cast<int32_t>({EmitExpr(a, md, types)})"));
+                // The helper returns the intptr_t carrier directly (the "ptr"
+                // contract -- consumers reinterpret).
+                return $"il2cpp::il2cpp_array_md_elem_ptr_{mdLdRank}d({mdLdArgs})";
+            }
             var ldelemaPtr = TryEmitLoopProvenArrayPtr(c.Args[0], c.Args[1], md, types)
                 ?? TryEmitFastArrayPtr(c.Args[0], c.Args[1], md, types)
                 ?? $"il2cpp::il2cpp_array_get_elem_ptr({NullSafePtrCast("Il2CppArray*", EmitExpr(c.Args[0], md, types))}, static_cast<int32_t>({EmitExpr(c.Args[1], md, types)}))";
@@ -12081,12 +12099,16 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     // G1 (C1): the M3 element-suffix/width table shared with the multidim
     // allocation emission (the mdnew_<elem><rank> parser) -- the StackFold
     // MdElemSuffix authority, mirrored for the CodeGenerator emit side.
+    // b5-gaps 13: the value families join with the arrayinit-vt cell widths
+    // (the allocation passes elemSize verbatim -- il2cpp_array_new_multi
+    // strides and zeroes the payload for any width).
     private static readonly (string Suffix, int Width)[] MdSuffixTable =
     {
         ("bool", 1), ("char", 2), ("sbyte", 1), ("byte", 1),
         ("short", 2), ("ushort", 2), ("int", 4), ("uint", 4),
         ("long", 8), ("ulong", 8), ("float", 4), ("double", 8),
         ("string", IntPtr.Size), ("object", IntPtr.Size),
+        ("dt", 8), ("ts", 8), ("dec", 16), ("guid", 16), ("dto", 16),
     };
 
     // Decode a GENERIC INSTANTIATION TypeSpec into (isValueType, defFullName,

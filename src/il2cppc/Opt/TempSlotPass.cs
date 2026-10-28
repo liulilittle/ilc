@@ -260,8 +260,13 @@ public static class TempSlotPass
             // int32 slot while storing a full-width pointer. "p" stays out of
             // EligibleKinds, so the classified temp is never merged and the
             // emitter declares it void*.
+            // b5-gaps 13: "decv"/"guidv" (the by-value decimal/Guid returns --
+            // the multidim get_dec/get_guid accessors) and the pre-existing
+            // "dec2" out-last shape must classify as their struct kinds too,
+            // or the temp falls to "val", shares an int32/other-struct slot
+            // and the emitter's single declaration breaks on the second use.
             CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "ptr"
-                or "dec" or "ip4" or "bi" or "dto" or "p" => c.ResultKind,
+                or "dec" or "dec2" or "decv" or "guidv" or "ip4" or "bi" or "dto" or "p" => c.ResultKind,
         // tuple1 (ValueTuple): a user call returning a tuple ("vt:<name>")
         // carries the struct type -- a struct temp must never share an int32
         // slot (the store would truncate / not compile).

@@ -483,6 +483,14 @@ public static class StackFold
                         && stCall.ResultKind is { } stVk && stVk.StartsWith("vt:", StringComparison.Ordinal)
                         && ValueTupleSupport.IsValueTupleName(stVk["vt:".Length..]))
                         objTypes[stName] = stVk["vt:".Length..];
+                    // b5-gaps 13: a MULTIDIM array store propagates the
+                    // "[<elem><rank>]" token (the Ldelema rank decode keys on
+                    // it -- `DateTime[,] d; ... d[i,j] = new DateTime(...)`
+                    // lowers to ldelema on the STORED local, whose tracked
+                    // temp token must survive the stloc).
+                    else if (stValue is LocExpr stMdSrc && objTypes.TryGetValue(stMdSrc.Name, out var stMdTok)
+                        && stMdTok.Length >= 4 && stMdTok[0] == '[' && stMdTok[^1] == ']')
+                        objTypes[stName] = stMdTok;
                     // p-refl2-gapmatrix (B08): propagate the member-VALUE
                     // provenance through the store (a folded typeof-chain
                     // GetMethod/GetField result, possibly via its materialized
@@ -1830,7 +1838,31 @@ public static class StackFold
                     // loc-kind analysis declares the temp `{CppName}*` (the
                     // "us:" unbox precedent). Everything else keeps "ptr"
                     // (intptr_t carrier, unchanged).
+                    //
+                    // b5-gaps 13: the MULTIDIM form carries RANK indices (the
+                    // array temp's "[<elem><rank>]" objTypes token records it
+                    // -- `arr[i,j] = new T(...)` lowers to ldelema + the
+                    // in-place ctor writing through the element address). The
+                    // address expression routes to the rank-fixed
+                    // il2cpp_array_md_elem_ptr_<rank>d helper; an untracked
+                    // receiver keeps the 1-D interpretation (unchanged).
                     {
+                        if (md != null && stack.Count > 1
+                            && stack.Peek() is LocExpr mdLArr
+                            && objTypes.TryGetValue(mdLArr.Name, out var mdLTok)
+                            && mdLTok.Length >= 4 && mdLTok[0] == '[' && mdLTok[^1] == ']'
+                            && int.TryParse(mdLTok[1..^1][MultidimElemNamePrefixLen(mdLTok[1..^1])..], out var mdLdRank)
+                            && mdLdRank >= 2)
+                        {
+                            var mdLdIdxs = new Expr[mdLdRank];
+                            for (var k = mdLdRank - 1; k >= 0; k--) mdLdIdxs[k] = stack.Pop();
+                            var mdLdArr = stack.Pop();
+                            var mdLdCall = new CallExpr { Function = $"ldelema_md_{mdLdRank}", ResultKind = "ptr" };
+                            mdLdCall.Args.Add(mdLdArr);
+                            mdLdCall.Args.AddRange(mdLdIdxs);
+                            Push(mdLdCall, ins);
+                            break;
+                        }
                         var ldelemaIdx = stack.Pop();
                         var ldelemaArr = stack.Pop();
                         Push(new CallExpr
@@ -2776,7 +2808,18 @@ public static class StackFold
                 var mdWidth = MdSuffixWidth(mdElemName);
                 if (mdWidth == null)
                     throw new NotSupportedException(
-                        $"InitializeArray at offset 0x{ins.Offset:X4}: multidim element {mdElemName} not supported (the array-initializer fold supports byte/sbyte/bool, char/short, int/uint/float, long/ulong/double)");
+                        $"InitializeArray at offset 0x{ins.Offset:X4}: multidim element {mdElemName} not supported (the array-initializer fold supports byte/sbyte/bool, char/short, int/uint/float, long/ulong/double and the b5-gaps-13 value families dt/ts/dec/guid/dto)");
+                // b5-gaps 13: the 16-byte value families route through the
+                // width-16 writers in EmitStelems, which key on the BCL ELEMENT
+                // NAME -- map the mdnew suffix to it (the mOp below is unused
+                // on that path, exactly like the 1-D width-16 arm).
+                var mdWriterName = mdElemName switch
+                {
+                    "dec" => "System.Decimal",
+                    "guid" => "System.Guid",
+                    "dto" => "System.DateTimeOffset",
+                    _ => mdElemName,
+                };
                 var mOp = (mdWidth, mdElemName) switch
                 {
                     (1, _) => ILOpCode.Stelem_i1,
@@ -2785,10 +2828,15 @@ public static class StackFold
                     (4, _) => ILOpCode.Stelem_i4,
                     (8, "double") => ILOpCode.Stelem_r8,
                     (8, _) => ILOpCode.Stelem_i8,
+                    // width 16: EmitStelems dispatches the dedicated dec/guid/
+                    // dto writers BEFORE the opcode loop -- this arm is never
+                    // consumed (the same "stelemOp = default" shape as the
+                    // 1-D path above).
+                    (16, _) => ILOpCode.Stelem_i4,
                     _ => throw new NotSupportedException(
                         $"InitializeArray at offset 0x{ins.Offset:X4}: multidim element {mdElemName} (width {mdWidth}) not supported"),
                 };
-                EmitStelems(stmts, ins, md, pe, rva, field, arrRef, mdWidth.GetValueOrDefault(), mdElemName, mOp, need: mdCount * mdWidth.GetValueOrDefault());
+                EmitStelems(stmts, ins, md, pe, rva, field, arrRef, mdWidth.GetValueOrDefault(), mdWriterName, mOp, need: mdCount * mdWidth.GetValueOrDefault());
                 return;
             }
             var newarrStmt = stmts.LastOrDefault(s => s is AssignStmt a && a.Target == arrLoc.Name
@@ -6074,6 +6122,83 @@ public static class StackFold
             return null;
         }
 
+        // b5-gaps 13: a multidim VALUE element -> the allocation/accessor
+        // (suffix, cell width) channel, or null when the element has no value
+        // channel (a user struct -- the GC reference-field bitmap is not
+        // modeled here). The width conventions are the arrayinit-vt batch's:
+        // DateTime/TimeSpan are 8-byte packed-image cells (kind in the top
+        // bits), Guid/Decimal/DateTimeOffset are the 16-byte runtime value
+        // structs, and an ENUM element rides its UNDERLYING type's primitive
+        // suffix (the raw value__ signature byte -- the int32 carrier model
+        // must not widen a byte/short/long enum's cell).
+        static (string Suffix, int Width)? MultidimValueElemSuffix(MetadataReader md, EntityHandle handle)
+        {
+            if (handle.Kind is not (HandleKind.TypeReference or HandleKind.TypeDefinition)) return null;
+            var name = handle.Kind == HandleKind.TypeReference
+                ? md.GetFullName((TypeReferenceHandle)handle)
+                : md.GetFullName((TypeDefinitionHandle)handle);
+            switch (name)
+            {
+                case "System.DateTime": return ("dt", 8);
+                case "System.TimeSpan": return ("ts", 8);
+                case "System.Guid": return ("guid", 16);
+                case "System.Decimal": return ("dec", 16);
+                case "System.DateTimeOffset": return ("dto", 16);
+            }
+            // A user enum (a TypeDef whose base is System.Enum): the suffix is
+            // the UNDERLYING primitive (the cell width the RVA blob and the
+            // accessor both honor). A BCL enum TypeRef (no local metadata)
+            // maps to the int32 carrier (the whitelist enums are all
+            // int32-underlying).
+            if (handle.Kind == HandleKind.TypeDefinition)
+            {
+                var td = md.GetTypeDefinition((TypeDefinitionHandle)handle);
+                var baseName = td.BaseType.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)td.BaseType),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)td.BaseType),
+                    _ => null,
+                };
+                if (baseName == "System.Enum")
+                {
+                    var underlying = EnumUnderlyingSuffix(md, (TypeDefinitionHandle)handle);
+                    return underlying ?? ("int", 4);
+                }
+                return null; // a user STRUCT: no value channel (b5-gaps residual)
+            }
+            return CodeGenerator.IsKnownBclEnumName(name) ? ("int", 4) : null;
+        }
+
+        // The user enum's underlying primitive (suffix, width) from the raw
+        // value__ field signature (the EnumUnderlyingWidth decode with the
+        // suffix attached).
+        static (string Suffix, int Width)? EnumUnderlyingSuffix(MetadataReader md, TypeDefinitionHandle handle)
+        {
+            var typeDef = md.GetTypeDefinition(handle);
+            foreach (var fieldHandle in typeDef.GetFields())
+            {
+                var field = md.GetFieldDefinition(fieldHandle);
+                if (md.GetString(field.Name) != "value__") continue;
+                var sig = md.GetBlobReader(field.Signature);
+                if (sig.ReadByte() != 0x06) return null; // FIELD calling convention
+                return sig.ReadByte() switch
+                {
+                    0x02 => ("bool", 1),
+                    0x03 => ("char", 2),
+                    0x04 => ("sbyte", 1),
+                    0x05 => ("byte", 1),
+                    0x06 => ("short", 2),
+                    0x07 => ("ushort", 2),
+                    0x08 => ("int", 4),
+                    0x09 => ("uint", 4),
+                    0x0A => ("long", 8),
+                    0x0B => ("ulong", 8),
+                    _ => null,
+                };
+            }
+            return null;
+        }
+
         // IL gap batch b23: the temp width of an ldind.* read. int32-width
         // reads stay in the uniform int32 slot (null); int64 -> "l";
         // float/double -> "d"; native-int -> "ptr" (intptr_t).
@@ -7452,7 +7577,7 @@ public static class StackFold
                     // the MARKER as the coded index, so every TypeSpec-parent
                     // span call (ReadOnlySpan`1<char>::op_Implicit) resolved a
                     // garbage owner and the char[] carrier gate never matched
-                    // (P3-1② e2e red: "op_Implicit not wired in M5").
+                    // (P3-1鈶?e2e red: "op_Implicit not wired in M5").
                     _ = sig.ReadByte();
                     var th = sig.ReadTypeHandle();
                     owner = th.Kind switch
@@ -7477,7 +7602,7 @@ public static class StackFold
         // parameter renders one segment), so the old
         // ParamCount==paramTypesShapes.Length precondition compared the CALL's
         // parameter count against the ALTERNATIVE COUNT -- every multi-shape
-        // gate with a 1-parameter call was structurally dead (P3-1② e2e red:
+        // gate with a 1-parameter call was structurally dead (P3-1鈶?e2e red:
         // the char[] op_Implicit carrier never matched either shape).
         static bool SpanCarrierIdentitySig(MetadataReader md, int token, params string[] paramTypesShapes)
         {
@@ -8472,9 +8597,14 @@ public static class StackFold
                 case 0x12: // CLASS (reference element) -> IntPtr-size ref slot
                     _ = sig.ReadTypeHandle();
                     return "object";
-                case 0x11: // VALUETYPE (user struct/enum): no value-element width
-                    _ = sig.ReadTypeHandle();
-                    throw new NotSupportedException("multidim array element byte 0x11 (VALUETYPE) in M3 (allocation)");
+                case 0x11: // VALUETYPE element: the value channel (b5-gaps 13)
+                {
+                    var vtHandle = sig.ReadTypeHandle();
+                    if (MultidimValueElemSuffix(md, vtHandle) is { } vt)
+                        return vt.Suffix;
+                    throw new NotSupportedException(
+                        $"multidim array element byte 0x11 (VALUETYPE) in M3 (allocation): no value-element channel for the element type");
+                }
                 case 0x1D: // SZARRAY -> reference element ("object" slot)
                     _ = ReadM3ArrayArg(md, ref sig);
                     return "object";
@@ -8505,25 +8635,41 @@ public static class StackFold
 
         // G1 (C1): the element SUFFIX of a `mdnew_<elem><rank>` allocation
         // function name -- the rank digits are stripped (the suffix is the
-        // longest known element name at the head of the body).
+        // longest known element name at the head of the body). b5-gaps 13:
+        // the value families join the table ("dto" BEFORE "dt" -- "dto2"
+        // starts with "dt", so the prefix-related pair must be matched
+        // longest-first).
         static string MultidimElemName(string function)
         {
             var body = function["mdnew_".Length..];
-            foreach (var s in new[] { "bool", "char", "sbyte", "byte", "short", "ushort", "int", "uint", "long", "ulong", "float", "double", "string", "object" })
+            foreach (var s in new[] { "bool", "char", "sbyte", "byte", "short", "ushort", "int", "uint", "long", "ulong", "float", "double", "string", "object", "guid", "dec", "dto", "ts", "dt" })
             {
                 if (body.StartsWith(s, StringComparison.Ordinal)) return s;
             }
             return body;
         }
 
+        // b5-gaps 13: the element-suffix prefix length of a "[<elem><rank>]"
+        // token body (the rank digits follow the non-digit element name).
+        static int MultidimElemNamePrefixLen(string inner)
+        {
+            var i = 0;
+            while (i < inner.Length && !char.IsDigit(inner[i])) i++;
+            return i;
+        }
+
         // G1 (C1): the multidim element SUFFIX -> element width (the M3 suffix
-        // table, shared with ReadMultidimElemSuffix).
+        // table, shared with ReadMultidimElemSuffix). b5-gaps 13: the value
+        // families ride the arrayinit-vt cell widths (DateTime/TimeSpan 8,
+        // Guid/Decimal/DateTimeOffset 16).
         static int? MdSuffixWidth(string suffix) => suffix switch
         {
             "bool" or "char" or "sbyte" or "byte" => 1,
             "short" or "ushort" => 2,
             "int" or "uint" or "float" => 4,
             "long" or "ulong" or "double" => 8,
+            "dt" or "ts" => 8,
+            "dec" or "guid" or "dto" => 16,
             _ => null,
         };
 

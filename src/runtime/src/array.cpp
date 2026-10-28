@@ -18,10 +18,15 @@
 
 #include "il2cpp_array.h"
 
+#include "decimal.h" // b5-gaps 13: the 16-byte value-struct cell families
+#include "guid.h"
+#include "il2cpp_dtoffset.h"
 #include "il2cpp_exception_ext.h" // il2cpp_throw_index_out_of_range_exception / _null_reference_
 #include "il2cpp_gc.h"
 #include "il2cpp_metadata.h" // nb9 D10: primitive element descriptors (elemKind)
 #include "il2cpp_runtime.h"
+#include "il2cpp_time.h"
+#include "il2cpp_array_md_vt.h" // the value-element multidim accessors defined below
 
 #include <cstddef>
 #include <cstdint>
@@ -380,6 +385,223 @@ void il2cpp_array_set_i4_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k, i
     const int32_t idx[3] = { i, j, k };
     const int32_t flat = MultidimFlatOffset(arr, 3, idx);
     *reinterpret_cast<int32_t*>(arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) = value;
+}
+
+//------------------------------------------------------------------------------
+// b5-gaps 13: the VALUE-ELEMENT multidim accessor family. The allocation
+// layer (il2cpp_array_new_multi) already carries the element stride and the
+// zeroed-payload semantics for any elemSize; what was missing is the
+// width/kind-correct ELEMENT ACCESS for the value families (the int32-only
+// i4 accessors above read 4 bytes of every cell regardless of the real
+// stride). The cell families below follow the SZARRAY token-accessor
+// conventions:
+//   * narrow cells (u1/i1/u2/i2/u4) widen to the int32 carrier on read and
+//     narrow the int32 value on write (the enum int32 carrier model);
+//   * i8/f4/f8 keep their native cell width;
+//   * DateTime/TimeSpan cells are the 8-byte packed image (kind in the top
+//     bits -- the il2cpp_datetime_from/to_array_bits converters);
+//   * Guid/Decimal/DateTimeOffset cells move the full 16-byte runtime value
+//     struct (the same POD the SZARRAY guid/dec/dto arms assign).
+//------------------------------------------------------------------------------
+namespace {
+
+// Native-width cells: the accessor signature IS the cell type (i8/f4/f8).
+#define IL2CPP_MD_CELL_NATIVE_ACCESSORS_2D(SUFFIX, CELL)                                       \
+    CELL il2cpp_array_get_##SUFFIX##_2d(Il2CppArray* arr, int32_t i, int32_t j)                \
+    {                                                                                          \
+        const int32_t idx[2] = { i, j };                                                       \
+        const int32_t flat = MultidimFlatOffset(arr, 2, idx);                                  \
+        return *reinterpret_cast<const CELL*>(                                                 \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));       \
+    }                                                                                          \
+    void il2cpp_array_set_##SUFFIX##_2d(Il2CppArray* arr, int32_t i, int32_t j, CELL value)    \
+    {                                                                                          \
+        const int32_t idx[2] = { i, j };                                                       \
+        const int32_t flat = MultidimFlatOffset(arr, 2, idx);                                  \
+        *reinterpret_cast<CELL*>(                                                              \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) = value; \
+    }
+
+#define IL2CPP_MD_CELL_NATIVE_ACCESSORS_3D(SUFFIX, CELL)                                       \
+    CELL il2cpp_array_get_##SUFFIX##_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k)     \
+    {                                                                                          \
+        const int32_t idx[3] = { i, j, k };                                                    \
+        const int32_t flat = MultidimFlatOffset(arr, 3, idx);                                  \
+        return *reinterpret_cast<const CELL*>(                                                 \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));       \
+    }                                                                                          \
+    void il2cpp_array_set_##SUFFIX##_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k, CELL value) \
+    {                                                                                          \
+        const int32_t idx[3] = { i, j, k };                                                    \
+        const int32_t flat = MultidimFlatOffset(arr, 3, idx);                                  \
+        *reinterpret_cast<CELL*>(                                                              \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) = value; \
+    }
+
+// Narrow cells: the carrier is int32 on both sides (the enum int32 model) --
+// the read widens the raw cell, the write narrows the int32 value.
+#define IL2CPP_MD_CELL_NARROW_ACCESSORS_2D(SUFFIX, CELL)                                       \
+    int32_t il2cpp_array_get_##SUFFIX##_2d(Il2CppArray* arr, int32_t i, int32_t j)             \
+    {                                                                                          \
+        const int32_t idx[2] = { i, j };                                                       \
+        const int32_t flat = MultidimFlatOffset(arr, 2, idx);                                  \
+        return static_cast<int32_t>(*reinterpret_cast<const CELL*>(                            \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)));      \
+    }                                                                                          \
+    void il2cpp_array_set_##SUFFIX##_2d(Il2CppArray* arr, int32_t i, int32_t j, int32_t value) \
+    {                                                                                          \
+        const int32_t idx[2] = { i, j };                                                       \
+        const int32_t flat = MultidimFlatOffset(arr, 2, idx);                                  \
+        *reinterpret_cast<CELL*>(                                                              \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) =      \
+            static_cast<CELL>(value);                                                          \
+    }
+
+#define IL2CPP_MD_CELL_NARROW_ACCESSORS_3D(SUFFIX, CELL)                                       \
+    int32_t il2cpp_array_get_##SUFFIX##_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k)  \
+    {                                                                                          \
+        const int32_t idx[3] = { i, j, k };                                                    \
+        const int32_t flat = MultidimFlatOffset(arr, 3, idx);                                  \
+        return static_cast<int32_t>(*reinterpret_cast<const CELL*>(                            \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)));      \
+    }                                                                                          \
+    void il2cpp_array_set_##SUFFIX##_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k, int32_t value) \
+    {                                                                                          \
+        const int32_t idx[3] = { i, j, k };                                                    \
+        const int32_t flat = MultidimFlatOffset(arr, 3, idx);                                  \
+        *reinterpret_cast<CELL*>(                                                              \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) =      \
+            static_cast<CELL>(value);                                                          \
+    }
+
+#define IL2CPP_MD_BITS_ACCESSORS_2D(SUFFIX, STRUCT, FROM_BITS, TO_BITS)                        \
+    runtime::STRUCT il2cpp_array_get_##SUFFIX##_2d(Il2CppArray* arr, int32_t i, int32_t j)     \
+    {                                                                                          \
+        const int32_t idx[2] = { i, j };                                                       \
+        const int32_t flat = MultidimFlatOffset(arr, 2, idx);                                  \
+        const int64_t bits = *reinterpret_cast<const int64_t*>(                                \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));       \
+        return FROM_BITS(bits);                                                                \
+    }                                                                                          \
+    void il2cpp_array_set_##SUFFIX##_2d(Il2CppArray* arr, int32_t i, int32_t j, runtime::STRUCT value) \
+    {                                                                                          \
+        const int32_t idx[2] = { i, j };                                                       \
+        const int32_t flat = MultidimFlatOffset(arr, 2, idx);                                  \
+        *reinterpret_cast<int64_t*>(                                                           \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) = TO_BITS(value); \
+    }
+
+#define IL2CPP_MD_BITS_ACCESSORS_3D(SUFFIX, STRUCT, FROM_BITS, TO_BITS)                        \
+    runtime::STRUCT il2cpp_array_get_##SUFFIX##_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k) \
+    {                                                                                          \
+        const int32_t idx[3] = { i, j, k };                                                    \
+        const int32_t flat = MultidimFlatOffset(arr, 3, idx);                                  \
+        const int64_t bits = *reinterpret_cast<const int64_t*>(                                \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));       \
+        return FROM_BITS(bits);                                                                \
+    }                                                                                          \
+    void il2cpp_array_set_##SUFFIX##_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k, runtime::STRUCT value) \
+    {                                                                                          \
+        const int32_t idx[3] = { i, j, k };                                                    \
+        const int32_t flat = MultidimFlatOffset(arr, 3, idx);                                  \
+        *reinterpret_cast<int64_t*>(                                                           \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) = TO_BITS(value); \
+    }
+
+// The 16-byte struct-cell families: TYPE is the fully qualified runtime
+// value struct (Il2CppCodeGen lives in il2cpp::runtime, Il2CppGuid in
+// il2cpp directly -- the caller passes the qualified name).
+#define IL2CPP_MD_STRUCT_ACCESSORS_2D(SUFFIX, TYPE)                                            \
+    TYPE il2cpp_array_get_##SUFFIX##_2d(Il2CppArray* arr, int32_t i, int32_t j)                \
+    {                                                                                          \
+        const int32_t idx[2] = { i, j };                                                       \
+        const int32_t flat = MultidimFlatOffset(arr, 2, idx);                                  \
+        return *reinterpret_cast<const TYPE*>(                                                 \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));       \
+    }                                                                                          \
+    void il2cpp_array_set_##SUFFIX##_2d(Il2CppArray* arr, int32_t i, int32_t j, TYPE value)    \
+    {                                                                                          \
+        const int32_t idx[2] = { i, j };                                                       \
+        const int32_t flat = MultidimFlatOffset(arr, 2, idx);                                  \
+        *reinterpret_cast<TYPE*>(                                                              \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) = value; \
+    }
+
+#define IL2CPP_MD_STRUCT_ACCESSORS_3D(SUFFIX, TYPE)                                            \
+    TYPE il2cpp_array_get_##SUFFIX##_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k)     \
+    {                                                                                          \
+        const int32_t idx[3] = { i, j, k };                                                    \
+        const int32_t flat = MultidimFlatOffset(arr, 3, idx);                                  \
+        return *reinterpret_cast<const TYPE*>(                                                 \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));       \
+    }                                                                                          \
+    void il2cpp_array_set_##SUFFIX##_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k, TYPE value) \
+    {                                                                                          \
+        const int32_t idx[3] = { i, j, k };                                                    \
+        const int32_t flat = MultidimFlatOffset(arr, 3, idx);                                  \
+        *reinterpret_cast<TYPE*>(                                                              \
+            arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize)) = value; \
+    }
+
+} // namespace
+
+// The narrow-cell families (the enum underlying widths): int32 carrier both
+// sides, the raw cell is the underlying width.
+IL2CPP_MD_CELL_NARROW_ACCESSORS_2D(u1, uint8_t)
+IL2CPP_MD_CELL_NARROW_ACCESSORS_2D(i1, int8_t)
+IL2CPP_MD_CELL_NARROW_ACCESSORS_2D(u2, uint16_t)
+IL2CPP_MD_CELL_NARROW_ACCESSORS_2D(i2, int16_t)
+IL2CPP_MD_CELL_NARROW_ACCESSORS_2D(u4, uint32_t)
+IL2CPP_MD_CELL_NARROW_ACCESSORS_3D(u1, uint8_t)
+IL2CPP_MD_CELL_NARROW_ACCESSORS_3D(i1, int8_t)
+IL2CPP_MD_CELL_NARROW_ACCESSORS_3D(u2, uint16_t)
+IL2CPP_MD_CELL_NARROW_ACCESSORS_3D(i2, int16_t)
+IL2CPP_MD_CELL_NARROW_ACCESSORS_3D(u4, uint32_t)
+
+// The native-width cells (the non-int32 primitives).
+IL2CPP_MD_CELL_NATIVE_ACCESSORS_2D(i8, int64_t)
+IL2CPP_MD_CELL_NATIVE_ACCESSORS_2D(f4, float)
+IL2CPP_MD_CELL_NATIVE_ACCESSORS_2D(f8, double)
+IL2CPP_MD_CELL_NATIVE_ACCESSORS_3D(i8, int64_t)
+IL2CPP_MD_CELL_NATIVE_ACCESSORS_3D(f4, float)
+IL2CPP_MD_CELL_NATIVE_ACCESSORS_3D(f8, double)
+
+// The 8-byte packed-image families (DateTime keeps its 2-bit kind in the top
+// of the word; TimeSpan is the raw ticks).
+IL2CPP_MD_BITS_ACCESSORS_2D(dt, Il2CppDateTime, runtime::il2cpp_datetime_from_array_bits,
+                            runtime::il2cpp_datetime_to_array_bits)
+IL2CPP_MD_BITS_ACCESSORS_2D(ts, Il2CppTimeSpan, [](int64_t bits) { return runtime::Il2CppTimeSpan(bits); },
+                            [](const runtime::Il2CppTimeSpan& v) { return v.ticks; })
+IL2CPP_MD_BITS_ACCESSORS_3D(dt, Il2CppDateTime, runtime::il2cpp_datetime_from_array_bits,
+                            runtime::il2cpp_datetime_to_array_bits)
+IL2CPP_MD_BITS_ACCESSORS_3D(ts, Il2CppTimeSpan, [](int64_t bits) { return runtime::Il2CppTimeSpan(bits); },
+                            [](const runtime::Il2CppTimeSpan& v) { return v.ticks; })
+
+// The 16-byte value-struct families (the same POD assignment the SZARRAY
+// dec/guid/dto arms use).
+IL2CPP_MD_STRUCT_ACCESSORS_2D(dec, runtime::Il2CppDecimal)
+IL2CPP_MD_STRUCT_ACCESSORS_2D(guid, Il2CppGuid)
+IL2CPP_MD_STRUCT_ACCESSORS_2D(dto, runtime::Il2CppDateTimeOffset)
+IL2CPP_MD_STRUCT_ACCESSORS_3D(dec, runtime::Il2CppDecimal)
+IL2CPP_MD_STRUCT_ACCESSORS_3D(guid, Il2CppGuid)
+IL2CPP_MD_STRUCT_ACCESSORS_3D(dto, runtime::Il2CppDateTimeOffset)
+
+// The element-ADDRESS form (the multidim ldelema: `arr[i,j] = new T(...)`
+// lowers to ldelema + the in-place ctor writing through the address). The
+// per-dim bounds checks are identical to the typed accessors; the result is
+// the raw cell pointer the 1-D il2cpp_array_get_elem_ptr yields.
+intptr_t il2cpp_array_md_elem_ptr_2d(Il2CppArray* arr, int32_t i, int32_t j)
+{
+    const int32_t idx[2] = { i, j };
+    const int32_t flat = MultidimFlatOffset(arr, 2, idx);
+    return reinterpret_cast<intptr_t>(arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));
+}
+
+intptr_t il2cpp_array_md_elem_ptr_3d(Il2CppArray* arr, int32_t i, int32_t j, int32_t k)
+{
+    const int32_t idx[3] = { i, j, k };
+    const int32_t flat = MultidimFlatOffset(arr, 3, idx);
+    return reinterpret_cast<intptr_t>(arr->data + static_cast<size_t>(flat) * static_cast<size_t>(arr->elemSize));
 }
 
 //------------------------------------------------------------------------------

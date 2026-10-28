@@ -765,9 +765,17 @@ public static partial class MethodRefResolver
     //   il2cpp::il2cpp_array_get_i4_<rank>d(Il2CppArray*, i, j, ...) -> elem
     //   il2cpp::il2cpp_array_set_i4_<rank>d(Il2CppArray*, i, j, ..., v) -> void
     // The receiver cast is "a" (get_Length precedent); the index args are
-    // int32; Set's value arg is the last. Only int32 multidim elements have
-    // the rank-fixed accessor surface (probe scope); everything else is LOUD.
-    private static ResolvedMethod? TryMapMultidimAccessor(string owner, string name, int pc)
+    // int32; Set's value arg is the last.
+    // b5-gaps 13: the VALUE-ELEMENT families join the surface -- the owner
+    // token's element decodes either to a known suffix or to a full type name
+    // (the ReadM3MultidimArg 0x11 shape "[<fullname><rank>]", e.g.
+    // "[System.DateTime2]"); the full name classifies through the same
+    // conventions StackFold's allocation channel uses (dt/ts/dec/guid/dto +
+    // the enum's UNDERLYING primitive). The typed accessors live in
+    // il2cpp_array_md_vt.h (array.cpp); the narrow cells keep the int32
+    // carrier on both sides, i8/f4/f8 keep their native width, and the
+    // 8/16-byte value families return/take the runtime value structs.
+    private static ResolvedMethod? TryMapMultidimAccessor(MetadataReader md, string owner, string name, int pc)
     {
         if (owner.Length < 3 || owner[0] != '[' || owner[^1] != ']') return null;
         var inner = owner[1..^1];
@@ -782,27 +790,144 @@ public static partial class MethodRefResolver
                 rank = int.TryParse(inner[s.Length..], out var r) && r >= 1 ? r : 0;
             }
         }
-        if (elem == null || rank == 0) return null;
+        if (elem == null)
+        {
+            // b5-gaps 13: a VALUE element names its full type before the rank
+            // digits ("[System.DateTime2]", "[Cases.E42]"). The glue is
+            // AMBIGUOUS (a type name may itself end in a digit: "Cases.E4"
+            // rank 2 == "Cases.E42"), so every split is tried -- the rank
+            // digits are 1..2 wide (IL2CPP_MAX_ARRAY_RANK = 8) and the first
+            // split that classifies to a value family wins. An
+            // unclassifiable element (a user struct) keeps the null fallback
+            // (the generated-name path / cmake LOUD -- the registered
+            // residual).
+            for (var digits = 1; digits <= 2 && digits < inner.Length; digits++)
+            {
+                if (!int.TryParse(inner[^digits..], out var r2) || r2 < 1 || r2 > 8) continue;
+                if (MultidimValueElemFamily(md, inner[..^digits]) is { } family)
+                {
+                    elem = family;
+                    rank = r2;
+                    break;
+                }
+            }
+            if (elem == null) return null;
+        }
+        if (rank == 0) return null;
+        // The accessor FAMILY: the cell-kind suffix the runtime accessors are
+        // named for, the Get result kind (null = the int32 carrier), and the
+        // Set value cast ("" = the value rides unchanged; "l"/"d" the wide
+        // primitives).
+        var (cell, getResultKind, valueCast) = elem switch
+        {
+            "int" => ("i4", null, "i"),
+            "bool" or "byte" => ("u1", null, "i"),
+            "sbyte" => ("i1", null, "i"),
+            "char" or "ushort" => ("u2", null, "i"),
+            "short" => ("i2", null, "i"),
+            "uint" => ("u4", null, "i"),
+            "long" or "ulong" => ("i8", "l", "l"),
+            "float" => ("f4", "d", "d"),
+            "double" => ("f8", "d", "d"),
+            "dt" => ("dt", "dt", ""),
+            "ts" => ("ts", "ts", ""),
+            // dec/guid: the PLAIN "dec"/"guid" kinds are the out-param icall
+            // ABIs (the result slot is an explicit pointer parameter) -- the
+            // multidim getters RETURN the value struct, so they use the
+            // by-value kinds ("decv" new; "guidv" the impl-linqfix precedent).
+            "dec" => ("dec", "decv", ""),
+            "guid" => ("guid", "guidv", ""),
+            "dto" => ("dto", "dto", ""),
+            _ => ((string?)null, null, null),
+        };
+        if (cell == null) return null;
         // Get: pc == rank (the indices). Set: pc == rank + 1 (indices + value).
         // Casts: slot 0 is the RECEIVER (the multidim array, Il2CppObject* ->
         // "a"); slots 1..pc are the index/value slots (int32 -- the rank-fixed
-        // accessor signatures take int32_t indices and an int32_t value, the
-        // "i" cast, the icall_array_get_length index precedent). The array is
-        // sized pc+1 so EVERY emitted slot is covered (a shorter array falls
-        // back to raw passthrough for the trailing value slot).
+        // accessor signatures take int32_t indices; the value slot carries
+        // valueCast). The array is sized pc+1 so EVERY emitted slot is
+        // covered (a shorter array falls back to raw passthrough for the
+        // trailing value slot).
         if (name == "Get" && pc == rank)
         {
             var casts = Enumerable.Repeat("i", pc + 1).ToArray();
             casts[0] = "a"; // the receiver
-            return I($"il2cpp::il2cpp_array_get_i4_{rank}d", pc, true, false, true, casts);
+            return I($"il2cpp::il2cpp_array_get_{cell}_{rank}d", pc, true, false, true, casts, getResultKind);
         }
         if (name == "Set" && pc == rank + 1)
         {
             var casts = Enumerable.Repeat("i", pc + 1).ToArray();
             casts[0] = "a"; // the receiver
-            return I($"il2cpp::il2cpp_array_set_i4_{rank}d", pc, false, false, true, casts);
+            casts[pc] = valueCast ?? ""; // the stored value
+            return I($"il2cpp::il2cpp_array_set_{cell}_{rank}d", pc, false, false, true, casts);
+        }
+        // b5-gaps 13: the THIRD multidim accessor -- `Address(i, j)` (the
+        // managed array's byref-returning element-address method; csc emits
+        // it for `arr[i,j] = new T(...)` -- the in-place ctor writes through
+        // the ADDRESS). The result is the raw cell pointer (the same shape
+        // the 1-D ldelema yields), carried as "ptr" (intptr_t).
+        if (name == "Address" && pc == rank)
+        {
+            var casts = Enumerable.Repeat("i", pc + 1).ToArray();
+            casts[0] = "a"; // the receiver
+            return I($"il2cpp::il2cpp_array_md_elem_ptr_{rank}d", pc, true, false, true, casts, "ptr");
         }
         return null;
+    }
+
+    // b5-gaps 13: a multidim VALUE element full name -> the runtime accessor
+    // family suffix. The same conventions as StackFold's allocation channel:
+    // the five BCL value structs (dt/ts/dec/guid/dto) and an enum's
+    // UNDERLYING primitive (the raw value__ signature byte; a BCL whitelist
+    // enum TypeRef maps to the int32 carrier). A user struct answers null
+    // (the LOUD residual).
+    private static string? MultidimValueElemFamily(MetadataReader md, string fullName)
+    {
+        switch (fullName)
+        {
+            case "System.DateTime": return "dt";
+            case "System.TimeSpan": return "ts";
+            case "System.Guid": return "guid";
+            case "System.Decimal": return "dec";
+            case "System.DateTimeOffset": return "dto";
+        }
+        foreach (var handle in md.TypeDefinitions)
+        {
+            if (md.GetFullName(handle) != fullName) continue;
+            var td = md.GetTypeDefinition(handle);
+            var baseName = td.BaseType.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)td.BaseType),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)td.BaseType),
+                _ => null,
+            };
+            if (baseName != "System.Enum") return null; // a user struct
+            foreach (var fieldHandle in td.GetFields())
+            {
+                var field = md.GetFieldDefinition(fieldHandle);
+                if (md.GetString(field.Name) != "value__") continue;
+                var sig = md.GetBlobReader(field.Signature);
+                if (sig.ReadByte() != 0x06) return "int";
+                return sig.ReadByte() switch
+                {
+                    0x02 => "bool",
+                    0x03 => "char",
+                    0x04 => "sbyte",
+                    0x05 => "byte",
+                    0x06 => "short",
+                    0x07 => "ushort",
+                    0x08 => "int",
+                    0x09 => "uint",
+                    0x0A => "long",
+                    0x0B => "ulong",
+                    _ => "int",
+                };
+            }
+            return "int";
+        }
+        // Not a TypeDef of this assembly: a BCL enum TypeRef (the whitelist)
+        // keeps the int32 carrier; anything else has no channel.
+        return CodeGenerator.IsKnownBclEnumName(fullName) ? "int" : null;
     }
 
     // The M3 element suffix/width table for the multidim accessor owner
@@ -862,7 +987,7 @@ public static partial class MethodRefResolver
         // runtime multidim accessor (il2cpp_array_get_i4_<rank>d / _set_.
         // The receiver arrives as Il2CppObject* -> "a" cast (the get_Length
         // precedent); the indices are int32, the Set value is last.
-        var mdAccessor = TryMapMultidimAccessor(owner2, mrName, pc);
+        var mdAccessor = TryMapMultidimAccessor(md, owner2, mrName, pc);
         if (mdAccessor != null) return mdAccessor;
 
         // Tuple Rest/Item chain (8-tuple long chains): get_Rest always yields
