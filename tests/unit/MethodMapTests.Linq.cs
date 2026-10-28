@@ -1554,29 +1554,144 @@ public class MethodMapTestsLinq
     // kernels (linq_family.h) with their own cell code (12 / 13 / 14) as the
     // trailing literal: Take / Skip / Reverse / Concat / Distinct / Except /
     // Union / Intersect / DefaultIfEmpty / LongCount / SequenceEqual /
-    // Contains / ElementAt / Single / SingleOrDefault. The operators with NO
-    // value-family kernel (the predicate family -- Where / All / TakeWhile /
-    // SkipWhile / Count(pred) / Any(pred) -- and First / Last, which have no
-    // family entry) stay LOUD: the runtime ships the predicate kernels per
-    // i4 / ref / i8 / d / f / narrow family only, and a foreign ABI would be
-    // a silent wrong value.
+    // Contains / ElementAt / Single / SingleOrDefault. impl-linq-vtpred added
+    // the per-family SOURCE PREDICATE entries (Where / All / TakeWhile /
+    // SkipWhile / Count(pred) / Any(pred) and their index forms) plus the
+    // source-only First / FirstOrDefault / Last / LastOrDefault entries -- the
+    // by-value struct predicate ABI is wired below.
     //==========================================================================
+    // impl-linq-vtpred: the by-value PREDICATE family over the DateTime /
+    // TimeSpan / Guid array sources. The generated predicate leaf takes the
+    // value struct BY VALUE (Il2CppDateTime / Il2CppTimeSpan / Il2CppGuid), so
+    // the kernel is dispatched per family -- a foreign ABI would be a silent
+    // wrong value. The array-returning entries carry a fresh array of the
+    // source's own element type.
     [Theory]
-    [InlineData("First", "source")]
-    [InlineData("FirstOrDefault", "source")]
-    [InlineData("Last", "source")]
-    [InlineData("LastOrDefault", "source")]
-    [InlineData("Where", "predicate")]
-    [InlineData("All", "predicate")]
-    [InlineData("TakeWhile", "predicate")]
-    [InlineData("SkipWhile", "predicate")]
-    public void Resolve_DateTimeSource_UnsupportedOperator_StaysLoud(string name, string shape)
+    [InlineData("System", "DateTime", "where_dt", "System.DateTime[]")]
+    [InlineData("System", "DateTime", "take_while_dt", "System.DateTime[]")]
+    [InlineData("System", "DateTime", "skip_while_dt", "System.DateTime[]")]
+    [InlineData("System", "TimeSpan", "where_ts", "System.TimeSpan[]")]
+    [InlineData("System", "TimeSpan", "take_while_ts", "System.TimeSpan[]")]
+    [InlineData("System", "TimeSpan", "skip_while_ts", "System.TimeSpan[]")]
+    [InlineData("System", "Guid", "where_guid", "System.Guid[]")]
+    [InlineData("System", "Guid", "take_while_guid", "System.Guid[]")]
+    [InlineData("System", "Guid", "skip_while_guid", "System.Guid[]")]
+    public void Resolve_ValueTypeSource_PredicateArrayOperator_MapsToFamilyKernel(
+        string ns, string typeName, string kernel, string arrayType)
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(
-            SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature(shape),
-                "System", "DateTime")));
+        var name = kernel.StartsWith("where_", StringComparison.Ordinal) ? "Where"
+            : kernel.StartsWith("take_while_", StringComparison.Ordinal) ? "TakeWhile"
+            : "SkipWhile";
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+            ValueTypeSourceSignature("predicate"), ns, typeName));
 
-        Assert.DoesNotContain("_dec", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_" + kernel, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal(arrayType, resolved.ReturnTypeName);
+        Assert.True(resolved.AppendLiterals is null || resolved.AppendLiterals.Length == 0);
+    }
+
+    // The INDEX predicate overloads (Func<TSource,int,bool>) have their own
+    // per-family entries: the index is the element's 0-based SOURCE position.
+    [Theory]
+    [InlineData("System", "DateTime", "where_idx_dt")]
+    [InlineData("System", "DateTime", "take_while_idx_dt")]
+    [InlineData("System", "DateTime", "skip_while_idx_dt")]
+    [InlineData("System", "TimeSpan", "where_idx_ts")]
+    [InlineData("System", "TimeSpan", "take_while_idx_ts")]
+    [InlineData("System", "TimeSpan", "skip_while_idx_ts")]
+    [InlineData("System", "Guid", "where_idx_guid")]
+    [InlineData("System", "Guid", "take_while_idx_guid")]
+    [InlineData("System", "Guid", "skip_while_idx_guid")]
+    public void Resolve_ValueTypeSource_IndexPredicateOperator_MapsToFamilyKernel(
+        string ns, string typeName, string kernel)
+    {
+        var name = kernel.StartsWith("where_", StringComparison.Ordinal) ? "Where"
+            : kernel.StartsWith("take_while_", StringComparison.Ordinal) ? "TakeWhile"
+            : "SkipWhile";
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+            ValueTypeSourceSignature("predicate_idx"), ns, typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_" + kernel, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal(ns + "." + typeName + "[]", resolved.ReturnTypeName);
+    }
+
+    // All / Count(predicate) / Any(predicate) over the by-value families.
+    // net48 empty-sequence truth table: All -> true (predicate never called),
+    // Count -> 0, Any -> false.
+    [Theory]
+    [InlineData("System", "DateTime", "All", "all_dt")]
+    [InlineData("System", "DateTime", "Count", "count_pred_dt")]
+    [InlineData("System", "DateTime", "Any", "any_pred_dt")]
+    [InlineData("System", "TimeSpan", "All", "all_ts")]
+    [InlineData("System", "TimeSpan", "Count", "count_pred_ts")]
+    [InlineData("System", "TimeSpan", "Any", "any_pred_ts")]
+    [InlineData("System", "Guid", "All", "all_guid")]
+    [InlineData("System", "Guid", "Count", "count_pred_guid")]
+    [InlineData("System", "Guid", "Any", "any_pred_guid")]
+    public void Resolve_ValueTypeSource_PredicateScalarOperator_MapsToFamilyKernel(
+        string ns, string typeName, string name, string kernel)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+            ValueTypeSourceSignature("predicate"), ns, typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_" + kernel, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.True(resolved.AppendLiterals is null || resolved.AppendLiterals.Length == 0);
+    }
+
+    // impl-linq-vtpred: First / FirstOrDefault / Last / LastOrDefault over the
+    // by-value families (net48 generic source-only entry points; the element
+    // crosses BY VALUE through the family result slot).
+    [Theory]
+    [InlineData("System", "DateTime", "First", "first_dt", "dt")]
+    [InlineData("System", "DateTime", "FirstOrDefault", "first_or_default_dt", "dt")]
+    [InlineData("System", "DateTime", "Last", "last_dt", "dt")]
+    [InlineData("System", "DateTime", "LastOrDefault", "last_or_default_dt", "dt")]
+    [InlineData("System", "TimeSpan", "First", "first_ts", "ts")]
+    [InlineData("System", "TimeSpan", "FirstOrDefault", "first_or_default_ts", "ts")]
+    [InlineData("System", "TimeSpan", "Last", "last_ts", "ts")]
+    [InlineData("System", "TimeSpan", "LastOrDefault", "last_or_default_ts", "ts")]
+    [InlineData("System", "Guid", "First", "first_guid", "guidv")]
+    [InlineData("System", "Guid", "FirstOrDefault", "first_or_default_guid", "guidv")]
+    [InlineData("System", "Guid", "Last", "last_guid", "guidv")]
+    [InlineData("System", "Guid", "LastOrDefault", "last_or_default_guid", "guidv")]
+    public void Resolve_ValueTypeSource_FirstLast_MapsToFamilyKernel(
+        string ns, string typeName, string name, string kernel, string resultKind)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+            ValueTypeSourceSignature("source"), ns, typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_" + kernel, resolved.CppName);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+    }
+
+    // The reference-source predicate forms of First / FirstOrDefault: the
+    // result rides the Il2CppObject* ABI (FirstOrDefault -> nullptr on no
+    // match / empty source, never throws).
+    [Theory]
+    [InlineData("First", "il2cpp::il2cpp_linq_first_pred_ref")]
+    [InlineData("FirstOrDefault", "il2cpp::il2cpp_linq_first_or_default_pred_ref")]
+    public void Resolve_RefSource_PredicateFirst_MapsToRefKernel(string name, string kernel)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            new byte[] { 0x10, 0x01, 0x02, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
+            new byte[] { 0x0A, 0x01, 0x0E }));
+
+        Assert.Equal(kernel, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
     }
 
     // The ARRAY-returning family operators over a DateTime source: the
@@ -1706,22 +1821,6 @@ public class MethodMapTestsLinq
         Assert.DoesNotContain("_dec", ex.Message);
     }
 
-    // The PREDICATE forms of Count / Any are element-family AGNOSTIC by NAME
-    // (the familyAgnostic gate lets them through), so they must not fall into
-    // the int32 predicate kernels either: those call the predicate through the
-    // int32 ABI and read 4-byte cells out of an 8/16-byte payload.
-    [Theory]
-    [InlineData("Count")]
-    [InlineData("Any")]
-    public void Resolve_DateTimeSource_PredicateCount_StaysLoud(string name)
-    {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(
-            SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("predicate"),
-                "System", "DateTime")));
-
-        Assert.DoesNotContain("_dec", ex.Message);
-    }
-
     // impl-linq-0x11 (audit loud-inv §3.1 Δ0): the 0x11 dispatch byte covers
     // every value type, so a MethodSpec whose generic-argument NAME could not be
     // decoded ("?") must never be assumed to be System.Decimal. The tracked
@@ -1745,12 +1844,14 @@ public class MethodMapTestsLinq
         Assert.Equal("il2cpp::il2cpp_linq_take_family", take.CppName);
         Assert.Equal(new[] { "12" }, take.AppendLiterals);
 
-        // An operator with NO value-family kernel must stay LOUD (the old
-        // "? == decimal" fallback served where_dec out of the DateTime cells).
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpecWithReceiver(
+        // A predicate operator over a DateTime[] tracked source now has a real
+        // DateTime kernel (impl-linq-vtpred wired the value-family predicate set):
+        // the "?" fallback must select that family, never the 16-byte decimal one.
+        var where = ResolveMethodSpecWithReceiver(
             SynthesizeGeneric("Where", ValueTypeSourceSignature("predicate"), unnamedSource),
-            receiverType: "System.DateTime[]"));
-        Assert.DoesNotContain("_dec", ex.Message);
+            receiverType: "System.DateTime[]");
+        Assert.Contains("where_dt", where.CppName);
+        Assert.DoesNotContain("_dec", where.CppName);
 
         // A Decimal[] tracked source still proves the family: the decimal
         // kernels stay reachable when the name table is lost.
@@ -3640,6 +3741,10 @@ public class MethodMapTestsLinq
         "predicate" => new byte[] { 0x10, 0x01, 0x02, 0x08,
             0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
             0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
+        // The INDEX overload predicate: Func<TSource,int,bool> (Func`3).
+        "predicate_idx" => new byte[] { 0x10, 0x01, 0x02, 0x08,
+            0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+            0x15, 0x12, 0x0D, 0x03, 0x13, 0x00, 0x08, 0x02 },
         "range" => new byte[] { 0x10, 0x01, 0x02, 0x13, 0x00,
             0x15, 0x12, 0x09, 0x01, 0x13, 0x00, 0x08 },
         "same" => new byte[] { 0x10, 0x01, 0x02, 0x13, 0x00,

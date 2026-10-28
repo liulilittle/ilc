@@ -1750,6 +1750,47 @@ Il2CppObject* il2cpp_linq_first_or_default_ref(Il2CppArray* src)
     return src->length != 0 ? RefAt(src, 0) : nullptr;
 }
 
+// impl-linq-vtpred: the reference-source PREDICATE forms of First /
+// FirstOrDefault. Same forward short-circuit walk and rooting discipline as
+// il2cpp_linq_first_predicate; the element is an Il2CppObject* slot copy, so
+// no managed address is held across the callback.
+Il2CppObject* il2cpp_linq_first_pred_ref(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = RefAt(src, i);
+        if (InvokePredRef(d, elem)) return elem;
+    }
+    il2cpp_throw_invalid_operation_exception("Sequence contains no matching element");
+    return nullptr; // unreachable (the factory throws)
+}
+
+Il2CppObject* il2cpp_linq_first_or_default_pred_ref(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = RefAt(src, i);
+        if (InvokePredRef(d, elem)) return elem;
+    }
+    return nullptr;
+}
+
 //------------------------------------------------------------------------------
 // Last(predicate) over a reference source (see linq_map.h): walk BACKWARD and
 // return the LAST matching element (net48 short-circuits from the end). The
@@ -2210,6 +2251,426 @@ Il2CppArray* il2cpp_linq_skip_while_idx_i4(Il2CppArray* src, Il2CppObject* pred)
     }
     return res;
 }
+
+//------------------------------------------------------------------------------
+// impl-linq-vtpred: the SOURCE PREDICATE family over the by-value struct
+// element families (System.DateTime / System.TimeSpan / System.Guid).
+//
+// The generated predicate leaf takes the element struct BY VALUE (the
+// ParamTypesCpp value-parameter ABI: Il2CppDateTime / Il2CppTimeSpan /
+// Il2CppGuid), so every entry below dispatches through that exact signature.
+// The element is READ at the source array's real cell width (8 / 8 / 16
+// bytes) through the linq_family cell helpers; the result arrays are built by
+// LinqNewArray / LinqCellCopy at the same width. A mis-dispatched call is
+// rejected by LinqRequireCell instead of reading a foreign width.
+//
+// GC discipline: the source array and the delegate are rooted across the
+// predicate loop (the predicate may allocate -> the collector may compact),
+// and an element-returning entry passes the struct BY VALUE -- no managed
+// address is ever held across the callback.
+//------------------------------------------------------------------------------
+namespace {
+
+typedef bool (*PredDtFn)(runtime::Il2CppDateTime);
+typedef bool (*PredDtThisFn)(Il2CppObject*, runtime::Il2CppDateTime);
+typedef bool (*PredDtIdxFn)(runtime::Il2CppDateTime, int32_t);
+typedef bool (*PredDtIdxThisFn)(Il2CppObject*, runtime::Il2CppDateTime, int32_t);
+typedef bool (*PredTsFn)(runtime::Il2CppTimeSpan);
+typedef bool (*PredTsThisFn)(Il2CppObject*, runtime::Il2CppTimeSpan);
+typedef bool (*PredTsIdxFn)(runtime::Il2CppTimeSpan, int32_t);
+typedef bool (*PredTsIdxThisFn)(Il2CppObject*, runtime::Il2CppTimeSpan, int32_t);
+typedef bool (*PredGuidFn)(Il2CppGuid);
+typedef bool (*PredGuidThisFn)(Il2CppObject*, Il2CppGuid);
+typedef bool (*PredGuidIdxFn)(Il2CppGuid, int32_t);
+typedef bool (*PredGuidIdxThisFn)(Il2CppObject*, Il2CppGuid, int32_t);
+
+bool InvokePredDt(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDtThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<PredDtFn>(d->methodPtr)(v);
+}
+bool InvokePredDtIdx(Il2CppDelegate* d, const runtime::Il2CppDateTime& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDtIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredDtIdxFn>(d->methodPtr)(v, index);
+}
+bool InvokePredTs(Il2CppDelegate* d, const runtime::Il2CppTimeSpan& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredTsThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<PredTsFn>(d->methodPtr)(v);
+}
+bool InvokePredTsIdx(Il2CppDelegate* d, const runtime::Il2CppTimeSpan& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredTsIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredTsIdxFn>(d->methodPtr)(v, index);
+}
+bool InvokePredGuid(Il2CppDelegate* d, const Il2CppGuid& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredGuidThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<PredGuidFn>(d->methodPtr)(v);
+}
+bool InvokePredGuidIdx(Il2CppDelegate* d, const Il2CppGuid& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredGuidIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredGuidIdxFn>(d->methodPtr)(v, index);
+}
+
+// net48 Where: one predicate invocation per element, first-appearance order.
+template <typename T>
+Il2CppArray* WhereValueFamily(Il2CppArray* src, Il2CppObject* pred, int32_t cell,
+    T (*read)(Il2CppArray*, int32_t), bool (*invoke)(Il2CppDelegate*, const T&))
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    LinqRequireCell(src, cell);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    std::vector<int32_t> keep;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const T v = read(src, i);
+        if (invoke(d, v)) keep.push_back(i);
+    }
+
+    Il2CppArray* out = LinqNewArray(cell, static_cast<int32_t>(keep.size()));
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (size_t i = 0; i < keep.size(); ++i)
+    {
+        LinqCellCopy(il2cpp_array_get_elem_ptr(out, static_cast<int32_t>(i)),
+                     nullptr, src, keep[i], cell);
+    }
+    return out;
+}
+
+template <typename T>
+Il2CppArray* WhereValueFamilyIdx(Il2CppArray* src, Il2CppObject* pred, int32_t cell,
+    T (*read)(Il2CppArray*, int32_t), bool (*invoke)(Il2CppDelegate*, const T&, int32_t))
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    LinqRequireCell(src, cell);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    std::vector<int32_t> keep;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const T v = read(src, i);
+        if (invoke(d, v, i)) keep.push_back(i);
+    }
+
+    Il2CppArray* out = LinqNewArray(cell, static_cast<int32_t>(keep.size()));
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (size_t i = 0; i < keep.size(); ++i)
+    {
+        LinqCellCopy(il2cpp_array_get_elem_ptr(out, static_cast<int32_t>(i)),
+                     nullptr, src, keep[i], cell);
+    }
+    return out;
+}
+
+// net48 TakeWhile: the longest PREFIX satisfying the predicate; the first
+// failing element is excluded and the predicate is not called again.
+template <typename T>
+Il2CppArray* TakeWhileValueFamily(Il2CppArray* src, Il2CppObject* pred, int32_t cell,
+    T (*read)(Il2CppArray*, int32_t), bool (*invoke)(Il2CppDelegate*, const T&))
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    LinqRequireCell(src, cell);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t w = 0;
+    while (w < src->length)
+    {
+        const T v = read(src, w);
+        if (!invoke(d, v)) break;
+        ++w;
+    }
+
+    Il2CppArray* out = LinqNewArray(cell, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+    {
+        LinqCellCopy(il2cpp_array_get_elem_ptr(out, i), nullptr, src, i, cell);
+    }
+    return out;
+}
+
+template <typename T>
+Il2CppArray* TakeWhileValueFamilyIdx(Il2CppArray* src, Il2CppObject* pred, int32_t cell,
+    T (*read)(Il2CppArray*, int32_t), bool (*invoke)(Il2CppDelegate*, const T&, int32_t))
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    LinqRequireCell(src, cell);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t w = 0;
+    while (w < src->length)
+    {
+        const T v = read(src, w);
+        if (!invoke(d, v, w)) break;
+        ++w;
+    }
+
+    Il2CppArray* out = LinqNewArray(cell, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+    {
+        LinqCellCopy(il2cpp_array_get_elem_ptr(out, i), nullptr, src, i, cell);
+    }
+    return out;
+}
+
+// net48 SkipWhile: everything after the prefix; the first failing element and
+// the rest are kept, and the predicate is never called after the prefix ends.
+template <typename T>
+Il2CppArray* SkipWhileValueFamily(Il2CppArray* src, Il2CppObject* pred, int32_t cell,
+    T (*read)(Il2CppArray*, int32_t), bool (*invoke)(Il2CppDelegate*, const T&))
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    LinqRequireCell(src, cell);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t s = 0;
+    while (s < src->length)
+    {
+        const T v = read(src, s);
+        if (!invoke(d, v)) break;
+        ++s;
+    }
+    const int32_t n = src->length - s;
+
+    Il2CppArray* out = LinqNewArray(cell, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        LinqCellCopy(il2cpp_array_get_elem_ptr(out, i), nullptr, src, s + i, cell);
+    }
+    return out;
+}
+
+template <typename T>
+Il2CppArray* SkipWhileValueFamilyIdx(Il2CppArray* src, Il2CppObject* pred, int32_t cell,
+    T (*read)(Il2CppArray*, int32_t), bool (*invoke)(Il2CppDelegate*, const T&, int32_t))
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    LinqRequireCell(src, cell);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t s = 0;
+    while (s < src->length)
+    {
+        const T v = read(src, s);
+        if (!invoke(d, v, s)) break;
+        ++s;
+    }
+    const int32_t n = src->length - s;
+
+    Il2CppArray* out = LinqNewArray(cell, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        LinqCellCopy(il2cpp_array_get_elem_ptr(out, i), nullptr, src, s + i, cell);
+    }
+    return out;
+}
+
+template <typename T>
+bool AllValueFamily(Il2CppArray* src, Il2CppObject* pred, int32_t cell,
+    T (*read)(Il2CppArray*, int32_t), bool (*invoke)(Il2CppDelegate*, const T&))
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    LinqRequireCell(src, cell);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const T v = read(src, i);
+        if (!invoke(d, v)) return false;
+    }
+    return true;
+}
+
+template <typename T>
+int32_t CountPredValueFamily(Il2CppArray* src, Il2CppObject* pred, int32_t cell,
+    T (*read)(Il2CppArray*, int32_t), bool (*invoke)(Il2CppDelegate*, const T&))
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    LinqRequireCell(src, cell);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    int32_t n = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const T v = read(src, i);
+        if (invoke(d, v)) ++n;
+    }
+    return n;
+}
+
+template <typename T>
+bool AnyPredValueFamily(Il2CppArray* src, Il2CppObject* pred, int32_t cell,
+    T (*read)(Il2CppArray*, int32_t), bool (*invoke)(Il2CppDelegate*, const T&))
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    LinqRequireCell(src, cell);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const T v = read(src, i);
+        if (invoke(d, v)) return true;
+    }
+    return false;
+}
+
+template <typename T>
+T FirstValueFamily(Il2CppArray* src, int32_t cell, T (*read)(Il2CppArray*, int32_t))
+{
+    RequireArray(src);
+    LinqRequireCell(src, cell);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+        return T{};
+    }
+    return read(src, 0);
+}
+
+template <typename T>
+T FirstOrDefaultValueFamily(Il2CppArray* src, int32_t cell, T (*read)(Il2CppArray*, int32_t))
+{
+    RequireArray(src);
+    LinqRequireCell(src, cell);
+    if (src->length == 0) return T{};
+    return read(src, 0);
+}
+
+template <typename T>
+T LastValueFamily(Il2CppArray* src, int32_t cell, T (*read)(Il2CppArray*, int32_t))
+{
+    RequireArray(src);
+    LinqRequireCell(src, cell);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+        return T{};
+    }
+    return read(src, src->length - 1);
+}
+
+template <typename T>
+T LastOrDefaultValueFamily(Il2CppArray* src, int32_t cell, T (*read)(Il2CppArray*, int32_t))
+{
+    RequireArray(src);
+    LinqRequireCell(src, cell);
+    if (src->length == 0) return T{};
+    return read(src, src->length - 1);
+}
+
+} // namespace
+
+#define IL2CPP_LINQ_DEF_VT_PRED_ENTRIES(FAM, CELL, TYPE, READ, INVOKE, INVOKE_IDX)              \
+Il2CppArray* il2cpp_linq_where_##FAM(Il2CppArray* src, Il2CppObject* pred)                      \
+{                                                                                               \
+    return WhereValueFamily<TYPE>(src, pred, CELL, READ, INVOKE);                               \
+}                                                                                               \
+Il2CppArray* il2cpp_linq_where_idx_##FAM(Il2CppArray* src, Il2CppObject* pred)                  \
+{                                                                                               \
+    return WhereValueFamilyIdx<TYPE>(src, pred, CELL, READ, INVOKE_IDX);                        \
+}                                                                                               \
+Il2CppArray* il2cpp_linq_take_while_##FAM(Il2CppArray* src, Il2CppObject* pred)                 \
+{                                                                                               \
+    return TakeWhileValueFamily<TYPE>(src, pred, CELL, READ, INVOKE);                           \
+}                                                                                               \
+Il2CppArray* il2cpp_linq_take_while_idx_##FAM(Il2CppArray* src, Il2CppObject* pred)             \
+{                                                                                               \
+    return TakeWhileValueFamilyIdx<TYPE>(src, pred, CELL, READ, INVOKE_IDX);                    \
+}                                                                                               \
+Il2CppArray* il2cpp_linq_skip_while_##FAM(Il2CppArray* src, Il2CppObject* pred)                 \
+{                                                                                               \
+    return SkipWhileValueFamily<TYPE>(src, pred, CELL, READ, INVOKE);                           \
+}                                                                                               \
+Il2CppArray* il2cpp_linq_skip_while_idx_##FAM(Il2CppArray* src, Il2CppObject* pred)             \
+{                                                                                               \
+    return SkipWhileValueFamilyIdx<TYPE>(src, pred, CELL, READ, INVOKE_IDX);                    \
+}                                                                                               \
+bool il2cpp_linq_all_##FAM(Il2CppArray* src, Il2CppObject* pred)                                \
+{                                                                                               \
+    return AllValueFamily<TYPE>(src, pred, CELL, READ, INVOKE);                                 \
+}                                                                                               \
+int32_t il2cpp_linq_count_pred_##FAM(Il2CppArray* src, Il2CppObject* pred)                      \
+{                                                                                               \
+    return CountPredValueFamily<TYPE>(src, pred, CELL, READ, INVOKE);                           \
+}                                                                                               \
+bool il2cpp_linq_any_pred_##FAM(Il2CppArray* src, Il2CppObject* pred)                           \
+{                                                                                               \
+    return AnyPredValueFamily<TYPE>(src, pred, CELL, READ, INVOKE);                             \
+}                                                                                               \
+TYPE il2cpp_linq_first_##FAM(Il2CppArray* src)                                                  \
+{                                                                                               \
+    return FirstValueFamily<TYPE>(src, CELL, READ);                                             \
+}                                                                                               \
+TYPE il2cpp_linq_first_or_default_##FAM(Il2CppArray* src)                                       \
+{                                                                                               \
+    return FirstOrDefaultValueFamily<TYPE>(src, CELL, READ);                                    \
+}                                                                                               \
+TYPE il2cpp_linq_last_##FAM(Il2CppArray* src)                                                   \
+{                                                                                               \
+    return LastValueFamily<TYPE>(src, CELL, READ);                                              \
+}                                                                                               \
+TYPE il2cpp_linq_last_or_default_##FAM(Il2CppArray* src)                                        \
+{                                                                                               \
+    return LastOrDefaultValueFamily<TYPE>(src, CELL, READ);                                     \
+}
+
+IL2CPP_LINQ_DEF_VT_PRED_ENTRIES(dt, IL2CPP_LINQ_CELL_DATETIME, runtime::Il2CppDateTime,
+    LinqCellReadDt, InvokePredDt, InvokePredDtIdx)
+IL2CPP_LINQ_DEF_VT_PRED_ENTRIES(ts, IL2CPP_LINQ_CELL_TIMESPAN, runtime::Il2CppTimeSpan,
+    LinqCellReadTs, InvokePredTs, InvokePredTsIdx)
+IL2CPP_LINQ_DEF_VT_PRED_ENTRIES(guid, IL2CPP_LINQ_CELL_GUID, Il2CppGuid,
+    LinqCellReadGuid, InvokePredGuid, InvokePredGuidIdx)
+
+#undef IL2CPP_LINQ_DEF_VT_PRED_ENTRIES
 
 //------------------------------------------------------------------------------
 // ToArray -- deep clone (element-agnostic; the array is self-describing).

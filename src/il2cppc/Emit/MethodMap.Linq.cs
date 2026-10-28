@@ -1077,12 +1077,14 @@ public static partial class MethodRefResolver
             // NAME decides the family (the 0x11 byte is shared by every value
             // type); a USER STRUCT has no cell ABI and stays LOUD.
             //
-            // The operators with NO value-family kernel stay LOUD: the
-            // predicate family (Where / All / TakeWhile / SkipWhile /
-            // Count(pred) / Any(pred)) ships per i4 / ref / i8 / d / f /
-            // narrow family only, and First / Last have no family entry at
-            // all (linq_family.h) -- a foreign ABI would be a silent wrong
-            // value.
+            // impl-linq-vtpred: the SOURCE PREDICATE family (Where / All /
+            // TakeWhile / SkipWhile / Count(pred) / Any(pred)) and the
+            // source-only First / FirstOrDefault / Last / LastOrDefault now
+            // have their own per-family entries -- the generated predicate
+            // leaf takes the element BY VALUE, so a foreign (i4/ref) ABI would
+            // be a silent wrong value. The operator arms below bind those
+            // entries; every other value-family operator keeps riding the
+            // family-generic cell kernels (see above).
             string? valCell = LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type);
             if (valCell is { } vc)
             {
@@ -1094,6 +1096,46 @@ public static partial class MethodRefResolver
                 string vcFam = vc == "12" ? "dt" : vc == "13" ? "ts" : "guid";
                 string vcResult = vcFam == "guid" ? "guidv" : vcFam;
                 string valArrayType = LinqArrayTypeNameExact(genArgs![0], genArgNames, 0);
+                // impl-linq-vtpred: the SOURCE PREDICATE family over the
+                // by-value struct families. The generated predicate leaf takes
+                // the element BY VALUE (Il2CppDateTime / Il2CppTimeSpan /
+                // Il2CppGuid), so each operator has its own per-family entry --
+                // the i4 predicate kernels would read 4-byte cells and call
+                // through a foreign ABI (a silent wrong value). The index-aware
+                // overloads (Func<TSource,int,bool>) have their own *_idx
+                // entries; the index is the element's 0-based SOURCE position.
+                bool valPredIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
+                if (name == "Where")
+                    return I($"il2cpp::il2cpp_linq_where{(valPredIdx ? "_idx" : "")}_{vcFam}",
+                        2, true, true, false, TwoArg, returnTypeName: valArrayType);
+                if (name == "All")
+                    return I($"il2cpp::il2cpp_linq_all_{vcFam}", 2, true, false, false, TwoArg);
+                if (name == "TakeWhile" || name == "SkipWhile")
+                {
+                    string rangeOp = name == "TakeWhile" ? "take_while" : "skip_while";
+                    return I($"il2cpp::il2cpp_linq_{rangeOp}{(valPredIdx ? "_idx" : "")}_{vcFam}",
+                        2, true, true, false, TwoArg, returnTypeName: valArrayType);
+                }
+                if (name == "Count" && count >= 2)
+                    return I($"il2cpp::il2cpp_linq_count_pred_{vcFam}", 2, true, false, false, TwoArg);
+                if (name == "Any" && count >= 2)
+                    return I($"il2cpp::il2cpp_linq_any_pred_{vcFam}", 2, true, false, false, TwoArg);
+                // impl-linq-vtpred: First / FirstOrDefault / Last /
+                // LastOrDefault had NO family entry at all; the source-only
+                // forms now return the element BY VALUE through the family
+                // result slot (the *OrDefault forms answer default(T)).
+                if (name == "First" && count < 2)
+                    return I($"il2cpp::il2cpp_linq_first_{vcFam}", 1, true, false, false,
+                        OneArg, resultKind: vcResult);
+                if (name == "FirstOrDefault" && count < 2)
+                    return I($"il2cpp::il2cpp_linq_first_or_default_{vcFam}", 1, true, false, false,
+                        OneArg, resultKind: vcResult);
+                if (name == "Last" && count < 2)
+                    return I($"il2cpp::il2cpp_linq_last_{vcFam}", 1, true, false, false,
+                        OneArg, resultKind: vcResult);
+                if (name == "LastOrDefault" && count < 2)
+                    return I($"il2cpp::il2cpp_linq_last_or_default_{vcFam}", 1, true, false, false,
+                        OneArg, resultKind: vcResult);
                 // The element-returning entries (the element crosses by value).
                 if (name == "ElementAt")
                     return I($"il2cpp::il2cpp_linq_element_at_fam_{vcFam}", 2, true, false, false,
@@ -1523,8 +1565,20 @@ public static partial class MethodRefResolver
                 case "First" when count < 2:
                     return I("il2cpp::il2cpp_linq_first_ref", 1, true, true, false, OneArg,
                         returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                // impl-linq-vtpred: the reference-source PREDICATE forms of
+                // First / FirstOrDefault. The i4 entries (first_predicate /
+                // first_or_default_predicate) call the predicate through the
+                // int32 ABI; a string[]/object[]/class[] source needs the
+                // reference ABI (bool(*)(Il2CppObject*)). FirstOrDefault
+                // answers nullptr for an empty / no-match source.
+                case "First":
+                    return I("il2cpp::il2cpp_linq_first_pred_ref", 2, true, true, false, TwoArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
                 case "FirstOrDefault" when count < 2:
                     return I("il2cpp::il2cpp_linq_first_or_default_ref", 1, true, true, false, OneArg,
+                        returnTypeName: LinqRefElementTypeName(genArgs, srcType));
+                case "FirstOrDefault":
+                    return I("il2cpp::il2cpp_linq_first_or_default_pred_ref", 2, true, true, false, TwoArg,
                         returnTypeName: LinqRefElementTypeName(genArgs, srcType));
                 case "Last" when count < 2:
                     return I("il2cpp::il2cpp_linq_last_ref", 1, true, true, false, OneArg,
@@ -1799,7 +1853,9 @@ public static partial class MethodRefResolver
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{argType}> not wired: " +
                         "the stage-1 runtime LINQ surface is int32 (0x08) element-family for this operator " +
-                        "(the wired reference-source entries are Any/Count/Where/Select ref->ref/First/FirstOrDefault)"),
+                        "(the wired entries are the int32 family, the reference-source " +
+                        "Any/Count/Where/Select/First/FirstOrDefault, and the DateTime/TimeSpan/Guid " +
+                        "predicate + First/Last entries)"),
                 _ => null,
             };
         }

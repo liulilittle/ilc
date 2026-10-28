@@ -145,6 +145,15 @@ int32_t       il2cpp_linq_first_or_default_predicate(Il2CppArray* src, Il2CppObj
 // match, or an empty source -> InvalidOperationException.
 //   src  : reference-element source array (null -> ArgumentNullException)
 //   pred : delegate wrapping bool(*)(Il2CppObject*); null -> ArgumentNullException
+// impl-linq-vtpred: First(predicate) / FirstOrDefault(predicate) over a
+// REFERENCE-element source -- the reference counterparts of
+// il2cpp_linq_first_predicate / il2cpp_linq_first_or_default_predicate. The
+// predicate is bool(*)(Il2CppObject*) (bound leaves take the target in the
+// `this` slot); First throws when no element matches, FirstOrDefault answers
+// nullptr for an empty / no-match source.
+Il2CppObject* il2cpp_linq_first_pred_ref(Il2CppArray* src, Il2CppObject* pred);
+Il2CppObject* il2cpp_linq_first_or_default_pred_ref(Il2CppArray* src, Il2CppObject* pred);
+
 Il2CppObject* il2cpp_linq_last_pred_ref(Il2CppArray* src, Il2CppObject* pred);
 
 // LastOrDefault(predicate) over a REFERENCE-element array: the LAST matching
@@ -1005,6 +1014,64 @@ int64_t       il2cpp_linq_long_count_dec(Il2CppArray* src);
 Il2CppArray*  il2cpp_linq_take_while_dec(Il2CppArray* src, Il2CppObject* pred);
 Il2CppArray*  il2cpp_linq_skip_while_dec(Il2CppArray* src, Il2CppObject* pred);
 Il2CppArray*  il2cpp_linq_default_if_empty1_dec(Il2CppArray* src);
+
+// impl-linq-vtpred: the SOURCE PREDICATE family over the by-value struct
+// families (System.DateTime / System.TimeSpan / System.Guid). net48's
+// Enumerable operators are generic in TSource, and the generated predicate
+// leaf takes the value struct BY VALUE (Il2CppDateTime / Il2CppTimeSpan /
+// Il2CppGuid) -- the i4 / ref / wide predicate entries would call it through
+// a foreign ABI and read the wrong cell width. Every entry validates the
+// source's real cell width before any element work.
+//   * array-returning: Where / TakeWhile / SkipWhile (and their index-aware
+//     Func<TSource,int,bool> forms) materialize a fresh array of the source's
+//     own element family;
+//   * scalar predicates: All / Count(pred) / Any(pred) follow the net48 empty
+//     truth table (All -> true without calling the predicate, Count -> 0,
+//     Any -> false);
+//   * First / FirstOrDefault / Last / LastOrDefault return the element BY
+//     VALUE (the family result-slot ABI; First/Last throw on an empty source,
+//     the *OrDefault forms answer default(T)).
+Il2CppArray*  il2cpp_linq_where_dt(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_where_idx_dt(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_take_while_dt(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_take_while_idx_dt(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_skip_while_dt(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_skip_while_idx_dt(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_all_dt(Il2CppArray* src, Il2CppObject* pred);
+int32_t       il2cpp_linq_count_pred_dt(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_any_pred_dt(Il2CppArray* src, Il2CppObject* pred);
+runtime::Il2CppDateTime il2cpp_linq_first_dt(Il2CppArray* src);
+runtime::Il2CppDateTime il2cpp_linq_first_or_default_dt(Il2CppArray* src);
+runtime::Il2CppDateTime il2cpp_linq_last_dt(Il2CppArray* src);
+runtime::Il2CppDateTime il2cpp_linq_last_or_default_dt(Il2CppArray* src);
+
+Il2CppArray*  il2cpp_linq_where_ts(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_where_idx_ts(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_take_while_ts(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_take_while_idx_ts(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_skip_while_ts(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_skip_while_idx_ts(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_all_ts(Il2CppArray* src, Il2CppObject* pred);
+int32_t       il2cpp_linq_count_pred_ts(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_any_pred_ts(Il2CppArray* src, Il2CppObject* pred);
+runtime::Il2CppTimeSpan il2cpp_linq_first_ts(Il2CppArray* src);
+runtime::Il2CppTimeSpan il2cpp_linq_first_or_default_ts(Il2CppArray* src);
+runtime::Il2CppTimeSpan il2cpp_linq_last_ts(Il2CppArray* src);
+runtime::Il2CppTimeSpan il2cpp_linq_last_or_default_ts(Il2CppArray* src);
+
+Il2CppArray*  il2cpp_linq_where_guid(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_where_idx_guid(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_take_while_guid(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_take_while_idx_guid(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_skip_while_guid(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_skip_while_idx_guid(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_all_guid(Il2CppArray* src, Il2CppObject* pred);
+int32_t       il2cpp_linq_count_pred_guid(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_any_pred_guid(Il2CppArray* src, Il2CppObject* pred);
+Il2CppGuid    il2cpp_linq_first_guid(Il2CppArray* src);
+Il2CppGuid    il2cpp_linq_first_or_default_guid(Il2CppArray* src);
+Il2CppGuid    il2cpp_linq_last_guid(Il2CppArray* src);
+Il2CppGuid    il2cpp_linq_last_or_default_guid(Il2CppArray* src);
 
 // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each entry
 // snapshots the bucket's decimal cells and reuses the DECIMAL-SOURCE kernel
