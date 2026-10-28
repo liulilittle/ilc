@@ -165,3 +165,5 @@ extern il2cpp::Il2CppClass System_IFormattable_class;
 extern il2cpp::Il2CppClass System_DateTime_class;
 extern il2cpp::Il2CppClass System_TimeSpan_class;
 extern il2cpp::Il2CppClass System_Guid_class;
+// dtoffset (delta 2): the System.DateTimeOffset box identity (List<T> carrier).
+extern il2cpp::Il2CppClass System_DateTimeOffset_class;

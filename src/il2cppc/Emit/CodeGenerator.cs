@@ -10901,10 +10901,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         {
             case LocExpr l:
                 return _curLocKinds.TryGetValue(l.Name, out var k)
-                    && (k == "guid" || k == "il2cpp::Il2CppGuid");
+                    && (k == "guid" || k == "guidv" || k == "il2cpp::Il2CppGuid");
             case LocAddrExpr la:
                 return _curLocKinds.TryGetValue(la.Name, out var ka)
-                    && (ka == "guid" || ka == "il2cpp::Il2CppGuid");
+                    && (ka == "guid" || ka == "guidv" || ka == "il2cpp::Il2CppGuid");
             case FieldExpr f:
                 return IsGuidField(f, types);
             case FieldAddrExpr fa:

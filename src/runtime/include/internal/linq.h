@@ -33,6 +33,8 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_array.h"
+#include "guid.h"         // delta 1: Il2CppGuid (Min/Max over Guid[])
+#include "il2cpp_time.h"  // delta 1: Il2CppDateTime / Il2CppTimeSpan
 
 #include <cstdint>
 
@@ -439,5 +441,21 @@ float   il2cpp_linq_sum_f(Il2CppArray* src);
 float   il2cpp_linq_min_f(Il2CppArray* src);
 float   il2cpp_linq_max_f(Il2CppArray* src);
 float   il2cpp_linq_average_f(Il2CppArray* src);
+
+//------------------------------------------------------------------------------
+// delta 1: Enumerable.Min/Max over the comparable VALUE families (net48
+// Comparer<T>.Default): DateTime/TimeSpan order by ticks (the DateTime kind
+// field never orders), Guid by the net48 field-wise CompareTo contract.
+// Each entry returns the WINNING OPERAND BY VALUE (the runtime value struct);
+// an empty source throws InvalidOperationException ("Sequence contains no
+// elements"), exactly like the numeric entries above. Sum/Average do NOT
+// exist for these types in net48 and stay LOUD at the transpile gate.
+//------------------------------------------------------------------------------
+runtime::Il2CppDateTime  il2cpp_linq_min_dt(Il2CppArray* src);
+runtime::Il2CppDateTime  il2cpp_linq_max_dt(Il2CppArray* src);
+runtime::Il2CppTimeSpan  il2cpp_linq_min_ts(Il2CppArray* src);
+runtime::Il2CppTimeSpan  il2cpp_linq_max_ts(Il2CppArray* src);
+Il2CppGuid               il2cpp_linq_min_guid(Il2CppArray* src);
+Il2CppGuid               il2cpp_linq_max_guid(Il2CppArray* src);
 
 } // namespace il2cpp

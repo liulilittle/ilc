@@ -432,6 +432,142 @@ double il2cpp_linq_max_d(Il2CppArray* src)
     return best;
 }
 
+//------------------------------------------------------------------------------
+// delta 1: Min/Max over the comparable VALUE families (net48
+// Comparer<T>.Default). DateTime array cells are the packed CLR image (62-bit
+// ticks + 2-bit kind); the comparisons use TICKS only (the kind field never
+// orders -- the CmpDateTimeKey precedent), while the WINNING OPERAND is
+// returned unchanged (kind preserved). TimeSpan cells are raw ticks. Guid
+// comparison follows the net48 field-wise CompareTo (il2cpp_guid_compare).
+// An empty source throws InvalidOperationException like the numeric entries.
+//------------------------------------------------------------------------------
+namespace {
+
+void RequireLinqCell(Il2CppArray* src, int32_t width)
+{
+    if (src->isRefElem || src->elemSize != width)
+    {
+        il2cpp_throw_not_supported_exception(
+            "LINQ value-family aggregate: source element width mismatch.");
+    }
+}
+
+} // namespace
+
+runtime::Il2CppDateTime il2cpp_linq_min_dt(Il2CppArray* src)
+{
+    CheckSource(src);
+    RequireLinqCell(src, 8);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t bestBits = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    int64_t bestTicks = bestBits & static_cast<int64_t>(runtime::kDateTimeArrayTickMask);
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t bits = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        const int64_t ticks = bits & static_cast<int64_t>(runtime::kDateTimeArrayTickMask);
+        if (ticks < bestTicks) { bestTicks = ticks; bestBits = bits; }
+    }
+    return runtime::il2cpp_datetime_from_array_bits(bestBits);
+}
+
+runtime::Il2CppDateTime il2cpp_linq_max_dt(Il2CppArray* src)
+{
+    CheckSource(src);
+    RequireLinqCell(src, 8);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t bestBits = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    int64_t bestTicks = bestBits & static_cast<int64_t>(runtime::kDateTimeArrayTickMask);
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t bits = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        const int64_t ticks = bits & static_cast<int64_t>(runtime::kDateTimeArrayTickMask);
+        if (ticks > bestTicks) { bestTicks = ticks; bestBits = bits; }
+    }
+    return runtime::il2cpp_datetime_from_array_bits(bestBits);
+}
+
+runtime::Il2CppTimeSpan il2cpp_linq_min_ts(Il2CppArray* src)
+{
+    CheckSource(src);
+    RequireLinqCell(src, 8);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t best = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t ticks = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (ticks < best) best = ticks;
+    }
+    return runtime::Il2CppTimeSpan(best);
+}
+
+runtime::Il2CppTimeSpan il2cpp_linq_max_ts(Il2CppArray* src)
+{
+    CheckSource(src);
+    RequireLinqCell(src, 8);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    int64_t best = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const int64_t ticks = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (ticks > best) best = ticks;
+    }
+    return runtime::Il2CppTimeSpan(best);
+}
+
+Il2CppGuid il2cpp_linq_min_guid(Il2CppArray* src)
+{
+    CheckSource(src);
+    RequireLinqCell(src, 16);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    Il2CppGuid best;
+    std::memcpy(best.b, il2cpp_array_get_elem_ptr(src, 0), sizeof(best.b));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const uint8_t* elem = reinterpret_cast<const uint8_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (il2cpp_guid_compare(elem, best.b) < 0)
+        {
+            std::memcpy(best.b, elem, sizeof(best.b));
+        }
+    }
+    return best;
+}
+
+Il2CppGuid il2cpp_linq_max_guid(Il2CppArray* src)
+{
+    CheckSource(src);
+    RequireLinqCell(src, 16);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    Il2CppGuid best;
+    std::memcpy(best.b, il2cpp_array_get_elem_ptr(src, 0), sizeof(best.b));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const uint8_t* elem = reinterpret_cast<const uint8_t*>(il2cpp_array_get_elem_ptr(src, i));
+        if (il2cpp_guid_compare(elem, best.b) > 0)
+        {
+            std::memcpy(best.b, elem, sizeof(best.b));
+        }
+    }
+    return best;
+}
+
 double il2cpp_linq_average_d(Il2CppArray* src)
 {
     CheckSource(src);

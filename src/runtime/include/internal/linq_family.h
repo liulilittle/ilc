@@ -18,6 +18,7 @@
 //     4  ushort     5  char       6  uint       7  int32
 //     8  int64      9  float      10 double     11 decimal
 //     12 DateTime   13 TimeSpan   14 Guid       15 reference
+//     16 DateTimeOffset (delta 2 -- the 16-byte Il2CppDateTimeOffset value)
 //
 // The 0..6 range is byte-identical to IL2CPP_LINQ_NARROW_* (linq.h) so the
 // narrow kernels keep their existing codes; 7..10 reuses the IL2CPP_LINQ_ZIP_*
@@ -39,6 +40,7 @@
 
 #include "decimal.h"
 #include "guid.h"
+#include "il2cpp_dtoffset.h"
 #include "il2cpp_array.h"
 #include "il2cpp_object.h"
 #include "il2cpp_time.h"
@@ -64,6 +66,7 @@ constexpr int32_t IL2CPP_LINQ_CELL_DATETIME = 12;
 constexpr int32_t IL2CPP_LINQ_CELL_TIMESPAN = 13;
 constexpr int32_t IL2CPP_LINQ_CELL_GUID     = 14;
 constexpr int32_t IL2CPP_LINQ_CELL_REF      = 15;
+constexpr int32_t IL2CPP_LINQ_CELL_DTOFFSET = 16;
 
 // The byte width of a cell (the payload stride of its arrays).
 int32_t LinqCellSize(int32_t cell);

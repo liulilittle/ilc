@@ -58,6 +58,7 @@
 #include "enumext.h"           // il2cpp_enum_is_registered / il2cpp_enum_equals
                                // (boxed-enum value equality)
 #include "guid.h"              // Il2CppGuid (the Guid box payload, nullable GN-2)
+#include "il2cpp_dtoffset.h"   // Il2CppDateTimeOffset (the dtoffset box payload)
 #include "il2cpp_time.h"       // icall_datetime_equals / icall_timespan_equals
 #include "il2cpp_exception.h"
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_exception (decimal object-compare)
@@ -723,6 +724,18 @@ bool icall_boxed_equals_ext2(Il2CppObject* a, Il2CppObject* b)
         const Il2CppGuid va = BoxedGuid(b);
         const Il2CppGuid vb = BoxedGuid(a);
         return std::memcmp(va.b, vb.b, sizeof(va.b)) == 0;
+    }
+    // dtoffset (delta 2): a boxed DateTimeOffset compares by its UTC instant
+    // (net48 DateTimeOffset.Equals(DateTimeOffset) -- two offsets of the same
+    // instant are equal). The List<DateTimeOffset> IndexOf/Contains/Remove
+    // scans reuse this arm.
+    if (klass == &System_DateTimeOffset_class)
+    {
+        Il2CppDateTimeOffset va;
+        Il2CppDateTimeOffset vb;
+        std::memcpy(&va, reinterpret_cast<const char*>(a) + kBoxPayloadOffset, sizeof(va));
+        std::memcpy(&vb, reinterpret_cast<const char*>(b) + kBoxPayloadOffset, sizeof(vb));
+        return icall_dtoffset_equals(va, vb);
     }
     // Enum-klass boxes (icall_box_enum): the klass is the enum's OWN
     // descriptor (name-bearing, so the enumext registry resolves it). The

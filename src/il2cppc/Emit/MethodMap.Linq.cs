@@ -1470,6 +1470,35 @@ public static partial class MethodRefResolver
             }
         }
 
+        // delta 2: Select over a NON-decimal VALUE-TYPE source (DateTime /
+        // TimeSpan / Guid / DateTimeOffset) with a DateTimeOffset result.
+        // net48 Select<TSource,TResult> is generic, and every one of these
+        // source structs has a by-value selector ABI plus a runtime kernel
+        // (il2cpp_linq_select_<src>_dtoffset). The result is a fresh 16-byte
+        // non-reference DateTimeOffset[] tracked by its exact element name.
+        // A user struct source has no such ABI and falls through to the LOUD
+        // gate below.
+        if (listKind == null && name == "Select"
+            && IsLinqValueTypeSource(genArgs, receiverType, arg0Type)
+            && genArgs is { Length: >= 2 } && genArgs[1] == 0x11
+            && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.DateTimeOffset")
+        {
+            string? srcFam = LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type) switch
+            {
+                "12" => "dt",
+                "13" => "ts",
+                "14" => "guid",
+                "16" => "dto",
+                _ => null,
+            };
+            if (srcFam != null)
+            {
+                bool srcSelIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
+                return I($"il2cpp::il2cpp_linq_select_{(srcSelIdx ? "idx_" : "")}{srcFam}_dtoffset",
+                    2, true, true, false, TwoArg, returnTypeName: "System.DateTimeOffset[]");
+            }
+        }
+
         // Reference-element ARRAY source: the ref-family entries that exist.
         // A 0x11 VALUETYPE source (decimal/DateTime/TimeSpan/Guid/user struct)
         // is folded into "ref" by LinqSourceFamily but is NOT a managed
@@ -1960,6 +1989,14 @@ public static partial class MethodRefResolver
                             case "System.Guid":
                                 return I("il2cpp::il2cpp_linq_to_list_guid", 1, true, true, false,
                                     OneArg, returnTypeName: "System.Collections.Generic.List`1_System.Guid");
+                            case "System.DateTimeOffset":
+                                // delta 2: the 16-byte DateTimeOffset value is
+                                // boxed into the listobj storage through
+                                // icall_box_date_time_offset; the tracked List
+                                // name carries the element so MethodMap.List
+                                // dispatches the dtoffset family.
+                                return I("il2cpp::il2cpp_linq_to_list_dtoffset", 1, true, true, false,
+                                    OneArg, returnTypeName: "System.Collections.Generic.List`1_System.DateTimeOffset");
                         }
                         // A USER STRUCT (a value type defined in this assembly):
                         // the box needs the struct's own generated descriptor and
@@ -2131,10 +2168,12 @@ public static partial class MethodRefResolver
                             // decimal its own, and any other value type stays LOUD.
                         {
                             string? resName = genArgNames is { Length: > 1 } ? genArgNames[1] : null;
-                            if (resName is "System.DateTime" or "System.TimeSpan" or "System.Guid")
+                            if (resName is "System.DateTime" or "System.TimeSpan" or "System.Guid"
+                                or "System.DateTimeOffset")
                             {
                                 string suffix = resName == "System.DateTime" ? "dt"
-                                    : resName == "System.TimeSpan" ? "ts" : "guid";
+                                    : resName == "System.TimeSpan" ? "ts"
+                                    : resName == "System.Guid" ? "guid" : "dtoffset";
                                 return I($"il2cpp::il2cpp_linq_select_{(selIdx ? "idx_" : "")}i4_{suffix}",
                                     2, true, true, false, TwoArg,
                                     returnTypeName: resName + "[]");
@@ -3020,7 +3059,8 @@ public static partial class MethodRefResolver
         return name != null && (name.EndsWith("System.Decimal[]", StringComparison.Ordinal)
             || name.EndsWith("System.DateTime[]", StringComparison.Ordinal)
             || name.EndsWith("System.TimeSpan[]", StringComparison.Ordinal)
-            || name.EndsWith("System.Guid[]", StringComparison.Ordinal));
+            || name.EndsWith("System.Guid[]", StringComparison.Ordinal)
+            || name.EndsWith("System.DateTimeOffset[]", StringComparison.Ordinal));
     }
 
     // IsLinqNonDecimalValueTypeSource -- the source element is a 0x11
@@ -3058,6 +3098,7 @@ public static partial class MethodRefResolver
                 "System.DateTime" => "12",
                 "System.TimeSpan" => "13",
                 "System.Guid" => "14",
+                "System.DateTimeOffset" => "16",
                 _ => null,
             };
         }
@@ -3066,6 +3107,7 @@ public static partial class MethodRefResolver
         if (tracked.EndsWith("System.DateTime[]", StringComparison.Ordinal)) return "12";
         if (tracked.EndsWith("System.TimeSpan[]", StringComparison.Ordinal)) return "13";
         if (tracked.EndsWith("System.Guid[]", StringComparison.Ordinal)) return "14";
+        if (tracked.EndsWith("System.DateTimeOffset[]", StringComparison.Ordinal)) return "16";
         return null;
     }
 
@@ -3221,10 +3263,28 @@ public static partial class MethodRefResolver
             bool isDecimal = IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
             if (!isDecimal)
             {
+                // delta 1: DateTime / TimeSpan / Guid are COMPARABLE value types
+                // with a net48 Min<TSource>/Max<TSource> overload; they order by
+                // ticks / field-wise Guid CompareTo. Net48 has no Sum/Average
+                // for them (non-numeric), and a user struct has no comparison
+                // carrier, so those stay LOUD.
+                string? aggCell = LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type);
+                if ((name == "Min" || name == "Max") && aggCell is "12" or "13" or "14")
+                {
+                    string aggFam = aggCell == "12" ? "dt" : aggCell == "13" ? "ts" : "guid";
+                    // A Guid rides the BY-VALUE return kind "guidv" (the
+                    // GuidValueBytePtr/result-slot contract); DateTime/TimeSpan
+                    // return their runtime struct by value directly.
+                    string aggKind = aggFam == "guid" ? "guidv" : aggFam;
+                    return I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_{aggFam}",
+                        1, true, false, false, new[] { "a" }, resultKind: aggKind);
+                }
                 throw new NotSupportedException(
                     $"Enumerable.{name} over a value-type source is not wired: the source-only " +
-                    "aggregate surface covers int32/int64/float/double/decimal only " +
-                    "(see docs/audit/b4-gaps.md)");
+                    "aggregate surface covers int32/int64/float/double/decimal, plus " +
+                    "Min/Max over System.DateTime/System.TimeSpan/System.Guid " +
+                    "(Comparer<T>.Default); Sum/Average and user structs stay LOUD " +
+                    "[Reference Source: System.Core/System/Linq/Enumerable.cs]");
             }
             // decimal: the 16-byte result slot (decimal T3 contract). The
             // kernel returns decimal for Average too (net48's overload).
@@ -3763,6 +3823,7 @@ public static partial class MethodRefResolver
         "dt" => "System.DateTime[]",
         "ts" => "System.TimeSpan[]",
         "guid" => "System.Guid[]",
+        "dtoffset" => "System.DateTimeOffset[]",
         _ => "System.Double[]",
     };
 
@@ -3779,6 +3840,7 @@ public static partial class MethodRefResolver
             "System.DateTime" => "dt",
             "System.TimeSpan" => "ts",
             "System.Guid" => "guid",
+            "System.DateTimeOffset" => "dtoffset",
             _ => null,
         };
     }
@@ -4356,6 +4418,24 @@ public static partial class MethodRefResolver
             case "Select":
             {
                 byte tRes = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                // delta 2: a System.DateTimeOffset result over the wide source
+                // families (i8/f/d). DateTimeOffset has its own 16-byte by-value
+                // selector ABI, so it does NOT ride select_wide's resKind space.
+                // The narrow source families (1/2/4-byte integral) would need a
+                // cell-kind-aware dtoffset kernel and stay LOUD.
+                if (tRes == 0x11 && genArgNames is { Length: >= 2 }
+                    && genArgNames[1] == "System.DateTimeOffset")
+                {
+                    if (narrow)
+                        throw new NotSupportedException(
+                            "Enumerable.Select over a narrow-element source with a " +
+                            "System.DateTimeOffset result is not wired (no cell-kind-aware " +
+                            "dtoffset selector kernel)");
+                    bool wideSelIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
+                    return I($"il2cpp::il2cpp_linq_select_{(wideSelIdx ? "idx_" : "")}{suffix}_dtoffset",
+                        2, true, true, false, TwoArg,
+                        returnTypeName: "System.DateTimeOffset[]");
+                }
                 string resKind = tRes switch
                 {
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",

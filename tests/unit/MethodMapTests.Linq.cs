@@ -143,6 +143,24 @@ public class MethodMapTestsLinq
     }
 
     //--------------------------------------------------------------------------
+    // ToList<DateTimeOffset>(IEnumerable<DateTimeOffset>) ->
+    // il2cpp_linq_to_list_dtoffset. DateTimeOffset is a 16-byte runtime value
+    // (il2cpp_dtoffset.h), so the listobj element is boxed through
+    // icall_box_date_time_offset (listobj.h). The 0x11 byte alone covers every
+    // value type, so the MethodSpec FULL NAME is the authority.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ToList_DateTimeOffset_MapsToBoxedDtoffset()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericNamedArg("ToList",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x1C, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
+            ns: "System", typeName: "DateTimeOffset"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_to_list_dtoffset", resolved.CppName);
+        Assert.Equal("System.Collections.Generic.List`1_System.DateTimeOffset", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // Sum/Min/Max/Average over decimal[] -> the 16-byte decimal kernels
     // (P0LINQ1 D2). ResultKind "dec" is the result-slot ABI marker.
     //--------------------------------------------------------------------------
@@ -3143,6 +3161,68 @@ public class MethodMapTestsLinq
     }
 
     //==========================================================================
+    // Select with a System.DateTimeOffset RESULT (delta 2). The 0x11 result
+    // byte is name-resolved: the int32 source rides the i4 kernel and a
+    // DateTime source rides the dt-source kernel (both write a 16-byte
+    // DateTimeOffset cell / "dto" result ABI).
+    //==========================================================================
+    [Theory]
+    [InlineData(0x08, false, "il2cpp::il2cpp_linq_select_i4_dtoffset")]
+    [InlineData(0x08, true, "il2cpp::il2cpp_linq_select_idx_i4_dtoffset")]
+    public void Resolve_I4Select_DateTimeOffsetResult_MapsToI4DtoffsetKernel(
+        byte srcByte, bool indexForm, string icall)
+    {
+        var resolved = ResolveMethodSpec(
+            SynthesizeGenericValueSourceValueResult("Select", indexForm, srcByte, "System.DateTimeOffset"));
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal("System.DateTimeOffset[]", resolved.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("System.DateTime", false, "il2cpp::il2cpp_linq_select_dt_dtoffset")]
+    [InlineData("System.TimeSpan", false, "il2cpp::il2cpp_linq_select_ts_dtoffset")]
+    [InlineData("System.Guid", false, "il2cpp::il2cpp_linq_select_guid_dtoffset")]
+    public void Resolve_ValueSourceSelect_DateTimeOffsetResult_MapsToValueSourceDtoffsetKernel(
+        string srcType, bool indexForm, string icall)
+    {
+        var resolved = ResolveMethodSpec(
+            SynthesizeGenericNamedValueSourceValueResult("Select", indexForm, srcType, "System.DateTimeOffset"));
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal("System.DateTimeOffset[]", resolved.ReturnTypeName);
+    }
+
+    //==========================================================================
+    // Min/Max over a value-type source (delta 1): net48 Comparer<T>.Default
+    // over DateTime (ticks) / TimeSpan (ticks) / Guid (field-wise). The 0x11
+    // source byte is name-resolved by the MethodSpec TypeRef.
+    //==========================================================================
+    [Theory]
+    [InlineData("Min", "System.DateTime", "il2cpp::il2cpp_linq_min_dt", "dt")]
+    [InlineData("Max", "System.DateTime", "il2cpp::il2cpp_linq_max_dt", "dt")]
+    [InlineData("Min", "System.TimeSpan", "il2cpp::il2cpp_linq_min_ts", "ts")]
+    [InlineData("Max", "System.TimeSpan", "il2cpp::il2cpp_linq_max_ts", "ts")]
+    [InlineData("Min", "System.Guid", "il2cpp::il2cpp_linq_min_guid", "guidv")]
+    [InlineData("Max", "System.Guid", "il2cpp::il2cpp_linq_max_guid", "guidv")]
+    public void Resolve_MinMax_ValueTypeSource_MapsToValueFamilyKernel(
+        string name, string srcType, string icall, string resultKind)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericNamedArg(name,
+            memberRefSignature: new byte[]
+            {
+                0x10, 0x01, 0x01,
+                0x13, 0x00,                                     // return TSource
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,             // IEnumerable<TSource>
+            },
+            ns: srcType[..srcType.LastIndexOf('.')],
+            typeName: srcType[(srcType.LastIndexOf('.') + 1)..]));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+    }
+
+    //==========================================================================
     // The DECIMAL-source Select with a VALUE result (net48
     // Select<decimal,TResult> and the (element,index) form): int32 / int64 /
     // double / float. Before this change the non-decimal results LOUD-rejected
@@ -3824,6 +3904,58 @@ public class MethodMapTestsLinq
         spec.WriteByte(srcByte);
         spec.WriteByte(0x11);
         spec.WriteCompressedInteger(coded);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // The same Select shape with BOTH generic arguments carried as named
+    // VALUETYPE TypeRefs (0x11 + coded index): needed to resolve a
+    // DateTime/TimeSpan/Guid SOURCE and a DateTimeOffset RESULT from the 0x11
+    // dispatch byte alone.
+    private static MemoryStream SynthesizeGenericNamedValueSourceValueResult(
+        string methodName, bool indexForm, string srcTypeName, string resTypeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        static int Coded(MetadataBuilder b, AssemblyReferenceHandle asm, string full)
+        {
+            var dot = full.LastIndexOf('.');
+            var reff = b.AddTypeReference(asm,
+                b.GetOrAddString(dot > 0 ? full[..dot] : ""),
+                b.GetOrAddString(dot > 0 ? full[(dot + 1)..] : full));
+            return (MetadataTokens.GetRowNumber(reff) << 2) | 1;
+        }
+        var srcCoded = Coded(mdb, asmRef, srcTypeName);
+        var resCoded = Coded(mdb, asmRef, resTypeName);
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(resCoded);      // return TResult
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(srcCoded);      // IEnumerable<TSource>
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D);
+        sig.WriteByte(indexForm ? (byte)0x03 : (byte)0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(srcCoded);      // Func<TSource,...>
+        if (indexForm) sig.WriteByte(0x08);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(resCoded);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(srcCoded);
+        spec.WriteByte(0x11); spec.WriteCompressedInteger(resCoded);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }
@@ -4770,3 +4902,4 @@ public class MethodMapTestsLinq
         return new MemoryStream(blob.ToArray());
     }
 }
+

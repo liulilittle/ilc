@@ -377,6 +377,22 @@ Il2CppClass System_Guid_class = {
     0,
 };
 
+// dtoffset (delta 2): the System.DateTimeOffset box descriptor. The runtime
+// value is a 16-byte Il2CppDateTimeOffset image (il2cpp_dtoffset.h) and the
+// listobj element family boxes it exactly like Guid (header + aligned 16-byte
+// payload, System.Object base, no reference fields).
+Il2CppClass System_DateTimeOffset_class = {
+    "System.DateTimeOffset",
+    32, // header + aligned 16-byte payload
+    0u,
+    0,
+    &System_Object_class,
+    nullptr,
+    0,
+    nullptr,
+    0,
+};
+
 // box-identity (audit A-c): the transpiler's default descriptor arm emits
 // `&System_<Name>_class` for every type without an explicit mapping, so
 // `obj is IntPtr` / `obj is UIntPtr` referenced these symbols -- which did not
@@ -820,6 +836,9 @@ void il2cpp_ensure_builtin_system_classes()
         il2cpp_class_register(&System_DateTime_class);
         il2cpp_class_register(&System_TimeSpan_class);
         il2cpp_class_register(&System_Guid_class);
+        // dtoffset (delta 2): the System.DateTimeOffset box identity (the
+        // List<DateTimeOffset> / ToList<DateTimeOffset> carrier).
+        il2cpp_class_register(&System_DateTimeOffset_class);
         // rtdict-b23 (DICT-GC): the Dictionary`2<string,int> GC-object wrapper
         // descriptor (defined in dictsi_obj.cpp, extern in dictsi_obj.h).
         // Registered here so

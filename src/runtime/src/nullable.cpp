@@ -210,6 +210,30 @@ Il2CppGuid icall_unbox_guid(Il2CppObject* obj)
 }
 
 //------------------------------------------------------------------------------
+// dtoffset (delta 2): icall_box_date_time_offset / icall_unbox_date_time_offset
+// -- the 16-byte System.DateTimeOffset payload copies verbatim (the
+// Il2CppDateTimeOffset image, il2cpp_dtoffset.h).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_box_date_time_offset(const Il2CppDateTimeOffset* value)
+{
+    Il2CppObject* boxed = il2cpp_gc_alloc_size(&System_DateTimeOffset_class,
+                                              kNullableBoxPayloadOffset + sizeof(Il2CppDateTimeOffset));
+    std::memcpy(reinterpret_cast<char*>(boxed) + kNullableBoxPayloadOffset, value,
+                sizeof(*value));
+    return boxed;
+}
+
+Il2CppDateTimeOffset icall_unbox_date_time_offset(Il2CppObject* obj)
+{
+    if (obj == nullptr) ThrowBoxNull();
+    if (!IsBoxOf(obj, &System_DateTimeOffset_class)) ThrowBoxInvalidCast("DateTimeOffset");
+    Il2CppDateTimeOffset value;
+    std::memcpy(&value, reinterpret_cast<char*>(obj) + kNullableBoxPayloadOffset,
+                sizeof(value));
+    return value;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_user_struct_to_string -- a translated USER value type's ToString
 // (the constrained callvirt shape). The type's reflected method table carries
 // the override and its vtable slot; the receiver is the value ADDRESS (the

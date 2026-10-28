@@ -29,6 +29,7 @@
 //------------------------------------------------------------------------------
 
 #include "guid.h"
+#include "il2cpp_dtoffset.h"
 #include "il2cpp_object.h"
 #include "il2cpp_time.h"
 
@@ -58,6 +59,12 @@ Il2CppObject* icall_box_time_span(Il2CppTimeSpan value);
 Il2CppTimeSpan icall_unbox_time_span(Il2CppObject* obj);
 Il2CppObject* icall_box_guid(const Il2CppGuid* value);
 Il2CppGuid icall_unbox_guid(Il2CppObject* obj);
+// dtoffset (delta 2): the 16-byte System.DateTimeOffset box (the ScalarTable
+// box/unbox names finally get their runtime definitions, exactly like the
+// DateTime/TimeSpan/Guid helpers above). The List<DateTimeOffset> element
+// family boxes through these.
+Il2CppObject* icall_box_date_time_offset(const Il2CppDateTimeOffset* value);
+Il2CppDateTimeOffset icall_unbox_date_time_offset(Il2CppObject* obj);
 
 // A translated USER value type's ToString (the constrained callvirt on a
 // struct receiver): finds the type's reflected ToString override through the

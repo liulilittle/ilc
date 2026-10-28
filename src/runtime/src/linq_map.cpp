@@ -188,6 +188,27 @@ void RequireGuidFamily(Il2CppArray* src)
     }
 }
 
+// delta 2: a TimeSpan[] source -- the 8-byte ticks cell (il2cpp_time.h).
+void RequireTimeSpanFamily(Il2CppArray* src)
+{
+    if (src->isRefElem || src->elemSize != 8)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.TimeSpan arrays are supported.");
+    }
+}
+
+// delta 2: a DateTimeOffset[] source -- the 16-byte Il2CppDateTimeOffset cell
+// (il2cpp_dtoffset.h).
+void RequireDtoffsetFamily(Il2CppArray* src)
+{
+    if (src->isRefElem || src->elemSize != static_cast<int32_t>(sizeof(runtime::Il2CppDateTimeOffset)))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Only one-dimensional System.DateTimeOffset arrays are supported.");
+    }
+}
+
 // RequireCallback -- validate the callback delegate (LINQ callback
 // contract, linq-domain.md section 2): null -> ArgumentNullException; a multicast
 // container -> InvalidOperationException (the multicast container is not a
@@ -2914,6 +2935,30 @@ Il2CppObject* il2cpp_linq_to_list_guid(Il2CppArray* src)
     return list;
 }
 
+// delta 2: ToList<System.DateTimeOffset>. The listobj element is a reference
+// slot, so each 16-byte DateTimeOffset cell is BOXED on entry through
+// icall_box_date_time_offset (nullable.cpp) -- the Guid/Decimal contract.
+// GC SAFETY: the source and the growing list are rooted across every add.
+Il2CppObject* il2cpp_linq_to_list_dtoffset(Il2CppArray* src)
+{
+    RequireArray(src);
+    RequireDtoffsetFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppObject* list = il2cpp_list_obj_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        runtime::Il2CppDateTimeOffset elem;
+        std::memcpy(&elem, il2cpp_array_get_elem_ptr(src, i), sizeof(elem));
+        il2cpp_list_obj_add_dtoffset(list, elem);
+    }
+    return list;
+}
+
 Il2CppObject* il2cpp_linq_to_list_struct(Il2CppArray* src, Il2CppClass* klass,
                                          int32_t payloadSize)
 {
@@ -4430,6 +4475,140 @@ Il2CppArray* il2cpp_linq_select_idx_i4_guid(Il2CppArray* src, Il2CppObject* sel)
     }
     return out;
 }
+
+//------------------------------------------------------------------------------
+// delta 2: Select<TResult = System.DateTimeOffset>.
+//
+// The generated selector returns the 16-byte Il2CppDateTimeOffset BY VALUE
+// (the decimal/DateTime/Guid by-value selector convention), so the result
+// array is a 16-byte non-reference cell array. ONE core walks the source and
+// calls the selector through the SOURCE family's declared parameter ABI:
+//   i4 slot  -- int32          i8 -- int64
+//   f/d      -- double         ref -- Il2CppObject*
+//   decimal  -- Il2CppDecimal  dt -- Il2CppDateTime
+//   ts       -- Il2CppTimeSpan guid -- Il2CppGuid
+//   dtoffset -- Il2CppDateTimeOffset
+// The (element, index) form passes the 0-based source index as well.
+// GC SAFETY: the delegate, the source and the result are rooted across the
+// per-element callback; the result cell address is re-derived AFTER the call.
+//------------------------------------------------------------------------------
+namespace {
+
+int32_t ReadDtoSrcI4(Il2CppArray* a, int32_t i) { return I4At(a, i); }
+int64_t ReadDtoSrcI8(Il2CppArray* a, int32_t i)
+{
+    return *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(a, i));
+}
+double ReadDtoSrcF(Il2CppArray* a, int32_t i)
+{
+    return static_cast<double>(*reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(a, i)));
+}
+double ReadDtoSrcD(Il2CppArray* a, int32_t i)
+{
+    return *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(a, i));
+}
+Il2CppObject* ReadDtoSrcRef(Il2CppArray* a, int32_t i)
+{
+    return *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(a, i));
+}
+runtime::Il2CppDecimal ReadDtoSrcDec(Il2CppArray* a, int32_t i)
+{
+    return *DecAt(a, i);
+}
+runtime::Il2CppDateTime ReadDtoSrcDt(Il2CppArray* a, int32_t i)
+{
+    return runtime::il2cpp_datetime_from_array_bits(
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(a, i)));
+}
+runtime::Il2CppTimeSpan ReadDtoSrcTs(Il2CppArray* a, int32_t i)
+{
+    return runtime::Il2CppTimeSpan(
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(a, i)));
+}
+Il2CppGuid ReadDtoSrcGuid(Il2CppArray* a, int32_t i)
+{
+    Il2CppGuid g;
+    std::memcpy(g.b, il2cpp_array_get_elem_ptr(a, i), sizeof(g.b));
+    return g;
+}
+runtime::Il2CppDateTimeOffset ReadDtoSrcDto(Il2CppArray* a, int32_t i)
+{
+    runtime::Il2CppDateTimeOffset v;
+    std::memcpy(&v, il2cpp_array_get_elem_ptr(a, i), sizeof(v));
+    return v;
+}
+
+template <typename Src>
+runtime::Il2CppDateTimeOffset InvokeSelDto(Il2CppDelegate* d, Src v)
+{
+    typedef runtime::Il2CppDateTimeOffset (*Fn)(Src);
+    typedef runtime::Il2CppDateTimeOffset (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+template <typename Src>
+runtime::Il2CppDateTimeOffset InvokeSelDtoIdx(Il2CppDelegate* d, Src v, int32_t index)
+{
+    typedef runtime::Il2CppDateTimeOffset (*Fn)(Src, int32_t);
+    typedef runtime::Il2CppDateTimeOffset (*ThisFn)(Il2CppObject*, Src, int32_t);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<Fn>(d->methodPtr)(v, index);
+}
+
+template <typename Src>
+Il2CppArray* SelectDtoffsetCore(Il2CppArray* src, Il2CppObject* sel,
+    Src (*read)(Il2CppArray*, int32_t), bool indexed)
+{
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDateTimeOffset)),
+        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const Src v = read(src, i);
+        const runtime::Il2CppDateTimeOffset slot = indexed
+            ? InvokeSelDtoIdx(d, v, i)
+            : InvokeSelDto(d, v);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot, sizeof(slot));
+    }
+    return out;
+}
+
+#define IL2CPP_LINQ_SELECT_DTO_WRAP(NAME, SRC, REQUIRE, READFN)                 \
+Il2CppArray* il2cpp_linq_select_##NAME##_dtoffset(Il2CppArray* src, Il2CppObject* sel) \
+{                                                                              \
+    RequireArray(src);                                                         \
+    REQUIRE(src);                                                              \
+    return SelectDtoffsetCore<SRC>(src, sel, READFN, false);                    \
+}                                                                              \
+Il2CppArray* il2cpp_linq_select_idx_##NAME##_dtoffset(Il2CppArray* src, Il2CppObject* sel) \
+{                                                                              \
+    RequireArray(src);                                                         \
+    REQUIRE(src);                                                              \
+    return SelectDtoffsetCore<SRC>(src, sel, READFN, true);                     \
+}
+
+} // namespace
+
+IL2CPP_LINQ_SELECT_DTO_WRAP(i4, int32_t, RequireInt32Family, ReadDtoSrcI4)
+IL2CPP_LINQ_SELECT_DTO_WRAP(i8, int64_t, RequireI8Family, ReadDtoSrcI8)
+IL2CPP_LINQ_SELECT_DTO_WRAP(f, double, RequireFloatFamily, ReadDtoSrcF)
+IL2CPP_LINQ_SELECT_DTO_WRAP(d, double, RequireDoubleFamily, ReadDtoSrcD)
+IL2CPP_LINQ_SELECT_DTO_WRAP(ref, Il2CppObject*, RequireRefFamily, ReadDtoSrcRef)
+IL2CPP_LINQ_SELECT_DTO_WRAP(dec, runtime::Il2CppDecimal, RequireDecimalFamily, ReadDtoSrcDec)
+IL2CPP_LINQ_SELECT_DTO_WRAP(dt, runtime::Il2CppDateTime, RequireDateTimeFamily, ReadDtoSrcDt)
+IL2CPP_LINQ_SELECT_DTO_WRAP(ts, runtime::Il2CppTimeSpan, RequireTimeSpanFamily, ReadDtoSrcTs)
+IL2CPP_LINQ_SELECT_DTO_WRAP(guid, Il2CppGuid, RequireGuidFamily, ReadDtoSrcGuid)
+IL2CPP_LINQ_SELECT_DTO_WRAP(dto, runtime::Il2CppDateTimeOffset, RequireDtoffsetFamily, ReadDtoSrcDto)
+
+#undef IL2CPP_LINQ_SELECT_DTO_WRAP
 
 //------------------------------------------------------------------------------
 // The DECIMAL-source INDEX Select (net48 Select<decimal,int,TResult>): the
@@ -8638,4 +8817,5 @@ Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result)
 }
 
 } // namespace il2cpp
+
 

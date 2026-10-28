@@ -9,6 +9,7 @@
 #include "sortedlist.h"
 #include "decimal.h"      // p0linq4 (D1): Il2CppDecimal (List<decimal> elements)
 #include "guid.h"         // p0linq4 (D1): Il2CppGuid (List<Guid> elements)
+#include "il2cpp_dtoffset.h" // delta 2: Il2CppDateTimeOffset (List<DateTimeOffset>)
 #include "il2cpp_time.h"  // p0linq4 (D1): Il2CppDateTime / Il2CppTimeSpan
 #include <cstddef>
 #include <cstdint>
@@ -238,6 +239,21 @@ bool il2cpp_list_obj_contains_ts(Il2CppObject* self, runtime::Il2CppTimeSpan val
 runtime::Il2CppTimeSpan il2cpp_list_obj_get_item_ts(Il2CppObject* self, int32_t index);
 runtime::Il2CppTimeSpan il2cpp_list_obj_enumerator_get_current_ts(Il2CppObject* self);
 Il2CppObject* il2cpp_list_obj_to_array_ts(Il2CppObject* self);
+
+// dtoffset (delta 2): the System.DateTimeOffset element family. The 16-byte
+// value is boxed through icall_box_date_time_offset (il2cpp_nullable.h) into
+// the listobj reference storage, exactly like the Guid family; the getters
+// return the runtime value struct BY VALUE ("dto" result kind). Equality
+// scans reuse the boxed-value compare (boxingext2.cpp, UTC-instant semantics).
+void il2cpp_list_obj_add_dtoffset(Il2CppObject* self, runtime::Il2CppDateTimeOffset value);
+void il2cpp_list_obj_insert_dtoffset(Il2CppObject* self, int32_t index, runtime::Il2CppDateTimeOffset value);
+void il2cpp_list_obj_set_item_dtoffset(Il2CppObject* self, int32_t index, runtime::Il2CppDateTimeOffset value);
+bool il2cpp_list_obj_remove_dtoffset(Il2CppObject* self, runtime::Il2CppDateTimeOffset value);
+int32_t il2cpp_list_obj_index_of_dtoffset(Il2CppObject* self, runtime::Il2CppDateTimeOffset value);
+bool il2cpp_list_obj_contains_dtoffset(Il2CppObject* self, runtime::Il2CppDateTimeOffset value);
+runtime::Il2CppDateTimeOffset il2cpp_list_obj_get_item_dtoffset(Il2CppObject* self, int32_t index);
+runtime::Il2CppDateTimeOffset il2cpp_list_obj_enumerator_get_current_dtoffset(Il2CppObject* self);
+Il2CppObject* il2cpp_list_obj_to_array_dtoffset(Il2CppObject* self);
 
 void il2cpp_list_obj_add_struct(Il2CppObject* self, const void* value,
                                 Il2CppClass* klass, int32_t payloadSize);

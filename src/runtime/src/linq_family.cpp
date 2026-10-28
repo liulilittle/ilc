@@ -110,6 +110,7 @@ int32_t LinqCellSize(int32_t cell)
             return 8;
         case IL2CPP_LINQ_CELL_DECIMAL:
         case IL2CPP_LINQ_CELL_GUID:
+        case IL2CPP_LINQ_CELL_DTOFFSET:
             return 16;
         default:
             return static_cast<int32_t>(sizeof(void*));
@@ -325,6 +326,16 @@ bool LinqCellEquals(Il2CppArray* a, int32_t ia, Il2CppArray* b, int32_t ib,
             return LinqCellReadI8(a, ia, cell) == LinqCellReadI8(b, ib, cell);
         case IL2CPP_LINQ_CELL_GUID:
             return std::memcmp(LinqCellPtr(a, ia), LinqCellPtr(b, ib), 16) == 0;
+        case IL2CPP_LINQ_CELL_DTOFFSET:
+        {
+            // net48 DateTimeOffset.Equals(DateTimeOffset): equal UTC instants
+            // (the offsets may differ).
+            runtime::Il2CppDateTimeOffset x;
+            runtime::Il2CppDateTimeOffset y;
+            std::memcpy(&x, LinqCellPtr(a, ia), sizeof(x));
+            std::memcpy(&y, LinqCellPtr(b, ib), sizeof(y));
+            return runtime::icall_dtoffset_equals(x, y);
+        }
         default:
             return runtime::icall_object_equals(
                 LinqCellReadRef(a, ia, cell), LinqCellReadRef(b, ib, cell));

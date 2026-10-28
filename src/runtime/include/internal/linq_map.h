@@ -282,6 +282,11 @@ Il2CppObject* il2cpp_linq_to_list_guid(Il2CppArray* src);
 Il2CppObject* il2cpp_linq_to_list_struct(Il2CppArray* src, Il2CppClass* klass,
                                          int32_t payloadSize);
 
+// delta 2: ToList<System.DateTimeOffset>. DateTimeOffset is the 16-byte
+// Il2CppDateTimeOffset value (il2cpp_dtoffset.h); the listobj storage boxes
+// each element through icall_box_date_time_offset (the Guid family contract).
+Il2CppObject* il2cpp_linq_to_list_dtoffset(Il2CppArray* src);
+
 //------------------------------------------------------------------------------
 // P0LINQ1 (D2) -- the SOURCE-ONLY decimal aggregates. net48 has
 // Sum/Min/Max/Average(this IEnumerable<decimal>) overloads; decimal is a
@@ -472,6 +477,31 @@ Il2CppArray* il2cpp_linq_select_ref_dec(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_ref_dt(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_ref_ts(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_ref_guid(Il2CppArray* src, Il2CppObject* sel);
+
+// delta 2: Select<TResult = System.DateTimeOffset>. The 16-byte value result
+// has its own selector ABI (the generated leaf returns Il2CppDateTimeOffset BY
+// VALUE) and materializes a fresh 16-byte-element DateTimeOffset[] (non-ref;
+// ldelem/stelem of that array is a separate wiring item). One entry per
+// SOURCE family, plus an (element,index) selector form:
+//   i4 / i8 / f / d / ref / dt / ts / guid / dtoffset sources
+Il2CppArray* il2cpp_linq_select_i4_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_i4_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_i8_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_i8_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_f_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_f_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_d_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_d_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_ref_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_ref_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_dt_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_dt_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_ts_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_ts_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_guid_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_guid_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_dto_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_dto_dtoffset(Il2CppArray* src, Il2CppObject* sel);
 
 // The reference-source Select with a VALUE result (net48
 // Select<TSource,TResult> with a non-reference TResult over a reference source):
