@@ -2980,6 +2980,21 @@ public static partial class MethodRefResolver
     //   * anything else (a "?" name with no tracked array, a user struct, an
     //     empty name) answers false -- the caller falls through to the LOUD
     //     gates instead of fabricating a decimal binding.
+    //
+    // INVARIANT behind the NULL-table arm (`genArgNames is null &&
+    // genArgs[0] == 0x11`) -- do not read it as "any non-MethodSpec 0x11 source
+    // is decimal":
+    //   (a) a MethodSpec can never produce a null table with a 0x11 slot:
+    //       GenericArgFullNames sets any=true for every 0x11/0x12/0x40/0x15
+    //       argument (MethodRefResolver.cs:2933-2967) and returns null only
+    //       when NO argument is nameful (:2985);
+    //   (b) the only producer of genArgs outside the MethodSpec path is the
+    //       LinqAggregateElementByte backfill, gated to
+    //       Sum/Min/Max/Average with no MethodSpec (MethodRefResolver.cs:2302-2303).
+    // If a future operator also backfills a non-generic element byte, this arm
+    // must be re-checked (restrict by operator or require a tracked
+    // System.Decimal[]): the net48 "0x11 => decimal" argument is specific to
+    // the four non-generic aggregate overloads.
     private static bool IsDecimalSourceNamed(byte[]? genArgs, string[]? genArgNames,
         string? receiverType, string? arg0Type)
     {
