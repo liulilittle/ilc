@@ -1031,20 +1031,46 @@ of the 1045 built case assemblies, only 25 nested value-type instance fields
 exist -- 23 user-enum fields (still the int32 carrier) and 2 `System.Guid`
 fields -- so the rejection has no case-level regression.
 
-PRE-EXISTING gap found while fixing the above (NOT touched by this batch, and
-NOT a closure-slot issue): a DECIMAL comparison whose operand is a PRVALUE --
-e.g. `f() == 2.5m` where `f` is a `Func<decimal>` -- emits
-`icall_decimal_equals((&(delegate_result)), ...)`; the decimal icall takes
-`const Il2CppDecimal*`, so the emitter takes the operand's address, and the
-address of a prvalue is ill-formed C++ ("taking address of rvalue", gcc
-`-fpermissive`). The Guid byte-pointer path avoids this by materializing a
-temporary through a const reference (`CodeGenerator.GuidValueBytePtr`); the
-decimal "dec" argument cast (`CodeGenerator.cs` "dec" arm) has no such arm.
-The gap is reachable only when the decimal operand is an un-folded call
-result -- an ordinary decimal comparison materializes its operands into
-temporaries first (`tests/cases/guidmethod2`), so the existing corpus does
-not hit it. `tests/cases/closure-dt` keeps the comparison INSIDE the closure
-(the operand is then the captured field, an lvalue).
+FIXED (impl-dec-rvalue, commit 000037aa): a DECIMAL operand that is a
+PRVALUE used to be addressed directly -- `f() == 2.5m` where `f` is a
+`Func<decimal>` emitted `icall_decimal_equals((&(delegate_result)), ...)`, and
+because the decimal icalls take `const Il2CppDecimal*` that address-of landed
+on an rvalue ("taking address of rvalue", gcc `-fpermissive`). The "dec"
+argument cast (`CodeGenerator.cs`, the `"dec"` arm) was shape-blind: it
+assumed every non-address operand was an addressable lvalue slot. The same
+arm also MISSED `FieldAddrExpr`, so a closure-captured decimal's
+`d.CompareTo(x)` (an ldflda) emitted `&(&x->d)` -- address of an rvalue
+pointer, "lvalue required as unary '&' operand".
+
+The cast is now split by shape (`CodeGenerator.DecimalValuePtr`): an ADDRESS
+operand (`IsAddressExpr` -- ldloca / ldflda / ldsflda) passes through uncast
+(it already renders `&x`); a slot-NAME operand (a local, a static field, an
+instance field read) keeps the plain `&(slot)`; every other shape is bound to
+a const reference first, which materializes a temporary whose lifetime covers
+the full call expression and IS addressable (the `GuidValueBytePtr`
+precedent; the parameter is already `const`, so no `const_cast`). The
+fix covers the whole decimal icall family, not just comparisons: the same
+cast serves `+ - * / %`, unary negation, the `op_Explicit` conversions and
+the instance members (CompareTo / Equals / ToString / GetHashCode). e2e lock:
+`tests/cases/decrvalue` (delegate-Invoke operands on both sides, a constant on
+the left, zero/negative boundaries, arithmetic on prvalues, conversions, a
+captured-decimal ldflda, a div-by-zero error path and the lvalue control).
+
+The prvalue shape the fold actually produces is a decimal-returning delegate
+Invoke -- every other decimal-producing call is assigned to its result slot
+first, and `OptimizeTemps` skips the value-slot ResultKinds (dec/guid/ip4).
+`tests/cases/closure-dt` keeps the comparison INSIDE the closure (the operand
+is then the captured field, an lvalue). See `tests/cases/guidmethod2` for the
+materialized-temporary comparison shape.
+
+Two residuals stay OPEN (both pre-existing, neither hit by the corpus): the
+C++ argument evaluation ORDER of two delegate-Invoke operands in one call is
+unspecified (net48 is left-to-right; observable only with side-effecting
+invokes, and decimal comparison/arithmetic are side-effect free), and the
+`decaddr` arm (ToString(IFormatProvider) address receivers) is not extended
+to prvalues -- a prvalue receiver routes through the `"dec"` arm instead, and
+any future prvalue reaching `decaddr` fails at C++ compile time (loud), never
+silently.
 
 
 ## 11. The value-type source family (System.DateTime / System.TimeSpan / System.Guid) -- WIRED on the family kernels, LOUD elsewhere
