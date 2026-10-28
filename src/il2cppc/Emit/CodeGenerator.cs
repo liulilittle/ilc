@@ -10043,6 +10043,17 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // (never two 8-byte halves).
         if (c.Function == "decimal_rva_value")
             return $"il2cpp::runtime::Il2CppDecimal{{ static_cast<int32_t>({EmitExpr(c.Args[0], md, types)}), static_cast<uint32_t>({EmitExpr(c.Args[1], md, types)}), static_cast<uint64_t>({EmitExpr(c.Args[2], md, types)}) }}";
+        // The other 16-byte RVA-initializer element images (StackFold
+        // EmitStelems width-16 elemName dispatch): the raw Guid bytes are the
+        // Il2CppGuid image (guid.h); DateTimeOffset is folded to the runtime
+        // (utcTicks, offsetMinutes) pair at transpile time.
+        if (c.Function == "guid_rva_value")
+        {
+            var guidBytes = string.Join(", ", c.Args.Select(a => $"static_cast<uint8_t>({EmitExpr(a, md, types)})"));
+            return $"il2cpp::Il2CppGuid{{ {{ {guidBytes} }} }}";
+        }
+        if (c.Function == "dto_rva_value")
+            return $"il2cpp::runtime::Il2CppDateTimeOffset{{ static_cast<int64_t>({EmitExpr(c.Args[0], md, types)}), static_cast<int32_t>({EmitExpr(c.Args[1], md, types)}) }}";
         // M3 arrays: newarr/ldlen/ldelem/stelem helpers.
         if (c.Function.StartsWith("newarr_", StringComparison.Ordinal)
             && int.TryParse(c.Function[7..], out var arrTok))
@@ -10192,6 +10203,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "dt" => $"il2cpp::runtime::il2cpp_datetime_from_array_bits(*reinterpret_cast<int64_t*>({ldelemPtr}))",
                 "ts" => $"il2cpp::runtime::Il2CppTimeSpan(*reinterpret_cast<int64_t*>({ldelemPtr}))",
                 "guid" => $"(*reinterpret_cast<const il2cpp::Il2CppGuid*>({ldelemPtr}))",
+                // LOUD P0-02/03 residual: DateTimeOffset[] element read -- the
+                // 16-byte runtime value struct (il2cpp_dtoffset.h).
+                "dto" => $"(*reinterpret_cast<const il2cpp::runtime::Il2CppDateTimeOffset*>({ldelemPtr}))",
                 _ => $"(*reinterpret_cast<int32_t*>({ldelemPtr}))",
             };
         }
@@ -10256,6 +10270,12 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "dec" => c.Args[2] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
                     ? $"(*reinterpret_cast<il2cpp::runtime::Il2CppDecimal*>({stelemPtr}) = (*({EmitExpr(c.Args[2], md, types)})))"
                     : $"(*reinterpret_cast<il2cpp::runtime::Il2CppDecimal*>({stelemPtr}) = ({EmitExpr(c.Args[2], md, types)}))",
+                // LOUD P0-02/03 residual: DateTimeOffset[] element store -- the
+                // 16-byte runtime value struct. An ADDRESS source (ldloca /
+                // ldflda) is dereferenced first (the guid/dec precedent).
+                "dto" => c.Args[2] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                    ? $"(*reinterpret_cast<il2cpp::runtime::Il2CppDateTimeOffset*>({stelemPtr}) = *reinterpret_cast<const il2cpp::runtime::Il2CppDateTimeOffset*>({EmitExpr(c.Args[2], md, types)}))"
+                    : $"(*reinterpret_cast<il2cpp::runtime::Il2CppDateTimeOffset*>({stelemPtr}) = {EmitExpr(c.Args[2], md, types)})",
                 _ => $"(*reinterpret_cast<int32_t*>({stelemPtr}) = static_cast<int32_t>({EmitExpr(c.Args[2], md, types)}))",
             };
         }
@@ -11925,6 +11945,11 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // il2cpp_array_new stride 16; the ldelem_dec/stelem_dec width arms
         // read/write the full struct.
         if (typeName == "System.Decimal") return (16, false);
+        // LOUD P0-02/03 residual: DateTimeOffset[] -- the 16-byte runtime value
+        // (Il2CppDateTimeOffset: utcTicks + offsetMinutes). A value-element
+        // array: allocating it as a reference array would scan the payload as
+        // GC pointers and make stelem/ldelem address 8-byte cells.
+        if (typeName == "System.DateTimeOffset") return (16, false);
         // Batch 155b: System.IntPtr/UIntPtr elements -- native int (8 bytes
         // on the 64-bit target) -- allocate like long[] (non-ref, native-int
         // stride); Ldelem_i/Stelem_i read/write the 8-byte payload.
@@ -12025,7 +12050,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         typeName is "System.Boolean" or "System.SByte" or "System.Int16" or "System.UInt16"
             or "System.UInt32" or "System.Single" or "System.Double" or "System.IntPtr"
             or "System.UIntPtr" or "System.DateTime" or "System.TimeSpan" or "System.Decimal"
-            or "System.Guid";
+            or "System.Guid" or "System.DateTimeOffset";
 
     private static string OpSymbol(BinaryOp op) => op switch
     {

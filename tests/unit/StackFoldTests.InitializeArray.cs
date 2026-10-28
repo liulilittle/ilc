@@ -521,4 +521,197 @@ public class StackFoldTestsInitializeArray
         };
         return (row << 2) | tag;
     }
+
+    //--- LOUD P0-02/03 residual: the width-16 BCL families and ENUM elements --
+
+    [Fact]
+    public void Fold_InitializeArray_Synth_Guid16_WritesRawSixteenBytes()
+    {
+        // Guid[] RVA blob: the raw 16-byte net48 field image IS the Il2CppGuid
+        // image (guid.h), so the fold slices one 16-byte element per
+        // stelem_guid and carries the 16 bytes as a guid_rva_value aggregate.
+        var blob = new byte[]
+        {
+            0x57, 0x9E, 0xA7, 0x0A, 0x2B, 0x1C, 0x3E, 0x4D,
+            0x9F, 0x40, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        };
+        using var pe = SynthElementRva(SynthElem.GuidRef, count: 2, blob);
+        var md = pe.GetMetadataReader();
+        var stmts = Fold(pe, md, MainBody(pe, md), peArg: pe);
+
+        var stelems = stmts.OfType<CallStmt>().Where(s => s.Function == "stelem_guid").ToList();
+        Assert.Equal(2, stelems.Count);
+        var g0 = Assert.IsType<CallExpr>(stelems[0].Args[2]);
+        Assert.Equal("guid_rva_value", g0.Function);
+        Assert.Equal(16, g0.Args.Count);
+        for (var i = 0; i < 16; i++)
+            Assert.Equal(blob[i], Assert.IsType<IntConstExpr>(g0.Args[i]).Value);
+        var g1 = Assert.IsType<CallExpr>(stelems[1].Args[2]);
+        Assert.Equal("guid_rva_value", g1.Function);
+        Assert.All(g1.Args, a => Assert.Equal(0, Assert.IsType<IntConstExpr>(a).Value));
+        Assert.Equal(1, Assert.IsType<IntConstExpr>(stelems[1].Args[1]).Value);
+    }
+
+    [Fact]
+    public void Fold_InitializeArray_Synth_DateTimeOffset16_ConvertsToUtcTicks()
+    {
+        // DateTimeOffset[] RVA blob: the net48 struct image (local _dateTime
+        // ticks at 0 with the 2 kind bits masked off, _offsetMinutes int16 at
+        // byte 8). The runtime value is (utcTicks, offsetMinutes), so the fold
+        // must convert: utcTicks = localTicks - offset*TicksPerMinute.
+        const long localTicks = 637000000000000000L; // 2020-ish, Kind=Unspecified
+        const int offsetMinutes = 120;               // +02:00
+        var blob = new byte[32];
+        BitConverter.GetBytes(localTicks | 0x4000000000000000L).CopyTo(blob, 0); // Local kind bit set: masked off
+        BitConverter.GetBytes((short)offsetMinutes).CopyTo(blob, 8);
+        // second element: offset -330 (-05:30)
+        BitConverter.GetBytes(localTicks + 1).CopyTo(blob, 16);
+        BitConverter.GetBytes((short)-330).CopyTo(blob, 24);
+        using var pe = SynthElementRva(SynthElem.DateTimeOffsetRef, count: 2, blob);
+        var md = pe.GetMetadataReader();
+        var stmts = Fold(pe, md, MainBody(pe, md), peArg: pe);
+
+        var stelems = stmts.OfType<CallStmt>().Where(s => s.Function == "stelem_dto").ToList();
+        Assert.Equal(2, stelems.Count);
+        var d0 = Assert.IsType<CallExpr>(stelems[0].Args[2]);
+        Assert.Equal("dto_rva_value", d0.Function);
+        Assert.Equal(localTicks - offsetMinutes * 600000000L, Assert.IsType<Int64ConstExpr>(d0.Args[0]).Value);
+        Assert.Equal(offsetMinutes, Assert.IsType<IntConstExpr>(d0.Args[1]).Value);
+        var d1 = Assert.IsType<CallExpr>(stelems[1].Args[2]);
+        Assert.Equal(localTicks + 1 + 330 * 600000000L, Assert.IsType<Int64ConstExpr>(d1.Args[0]).Value);
+        Assert.Equal(-330, Assert.IsType<IntConstExpr>(d1.Args[1]).Value);
+    }
+
+    [Theory]
+    [InlineData((byte)0x05, new byte[] { 1, 200, 7 }, "stelem_Stelem_i1")]
+    [InlineData((byte)0x06, new byte[] { 1, 2, 3 }, "stelem_Stelem_i2")]
+    [InlineData((byte)0x08, new byte[] { 1, 2, 3, 4 }, "stelem_Stelem_i4")]
+    [InlineData((byte)0x0A, new byte[] { 1, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0 }, "stelem_Stelem_i8")]
+    public void Fold_InitializeArray_Synth_Enum_SlicesUnderlyingWidth(
+        byte underlyingSig, byte[] blob, string expectedStelem)
+    {
+        // enum[] RVA blob: the element width is the UNDERLYING type width (the
+        // translated model collapses every enum backing field to int32, so the
+        // width must come from the raw value__ signature).
+        var count = blob.Length / UnderlyingWidth(underlyingSig);
+        using var pe = SynthElementRva(SynthElem.EnumDef, count, blob, underlyingSig);
+        var md = pe.GetMetadataReader();
+        var stmts = Fold(pe, md, MainBody(pe, md), peArg: pe);
+
+        var stelems = stmts.OfType<CallStmt>().Where(s => s.Function.StartsWith("stelem_", StringComparison.Ordinal)).ToList();
+        Assert.Equal(count, stelems.Count);
+        Assert.All(stelems, s => Assert.Equal(expectedStelem, s.Function));
+        var width = UnderlyingWidth(underlyingSig);
+        for (var i = 0; i < count; i++)
+        {
+            var expected = width switch
+            {
+                1 => (long)blob[i],
+                2 => BitConverter.ToInt16(blob, i * 2),
+                4 => BitConverter.ToInt32(blob, i * 4),
+                _ => BitConverter.ToInt64(blob, i * 8),
+            };
+            Assert.Equal(expected, Assert.IsType<IntConstExpr>(stelems[i].Args[2]).Value);
+        }
+    }
+
+    private static int UnderlyingWidth(byte sig) => sig switch
+    {
+        0x02 or 0x04 or 0x05 => 1,
+        0x03 or 0x06 or 0x07 => 2,
+        0x08 or 0x09 or 0x0C => 4,
+        _ => 8,
+    };
+
+    private enum SynthElem { GuidRef, DateTimeOffsetRef, EnumDef }
+
+    // Synthetic PE with a REAL RVA field and the given newarr element token:
+    // ldc.i4 <count>; newarr <elem>; dup; ldtoken FIELD; call InitializeArray.
+    private static PEReader SynthElementRva(SynthElem kind, int count, byte[] blob, byte enumUnderlyingSig = 0x05)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var mscorlib = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var objRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        var arrRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("Array"));
+        var rfthRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("RuntimeFieldHandle"));
+
+        EntityHandle elemToken;
+        switch (kind)
+        {
+            case SynthElem.GuidRef:
+                elemToken = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("Guid"));
+                break;
+            case SynthElem.DateTimeOffsetRef:
+                elemToken = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("DateTimeOffset"));
+                break;
+            case SynthElem.EnumDef:
+            {
+                var enumRef = mdb.AddTypeReference(mscorlib, mdb.GetOrAddString("System"), mdb.GetOrAddString("Enum"));
+                var valueField = mdb.AddFieldDefinition(
+                    FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+                    mdb.GetOrAddString("value__"), mdb.GetOrAddBlob(new byte[] { 0x06, enumUnderlyingSig }));
+                elemToken = mdb.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.Class,
+                    mdb.GetOrAddString("Cases"), mdb.GetOrAddString("SynthEnum"), enumRef, valueField,
+                    default(MethodDefinitionHandle));
+                break;
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(kind));
+        }
+
+        var initSig = new BlobBuilder();
+        initSig.WriteByte(0x00);
+        initSig.WriteCompressedInteger(2);
+        initSig.WriteByte(0x01);
+        initSig.WriteByte(0x12);
+        initSig.WriteCompressedInteger(CodedIndex(arrRef));
+        initSig.WriteByte(0x11);
+        initSig.WriteCompressedInteger(CodedIndex(rfthRef));
+        var initializeArray = mdb.AddMemberReference(arrRef, mdb.GetOrAddString("InitializeArray"),
+            mdb.GetOrAddBlob(initSig));
+
+        var field = mdb.AddFieldDefinition(FieldAttributes.Private | FieldAttributes.Static,
+            mdb.GetOrAddString("s_data"), mdb.GetOrAddBlob(new byte[] { 0x06, 0x11 }));
+        mdb.AddFieldRelativeVirtualAddress(field, 0);
+        var ctor = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL, mdb.GetOrAddString("Nope"),
+            mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x08 }), 0, default(ParameterHandle));
+        mdb.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Class,
+            mdb.GetOrAddString("Cases"), mdb.GetOrAddString("Base"), objRef, field, ctor);
+
+        var il = new BlobBuilder();
+        var encoder = new InstructionEncoder(il);
+        encoder.LoadConstantI4(count);
+        encoder.OpCode(ILOpCode.Newarr);
+        encoder.Token(MetadataTokens.GetToken(elemToken));
+        encoder.OpCode(ILOpCode.Dup);
+        LdToken(encoder, MetadataTokens.GetToken(field));
+        encoder.OpCode(ILOpCode.Call);
+        encoder.Token(MetadataTokens.GetToken(initializeArray));
+        encoder.OpCode(ILOpCode.Ret);
+        il.Align(4);
+        var stream = new MethodBodyStreamEncoder(il);
+        var bodyOffset = stream.AddMethodBody(encoder, 1, default(StandaloneSignatureHandle), MethodBodyAttributes.None);
+        _ = mdb.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL, mdb.GetOrAddString("Main"),
+            mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }), bodyOffset, default(ParameterHandle));
+
+        var mapped = new BlobBuilder();
+        mapped.WriteBytes(blob);
+        var root = new MetadataRootBuilder(mdb, "v4.0.30319");
+        var peBuilder = new ManagedPEBuilder(new PEHeaderBuilder(
+                machine: Machine.I386,
+                imageCharacteristics: Characteristics.ExecutableImage | Characteristics.Dll),
+            root, il, mappedFieldData: mapped);
+        var peBlob = new BlobBuilder();
+        peBuilder.Serialize(peBlob);
+        return new PEReader(new MemoryStream(peBlob.ToArray()));
+    }
 }

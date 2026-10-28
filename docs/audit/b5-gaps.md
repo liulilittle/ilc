@@ -1228,3 +1228,31 @@ possible: the bucket's cell width is a runtime fact.
 - Tests: `tests/unit/MethodMapTests.Linq.cs` (the value-family theories and
   the bucket LOUD theories), `tests/cases/loud-linq-vtfam` (e2e, byte-equal
   with net48), `tests/cases/zmatrix` (the compile-error regression).
+
+## 9. Array-initializer / BCL value-element residuals (impl-arrayinit)
+
+Registered by the InitializeArray + ldelem/stelem value-element batch. Two
+pre-existing shapes stay outside that batch (NOT silently wrong -- they still
+reject loudly at transpile time):
+
+- **Multidim arrays of value structs / enums.** `new DateTime[2,2]` (and
+  Guid/DateTimeOffset/Decimal/any enum) is rejected at the `newobj` allocating
+  ctor: `ReadMultidimElemSuffix` sees ELEMENT_TYPE_VALUETYPE (0x11) and throws
+  `multidim array element byte 0x11 (VALUETYPE) in M3 (allocation)`
+  (`src/il2cppc/Ir/StackFold.cs`). The multidim allocator
+  (`il2cpp_array_new_multi_*`) only carries the M3 primitive suffix table, so
+  closing this needs a value-element width/kind channel plus runtime support;
+  out of scope here.
+- **Enum array cell stride.** `ArrayElementType` currently allocates every
+  user-enum SZARRAY with the pointer-size fallback (8-byte cells). That is
+  self-consistent with csc's `stelem.i1/i2/i4/i8` choice (each store writes at
+  the cell start and the reader uses the same width), so enum arrays are
+  CORRECT today but waste bytes; a byte/long-underlying compact stride would
+  also have to teach the Array element-size consumers, so it is deferred.
+- **RVA blob shapes not emitted by net48 csc.** For C# source, csc emits
+  `RuntimeHelpers.InitializeArray` only for `>= 3` constant elements of a
+  primitive/enum element type; `Guid[]/DateTimeOffset[]/DateTime[]/TimeSpan[]/
+  decimal[]` literals are always element-wise `stelem <T>` (ILDASM probe). The
+  width-16 Guid/DateTimeOffset writers added by this batch are therefore
+  reachable only from hand-written/synthetic IL and are covered by the
+  synthetic-PE unit tests in `tests/unit/StackFoldTests.InitializeArray.cs`.

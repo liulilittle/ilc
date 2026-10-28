@@ -1894,6 +1894,21 @@ public static class StackFold
                             }, ins);
                             break;
                         }
+                        // LOUD P0-02/03 residual: the 16-byte DateTimeOffset
+                        // value element (il2cpp_dtoffset.h) reads through the
+                        // "dto" token arm.
+                        if (IsTokenElement(md, (int)ins.Operand, types, "System.DateTimeOffset"))
+                        {
+                            var dIdx = stack.Pop();
+                            var dArr = stack.Pop();
+                            Push(new CallExpr
+                            {
+                                Function = "ldelem_dto",
+                                ResultKind = "dto",
+                                Args = { dArr, dIdx },
+                            }, ins);
+                            break;
+                        }
                         var genericLdOp = MapGenericLdelemOp(md, (int)ins.Operand, types);
                         if (genericLdOp == null)
                         {
@@ -1959,6 +1974,8 @@ public static class StackFold
                             ? "System.DateTime"
                             : IsTokenElement(md, (int)ins.Operand, types, "System.TimeSpan")
                             ? "System.TimeSpan"
+                            : IsTokenElement(md, (int)ins.Operand, types, "System.DateTimeOffset")
+                            ? "System.DateTimeOffset"
                             : null;
                         if (vElemName != null)
                         {
@@ -1971,6 +1988,7 @@ public static class StackFold
                                 {
                                     "System.Guid" => "stelem_guid",
                                     "System.DateTime" => "stelem_dt",
+                                    "System.DateTimeOffset" => "stelem_dto",
                                     _ => "stelem_ts",
                                 },
                                 Args = { vArr, vIdx, vVal },
@@ -2788,7 +2806,7 @@ public static class StackFold
                     $"InitializeArray at offset 0x{ins.Offset:X4}: non-positive array length {count1D} in the initializer pattern");
             var count = count1D;
             var elemName = TypeFullNameFromToken(md, elemToken);
-            var width = RvaElementWidth(elemName);
+            var width = RvaElementWidthForToken(md, elemToken, elemName);
             if (width == null)
                 throw new NotSupportedException(
                     $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} not supported (the array-initializer fold supports byte/sbyte/bool, char/short, int/uint/float, long/ulong/double)");
@@ -2825,30 +2843,59 @@ public static class StackFold
                 throw new NotSupportedException(
                     $"InitializeArray at offset 0x{ins.Offset:X4}: cannot read {need} byte(s) of RVA data at 0x{rva:X8} (field {md.GetString(field.Name)})");
             var count = need / Math.Max(width, 1);
-            // LOUD P0-03: a 16-byte element is sliced as ONE unit -- the raw
-            // .NET decimal image (lo32/mid32/hi32/flags, little endian) is
-            // rebuilt into the runtime Il2CppDecimal aggregate. Never split
-            // it into two 8-byte pieces (the 12-byte flags/hi32 boundary is
-            // not 8-byte aligned).
+            // A 16-byte element is sliced as ONE unit: every family has its
+            // own runtime image contract, so the writer is chosen by the
+            // element NAME (never by width alone):
+            //   * System.Decimal -- the .NET decimal image
+            //     (lo32/mid32/hi32/flags, little endian) rebuilt into the
+            //     runtime Il2CppDecimal aggregate. Never split it into two
+            //     8-byte pieces (the 12-byte flags/hi32 boundary is not
+            //     8-byte aligned).
+            //   * System.Guid -- the raw net48 16-byte field image, which is
+            //     exactly Il2CppGuid.b[16] (guid.h).
+            //   * System.DateTimeOffset -- the net48 struct image
+            //     (_dateTime ticks/int64 at 0, _offsetMinutes int16 at 8); the
+            //     runtime value is (utcTicks, offsetMinutes), so convert the
+            //     fold-time constant: utcTicks = localTicks - offset*TicksPerMinute.
             if (width == 16)
             {
-                if (elemName != "System.Decimal")
-                    throw new NotSupportedException(
-                        $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} (width 16) not supported (only System.Decimal has a 16-byte token writer)");
                 for (var i = 0; i < count; i++)
                 {
                     var off = i * 16;
-                    var decVal = new CallExpr { Function = "decimal_rva_value", ResultKind = "dec" };
-                    decVal.Args.Add(new IntConstExpr { Value = BitConverter.ToInt32(bytes, off + 12) });          // flags
-                    decVal.Args.Add(new IntConstExpr { Value = unchecked((int)BitConverter.ToUInt32(bytes, off + 8)) }); // hi32
-                    decVal.Args.Add(new Int64ConstExpr { Value = unchecked((long)BitConverter.ToUInt64(bytes, off)) });   // lo64
-                    stmts.Add(new CallStmt
+                    CallStmt stmt;
+                    if (elemName == "System.Decimal")
                     {
-                        Function = "stelem_dec",
-                        Args = { arrRef, new IntConstExpr { Value = i }, decVal },
-                        SourceOffset = ins.Offset,
-                        SourceOpName = "InitializeArray",
-                    });
+                        var decVal = new CallExpr { Function = "decimal_rva_value", ResultKind = "dec" };
+                        decVal.Args.Add(new IntConstExpr { Value = BitConverter.ToInt32(bytes, off + 12) });          // flags
+                        decVal.Args.Add(new IntConstExpr { Value = unchecked((int)BitConverter.ToUInt32(bytes, off + 8)) }); // hi32
+                        decVal.Args.Add(new Int64ConstExpr { Value = unchecked((long)BitConverter.ToUInt64(bytes, off)) });   // lo64
+                        stmt = new CallStmt { Function = "stelem_dec", Args = { arrRef, new IntConstExpr { Value = i }, decVal } };
+                    }
+                    else if (elemName == "System.Guid")
+                    {
+                        var guidVal = new CallExpr { Function = "guid_rva_value", ResultKind = "guid" };
+                        for (var b = 0; b < 16; b++)
+                            guidVal.Args.Add(new IntConstExpr { Value = bytes[off + b] });
+                        stmt = new CallStmt { Function = "stelem_guid", Args = { arrRef, new IntConstExpr { Value = i }, guidVal } };
+                    }
+                    else if (elemName == "System.DateTimeOffset")
+                    {
+                        var localTicks = unchecked((long)BitConverter.ToUInt64(bytes, off)) & 0x3FFFFFFFFFFFFFFFL;
+                        var offsetMinutes = (int)BitConverter.ToInt16(bytes, off + 8);
+                        var utcTicks = unchecked(localTicks - offsetMinutes * 600000000L);
+                        var dtoVal = new CallExpr { Function = "dto_rva_value", ResultKind = "dto" };
+                        dtoVal.Args.Add(new Int64ConstExpr { Value = utcTicks });
+                        dtoVal.Args.Add(new IntConstExpr { Value = offsetMinutes });
+                        stmt = new CallStmt { Function = "stelem_dto", Args = { arrRef, new IntConstExpr { Value = i }, dtoVal } };
+                    }
+                    else
+                    {
+                        throw new NotSupportedException(
+                            $"InitializeArray at offset 0x{ins.Offset:X4}: element type {elemName} (width 16) not supported (no 16-byte token writer for this type)");
+                    }
+                    stmt.SourceOffset = ins.Offset;
+                    stmt.SourceOpName = "InitializeArray";
+                    stmts.Add(stmt);
                 }
                 return;
             }
@@ -5930,16 +5977,50 @@ public static class StackFold
         };
 
         // LOUD P0-02/03: the RVA-initializer element widths. These are the CLR
-        // array-cell strides (DateTime/TimeSpan 8, Guid/Decimal 16) that the
-        // InitializeArray fold must slice per element; kept SEPARATE from
-        // ElementWidth so `sizeof <T>` keeps its existing fold shape (the
-        // runtime struct size is emitted by the sizeof_{token} arm).
+        // array-cell strides (DateTime/TimeSpan 8, Guid/Decimal/DateTimeOffset
+        // 16) that the InitializeArray fold must slice per element; kept
+        // SEPARATE from ElementWidth so `sizeof <T>` keeps its existing fold
+        // shape (the runtime struct size is emitted by the sizeof_{token} arm).
         static int? RvaElementWidth(string typeName) => typeName switch
         {
             "System.DateTime" or "System.TimeSpan" => 8,
-            "System.Guid" or "System.Decimal" => 16,
+            "System.Guid" or "System.Decimal" or "System.DateTimeOffset" => 16,
             _ => ElementWidth(typeName),
         };
+
+        // The RVA fold also accepts a user ENUM element: the .data blob is
+        // laid out with the UNDERLYING type's width (csc emits the same width
+        // family for the element-wise stelem.i1/i2/i4/i8 stores), and the
+        // newarr token names the enum TypeDef. The width comes from the raw
+        // `value__` field signature -- the translated model collapses every
+        // enum backing field to int32, which would slice a byte-based blob
+        // four bytes per element. A TypeRef enum lives in a referenced
+        // assembly whose metadata this reader does not load -> width unknown.
+        static int? RvaElementWidthForToken(MetadataReader md, int elemToken, string typeName)
+            => RvaElementWidth(typeName) ?? EnumUnderlyingWidth(md, elemToken);
+
+        static int? EnumUnderlyingWidth(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            if (handle.Kind != HandleKind.TypeDefinition) return null;
+            var typeDef = md.GetTypeDefinition((TypeDefinitionHandle)handle);
+            foreach (var fieldHandle in typeDef.GetFields())
+            {
+                var field = md.GetFieldDefinition(fieldHandle);
+                if (md.GetString(field.Name) != "value__") continue;
+                var sig = md.GetBlobReader(field.Signature);
+                if (sig.ReadByte() != 0x06) return null; // FIELD calling convention
+                return sig.ReadByte() switch
+                {
+                    0x02 or 0x04 or 0x05 => 1, // bool / sbyte / byte
+                    0x03 or 0x06 or 0x07 => 2, // char / short / ushort
+                    0x08 or 0x09 or 0x0C => 4, // int / uint / float
+                    0x0A or 0x0B or 0x0D => 8, // long / ulong / double
+                    _ => null,
+                };
+            }
+            return null;
+        }
 
         // IL gap batch b23: the temp width of an ldind.* read. int32-width
         // reads stay in the uniform int32 slot (null); int64 -> "l";
@@ -5979,7 +6060,8 @@ public static class StackFold
                 or "System.Int32" or "System.UInt32" or "System.Single"
                 or "System.Int64" or "System.UInt64" or "System.Double"
                 or "System.IntPtr" or "System.UIntPtr"
-                or "System.DateTime" or "System.TimeSpan" or "System.Decimal" or "System.Guid");
+                or "System.DateTime" or "System.TimeSpan" or "System.Decimal" or "System.Guid"
+                or "System.DateTimeOffset");
         }
 
         // D/E (value-element TypeSpec): decode a GENERIC INSTANTIATION TypeSpec
