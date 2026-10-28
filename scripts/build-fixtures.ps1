@@ -110,3 +110,12 @@ Copy-Item "$Root/tests/fixtures/out/fnptrfield.exe" "$Root/tests/fixtures/out/fn
 dotnet build "$Root/tests/fixtures/fnptrretuser/fnptrretuser.csproj" -c Release -o "$Root/tests/fixtures/out"
 if ($LASTEXITCODE -ne 0) { throw "fixture fnptrretuser build failed" }
 Copy-Item "$Root/tests/fixtures/out/fnptrretuser.exe" "$Root/tests/fixtures/out/fnptrretuser.dll" -Force
+
+# decphi (impl-decphi): the branchy decimal accumulator
+# `acc + (g == Guid.Empty ? 1m : 100m)` -- Roslyn duplicates the int->decimal
+# conversion INTO each arm, so the branch-merge join copy of the decimal
+# parameter is a decimal stack value. The slot-type seeds must declare the
+# join temp Il2CppDecimal (see tests/unit/CodeGeneratorTests.DecPhi.cs).
+dotnet build "$Root/tests/fixtures/decphi/decphi.csproj" -c Release -o "$Root/tests/fixtures/out"
+if ($LASTEXITCODE -ne 0) { throw "fixture decphi build failed" }
+Copy-Item "$Root/tests/fixtures/out/decphi.exe" "$Root/tests/fixtures/out/decphi.dll" -Force

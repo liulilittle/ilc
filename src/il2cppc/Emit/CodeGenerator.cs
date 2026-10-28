@@ -2561,6 +2561,27 @@ public static class CodeGenerator
             // value-typed parameter is an lvalue, `&arg0` is well-formed).
             else if (parts[i].StartsWith("V:System.Guid", StringComparison.Ordinal))
                 locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "guid";
+            // impl-decphi (docs/audit/b5-gaps.md 11.5): a wide value-type
+            // parameter (decimal/DateTime/TimeSpan/DateTimeOffset) copied into
+            // a branch-merge phi temp (`t1 = arg1` -- the csc ternary shape
+            // `acc + (g == Guid.Empty ? 1m : 100m)` spills the accumulator
+            // into a join temp BEFORE the branch) must keep the 16/8-byte
+            // value-struct slot. Without the seed ExprKind(LocExpr) fell to
+            // "val" -> the join temp declared int32_t and
+            // icall_decimal_add((&t5), (&(t3)), (&(t4))) received an int32_t*
+            // -- a C++ compile error (a C0 build failure). The kinds are the
+            // declaration arms below ("dec"/"dt"/"ts"/"dto" -> the runtime
+            // value structs). BCL enum parameters ("V:...") stay the int32
+            // carrier (the enum arm at the declaration site) and are NOT
+            // seeded here.
+            else if (parts[i].StartsWith("V:System.Decimal", StringComparison.Ordinal))
+                locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "dec";
+            else if (parts[i].StartsWith("V:System.DateTimeOffset", StringComparison.Ordinal))
+                locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "dto";
+            else if (parts[i].StartsWith("V:System.DateTime", StringComparison.Ordinal))
+                locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "dt";
+            else if (parts[i].StartsWith("V:System.TimeSpan", StringComparison.Ordinal))
+                locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "ts";
         }
         // Instance method `this` (arg0) is always a managed reference -- the
         // inline pass rewrites it into fresh temps (`inl0 = arg0`) and copies
