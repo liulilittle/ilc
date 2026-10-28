@@ -6891,9 +6891,24 @@ default: return false;                           // primitives/VAR(handled by ca
         // F1 secondary (decimal-domain): virtual-dispatch params get the same
         // V:-aware typing as ParamTypesCpp -- a decimal value param must be
         // the full struct, not a truncated int32_t slot.
+        // E-cluster (dispatch ABI mirror): the fn-pointer cast IS the callee
+        // prototype, so every non-VAR encoding must decode to the SAME C++
+        // type ParamTypesCpp gives the defined method -- a byref param is the
+        // ADDRESS (CalliParamCpp's B: widening, "ref int" -> int32_t*), and
+        // int64/double/native-int keep their widths (an int32_t cast slot
+        // truncated them). A BCL enum rides the int32 carrier, exactly like
+        // the definition face. VAR slots keep the "int32_t" default
+        // instantiation; CallSiteVarIsRef widens a reference instantiation
+        // afterwards (unchanged).
         return SplitTopLevel(paramTypes).Select(p => p switch
         {
             var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
+            var br when br.StartsWith("B:", StringComparison.Ordinal) => CalliParamCpp(br),
+            "d" or "f" => "double",
+            "l" or "q" => "int64_t",
+            "n" => "intptr_t",
+            var f when f.StartsWith("F:", StringComparison.Ordinal) => "void*",
+            var v when v.StartsWith("V:", StringComparison.Ordinal) && IsKnownBclEnumName(v[2..]) => "int32_t",
             var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
             _ => "int32_t",
         }).ToArray();
@@ -6995,13 +7010,25 @@ default: return false;                           // primitives/VAR(handled by ca
         if (handle.Kind == HandleKind.MethodDefinition)
         {
             var m = md.GetMethodDefinition((MethodDefinitionHandle)handle);
-            var (_, retType, _, _) = MethodSignatureCoder.Decode(md, m.Signature);
-            return ReturnTypeCpp(retType);
+            var (_, retType, _, retName) = MethodSignatureCoder.Decode(md, m.Signature);
+            return VirtualReturnCpp(retType, retName);
         }
         var mr = md.GetMemberReference((MemberReferenceHandle)handle);
-        var (_, retMr, _, _) = MethodSignatureCoder.Decode(md, mr.Signature);
-        return ReturnTypeCpp(retMr);
+        var (_, retMr, _, retNameMr) = MethodSignatureCoder.Decode(md, mr.Signature);
+        return VirtualReturnCpp(retMr, retNameMr);
     }
+
+    // E-cluster (dispatch ABI mirror): the fn-pointer cast's return type must be
+    // the type the CALLEE is declared with. A VALUETYPE return is the runtime
+    // struct BY VALUE on the definition face (TypeCppName(ManagedReturnStructName):
+    // decimal -> Il2CppDecimal, DateTime -> Il2CppDateTime, user struct -> Cases_Pt);
+    // ReturnTypeCpp's 0x11 fallback (Il2CppObject*) is a tolerant default the
+    // definition side never emits, so using it here made every dispatched
+    // value-struct return ill-typed (Il2CppDecimal = Il2CppObject*).
+    private static string VirtualReturnCpp(SignatureTypeCode retType, string retName)
+        => retName.StartsWith("V:", StringComparison.Ordinal)
+            ? TypeCppName(retName[2..])
+            : ReturnTypeCpp(retType);
 
     // A callvirt whose target returns a 16-byte VALUE STRUCT needs the result
     // slot declared as that struct, not int32_t. System.Guid/System.Decimal are
@@ -7021,6 +7048,15 @@ default: return false;                           // primitives/VAR(handled by ca
         {
             "V:System.Guid" => "guid",
             "V:System.Decimal" => "dec",
+            // E-cluster (dispatch ABI mirror): the dispatched callee returns
+            // the runtime value struct BY VALUE, so the result temp must be
+            // declared as that struct -- the ReturnsRef fallback ("val" ->
+            // int32_t) would truncate it. Same kinds the icall/definition
+            // paths already use for those structs.
+            "V:System.DateTime" => "dt",
+            "V:System.TimeSpan" => "ts",
+            "V:System.DateTimeOffset" => "dto",
+            "V:System.Numerics.BigInteger" => "bi",
             _ => null,
         };
     }

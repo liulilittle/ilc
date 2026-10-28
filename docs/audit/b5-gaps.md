@@ -1229,7 +1229,7 @@ possible: the bucket's cell width is a runtime fact.
   the bucket LOUD theories), `tests/cases/loud-linq-vtfam` (e2e, byte-equal
   with net48), `tests/cases/zmatrix` (the compile-error regression).
 
-## 9. Array-initializer / BCL value-element residuals (impl-arrayinit)
+## 13. Array-initializer / BCL value-element residuals (impl-arrayinit)
 
 Registered by the InitializeArray + ldelem/stelem value-element batch. Two
 pre-existing shapes stay outside that batch (NOT silently wrong -- they still
@@ -1256,3 +1256,144 @@ reject loudly at transpile time):
   width-16 Guid/DateTimeOffset writers added by this batch are therefore
   reachable only from hand-written/synthetic IL and are covered by the
   synthetic-PE unit tests in `tests/unit/StackFoldTests.InitializeArray.cs`.
+## 12. E-cluster: interface slot resolution -- the `InterfaceSlot` guard and the dispatch ABI
+
+### 12.1 The assigned question: is the `InterfaceSlot` throw reachable?
+
+`InterfaceSlot(TypeDef iface, string sig)` (`src/il2cppc/Emit/CodeGenerator.cs:6919`)
+throws `NotSupportedException("interface ... slot not found")` when no
+`iface.VirtualMethods[i]` satisfies `VTablePlanner.SigKey(m) == sig`.
+
+**Judgement: NOT reachable from Roslyn/net48-emitted metadata. The throw is a
+defensive assertion, not a live code path.**
+
+Why the two operands cannot diverge:
+
+- `sig` is built by `VirtualTarget` (`CodeGenerator.cs:6971`) as
+  `$"{methodName}({paramTypes})"`, where `paramTypes` is
+  `MethodSignatureCoder.Decode(md, <call-site token>.Signature)`.
+- `SigKey(m)` is `$"{m.Name}({m.ParamTypes})"` (`VTablePlanner.cs:269`) and
+  `MethodDef.ParamTypes` is `MethodSignatureCoder.Decode(md,
+  mdInfo.Signature)` on the interface's OWN MethodDef (`MetadataLoader.cs:183`).
+- Both sides run the SAME decoder over the SAME blob: Roslyn copies the
+  interface method's signature into the MemberRef verbatim (a generic argument
+  is NOT substituted -- VAR/MVAR stay 0x13/0x1E and decode to the same "i"), and
+  custom modifiers are normalized away on both sides by
+  `SkipCustomModifiers`. Every shape the task listed (int32 / decimal /
+  DateTime / `List<T>` / `ref` / `out` / explicit implementation / closed
+  generic interface / inherited interface) therefore produces identical keys --
+  MEASURED: the e2e probe below never fired the guard.
+
+For the guard to fire one of these would have to hold; none is reachable from
+C# on net48, and each is registered here instead of being guessed at:
+
+1. a MemberRef whose parent is a DERIVED interface while naming an INHERITED
+   method. Roslyn always parents the call at the DECLARING interface, and an
+   interface has no `BaseType`, so `Plan` never copies a parent interface's
+   slots into a child interface's `VirtualMethods`
+   (`VTablePlanner.cs:200-205`: `slots` starts from `t.BaseType` only).
+2. a hand-written/obfuscated module whose MemberRef signature blob differs from
+   the MethodDef blob in a shape the decoder PRESERVES (modreq/modopt are
+   stripped, so `in`/volatile differences do NOT diverge).
+3. a `MethodSpec` token: `VirtualTarget` would fail earlier on
+   `(MemberReferenceHandle)handle` (`CodeGenerator.cs:7051`). MEASURED with a
+   throwaway `IGenMethod<T>.Echo<T>` probe: the CALLING body is emitted as a
+   LOUD stub (`// NOT TRANSPILED: P::Main`, `CodeGenerator.cs:1287-1293`), so
+   the call never reaches `InterfaceSlot`.
+
+Category: neither (c) "kernel missing" nor (d) "needs runtime type" -- it is a
+LOUD-only invariant guard whose REACHABLE sibling failure is the `-1` slot map
+(`il2cpp_interface_dispatch` abort). Per the batch rules no statically
+analysable shape was converted to LOUD and the guard is left in place.
+
+### 12.2 What the probe DID expose: 3 reachable defects (fixed)
+
+Probe: `tests/cases/ifslotprobe` -- interface + implementation class, every call
+goes through an interface-typed variable (so the S3/S1 devirtualization gates
+that hide the bug behind a single implementer + static receiver do not apply).
+
+RED (same probe, before the fix):
+
+- transpile warnings `interface IGen`1::Echo(i) not implemented by GenStr
+  vtable -- skipping` and `interface IExplicit::Value(i) not implemented by
+  ExplicitImpl vtable -- skipping` -> the emitted slot maps carry `-1`
+  (verified in the generated `GenStr_iface_IGen_1_int_map` /
+  `ExplicitImpl_iface_IExplicit_map`), and
+  `il2cpp_interface_dispatch` aborts "slot map out of range"
+  (`src/runtime/src/metadata.cpp:744-748`).
+- the generated C++ does not compile (dispatch fn-pointer cast != callee
+  prototype):
+  - `error: no match for 'operator=' (operand types are
+    'il2cpp::runtime::Il2CppDecimal' and 'Il2CppObject*')` -- a decimal RETURN
+    dispatched through an interface-typed receiver;
+  - `error: invalid conversion from 'int32_t*' to 'int32_t'` -- a `ref int`
+    PARAMETER of an interface method.
+
+Root causes and fixes (all three are signature/ABI MIRRORS -- `SigKey`, the C++
+symbol hashes and the runtime helper contract are untouched):
+
+1. `VTablePlanner.BuildInterfaceMaps` resolved interface slots by exact
+   `SigKey` only (`VTablePlanner.cs:128-129`). Two legitimate spellings fall
+   outside it: an EXPLICIT implementation (the class method is named
+   `<InterfaceFullName>.<Method>`), and a GENERIC interface closed with a
+   concrete argument (the interface slot spells T as the VAR default `i`, the
+   class method carries `r:System.String`). New `ResolveInterfaceImplSlot`
+   (`VTablePlanner.cs:160`) resolves both and requires UNIQUENESS -- an
+   ambiguous candidate set still yields `-1` (loud abort), never a guess.
+2. `VirtualParamTypesCpp` (`CodeGenerator.cs:6876`) declared the dispatch cast's
+   parameters with an `int32_t` default for every encoding other than `r:`/`V:`.
+   It now mirrors `ParamTypesCpp` (the callee prototype) arm for arm:
+   `B:` -> `CalliParamCpp` (the ADDRESS: `int32_t*`, `Il2CppObject**`,
+   `Struct*`), `d`/`f` -> `double`, `l`/`q` -> `int64_t`, `n` -> `intptr_t`,
+   `F:` -> `void*`, a known BCL enum -> `int32_t`. VAR slots keep the `int32_t`
+   default instantiation (`CallSiteVarIsRef` still widens reference
+   instantiations afterwards) -- no generic ABI drift.
+3. `VirtualReturnTypeCpp` (`CodeGenerator.cs:7007`) returned `Il2CppObject*`
+   for every VALUETYPE return while the definition side declares the runtime
+   struct BY VALUE (`TypeCppName(ManagedReturnStructName)`). New
+   `VirtualReturnCpp` (`CodeGenerator.cs:7028`) names the struct, and
+   `VirtualReturnResultKind` (`CodeGenerator.cs:7037`) now seeds the
+   `dt`/`ts`/`dto`/`bi` result-temp kinds so the temp declaration matches too.
+
+GREEN: `ok=True`, oracle sha == runtime sha
+`d61a791fc78388ef1367ac7ab38ac0558c0bdeede9e0a3639d09c7747bd19b2b`
+(17/17 records byte-identical).
+
+### 12.3 Residuals (registered, NOT fixed here)
+
+- STRUCT implementer boxed into an interface (`IBaseline sb = new StructImpl()`)
+  emits `&StructImpl_class`, but a value type has no class descriptor (only
+  interface/class descriptors are emitted) -> C++ "`StructImpl_class` was not
+  declared". Needs a boxed-value descriptor for structs (value-struct domain,
+  outside this batch); the probe therefore uses class implementers only.
+- `string.Join(string, IEnumerable<int>)`: net48 binds the IEnumerable overload,
+  the resolver maps it to `icall_string_join`, which reads the receiver as a
+  string ARRAY -> empty output (and, with redirected stdout, a buffered-crash
+  with no visible records). Unrelated BCL carrier gap; the probe reads
+  `mk.Count`/`mk[i]` instead.
+- a class implementing the SAME generic interface twice with different
+  arguments (`IGen<int>` + `IGen<string>`): `InterfaceSlotMaps` is keyed by the
+  interface TypeDef, so only one map can exist, and the VAR-tolerant match also
+  returns `-1` on two same-name/same-arity candidates -> loud abort. Pre-existing
+  model limitation.
+- explicit implementation of a NESTED interface (`Outer+Inner.M` name prefix) is
+  not matched by `IsExplicitImplementationName` -> stays `-1` (loud).
+- a generic METHOD on an interface makes the calling body a LOUD stub
+  (`// NOT TRANSPILED`), measured; it never reaches `InterfaceSlot`.
+
+### 12.4 Verification (this batch)
+
+- C0: `dotnet build src\il2cppc\il2cppc.csproj -c Debug --no-incremental` ->
+  0 errors, 0 warnings.
+- Unit: `dotnet test tests\unit\unit.csproj -c Debug` -> 6 failures, the
+  IDENTICAL baseline list (fixture binaries not built):
+  `StackFoldTestsInitializeArray.Fold_InitializeArray_{RealBase64Case_ThreeByteStelems,RealBase64Case_FiveByteStelems,RealArrayExt2_Int32Stelems,MissingPe_ThrowsLoudWiringGap}`,
+  `StackFoldTests.Fold_ClosureReturn_MakeAdder_BindsDisplayClassAsDelegateTarget`,
+  `StackFoldTests.Fold_ClosureMethod_B__0_ReadsCapturedFieldViaThis`.
+- difftest (mingw, oracle sha == runtime sha):
+  `ifslotprobe` d61a791f..., `zmatrix` 24ba1e99..., `closure-dt` b6a17362...,
+  `decimalcase` e2df5e1c...; interface/vtable impact set:
+  `genericiface` 04449890..., `genericvirtstr` 023db488...,
+  `ilistException` 3dae4d13..., `myIList` 6008a833..., `virtbench`
+  0f6fde7c..., `com17type` cbd03919..., `nestiface1` 040e184b...,
+  `virtual` 0d40abb6... -- all `ok=True`.

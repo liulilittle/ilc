@@ -126,7 +126,7 @@ public static class VTablePlanner
             for (var islot = 0; islot < iface.VirtualMethods.Count; islot++)
             {
                 var sig = SigKey(iface.VirtualMethods[islot]);
-                var slot = t.VirtualMethods.FindIndex(m => m != null && SigKey(m) == sig);
+                var slot = ResolveInterfaceImplSlot(t, iface, iface.VirtualMethods[islot]);
                 if (slot < 0)
                 {
                     Console.Error.WriteLine($"warning: interface {iface.FullName}::{sig} not implemented by {t.FullName} vtable -- skipping");
@@ -139,6 +139,77 @@ public static class VTablePlanner
             }
             t.InterfaceSlotMaps[iface] = slotMap;
         }
+    }
+
+    // E-cluster (interface slot resolution): map one interface slot to the
+    // implementing vtable slot. The exact SigKey match covers an implicit
+    // implementation whose signature is spelled identically on both sides.
+    // Two legitimately-different spellings used to fall through to -1, which
+    // is a GUARANTEED il2cpp_interface_dispatch abort ("slot map out of
+    // range") -- they are resolved here instead:
+    //   * EXPLICIT implementation -- Roslyn names the class method
+    //     "<InterfaceFullName>.<Method>", so the NAME never matches (the
+    //     signature does). Match by the explicit-impl name prefix only.
+    //   * GENERIC interface with a CLOSED argument (class C : IGen<string>)
+    //     -- the interface slot spells T as its VAR default ("i"), the class
+    //     method carries the concrete "r:System.String"/"V:...". The open
+    //     interface TypeDef does not know typeof(T), so accept a UNIQUE
+    //     same-name/same-arity candidate whose non-VAR positions match.
+    // Ambiguity (>=2 candidates) stays unresolved: a loud -1 abort is better
+    // than silently dispatching to one of two implementations.
+    private static int ResolveInterfaceImplSlot(TypeDef t, TypeDef iface, MethodDef ifaceMethod)
+    {
+        var sig = SigKey(ifaceMethod);
+        var exact = t.VirtualMethods.FindIndex(m => m != null && SigKey(m) == sig);
+        if (exact >= 0) return exact;
+
+        var explicitHits = -1;
+        for (var i = 0; i < t.VirtualMethods.Count; i++)
+        {
+            var m = t.VirtualMethods[i];
+            if (m == null || !IsExplicitImplementationName(m.Name, iface, ifaceMethod.Name)) continue;
+            if (explicitHits >= 0) return -1; // two explicit impls of one interface method
+            explicitHits = i;
+        }
+        if (explicitHits >= 0) return explicitHits;
+
+        if (ifaceMethod.ParamIsVar is not { } paramIsVar || !paramIsVar.Any(v => v)) return -1;
+        var ifaceParams = ifaceMethod.ParamTypes.Length == 0
+            ? Array.Empty<string>()
+            : CodeGenerator.SplitTopLevel(ifaceMethod.ParamTypes).ToArray();
+        if (ifaceParams.Length != ifaceMethod.ParamCount) return -1;
+        var varHits = -1;
+        for (var i = 0; i < t.VirtualMethods.Count; i++)
+        {
+            var m = t.VirtualMethods[i];
+            if (m == null || m.Name != ifaceMethod.Name || m.ParamCount != ifaceParams.Length) continue;
+            var mp = m.ParamTypes.Length == 0
+                ? Array.Empty<string>()
+                : CodeGenerator.SplitTopLevel(m.ParamTypes).ToArray();
+            if (mp.Length != ifaceParams.Length) continue;
+            var ok = true;
+            for (var k = 0; k < ifaceParams.Length; k++)
+            {
+                if (paramIsVar[k]) continue;
+                if (mp[k] != ifaceParams[k]) { ok = false; break; }
+            }
+            if (!ok) continue;
+            if (varHits >= 0) return -1; // ambiguous closed instantiation
+            varHits = i;
+        }
+        return varHits;
+    }
+
+    // Roslyn's explicit interface implementation name:
+    // "<InterfaceFullName>.<Method>" (non-generic) or
+    // "<InterfaceFullName><<args>>.<Method>" (closed generic interface).
+    private static bool IsExplicitImplementationName(string classMethodName, TypeDef iface, string methodName)
+    {
+        var suffix = "." + methodName;
+        if (!classMethodName.EndsWith(suffix, StringComparison.Ordinal)) return false;
+        var prefix = classMethodName[..^suffix.Length];
+        return prefix == iface.FullName
+            || prefix.StartsWith(iface.FullName + "<", StringComparison.Ordinal);
     }
 
     private static void Plan(TypeDef t, HashSet<string> planned)
