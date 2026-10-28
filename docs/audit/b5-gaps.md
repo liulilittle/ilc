@@ -1558,5 +1558,16 @@ the wide element-source OrderBy surface was wired (RED→GREEN, measured).
   `orderwide-elem` (RED: transpile LOUD -> sha 94eb7f3e...);
   regressions `thenby-floatprobe` 4154264a, `thenbyfamprobe`
   edc19205, `thenbydescprobe` ef9c6524, `linqorder2` 6a72ece6,
-  `loud-linq-decorderbygrp` e8754117, `zmatrix` 24ba1e99 all ok=True
+  `loud-linq-decorderbygrp`   e8754117, `zmatrix` 24ba1e99 all ok=True
   unchanged.
+
+  Registered during this seat, NOT probed / NOT fixed here (out of the
+  impl-orderfam mandate -- each needs its own RED probe + float entry):
+  - the List<T> AGGREGATE seed form folds a float accumulator into the
+    double seed kernel (`MethodMap.Linq.cs` Aggregate count>=3 arm:
+    `0x0C or 0x0D => "d"` -> `il2cpp_linq_list_aggregate_seed_d`), so a
+    `Func<float,float>` fold return is read through a double fn-pointer
+    (the no-seed form already has its own `_f` kernel);
+  - the calli result-slot fold classifies a float return as the double
+    slot (`StackFold.cs` ResultKind `0x0C or 0x0D => "d"`) -- likely the
+    house widened-carrier convention, unverified by any probe.
