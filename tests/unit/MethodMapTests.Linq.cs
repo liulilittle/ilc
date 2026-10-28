@@ -157,9 +157,12 @@ public class MethodMapTestsLinq
             ("Average", "il2cpp::il2cpp_linq_average_dec"),
         })
         {
-            var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
-                new byte[] { 0x10, 0x01, 0x01, 0x11, 0x15, 0x11, 0x0B, 0x01, 0x11, 0x0B },
-                new byte[] { 0x0A, 0x01, 0x11 }));
+            // A NAMED System.Decimal source: the decoded MethodSpec full name is
+            // the authority. A bare 0x11 byte with an undecodable name ("?") is
+            // NOT decimal any more (impl-linq-0x11 / audit loud-inv Δ0 -- see
+            // Resolve_0x11_NonameSource_DeclaresLoudOrCorrectFamily).
+            var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+                ValueTypeSourceSignature("source"), "System", "Decimal"));
             Assert.Equal(icall, resolved.CppName);
             Assert.Equal("dec", resolved.ResultKind);
             Assert.Equal(1, resolved.ParamCount);
@@ -1719,6 +1722,45 @@ public class MethodMapTestsLinq
         Assert.DoesNotContain("_dec", ex.Message);
     }
 
+    // impl-linq-0x11 (audit loud-inv §3.1 Δ0): the 0x11 dispatch byte covers
+    // every value type, so a MethodSpec whose generic-argument NAME could not be
+    // decoded ("?") must never be assumed to be System.Decimal. The tracked
+    // source array is the only remaining authority: a DateTime[] hint selects the
+    // DateTime cell family (12) for the family entries, and every operator that
+    // has no value-family kernel stays LOUD. Before this change both shapes
+    // bound the 16-byte decimal kernel (il2cpp_linq_*_dec) -- a SILENT wrong
+    // value read out of an 8-byte DateTime cell.
+    [Fact]
+    public void Resolve_0x11_NonameSource_DeclaresLoudOrCorrectFamily()
+    {
+        // TSource name unresolved ("?"): the VALUETYPE argument carries no
+        // TypeDefOrRef payload, so the decoder's name table answers "?".
+        var unnamedSource = new byte[] { 0x0A, 0x01, 0x11 };
+
+        // A DateTime[] tracked source: the family entry reads the real 8-byte
+        // DateTime cell (code 12), never the 16-byte decimal kernel.
+        var take = ResolveMethodSpecWithReceiver(
+            SynthesizeGeneric("Take", ValueTypeSourceSignature("range"), unnamedSource),
+            receiverType: "System.DateTime[]");
+        Assert.Equal("il2cpp::il2cpp_linq_take_family", take.CppName);
+        Assert.Equal(new[] { "12" }, take.AppendLiterals);
+
+        // An operator with NO value-family kernel must stay LOUD (the old
+        // "? == decimal" fallback served where_dec out of the DateTime cells).
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpecWithReceiver(
+            SynthesizeGeneric("Where", ValueTypeSourceSignature("predicate"), unnamedSource),
+            receiverType: "System.DateTime[]"));
+        Assert.DoesNotContain("_dec", ex.Message);
+
+        // A Decimal[] tracked source still proves the family: the decimal
+        // kernels stay reachable when the name table is lost.
+        var first = ResolveMethodSpecWithReceiver(
+            SynthesizeGeneric("First", ValueTypeSourceSignature("source"), unnamedSource),
+            receiverType: "System.Decimal[]");
+        Assert.Equal("il2cpp::il2cpp_linq_first_dec", first.CppName);
+        Assert.Equal("dec", first.ResultKind);
+    }
+
     // The gate is NAME-based, not byte-based: a REAL System.Decimal source
     // still rides the decimal kernels.
     [Fact]
@@ -2187,11 +2229,10 @@ public class MethodMapTestsLinq
     [Fact]
     public void Resolve_Where_DecimalSource_MapsToWhereDec()
     {
-        var resolved = ResolveMethodSpec(SynthesizeGenericSelector("Where",
-            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x08,
-                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
-                0x15, 0x12, 0x0D, 0x02, 0x13, 0x00, 0x02 },
-            genericSignature: new byte[] { 0x0A, 0x01, 0x11 }));
+        // A NAMED System.Decimal source (impl-linq-0x11 / audit loud-inv Δ0: a
+        // bare 0x11 byte with an undecodable name is not decimal any more).
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource("Where",
+            ValueTypeSourceSignature("predicate"), "System", "Decimal"));
 
         Assert.Equal("il2cpp::il2cpp_linq_where_dec", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
@@ -2234,12 +2275,10 @@ public class MethodMapTestsLinq
     [InlineData("SequenceEqual", "il2cpp::il2cpp_linq_sequence_equal_dec", 2)]
     public void Resolve_DecimalSource_SetOps_MapToDecimalKernels(string name, string cpp, int paramCount)
     {
-        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
-            memberRefSignature: paramCount == 1
-                ? new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 }
-                : new byte[] { 0x10, 0x01, 0x02, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
-                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
-            genericSignature: new byte[] { 0x0A, 0x01, 0x11 }));
+        // A NAMED System.Decimal source (impl-linq-0x11 / audit loud-inv Δ0).
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+            ValueTypeSourceSignature(paramCount == 1 ? "source" : "same"),
+            "System", "Decimal"));
 
         Assert.Equal(cpp, resolved.CppName);
         Assert.Equal(paramCount, resolved.ParamCount);
@@ -2248,10 +2287,11 @@ public class MethodMapTestsLinq
     [Fact]
     public void Resolve_DefaultIfEmpty_DecimalSource_MapsToDecimalKernel()
     {
-        var resolved = ResolveMethodSpec(SynthesizeGeneric("DefaultIfEmpty",
+                // A NAMED System.Decimal source (impl-linq-0x11 / audit loud-inv Δ0).
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource("DefaultIfEmpty",
             memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x08,
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00, 0x11 },
-            genericSignature: new byte[] { 0x0A, 0x01, 0x11 }));
+            ns: "System", typeName: "Decimal"));
 
         Assert.Equal("il2cpp::il2cpp_linq_default_if_empty_dec", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);

@@ -2896,20 +2896,40 @@ public static partial class MethodRefResolver
 
     // impl-linq2 (A): is the 0x11 VALUETYPE source really System.Decimal? The
     // 0x11 byte covers every value type, so the decoded MethodSpec FULL NAME is
-    // the authority -- the same rule LinqFamilyAggregate applies (a null name
-    // table is the non-generic MemberRef path, whose only value-type aggregate
-    // overload IS decimal).
+    // the authority -- the same rule LinqFamilyAggregate applies.
+    //
+    // impl-linq-0x11 (audit loud-inv §3.1 Δ0): an UNDECODABLE name must never be
+    // assumed to be decimal. The old fallback treated genArgNames == "?" (the
+    // decoder's placeholder for a VALUETYPE generic argument whose TypeDefOrRef
+    // was not resolvable) as System.Decimal, so ANY 0x11 source with a lost name
+    // bound the 16-byte decimal kernels -- a SILENT wrong value (an 8-byte
+    // DateTime cell read as a decimal half, a 4-byte read of the same array ...).
+    // The rule now is "prove it or refuse":
+    //   * decoded name System.Decimal -> decimal;
+    //   * decoded/tracked DateTime/TimeSpan/Guid family -> NOT decimal (the
+    //     family kernels that exist use the real cell code, everything else
+    //     stays LOUD);
+    //   * tracked source array System.Decimal[] -> decimal;
+    //   * a NULL name table is the NON-generic MemberRef surface
+    //     (LinqAggregateElementByte): on net48 its only 0x11 overload is
+    //     System.Decimal (int/long/float/double have their own bytes and the
+    //     Nullable<T> forms are GenericInst 0x15), so the historical decimal
+    //     answer is kept for it;
+    //   * anything else (a "?" name with no tracked array, a user struct, an
+    //     empty name) answers false -- the caller falls through to the LOUD
+    //     gates instead of fabricating a decimal binding.
     private static bool IsDecimalSourceNamed(byte[]? genArgs, string[]? genArgNames,
         string? receiverType, string? arg0Type)
     {
-        if (genArgs is not { Length: >= 1 })
-        {
-            var name = receiverType ?? arg0Type;
-            return name != null && name.EndsWith("System.Decimal[]", StringComparison.Ordinal);
-        }
-        return genArgNames is null
-            || IsDecimalGenArg(genArgNames, 0)
-            || (genArgNames is { Length: >= 1 } && genArgNames[0] == "?");
+        var tracked = receiverType ?? arg0Type;
+        bool trackedDecimal = tracked != null
+            && tracked.EndsWith("System.Decimal[]", StringComparison.Ordinal);
+        if (genArgs is not { Length: >= 1 }) return trackedDecimal;
+        if (IsDecimalGenArg(genArgNames, 0)) return true;
+        if (LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type) is not null)
+            return false;
+        if (trackedDecimal) return true;
+        return genArgNames is null && genArgs[0] == 0x11;
     }
 
     // IsLinqValueTypeSource -- the source element is a 0x11 VALUETYPE (decimal /
@@ -3101,25 +3121,27 @@ public static partial class MethodRefResolver
             // result slot into an Il2CppDecimal* parameter -- the zmatrix
             // dt/ts/gd Min/Max compile failures. Keep those LOUD.
             // An UNKNOWN name (the synthetic "?" the name table emits for a
-            // VALUETYPE arg with no resolvable TypeRef) keeps the historical
-            // decimal-kernel answer (MethodMapTests.Linq decimal-aggregate
-            // guard); a real assembly always resolves the name.
+            // VALUETYPE arg with no resolvable TypeRef) is NOT decimal any more
+            // (impl-linq-0x11 / audit loud-inv §3.1 Δ0): the old code kept the
+            // historical decimal-kernel answer for "?", so a DateTime/TimeSpan/
+            // Guid source whose name was lost bound the 16-byte dec kernel -- a
+            // SILENT wrong value. The single authority is IsDecimalSourceNamed
+            // (decoded name / tracked Decimal[] / the NULL-table non-generic
+            // MemberRef surface, whose only 0x11 overload IS decimal); every
+            // other unknown shape falls into the non-decimal branch below and
+            // stays LOUD rather than borrowing a foreign ABI.
             //
             // A NULL name table means genArgs came from
             // LinqAggregateElementByte, i.e. a NON-generic (header 0x00)
             // MemberRef. On this concrete surface the only value-type element
             // overload is System.Decimal (int/long/float/double have dedicated
             // non-generic overloads with their own bytes, and Min/Max<object>
-            // is 0x0E reference), so a null table with a 0x11 byte IS decimal.
-            // A MethodSpec always carries a name for a 0x11 arg (at least "?"),
-            // so the null table can never hide a DateTime/TimeSpan/Guid source
-            // and the LOUD guard above stays intact.
-            bool isDecimal = genArgs is { Length: >= 1 }
-                ? genArgNames is null
-                    || IsDecimalGenArg(genArgNames, 0)
-                    || (genArgNames is { Length: >= 1 } && genArgNames[0] == "?")
-                : (receiverType ?? arg0Type) is { } n
-                    && n.EndsWith("System.Decimal[]", StringComparison.Ordinal);
+            // is 0x0E reference), so a null table with a 0x11 byte IS decimal
+            // unless the tracked source array names a DateTime/TimeSpan/Guid
+            // family. A MethodSpec always carries a name for a 0x11 arg (at
+            // least "?"), so the null table can never hide a DateTime/TimeSpan/
+            // Guid source and the LOUD guard above stays intact.
+            bool isDecimal = IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
             if (!isDecimal)
             {
                 throw new NotSupportedException(
