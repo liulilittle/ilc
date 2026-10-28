@@ -11406,13 +11406,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "dec" => IsAddressExpr(args[srcIdx]) ? code : DecimalValuePtr(args[srcIdx], code),
                 // batch 2026-10-05 (iopairprobe B_decimal): decimal
                 // ToString(IFormatProvider) with an ADDRESS receiver. The
-                // receiver is an address in two shapes: a LocAddrExpr /
-                // FieldAddrExpr / StaticFieldAddrExpr (already renders `&x`
-                // -- passthrough) OR a ptr-kind temp (the ldelema of a
-                // decimal[] materialized the element address into an
+                // receiver is an address in two shapes: IsAddressExpr (a
+                // LocAddrExpr / FieldAddrExpr / StaticFieldAddrExpr -- already
+                // renders `&x`, passthrough) OR a ptr-kind temp (the ldelema of
+                // a decimal[] materialized the element address into an
                 // intptr_t local -- reinterpret it to the const
-                // Il2CppDecimal* the icall declares).
-                "decaddr" => args[srcIdx] is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr
+                // Il2CppDecimal* the icall declares). IsAddressExpr keeps the
+                // "is this an address" answer single-sourced (the same
+                // predicate the "dec" and "vaddr" arms use).
+                "decaddr" => IsAddressExpr(args[srcIdx])
                     ? code
                     : $"reinterpret_cast<const il2cpp::runtime::Il2CppDecimal*>({code})",
                 // nullable (GN-2): the ADDRESS of a user value-type slot -- the
