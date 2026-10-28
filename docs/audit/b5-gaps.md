@@ -1509,3 +1509,54 @@ they need their own float readers/wiring before they can be called
 correct. Also re-confirmed LOUD: `double[]`/`float[]` ELEMENT sources
 have NO OrderBy(keySelector) at all (transpile-time reject), so no
 silent path hides there.
+
+### 14.1 FIXED (impl-orderfam): the three float-through-double residuals + the wide element-source OrderBy surface
+
+The three §14 residuals each got their own float reader and entry, and
+the wide element-source OrderBy surface was wired (RED→GREEN, measured).
+
+- (a) DEC fused composite: `LinqKeyFamilyCode` now carries 6=float
+  (the pre-existing 0..5 codes keep their meaning: 3=decimal,
+  4=DateTime, 5=Guid); the runtime `SortDecTwoKeysDispatch` matrix grew
+  6x6 -> 7x7, the float row/column reading through the NEW
+  `InvokeKeyDecF` = `float (*)(const Il2CppDecimal&)`. The DIRECT
+  decimal-source float key (previously folded into `_dec_d`) rides the
+  NEW `il2cpp_linq_order_by_key[_desc]_dec_f`
+  (`SortDecKeyCopyT<float>`); the decimal bucket surface mirrors it
+  (`grouping_order_by_key[_desc]_dec_f`).
+- (b) REFERENCE sources: `LinqKeyFamilySuffix` now maps 0x0C -> "f";
+  the NEW `InvokeKeyRefF` = `float (*)(Il2CppObject*)` behind
+  `il2cpp_linq_order_by_key_ref_f` (`SortRefsKeyCopy<float>`).
+- (c) List faces: `List<double>` + float key rides the NEW
+  `il2cpp_linq_list_order_by_key[_desc]_f` (snapshot -> the array
+  `_d_f` entry); a reference-element list + float key rides the NEW
+  `il2cpp_linq_list_order_by_key_ref_f`. The emission points already
+  existed (verified, `MethodMap.Linq.cs` List arm) -- the float key
+  was re-pointed, the double key keeps the pre-existing `_d` entry.
+- (B) double[]/float[] ELEMENT-source OrderBy(keySelector): previously
+  LOUD ("stage-1 runtime LINQ surface is int32 (0x08) element-family").
+  NEW `SortWideElemKeyCopyT` (the element snapshot keeps the SOURCE's
+  cell width and elem kind; the result is a fresh array of the source's
+  family) behind one entry per (source, key) family pair:
+  `_d_i4 / _d_i8 / _d (the pre-existing double-key entry) / _d_f` and
+  `_f_i4 / _f_i8 / _f_d / _f_f`. The element crosses in the F-stack
+  slot (a float element WIDENS to double -- the InvokePredF / FPredFn
+  convention); a float key reads through the float(*) reader. The
+  transpiler gates by source NAME: only System.Double[] /
+  System.Single[] sources lift the int32-element rejection, and only
+  for the numeric key families (i4/i8/d/f); a reference / struct key
+  over a wide source keeps a precise LOUD, and every other element
+  family keeps its existing gate. ThenBy over a wide source stays
+  LOUD (out of scope here).
+- Unit: 25 new MethodMapTestsLinq assertions; full suite 3860/3860
+  (baseline 3835 + 25). C0: il2cppc (dotnet Debug) 0 errors / 0
+  warnings; runtime (mingw Release) 0 errors.
+- e2e RED->GREEN (mingw, oracle sha == runtime sha):
+  `thenby-decfkey` (RED diff 11/13 -> sha afc01112...),
+  `thenby-refkey` (RED diff 2/4 -> sha 1f21013d...),
+  `list-orderkey-float` (RED diff 4/7 -> sha 60cc1818...),
+  `orderwide-elem` (RED: transpile LOUD -> sha 94eb7f3e...);
+  regressions `thenby-floatprobe` 4154264a, `thenbyfamprobe`
+  edc19205, `thenbydescprobe` ef9c6524, `linqorder2` 6a72ece6,
+  `loud-linq-decorderbygrp` e8754117, `zmatrix` 24ba1e99 all ok=True
+  unchanged.

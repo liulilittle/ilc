@@ -2649,6 +2649,151 @@ public class MethodMapTestsLinq
         Assert.Contains("double/float key only", ex.Message);
     }
 
+    //==========================================================================
+    // impl-orderfam: the FLOAT-through-double residuals.
+    //   (a) the DECIMAL composite float column (composite code 6=float -- the
+    //       old "2" fold read a Func<decimal,float> key through the double
+    //       reader) and the DECIMAL-source float primaries (_dec_f);
+    //   (b) the REFERENCE-source float key face (_ref_f -- the old _ref_d
+    //       shared face misread a 4-byte float return as a double);
+    //   (c) the List faces (List<double> + float key -> _f; List<object> +
+    //       float key -> _ref_f);
+    //   (B) the double[]/float[] ELEMENT-source OrderBy(keySelector) surface
+    //       (the F-slot element ABI, one entry per key family; the result
+    //       family follows the SOURCE).
+    //==========================================================================
+    [Theory]
+    [InlineData("OrderBy", "il2cpp::il2cpp_linq_order_by_key_dec_f")]
+    [InlineData("OrderByDescending", "il2cpp::il2cpp_linq_order_by_key_desc_dec_f")]
+    public void Resolve_OrderBy_DecimalSource_FloatKey_MapsToDecFloatKeySort(
+        string name, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeOrderByDec(name, 0x0C));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("ThenBy", ResolvedMethod.ThenByCombineMarker, "6")]
+    [InlineData("ThenByDescending", ResolvedMethod.ThenByDescCombineMarker, "6")]
+    public void Resolve_ThenBy_DecimalElement_FloatSecondary_MapsToCompositeMarker(
+        string name, string marker, string keyFam)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeOrderByDec(name, 0x0C));
+
+        Assert.Equal(marker, resolved.CppName);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+        Assert.Equal(new[] { keyFam }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData("OrderBy", "0", "il2cpp::il2cpp_linq_order_by_key_ref_f")]
+    [InlineData("OrderByDescending", "1", "il2cpp::il2cpp_linq_order_by_key_ref_f")]
+    public void Resolve_OrderBy_RefSource_FloatKey_MapsToRefFloatKeySort(
+        string name, string desc, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0E, 0x0C }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { desc }, resolved.AppendLiterals);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("OrderBy", "il2cpp::il2cpp_linq_list_order_by_key_f")]
+    [InlineData("OrderByDescending", "il2cpp::il2cpp_linq_list_order_by_key_desc_f")]
+    public void Resolve_ListDouble_OrderByFloatKey_MapsToListFloatKey(
+        string name, string icall)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0D, 0x0C }),
+            receiverType: "System.Collections.Generic.List`1_double");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Double[]", resolved.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("OrderBy", 0x08, "il2cpp::il2cpp_linq_order_by_key_d_i4")]
+    [InlineData("OrderBy", 0x0A, "il2cpp::il2cpp_linq_order_by_key_d_i8")]
+    [InlineData("OrderBy", 0x0C, "il2cpp::il2cpp_linq_order_by_key_d_f")]
+    [InlineData("OrderBy", 0x0D, "il2cpp::il2cpp_linq_order_by_key_d")]
+    [InlineData("OrderByDescending", 0x08, "il2cpp::il2cpp_linq_order_by_key_desc_d_i4")]
+    [InlineData("OrderByDescending", 0x0A, "il2cpp::il2cpp_linq_order_by_key_desc_d_i8")]
+    [InlineData("OrderByDescending", 0x0C, "il2cpp::il2cpp_linq_order_by_key_desc_d_f")]
+    [InlineData("OrderByDescending", 0x0D, "il2cpp::il2cpp_linq_order_by_key_desc_d")]
+    public void Resolve_OrderBy_DoubleSource_WideKey_MapsToWideElemKeySort(
+        string name, byte keyByte, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0D, keyByte }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Double[]", resolved.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("OrderBy", 0x08, "il2cpp::il2cpp_linq_order_by_key_f_i4")]
+    [InlineData("OrderBy", 0x0A, "il2cpp::il2cpp_linq_order_by_key_f_i8")]
+    [InlineData("OrderBy", 0x0C, "il2cpp::il2cpp_linq_order_by_key_f_f")]
+    [InlineData("OrderBy", 0x0D, "il2cpp::il2cpp_linq_order_by_key_f_d")]
+    [InlineData("OrderByDescending", 0x08, "il2cpp::il2cpp_linq_order_by_key_desc_f_i4")]
+    [InlineData("OrderByDescending", 0x0A, "il2cpp::il2cpp_linq_order_by_key_desc_f_i8")]
+    [InlineData("OrderByDescending", 0x0C, "il2cpp::il2cpp_linq_order_by_key_desc_f_f")]
+    [InlineData("OrderByDescending", 0x0D, "il2cpp::il2cpp_linq_order_by_key_desc_f_d")]
+    public void Resolve_OrderBy_FloatSource_WideKey_MapsToWideElemKeySort(
+        string name, byte keyByte, string icall)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0C, keyByte }));
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+        Assert.Equal("System.Single[]", resolved.ReturnTypeName);
+    }
+
+    // A reference / struct key over a double[]/float[] source has no
+    // wide-source kernel and stays LOUD (the source-name gate only lifts the
+    // int32-element rejection for the numeric key families).
+    [Fact]
+    public void Resolve_OrderBy_DoubleSource_StringKey_ThrowsLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(
+            SynthesizeGeneric("OrderBy",
+                memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+                genericSignature: new byte[] { 0x0A, 0x02, 0x0D, 0x0E })));
+
+        Assert.Contains("double/float-source key-selector surface", ex.Message);
+    }
+
     // B5 D-4: the already-implemented all_ref kernel (linq.h / linq.cpp) was
     // never wired -- All over a reference source must resolve to it.
     [Fact]
