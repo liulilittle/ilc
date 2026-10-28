@@ -121,15 +121,21 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_dec(Il2CppArray* src, Il2CppObjec
 // everything else throws System.NotSupportedException. The transpiler's fold
 // rewrites OrderBy(k1).ThenBy(k2) into a single call to this entry (the
 // eager array materialization has no post-hoc primary-key recovery).
+//
+// impl-thenbydesc: `k1desc` is the PRIMARY-key direction (0 asc, 1 desc) of the
+// preceding OrderBy/OrderByDescending; it is emitted as a trailing literal by
+// the transpiler fold and defaults to 0 (ascending) so older generated code
+// keeps the OrderBy(k1).ThenBy(k2) meaning. Both directions are fused: the
+// result is the stable (k1 asc|desc, k2 asc) order.
 Il2CppArray* il2cpp_linq_then_by_key_i4(Il2CppArray* src, Il2CppObject* k1Sel,
-                                        Il2CppObject* k2Sel);
+                                        Il2CppObject* k2Sel, int32_t k1desc = 0);
 
 // Enumerable.ThenByDescending -- the same fused composite sort with the
-// SECONDARY key DESCENDING within each primary-key group: (k1 asc, k2 desc),
-// stable. Same single-cache contract (k1 once per element, k2 once per
-// element) and same int32 element/key family gate.
+// SECONDARY key DESCENDING within each primary-key group: (k1 asc|desc,
+// k2 desc), stable. Same single-cache contract (k1 once per element, k2 once
+// per element) and same int32 element/key family gate.
 Il2CppArray* il2cpp_linq_then_by_key_desc_i4(Il2CppArray* src, Il2CppObject* k1Sel,
-                                             Il2CppObject* k2Sel);
+                                             Il2CppObject* k2Sel, int32_t k1desc = 0);
 
 //------------------------------------------------------------------------------
 // Enumerable.OrderBy / OrderByDescending over an INT32 source with a WIDE key
@@ -157,13 +163,13 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* 
 //   _i4_d   TKey is float/double.
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_then_by_key_i4_i8(Il2CppArray* src, Il2CppObject* k1Sel,
-                                           Il2CppObject* k2Sel);
+                                           Il2CppObject* k2Sel, int32_t k1desc = 0);
 Il2CppArray* il2cpp_linq_then_by_key_desc_i4_i8(Il2CppArray* src, Il2CppObject* k1Sel,
-                                                Il2CppObject* k2Sel);
+                                                Il2CppObject* k2Sel, int32_t k1desc = 0);
 Il2CppArray* il2cpp_linq_then_by_key_i4_d(Il2CppArray* src, Il2CppObject* k1Sel,
-                                          Il2CppObject* k2Sel);
+                                          Il2CppObject* k2Sel, int32_t k1desc = 0);
 Il2CppArray* il2cpp_linq_then_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* k1Sel,
-                                               Il2CppObject* k2Sel);
+                                               Il2CppObject* k2Sel, int32_t k1desc = 0);
 
 // Enumerable.OrderBy / OrderByDescending over a REFERENCE-element array with a
 // KEY SELECTOR (Func<TSource,TKey>) -- the reference-source counterpart of
@@ -275,20 +281,20 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_d(Il2CppArray* src, Il2CppObject* key
 // family is int32 (_i8_i4) or int64 (_i8_i8).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_then_by_key_i8_i4(Il2CppArray* src, Il2CppObject* k1Sel,
-                                           Il2CppObject* k2Sel);
+                                           Il2CppObject* k2Sel, int32_t k1desc = 0);
 Il2CppArray* il2cpp_linq_then_by_key_desc_i8_i4(Il2CppArray* src, Il2CppObject* k1Sel,
-                                                Il2CppObject* k2Sel);
+                                                Il2CppObject* k2Sel, int32_t k1desc = 0);
 Il2CppArray* il2cpp_linq_then_by_key_i8_i8(Il2CppArray* src, Il2CppObject* k1Sel,
-                                           Il2CppObject* k2Sel);
+                                           Il2CppObject* k2Sel, int32_t k1desc = 0);
 Il2CppArray* il2cpp_linq_then_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject* k1Sel,
-                                                Il2CppObject* k2Sel);
+                                                Il2CppObject* k2Sel, int32_t k1desc = 0);
 
 // The int64-source float/double-key counterparts (p0conv2 D3 extension): the
 // secondary key crosses in the F-stack slot. Same fused composite contract as
 // the int32-key entries above.
 Il2CppArray* il2cpp_linq_then_by_key_i8_d(Il2CppArray* src, Il2CppObject* k1Sel,
-                                          Il2CppObject* k2Sel);
+                                          Il2CppObject* k2Sel, int32_t k1desc = 0);
 Il2CppArray* il2cpp_linq_then_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* k1Sel,
-                                               Il2CppObject* k2Sel);
+                                               Il2CppObject* k2Sel, int32_t k1desc = 0);
 
 } // namespace il2cpp

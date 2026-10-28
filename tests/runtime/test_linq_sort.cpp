@@ -650,6 +650,17 @@ int main()
         const int32_t compositeDesc[5] = { 12, 11, 54, 53, 51 };
         ExpectInt32Content(rd, compositeDesc, 5, "then_by_key_desc_i4 flips ONLY the secondary key: (k1 asc, k2 desc)");
 
+        // impl-thenbydesc: the PRIMARY direction is fused too (OrderBy
+        // Descending(k1).ThenBy...). k1desc=1 keeps the primary descending
+        // while the secondary follows the entry: (k1 desc, k2 asc) and
+        // (k1 desc, k2 desc).
+        il2cpp::Il2CppArray* rk1 = il2cpp::il2cpp_linq_then_by_key_i4(a, Del(KeyTens), Del(KeyUnits), 1);
+        const int32_t compositeK1[5] = { 51, 53, 54, 11, 12 };
+        ExpectInt32Content(rk1, compositeK1, 5, "then_by_key_i4 k1desc=1 fuses OrderByDescending(tens).ThenBy(units): (k1 desc, k2 asc)");
+        il2cpp::Il2CppArray* rk1d = il2cpp::il2cpp_linq_then_by_key_desc_i4(a, Del(KeyTens), Del(KeyUnits), 1);
+        const int32_t compositeK1D[5] = { 54, 53, 51, 12, 11 };
+        ExpectInt32Content(rk1d, compositeK1D, 5, "then_by_key_desc_i4 k1desc=1 flips BOTH keys: (k1 desc, k2 desc)");
+
         // Within-primary-group secondary ordering (the "equal primary keys ->
         // secondary key order" probe) on a larger interleaved input: the
         // naive whole-array secondary re-sort would interleave groups; the

@@ -4874,10 +4874,15 @@ public static class StackFold
                 // resolved primary entry: "_i4" -> _i4, "_i8_i4" -> _i8_i4,
                 // "_i8_i8" -> _i8_i8.
                 var familySuffix = ThenByPrimaryEntrySuffix(obValue.Resolved!.CppName)!;
+                // The primary OrderBy direction is part of the fused sort: a
+                // descending primary must keep its descending order (both the
+                // decimal and the int32/int64 families carry the flag).
+                bool primaryDesc = obValue.Resolved!.CppName!.Contains(
+                    "order_by_key_desc_", StringComparison.Ordinal);
                 string compositeEntry;
                 string[] compositeParamNames;
                 string compositeReturnType;
-                string[]? decimalCompositeLiterals = null;
+                string[]? compositeLiterals = null;
                 if (familySuffix.StartsWith("src_dec_", StringComparison.Ordinal)
                     || familySuffix.StartsWith("grp_dec_", StringComparison.Ordinal))
                 {
@@ -4910,9 +4915,7 @@ public static class StackFold
                     compositeReturnType = "System.Decimal[]";
                     // The primary OrderBy direction is part of the fused sort: a
                     // descending primary must keep its descending order.
-                    bool primaryDesc = obValue.Resolved!.CppName!.Contains(
-                        "order_by_key_desc_", StringComparison.Ordinal);
-                    decimalCompositeLiterals = new[]
+                    compositeLiterals = new[]
                     {
                         primaryDesc ? "1" : "0", thenDesc ? "1" : "0",
                         primaryCode, secondaryCode,
@@ -4920,11 +4923,16 @@ public static class StackFold
                 }
                 else
                 {
+                    // The int32/int64-source composite: the entry suffix fixes
+                    // the element/key family and the SECONDARY direction; the
+                    // PRIMARY direction rides one trailing literal (default 0 =
+                    // ascending in linq_sort.h).
                     compositeEntry = thenDesc
                         ? "il2cpp::il2cpp_linq_then_by_key_desc" + familySuffix
                         : "il2cpp::il2cpp_linq_then_by_key" + familySuffix;
                     compositeParamNames = new[] { "a", "", "" };
                     compositeReturnType = familySuffix == "_i4" ? "System.Int32[]" : "System.Int64[]";
+                    compositeLiterals = new[] { primaryDesc ? "1" : "0" };
                 }
                 var composite = new CallExpr
                 {
@@ -4936,7 +4944,7 @@ public static class StackFold
                         3, false, true, true, new[] { false, false, false }, false,
                         ParamTypeNames: compositeParamNames,
                         ReturnTypeName: compositeReturnType,
-                        AppendLiterals: decimalCompositeLiterals),
+                        AppendLiterals: compositeLiterals),
                     IsPInvoke = false,
                     SetLastError = false,
                 };
