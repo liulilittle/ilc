@@ -986,6 +986,18 @@ public static class InlinePass
         VirtualCallExpr v => CopyVirtual(v, argMap, locMap, usedNames, ref freshId),
         DelegateInvokeExpr d => CopyDelegate(d, argMap, locMap, usedNames, ref freshId),
         MarshalUtf8Expr m => new MarshalUtf8Expr { Arg = RewriteExpr(m.Arg, argMap, locMap, usedNames, ref freshId), Utf16 = m.Utf16 },
+        // Delegate construction carries the bound TARGET expression (the
+        // closure display-class object). It MUST be renamed with the rest of
+        // the callee body: a closure-creating method that gets inlined left
+        // the target on the callee's original temp, so the caller's unrelated
+        // temp of that name (e.g. an int32 slot) reached
+        // il2cpp_delegate_new's Il2CppObject* parameter.
+        DelegateNewExpr d => new DelegateNewExpr
+        {
+            MethodToken = d.MethodToken,
+            Target = RewriteExpr(d.Target, argMap, locMap, usedNames, ref freshId),
+            TypeId = d.TypeId,
+        },
         FieldExpr f => new FieldExpr
         {
             Object = RewriteExpr(f.Object, argMap, locMap, usedNames, ref freshId),

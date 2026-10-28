@@ -110,6 +110,18 @@ Il2CppObject* il2cpp_nullable_require_value(Il2CppObject* obj)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_nullable_require_value_flag -- the same no-value guard for the
+// EXPANDED closure-field representation (a T value slot + a hasValue bool).
+//------------------------------------------------------------------------------
+void il2cpp_nullable_require_value_flag(bool hasValue)
+{
+    if (!hasValue)
+    {
+        ThrowNullableNoValue();
+    }
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_nullable_to_string -- net48 Nullable<T>.ToString(): the EMPTY string
 // when there is no value (never null, never "null"), otherwise the underlying
 // value's ToString (the boxed-value dispatch).

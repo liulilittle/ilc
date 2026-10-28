@@ -42,6 +42,12 @@ namespace runtime {
 // when it holds a value, throws InvalidOperationException otherwise.
 Il2CppObject* il2cpp_nullable_require_value(Il2CppObject* obj);
 
+// Null guard for the EXPANDED closure-field representation (the transpiler
+// stores a captured Nullable<T> as a T value slot + a hasValue flag, not as a
+// boxed object). Throws InvalidOperationException with the same net48 message
+// when hasValue is false.
+void il2cpp_nullable_require_value_flag(bool hasValue);
+
 // Nullable<T>.ToString(): "" when no value, the boxed value's text otherwise.
 Il2CppObject* il2cpp_nullable_to_string(Il2CppObject* obj);
 

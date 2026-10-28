@@ -320,6 +320,11 @@ public static class GenericConstraintReader
 
     // Layout result (filled by TypeEmitter.LayoutInstanceFields):
     public int InstanceSize { get; set; } = 0;   // bytes per instance, >= sizeof(Il2CppObject)
+    // Natural alignment of a VALUE type's sequential layout (the largest member
+    // alignment). The repeated field of a user struct embedded in a reference
+    // type (closure display class) must start on this boundary. 1 for a
+    // reference type / fieldless struct.
+    public int InstanceAlignment { get; set; } = 1;
     public uint RefFieldBitmap { get; set; } = 0; // bit i <=> slot i is a GC reference
     public int RefFieldCount { get; set; } = 0;   // number of reference-typed fields
 

@@ -111,6 +111,25 @@ public sealed class FieldDef
     // slot grid alone would report an 8-byte stride for a run of int32 fields
     // (GN-20.4 F1). -1 before LayoutInstanceFields runs.
     public int ByteOffset { get; set; } = -1;
+
+    // Value-struct capture support (user struct / Nullable<T> fields on the
+    // closure display-class path).
+    //
+    // UserStructType is the resolved TypeDef of a FieldTypeKind.UserStruct
+    // field -- filled by the layout pass (it is the authority for the struct's
+    // real InstanceSize/InstanceAlignment/RefFieldBitmap). Null for every other
+    // kind.
+    public TypeDef? UserStructType { get; set; }
+
+    // Nullable<T> expansion: the underlying T full name (e.g. "System.DateTime"
+    // or "CapturedPt"). The member pair is derived from it:
+    //   <member>__value    : the underlying T's real value shape
+    //   <member>__hasValue : a bool flag (its own whole pointer slot)
+    // The value occupies ceil(sizeof(T)/PointerSize) slots and the flag the
+    // next one; NullableHasValueOffset is the flag's byte offset (filled by the
+    // layout pass, -1 before).
+    public string NullableUnderlyingName { get; init; } = "";
+    public int NullableHasValueOffset { get; set; } = -1;
 }
 
 // M2 field type classification (see FieldDef.TypeKind for the contract).
@@ -127,5 +146,7 @@ public enum FieldTypeKind
     TimeSpan,     // 8-byte System.TimeSpan value (il2cpp_time.h Il2CppTimeSpan)
     Decimal,      // 16-byte System.Decimal value (decimal.h Il2CppDecimal)
     DateTimeOffset, // 16-byte System.DateTimeOffset value (il2cpp_dtoffset.h Il2CppDateTimeOffset)
+    UserStruct, // a translated user value type -- embedded as the generated C++ struct value
+    Nullable,   // System.Nullable`1<T> -- expanded to a T value slot + a hasValue(bool) slot
     Reference // managed GC reference
 }

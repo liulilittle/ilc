@@ -1244,4 +1244,42 @@ public class InlinePassTests
 
         Assert.Equal(1, result.Inlined);
     }
+
+    [Fact]
+    public void DelegateNewTarget_IsRenamedWithTheInlinedBody()
+    {
+        // A closure-creating callee: `t0 = new Display(); t1 = delegate(t0)`.
+        // The inlined DelegateNewExpr target must be the RENAMED display-class
+        // temp -- leaving the callee's original name made the caller's
+        // unrelated int32 temp of that name reach il2cpp_delegate_new's
+        // Il2CppObject* parameter (closure-struct-capture e2e).
+        var callee = Candidate("call_40", 0, new List<Stmt>
+        {
+            new AssignStmt
+            {
+                Target = "t0",
+                Value = new NewObjExpr { TypeFullName = "Cases.Display" },
+            },
+            new AssignStmt
+            {
+                Target = "t1",
+                Value = new DelegateNewExpr { MethodToken = 7, Target = Loc("t0") },
+            },
+            new RetStmt { Value = I(0) },
+        });
+        var caller = new List<Stmt>
+        {
+            new AssignStmt { Target = "loc0", Value = new CallExpr { Function = "call_40" } },
+            new RetStmt { Value = Loc("loc0") },
+        };
+
+        var result = InlinePass.Inline(caller, Lookup(callee));
+
+        Assert.Equal(1, result.Inlined);
+        var newObj = result.Stmts.OfType<AssignStmt>().Single(a => a.Value is NewObjExpr);
+        var del = result.Stmts.OfType<AssignStmt>().Single(a => a.Value is DelegateNewExpr);
+        var target = Assert.IsType<LocExpr>(((DelegateNewExpr)del.Value).Target);
+        Assert.Equal(newObj.Target, target.Name);
+        Assert.NotEqual("t0", target.Name);
+    }
 }

@@ -202,6 +202,11 @@ public static class TypeEmitter
                 else
                 {
                     var (kind, typeName) = DecodeNestedFieldSignature(md, fd.Signature, nested.FullName, fName);
+                    var nullableUnderlying = kind == FieldTypeKind.Nullable
+                        ? TypeKindResolver.NullableUnderlyingName(typeName)
+                          ?? throw new NotSupportedException(
+                              $"nested type '{nested.FullName}' field '{fName}': cannot decode the underlying T of '{typeName}'")
+                        : "";
                     nested.InstanceFields.Add(new FieldDef
                     {
                         Name = fName,
@@ -212,6 +217,7 @@ public static class TypeEmitter
                         AccessMask = (int)fd.Attributes & 0x7,
                         TypeKind = kind,
                         FieldTypeName = typeName,
+                        NullableUnderlyingName = nullableUnderlying,
                     });
                 }
             }
@@ -368,7 +374,7 @@ public static class TypeEmitter
             // array fields stay rejected by MetadataLoader (read-only domain).
             0x1D or 0x14 => (FieldTypeKind.Reference, "System.Array"),
             0x13 => (FieldTypeKind.Int32, ""),
-            0x15 => (FieldTypeKind.Reference, GenericNestedInstantiationName(md, ref sig)),
+            0x15 => DecodeNestedGenericField(md, ref sig),
             0x11 => ValueTypeNestedField(md, sig.ReadTypeHandle(), ownerName, fieldName),
             // GN-18 B1 (fnptr fields): a `delegate*` (0x1B) NESTED-type field
             // rides the same full-width void* pointer carrier as top-level
@@ -380,10 +386,24 @@ public static class TypeEmitter
         };
     }
 
+    // A GENERICINST (0x15) instance field of a nested (closure display)
+    // class. System.Nullable`1<T> is a VALUE type -- it must not ride the
+    // reference-slot path: the display class carries the underlying T value
+    // slot plus a hasValue(bool) slot (see EmitClassStruct /
+    // LayoutInstanceFields). Every other generic instantiation keeps the
+    // established uniform reference slot.
+    private static (FieldTypeKind Kind, string TypeName) DecodeNestedGenericField(MetadataReader md, ref BlobReader sig)
+    {
+        var name = GenericNestedInstantiationName(md, ref sig);
+        if (TypeKindResolver.IsNullableFullName(name))
+            return (FieldTypeKind.Nullable, name);
+        return (FieldTypeKind.Reference, name);
+    }
+
     //--------------------------------------------------------------------------
     // A nested (closure display class) INSTANCE field of a VALUE type.
     //
-    // Three cases, in this order:
+    // Four cases, in this order:
     //   1. a BCL runtime value struct (Guid / DateTime / TimeSpan / Decimal /
     //      DateTimeOffset) -> the REAL runtime value shape. The member is the
     //      runtime struct itself, so the slot holds the whole value; the old
@@ -393,10 +413,14 @@ public static class TypeEmitter
     //   2. an ENUM -> the int32 carrier slot (the D5 / com17type doctrine:
     //      the enum rides its underlying int32; the IR models every enum
     //      value as an int64 constant);
-    //   3. any OTHER value type (a user struct, a Nullable, an unknown BCL
-    //      struct) -> LOUD rejection. There is no runtime value shape for it
-    //      on the nested path, and an int32 member would be a silently
-    //      mis-typed slot (or an ill-formed C++ store).
+    //   3. a USER STRUCT (a TypeDef whose base is System.ValueType) -> the
+    //      generated struct VALUE, laid out with its real metadata layout
+    //      (natural alignment, ceil(sizeof/pointer) slot span) and its inner
+    //      GC references marked in the display class refFieldBitmap at their
+    //      ABSOLUTE slots;
+    //   4. any OTHER value type (an unknown BCL struct) -> LOUD rejection.
+    //      There is no runtime value shape for it on the nested path, and an
+    //      int32 member would be a silently mis-typed slot.
     //--------------------------------------------------------------------------
     private static (FieldTypeKind Kind, string TypeName) ValueTypeNestedField(
         MetadataReader md, EntityHandle handle, string ownerName, string fieldName)
@@ -406,8 +430,23 @@ public static class TypeEmitter
             return (valueKind, name);
         if (IsEnumValueType(md, handle, name))
             return (FieldTypeKind.Int32, name);
+        if (IsUserValueType(md, handle))
+            return (FieldTypeKind.UserStruct, name);
         throw new NotSupportedException(
-            $"nested type '{ownerName}' field '{fieldName}': value-type field of type '{name}' has no runtime value slot -- supported value types are System.Guid / System.DateTime / System.TimeSpan / System.Decimal / System.DateTimeOffset (the runtime value struct) and enums (the int32 carrier); user structs and other value types are not supported");
+            $"nested type '{ownerName}' field '{fieldName}': value-type field of type '{name}' has no runtime value slot -- supported value types are System.Guid / System.DateTime / System.TimeSpan / System.Decimal / System.DateTimeOffset (the runtime value struct), enums (the int32 carrier) and translated user structs; other value types are not supported");
+    }
+
+    // A translated USER value type: a TypeDef in this assembly whose base is
+    // System.ValueType (and which is not an enum -- IsEnumValueType runs
+    // first). Such a type has a real generated C++ struct
+    // (EmitClassStruct/LayoutValueTypeFields) and a P25b descriptor.
+    private static bool IsUserValueType(MetadataReader md, EntityHandle handle)
+    {
+        if (handle.Kind != HandleKind.TypeDefinition) return false;
+        var td = md.GetTypeDefinition((TypeDefinitionHandle)handle);
+        if (td.BaseType.IsNil) return false;
+        var baseName = ResolveNestedTypeName(md, td.BaseType);
+        return baseName == "System.ValueType";
     }
 
     // Whether the field's value type is an ENUM -- the int32 carrier. The
@@ -867,7 +906,7 @@ public static class TypeEmitter
     // byte layout the native callee uses -- a run of int32 fields occupies
     // 4-byte strides, not 8-byte slots. See LayoutValueTypeFields.
     //--------------------------------------------------------------------------
-    public static void LayoutInstanceFields(TypeDef t)
+    public static void LayoutInstanceFields(TypeDef t, IReadOnlyList<TypeDef>? allTypes = null)
     {
         if (t.InstanceSize != 0) return; // idempotent: already laid out
         if (t.IsValueType)
@@ -892,7 +931,7 @@ public static class TypeEmitter
         int slot;
         if (t.BaseType != null && t.BaseTypeName != "System.Object")
         {
-            LayoutInstanceFields(t.BaseType); // base chain laid out first (multi-level)
+            LayoutInstanceFields(t.BaseType, allTypes); // base chain laid out first (multi-level)
             slot = t.BaseType.InstanceSize / t.PointerSize;
             bitmap = t.BaseType.RefFieldBitmap;
             refCount = t.BaseType.RefFieldCount;
@@ -903,6 +942,32 @@ public static class TypeEmitter
         }
         foreach (var f in t.InstanceFields)
         {
+            // Embedded VALUE-STRUCT members (a captured user struct, or the
+            // value half of a captured Nullable<T>) keep their real native
+            // layout: start on the struct's natural alignment and span
+            // ceil(size/pointerSize) slots so the following field (and the
+            // collector's slot grid) stay in lockstep. A Nullable<T> adds one
+            // whole flag slot for hasValue right after the value.
+            if (f.TypeKind is FieldTypeKind.UserStruct or FieldTypeKind.Nullable)
+            {
+                var shape = ResolveFieldValueShape(f, allTypes, t.PointerSize);
+                if (shape.Align > t.PointerSize)
+                    slot = RoundUpSlots(slot, (shape.Align + t.PointerSize - 1) / t.PointerSize);
+                f.SlotIndex = slot;
+                f.ByteOffset = slot * t.PointerSize;
+                MarkEmbeddedReferences(t, f, slot, shape.RefBitmap, ref bitmap, ref refCount);
+                var valueSlots = SlotSpan(shape.Size, t.PointerSize);
+                if (f.TypeKind == FieldTypeKind.Nullable)
+                {
+                    f.NullableHasValueOffset = f.ByteOffset + shape.Size;
+                    slot += valueSlots + 1;
+                }
+                else
+                {
+                    slot += valueSlots;
+                }
+                continue;
+            }
             // A runtime VALUE struct member whose natural alignment exceeds
             // the pointer size (the 8-byte alignment of the int64-based value
             // structs on a 32-bit target) starts on an aligned slot -- exactly
@@ -986,7 +1051,7 @@ public static class TypeEmitter
     // System.Enum BCL roots, which carry no layout fields), so there is no
     // base-chain region to continue.
     //--------------------------------------------------------------------------
-    private static void LayoutValueTypeFields(TypeDef t)
+    private static void LayoutValueTypeFields(TypeDef t, IReadOnlyList<TypeDef>? allTypes = null)
     {
         uint bitmap = 0;
         int refCount = 0;
@@ -994,6 +1059,32 @@ public static class TypeEmitter
         int maxAlign = 1;
         foreach (var f in t.InstanceFields)
         {
+            // Embedded user struct / Nullable<T> (a NESTED struct may carry
+            // them; top-level struct fields of a value type are decoded by
+            // MetadataLoader). The member pair emitted by EmitClassStruct is
+            // the layout authority: the value at its natural alignment, the
+            // hasValue flag directly after it, then pad to the following
+            // pointer-slot boundary.
+            if (f.TypeKind is FieldTypeKind.UserStruct or FieldTypeKind.Nullable)
+            {
+                var shape = ResolveFieldValueShape(f, allTypes, t.PointerSize);
+                if (shape.Align > maxAlign) maxAlign = shape.Align;
+                offset = (offset + shape.Align - 1) / shape.Align * shape.Align;
+                f.ByteOffset = offset;
+                f.SlotIndex = offset / t.PointerSize;
+                MarkEmbeddedReferences(t, f, f.SlotIndex, shape.RefBitmap, ref bitmap, ref refCount);
+                var valueSlots = SlotSpan(shape.Size, t.PointerSize);
+                if (f.TypeKind == FieldTypeKind.Nullable)
+                {
+                    f.NullableHasValueOffset = offset + shape.Size;
+                    offset += valueSlots * t.PointerSize + t.PointerSize;
+                }
+                else
+                {
+                    offset += shape.Size;
+                }
+                continue;
+            }
             var (size, align) = FieldNativeShape(f.TypeKind, t.PointerSize);
             if (align > maxAlign) maxAlign = align;
             // align the field up to its own natural alignment (C++ layout)
@@ -1016,6 +1107,7 @@ public static class TypeEmitter
         }
         t.RefFieldBitmap = bitmap;
         t.RefFieldCount = refCount;
+        t.InstanceAlignment = maxAlign;
         // C++ struct size: the extent rounded up to the struct's own alignment
         // (the largest member alignment). An int-only struct therefore reports
         // exactly its compact size (15 int32 -> 60), which is what the native
@@ -1050,6 +1142,129 @@ public static class TypeEmitter
             _ => (pointerSize, pointerSize),
         };
 
+    //--------------------------------------------------------------------------
+    // Embedded value-struct shapes (UserStruct / Nullable<T>).
+    //
+    // A closure display-class member of a translated user struct is the
+    // generated C++ struct VALUE; a Nullable<T> member expands to the
+    // underlying T value plus a hasValue flag. Both need the real native
+    // (size, alignment, reference bitmap) of the VALUE, which is the layout
+    // pass's own output -- resolved here from the model (never guessed from a
+    // mangled name).
+    //--------------------------------------------------------------------------
+    private readonly record struct ValueShape(string CppType, int Size, int Align, uint RefBitmap);
+
+    // The C++ member names of an expanded Nullable<T> field. Single authority
+    // for layout/emission and the field-access sites in CodeGenerator.
+    public static string NullableValueMemberName(string fieldCppName) => fieldCppName + "__value";
+    public static string NullableHasValueMemberName(string fieldCppName) => fieldCppName + "__hasValue";
+    public static string NullablePadMemberName(string fieldCppName) => fieldCppName + "__pad";
+
+    // ceil(size / pointerSize) -- the pointer-slot span of a value.
+    private static int SlotSpan(int size, int pointerSize) => (size + pointerSize - 1) / pointerSize;
+
+    private static int RoundUpSlots(int slot, int alignSlots)
+        => alignSlots <= 1 ? slot : (slot + alignSlots - 1) / alignSlots * alignSlots;
+
+    // The padding member that makes an expanded Nullable<T> occupy its value
+    // slots plus ONE whole pointer slot: the bool flag is 1 byte, the rest of
+    // the slot is padding, so the following member's byte offset (and the GC
+    // slot grid) stay exactly where the layout pass put them.
+    public static int NullablePadBytes(int valueSize, int pointerSize)
+        => SlotSpan(valueSize, pointerSize) * pointerSize + pointerSize - valueSize - 1;
+
+    private static ValueShape ResolveFieldValueShape(FieldDef f, IReadOnlyList<TypeDef>? allTypes, int pointerSize)
+    {
+        if (f.TypeKind == FieldTypeKind.Nullable)
+            return ResolveUnderlyingValueShape(f.NullableUnderlyingName, allTypes, pointerSize);
+        if (f.TypeKind == FieldTypeKind.UserStruct)
+        {
+            var def = f.UserStructType
+                      ?? TypeLookup.Find(allTypes ?? Array.Empty<TypeDef>(), f.FieldTypeName);
+            if (def == null)
+                throw new NotSupportedException(
+                    $"user-struct field '{f.Name}': type '{f.FieldTypeName}' is not in the translated type set -- cannot resolve its value layout");
+            LayoutInstanceFields(def, allTypes);
+            f.UserStructType = def;
+            return new ValueShape(TypeCppName(def), def.InstanceSize,
+                Math.Max(1, def.InstanceAlignment), def.RefFieldBitmap);
+        }
+        return ShapeForKind(f.TypeKind, f.FieldTypeName, allTypes, pointerSize);
+    }
+
+    private static ValueShape ResolveUnderlyingValueShape(string name, IReadOnlyList<TypeDef>? allTypes, int pointerSize)
+    {
+        if (TypeKindResolver.TryGetValueStructFieldKind(name, out var valueKind))
+        {
+            var s = TypeKindResolver.ValueStructFieldShape(valueKind);
+            return new ValueShape(s.CppType, s.SizeBytes, s.AlignBytes, 0);
+        }
+        var def = TypeLookup.Find(allTypes ?? Array.Empty<TypeDef>(), name);
+        if (def != null && def.BaseTypeName == "System.Enum")
+            return ShapeForKind(FieldTypeKind.Int32, name, allTypes, pointerSize);
+        if (def is { IsValueType: true })
+        {
+            LayoutInstanceFields(def, allTypes);
+            return new ValueShape(TypeCppName(def), def.InstanceSize,
+                Math.Max(1, def.InstanceAlignment), def.RefFieldBitmap);
+        }
+        if (CodeGenerator.IsKnownBclEnumName(name))
+            return ShapeForKind(FieldTypeKind.Int32, name, allTypes, pointerSize);
+        var (kind, _, _) = TypeKindResolver.ResolveFromFullName(name);
+        if (kind != FieldTypeKind.Reference || name is "System.String" or "System.Object")
+            return ShapeForKind(kind, name, allTypes, pointerSize);
+        throw new NotSupportedException(
+            $"Nullable<{name}>: the underlying type has no value layout in the translated model");
+    }
+
+    private static ValueShape ShapeForKind(FieldTypeKind kind, string typeName,
+        IReadOnlyList<TypeDef>? allTypes, int pointerSize)
+    {
+        if (TypeKindResolver.IsValueStructFieldKind(kind))
+        {
+            var s = TypeKindResolver.ValueStructFieldShape(kind);
+            return new ValueShape(s.CppType, s.SizeBytes, s.AlignBytes, 0);
+        }
+        return kind switch
+        {
+            FieldTypeKind.Int32 => new ValueShape("int32_t", 4, 4, 0),
+            FieldTypeKind.Int64 => new ValueShape("int64_t", 8, 8, 0),
+            FieldTypeKind.UInt64 => new ValueShape("uint64_t", 8, 8, 0),
+            FieldTypeKind.Float => new ValueShape("float", 4, 4, 0),
+            FieldTypeKind.Double => new ValueShape("double", 8, 8, 0),
+            // A `delegate*` field rides void*; a real IntPtr/UIntPtr intptr_t.
+            FieldTypeKind.NativeInt => string.IsNullOrEmpty(typeName)
+                ? new ValueShape("void*", pointerSize, pointerSize, 0)
+                : new ValueShape("intptr_t", pointerSize, pointerSize, 0),
+            FieldTypeKind.Reference => new ValueShape(
+                ReferenceCppType(typeName, allTypes), pointerSize, pointerSize, 1u),
+            _ => throw new NotSupportedException(
+                $"field kind {kind} has no embedded value shape"),
+        };
+    }
+
+    // Mark the GC references INSIDE an embedded value at their ABSOLUTE slot
+    // in the containing object. The inner bitmap is relative to the value
+    // start (bit i <=> byte offset i*pointerSize inside the value), which is
+    // exactly what LayoutValueTypeFields records for a struct.
+    private static void MarkEmbeddedReferences(TypeDef owner, FieldDef f, int baseSlot,
+        uint innerBitmap, ref uint bitmap, ref int refCount)
+    {
+        if (innerBitmap == 0) return;
+        for (var b = 0; b < 32; b++)
+        {
+            if ((innerBitmap & (1u << b)) == 0) continue;
+            var absSlot = baseSlot + b;
+            if (absSlot >= 32)
+            {
+                Console.Error.WriteLine($"warning: type {owner.FullName}: reference field '{f.Name}' lands on slot {absSlot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (audit H6), skipping field from bitmap");
+                continue;
+            }
+            bitmap |= 1u << absSlot;
+            ++refCount;
+        }
+    }
+
     // O-1 (RF-N4 audit A): the instance fields of a class in INLINE layout
     // order -- the base chain's fields (base-first, recursively) followed by
     // the type's own fields. The emitted C++ struct uses this list so its
@@ -1074,7 +1289,7 @@ public static class TypeEmitter
     //--------------------------------------------------------------------------
     public static string EmitClassStruct(TypeDef t, IReadOnlyList<TypeDef> allTypes)
     {
-        LayoutInstanceFields(t);
+        LayoutInstanceFields(t, allTypes);
         var w = new CppWriter();
         w.Line("//------------------------------------------------------------------------------");
         w.Line($"// {t.FullName} -- translated class layout.");
@@ -1142,6 +1357,29 @@ public static class TypeEmitter
             else
             {
                 usedNames.Add(canonical);
+            }
+            // A captured Nullable<T> expands to the underlying T value slot
+            // plus a hasValue(bool) slot (a whole pointer slot, padded), so
+            // the member offsets match the layout pass exactly.
+            if (f.TypeKind == FieldTypeKind.Nullable)
+            {
+                var shape = ResolveFieldValueShape(f, allTypes, t.PointerSize);
+                var valueMember = NullableValueMemberName(memberName);
+                var hasMember = NullableHasValueMemberName(memberName);
+                var padMember = NullablePadMemberName(memberName);
+                w.Line($"{shape.CppType} {valueMember}; // slot {f.SlotIndex} at offset {f.ByteOffset} (Nullable<{f.NullableUnderlyingName}> value)");
+                w.Line($"bool {hasMember}; // offset {f.NullableHasValueOffset} (Nullable hasValue)");
+                w.Line($"uint8_t {padMember}[{NullablePadBytes(shape.Size, t.PointerSize)}]; // pad to the next pointer slot");
+                continue;
+            }
+            // A captured USER STRUCT is the generated struct VALUE: its real
+            // natural alignment / size / inner GC references are the layout
+            // pass's output.
+            if (f.TypeKind == FieldTypeKind.UserStruct)
+            {
+                var shape = ResolveFieldValueShape(f, allTypes, t.PointerSize);
+                w.Line($"{shape.CppType} {memberName}; // slot {f.SlotIndex} at offset {f.ByteOffset} (user struct value{(shape.RefBitmap != 0 ? ", inner GC references marked in the owner bitmap" : "")})");
+                continue;
             }
             var cppType = f.TypeKind switch
             {
@@ -1220,7 +1458,7 @@ public static class TypeEmitter
     // PUBLIC: the FieldAssignStmt emitter casts the stored value to this SAME
     // type (single authority for the field's C++ storage type -- the gccompact
     // regression came from the two sides drifting apart).
-    public static string ReferenceCppType(string fullName, IReadOnlyList<TypeDef> allTypes) => fullName switch
+    public static string ReferenceCppType(string fullName, IReadOnlyList<TypeDef>? allTypes) => fullName switch
     {
         "System.Object" => "Il2CppObject*",
         "System.String" => "Il2CppObject*",
@@ -1855,7 +2093,7 @@ public static class TypeEmitter
         IReadOnlySet<string>? foldedAccessorNames = null, IReadOnlyList<TypeDef>? allTypes = null)
     {
         if (reflectedNames != null && !reflectedNames.Contains(t.FullName)) return "";
-        LayoutInstanceFields(t);
+        LayoutInstanceFields(t, allTypes);
         var w = new CppWriter();
         w.Line($"// Reflection metadata for {t.FullName} (M5.5 typeinfo.h contract).");
 
@@ -2339,3 +2577,5 @@ public sealed class ReflectionManifestFilterResult
     public IReadOnlyList<string> Kept { get; }
     public IReadOnlyList<string> Dropped { get; }
 }
+
+

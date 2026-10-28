@@ -71,6 +71,23 @@ public static class TypeKindResolver
         }
     }
 
+    //--------------------------------------------------------------------------
+    // System.Nullable`1<T> identity + underlying-T extraction. The nested
+    // closure-field decoder (TypeEmitter.DecodeNestedFieldSignature) sees a
+    // GENERICINST (0x15) with this definition name and expands it into the
+    // underlying T value slot plus a hasValue(bool) slot.
+    //--------------------------------------------------------------------------
+    public static bool IsNullableFullName(string fullName)
+        => fullName.StartsWith("System.Nullable`1<", StringComparison.Ordinal)
+           && fullName.EndsWith(">", StringComparison.Ordinal);
+
+    public static string? NullableUnderlyingName(string fullName)
+    {
+        const string prefix = "System.Nullable`1<";
+        if (!IsNullableFullName(fullName)) return null;
+        return fullName.Substring(prefix.Length, fullName.Length - prefix.Length - 1);
+    }
+
     // The emitted C++ member type and the native (size, alignment) of a
     // value-struct field kind.
     public static (string CppType, int SizeBytes, int AlignBytes) ValueStructFieldShape(FieldTypeKind kind) => kind switch

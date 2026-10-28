@@ -1,4 +1,4 @@
-﻿using System.Reflection.Metadata;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
@@ -4325,6 +4325,12 @@ public static class CodeGenerator
                 // type table (Il2CppObject* for a nested user type whose model key is the short
                 // name) -- incompatible pointer types on every nested-class reference store.
                 // M3 Task 11: value-type receivers are plain values (no null check, no barrier).
+                var faNullable = ResolveInstanceField(types, fa.OwnerFullName, fa.FieldCppName);
+                if (faNullable is { TypeKind: FieldTypeKind.Nullable })
+                {
+                    EmitNullableFieldStore(w, fa, faNullable, md, types);
+                    break;
+                }
                 var faValueCpp = TypeEmitter.ReferenceCppType(fa.RefTargetFullName, types);
                 // wf5 (winforms1 phase-4): a reference field whose type is a
                 // custom DELEGATE has no generated struct -- the value stays
@@ -4752,6 +4758,18 @@ public static class CodeGenerator
                 if (c.Function.StartsWith("initobj_", StringComparison.Ordinal)
                     && int.TryParse(c.Function["initobj_".Length..], out var initobjTok))
                 {
+                    // A captured Nullable<T> closure field: clear BOTH expanded
+                    // members (a single Il2CppObject** null store would
+                    // overwrite only part of the value slot).
+                    if (TryNullableFieldSlot(c.Args[0], types, out var ioField))
+                    {
+                        var ioAt = At(c.SourceOpName, c.SourceOffset);
+                        w.LineAligned($"{NullableFieldValue(c.Args[0], md, types)} = {NullableDefaultCode(ioField.NullableUnderlyingName, md, types)};",
+                            $"IL {ioAt} -- clear the captured Nullable value slot");
+                        w.LineAligned($"{NullableFieldHasValue(c.Args[0], md, types)} = false;",
+                            $"IL {ioAt} -- clear the captured Nullable hasValue flag");
+                        break;
+                    }
                     var initobjAddr = EmitExpr(c.Args[0], md, types);
                     // batch 156c (asynccase): initobj of a GENERIC-INSTANTIATION
                     // type (TaskAwaiter`1<int32> -- the async state machine's
@@ -4840,6 +4858,9 @@ public static class CodeGenerator
                 if (resolvedStmt is { } nStmt && IsNullableMemberMarker(nStmt.CppName)
                     && c.Args.Count >= 1)
                 {
+                    if (TryNullableFieldSlot(c.Args[0], types, out var nStmtField)
+                        && EmitNullableFieldMemberStatement(w, c, nStmt, nStmtField, md, types))
+                        break;
                     var nObjS = NullableObjectExpr(c.Args[0], md, types);
                     if (nStmt.CppName.EndsWith("_has_value", StringComparison.Ordinal))
                     {
@@ -5471,6 +5492,13 @@ public static class CodeGenerator
             case VirtualCallExpr v:
                 return EmitVirtualCall(v, md, types);
             case FieldExpr f:
+                // A whole-value read of an expanded Nullable<T> closure field
+                // has no single C++ member (the storage is value + hasValue).
+                // Reads go through HasValue/Value/GetValueOrDefault; a raw
+                // whole-value copy is LOUD rather than silently wrong.
+                if (ResolveInstanceField(types, f.OwnerFullName, f.FieldCppName) is { TypeKind: FieldTypeKind.Nullable })
+                    throw new NotSupportedException(
+                        $"whole-value read of captured Nullable field '{f.OwnerFullName}.{f.FieldCppName}' is not supported -- use HasValue / Value / GetValueOrDefault");
                 // Instance field read: null-check the receiver, then dereference by the concrete struct type.
                 // A (Il2CppObject*) expression may come from an object/base reference; cast to the declared concrete type here.
                 // Reference field values are cast back to Il2CppObject* uniformly (the IR's uniform reference
@@ -5479,6 +5507,12 @@ public static class CodeGenerator
                 var fval = $"{FieldAccess(f.Object, f.OwnerFullName, f.FieldCppName, md, types, f.IsValueTypeObject, _curLocKinds)}";
                 return f.IsRefField ? $"reinterpret_cast<Il2CppObject*>({fval})" : fval;
             case FieldAddrExpr fa:
+                // An expanded Nullable<T> field has no single addressable
+                // member; the only supported address consumers (initobj /
+                // Nullable member calls) are intercepted before this arm.
+                if (ResolveInstanceField(types, fa.OwnerFullName, fa.FieldCppName) is { TypeKind: FieldTypeKind.Nullable })
+                    throw new NotSupportedException(
+                        $"address-of captured Nullable field '{fa.OwnerFullName}.{fa.FieldCppName}' is not supported -- use HasValue / Value / GetValueOrDefault");
                 // Instance field address (ldflda): &obj->field. Null-check the receiver first.
                 // batch 156c (asynccase): VALUE-TYPE receivers (the async state
                 // machine's builder/awaiter fields) skip the null check -- a
@@ -10462,6 +10496,8 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         if (resolved2 is { } nres && IsNullableMemberMarker(nres.CppName)
             && c.Args.Count >= 1)
         {
+            if (TryNullableFieldSlot(c.Args[0], types, out var nField))
+                return EmitNullableFieldMemberCall(nres, c, nField, md, types);
             var nObj = NullableObjectExpr(c.Args[0], md, types);
             var nT = NullableUnderlyingOf(c, nres, md);
             if (nres.CppName.EndsWith("_has_value", StringComparison.Ordinal))
@@ -10944,6 +10980,175 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         }
         return owner?.InstanceFields.Any(fd => fd.TypeKind == FieldTypeKind.Guid
                                                && TypeEmitter.Sanitize(fd.Name) == f.FieldCppName) == true;
+    }
+
+    //--------------------------------------------------------------------------
+    // Captured Nullable<T> fields (closure display classes).
+    //
+    // A Nullable<T> field is emitted as TWO members by TypeEmitter:
+    //     <field>__value      the underlying T value slot
+    //     <field>__hasValue   the bool flag (its own pointer slot)
+    // The model's FieldDef carries the underlying T name. These helpers
+    // resolve a FieldExpr / FieldAddrExpr back to that FieldDef and emit a
+    // member access through the SAME FieldAccess authority every other field
+    // read uses (value-type receiver included).
+    //--------------------------------------------------------------------------
+    private static FieldDef? ResolveInstanceField(IReadOnlyList<TypeDef> types,
+        string ownerFullName, string fieldCppName)
+    {
+        var owner = TypeLookup.Find(types, ownerFullName)
+                    ?? types.FirstOrDefault(x => x.GenericArity > 0
+                                                 && ownerFullName.StartsWith(x.FullName + "_", StringComparison.Ordinal));
+        return owner?.InstanceFields.FirstOrDefault(fd => TypeEmitter.Sanitize(fd.Name) == fieldCppName);
+    }
+
+    private static bool TryNullableFieldSlot(Expr recv, IReadOnlyList<TypeDef> types, out FieldDef field)
+    {
+        switch (recv)
+        {
+            case FieldAddrExpr fa:
+                field = ResolveInstanceField(types, fa.OwnerFullName, fa.FieldCppName)!;
+                break;
+            case FieldExpr fe:
+                field = ResolveInstanceField(types, fe.OwnerFullName, fe.FieldCppName)!;
+                break;
+            default:
+                field = null!;
+                return false;
+        }
+        return field is { TypeKind: FieldTypeKind.Nullable };
+    }
+
+    // The C++ member access for one half of an expanded Nullable field.
+    private static string NullableFieldMember(Expr recv, string memberCppName,
+        MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        return recv switch
+        {
+            FieldAddrExpr fa => FieldAccess(fa.Object, fa.OwnerFullName, memberCppName, md, types, fa.IsValueTypeObject, _curLocKinds),
+            FieldExpr fe => FieldAccess(fe.Object, fe.OwnerFullName, memberCppName, md, types, fe.IsValueTypeObject, _curLocKinds),
+            _ => throw new NotSupportedException("Nullable field access requires a field receiver"),
+        };
+    }
+
+    private static string NullableFieldHasValue(Expr recv, MetadataReader md, IReadOnlyList<TypeDef> types)
+        => NullableFieldMember(recv, TypeEmitter.NullableHasValueMemberName(
+            recv is FieldAddrExpr fa ? fa.FieldCppName : ((FieldExpr)recv).FieldCppName), md, types);
+
+    private static string NullableFieldValue(Expr recv, MetadataReader md, IReadOnlyList<TypeDef> types)
+        => NullableFieldMember(recv, TypeEmitter.NullableValueMemberName(
+            recv is FieldAddrExpr fa ? fa.FieldCppName : ((FieldExpr)recv).FieldCppName), md, types);
+
+    // stfld of a captured Nullable<T> field. The IL value is the stack's
+    // boxed-object nullable representation (nullptr = no value, boxed T = a
+    // value) -- unbox it into the value member and derive hasValue from the
+    // null test.
+    private static void EmitNullableFieldStore(CppWriter w, FieldAssignStmt fa, FieldDef field,
+        MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        var valueTarget = FieldAccess(fa.Object, fa.OwnerFullName,
+            TypeEmitter.NullableValueMemberName(fa.FieldCppName), md, types, fa.IsValueTypeObject, _curLocKinds);
+        var hasTarget = FieldAccess(fa.Object, fa.OwnerFullName,
+            TypeEmitter.NullableHasValueMemberName(fa.FieldCppName), md, types, fa.IsValueTypeObject, _curLocKinds);
+        var underlying = field.NullableUnderlyingName;
+        var defaultValue = NullableDefaultCode(underlying, md, types);
+        var at = At(fa.SourceOpName, fa.SourceOffset);
+        if (fa.Value is NullExpr)
+        {
+            w.LineAligned($"{valueTarget} = {defaultValue};", $"IL {at} -- clear the captured Nullable value slot");
+            w.LineAligned($"{hasTarget} = false;", $"IL {at} -- clear the captured Nullable hasValue flag");
+            return;
+        }
+        var boxedExpr = EmitExpr(fa.Value, md, types);
+        if (fa.Value is not LocExpr)
+        {
+            // Materialize once: the box expression may allocate, and it is
+            // read twice (unbox + null test).
+            var tmp = $"__nvbox_{(_curStmtIndex >= 0 ? _curStmtIndex : fa.SourceOffset)}";
+            w.LineAligned($"Il2CppObject* {tmp} = {boxedExpr};", $"IL {at} -- materialize the boxed Nullable value once");
+            boxedExpr = tmp;
+        }
+        w.LineAligned(
+            $"{valueTarget} = ({boxedExpr} == nullptr ? {defaultValue} : {NullableUnboxCode(underlying, boxedExpr, md, types)});",
+            $"IL {at} -- store the captured Nullable value slot");
+        w.LineAligned($"{hasTarget} = ({boxedExpr} != nullptr);",
+            $"IL {at} -- store the captured Nullable hasValue flag");
+    }
+
+    // A Nullable<T> member call whose receiver is an expanded closure field:
+    // HasValue/Value/GetValueOrDefault/ToString/GetHashCode/Equals inline
+    // against the value + hasValue member pair.
+    private static string EmitNullableFieldMemberCall(ResolvedMethod r, CallExpr c, FieldDef field,
+        MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        var has = NullableFieldHasValue(c.Args[0], md, types);
+        var val = NullableFieldValue(c.Args[0], md, types);
+        var t = field.NullableUnderlyingName;
+        var name = r.CppName;
+        if (name.EndsWith("_has_value", StringComparison.Ordinal))
+            return $"(({has}) != false)";
+        if (name.EndsWith("_get_value", StringComparison.Ordinal))
+            return $"(il2cpp::runtime::il2cpp_nullable_require_value_flag({has}), {val})";
+        if (name.EndsWith("_get_value_or_default", StringComparison.Ordinal))
+            return $"(({has}) ? {val} : {NullableDefaultCode(t, md, types)})";
+        if (name.EndsWith("_get_value_or_default_arg", StringComparison.Ordinal))
+            return $"(({has}) ? {val} : {EmitExpr(c.Args[1], md, types)})";
+        if (name.EndsWith("_to_string", StringComparison.Ordinal))
+            return $"il2cpp::runtime::il2cpp_nullable_to_string(({has}) ? {NullableBoxCode(t, val, md, types)} : nullptr)";
+        if (name.EndsWith("_get_hash_code", StringComparison.Ordinal))
+            return $"il2cpp::runtime::il2cpp_nullable_get_hash_code(({has}) ? {NullableBoxCode(t, val, md, types)} : nullptr)";
+        if (name.EndsWith("_equals", StringComparison.Ordinal))
+            return $"il2cpp::runtime::il2cpp_nullable_equals(({has}) ? {NullableBoxCode(t, val, md, types)} : nullptr, {EmitExpr(c.Args[1], md, types)})";
+        throw new NotSupportedException(
+            $"Nullable<{t}> member '{name}' on a captured closure field is not supported");
+    }
+
+    private static bool EmitNullableFieldMemberStatement(CppWriter w, CallStmt c, ResolvedMethod r,
+        FieldDef field, MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        var has = NullableFieldHasValue(c.Args[0], md, types);
+        var val = NullableFieldValue(c.Args[0], md, types);
+        var t = field.NullableUnderlyingName;
+        var at = At(c.SourceOpName, c.SourceOffset);
+        var name = r.CppName;
+        if (name.EndsWith("_has_value", StringComparison.Ordinal))
+        {
+            w.LineAligned($"((void)({has}));", $"IL {at} -- Nullable get_HasValue (result discarded)");
+            return true;
+        }
+        if (name.EndsWith("_get_value", StringComparison.Ordinal))
+        {
+            w.LineAligned($"il2cpp::runtime::il2cpp_nullable_require_value_flag({has});",
+                $"IL {at} -- Nullable get_Value no-value guard (result discarded)");
+            return true;
+        }
+        if (name.EndsWith("_ctor", StringComparison.Ordinal))
+        {
+            w.LineAligned($"{val} = {EmitExpr(c.Args[1], md, types)};",
+                $"IL {at} -- Nullable .ctor stores the underlying T value");
+            w.LineAligned($"{NullableFieldHasValue(c.Args[0], md, types)} = true;",
+                $"IL {at} -- Nullable .ctor sets hasValue");
+            return true;
+        }
+        if (name.EndsWith("_to_string", StringComparison.Ordinal))
+        {
+            w.LineAligned($"((void)(il2cpp::runtime::il2cpp_nullable_to_string(({has}) ? {NullableBoxCode(t, val, md, types)} : nullptr)));",
+                $"IL {at} -- Nullable ToString (result discarded)");
+            return true;
+        }
+        if (name.EndsWith("_get_hash_code", StringComparison.Ordinal))
+        {
+            w.LineAligned($"((void)(il2cpp::runtime::il2cpp_nullable_get_hash_code(({has}) ? {NullableBoxCode(t, val, md, types)} : nullptr)));",
+                $"IL {at} -- Nullable GetHashCode (result discarded)");
+            return true;
+        }
+        if (name.EndsWith("_equals", StringComparison.Ordinal))
+        {
+            w.LineAligned($"((void)(il2cpp::runtime::il2cpp_nullable_equals(({has}) ? {NullableBoxCode(t, val, md, types)} : nullptr, {EmitExpr(c.Args[1], md, types)})));",
+                $"IL {at} -- Nullable Equals (result discarded)");
+            return true;
+        }
+        return false;
     }
 
     //--------------------------------------------------------------------------
@@ -12835,7 +13040,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     //--------------------------------------------------------------------------
-    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section 閳?
+    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section �?
     // RF-N6): construct the MEMBER-level custom attribute instances (methods /
     // fields / properties) and register each annotated member's array in the
     // RF-N6 member registry (attribute.h) under the "FullName::memberName"
@@ -13269,7 +13474,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         h.Open();
         h.Line("return il2cpp::il2cpp_report_unhandled_exception(__il2cpp_unhandled.message_text());");
         h.Close();
-        // GN-17 (閺傝顢嶆稊?: a native std::exception or any other C++ escape that
+        // GN-17 (鏂规涔?: a native std::exception or any other C++ escape that
         // slips past the P/Invoke boundary wrap (il2cpp_pinvoke_call) must NOT
         // reach std::terminate/abort -- report and exit non-zero (the .NET
         // process contract: an uncaught native exception is a reported,
@@ -13720,6 +13925,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         return null;
     }
 }
+
 
 
 

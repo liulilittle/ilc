@@ -25,8 +25,10 @@ using Xunit;
 //     System.DateTimeOffset -> the runtime value struct member (never int32);
 //   * an ENUM -> the int32 carrier (the established D5 / com17type doctrine:
 //     the enum rides its underlying int32 slot);
-//   * any OTHER value type (a user struct, ...) -> LOUD rejection with a
-//     self-identifying message, never a silently mis-typed slot.
+//   * a USER STRUCT is no longer rejected -- it is modeled as the generated
+//     struct value with its real layout (see ClosureStructCaptureTests);
+//   * any OTHER value type -> LOUD rejection with a self-identifying
+//     message, never a silently mis-typed slot.
 //
 // The assertions are on the GENERATED TEXT (not on the model enums) so the
 // test compiles against the pre-fix tree and fails RED on the int32 member.
@@ -265,19 +267,20 @@ public class ClosureValueSlotTests
     }
 
     //--------------------------------------------------------------------------
-    // LOUD contract: an unsupported value type is rejected with a
-    // self-identifying message (never a silently mis-typed int32 slot).
+    // USER STRUCT contract: a captured user struct is modeled (real slot),
+    // never LOUD and never a silently mis-typed int32 slot.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Expand_NestedUserStructField_IsRejectedLoudly()
+    public void Expand_NestedUserStructField_IsModeled()
     {
         var tmp = Path.GetTempFileName();
         try
         {
-            var ex = Assert.Throws<NotSupportedException>(() => Load(tmp, SynthesizeNestedUserStructField()));
-            Assert.Contains("Pt", ex.Message);
-            Assert.Contains("Holder", ex.Message);
-            Assert.Contains("p", ex.Message);
+            var (types, _) = Load(tmp, SynthesizeNestedUserStructField());
+            var holder = types.Single(t => t.FullName == "Holder");
+            var p = holder.InstanceFields.Single(f => f.Name == "p");
+            Assert.Equal(FieldTypeKind.UserStruct, p.TypeKind);
+            Assert.Equal("Cases.Recurse+Pt", p.FieldTypeName);
         }
         finally
         {
@@ -285,3 +288,5 @@ public class ClosureValueSlotTests
         }
     }
 }
+
+
