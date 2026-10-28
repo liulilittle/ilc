@@ -1244,19 +1244,25 @@ E2E proof (byte equality with the net48 oracle): `tests/cases/agg-vtsrc`
 cross-month Day/Month, Guid, and the count==4 forms with
 TResult=int32/decimal).
 
-**Newly-registered pre-existing defect (NOT fixed here, blocks branchy
-decimal lambda bodies):** the stack-fold types a DECIMAL branch-merge
-phi temp as `int32_t` when a lambda body branches around a decimal
-value (e.g. `(acc, g) => acc + (g == Guid.Empty ? 1m : 100m)`: Roslyn
+**Newly-registered pre-existing defect (fixed by 044eaefe; it blocked
+branchy decimal lambda bodies):** a DECIMAL branch-merge phi temp was
+typed `int32_t` when a lambda body branches around a decimal value
+(e.g. `(acc, g) => acc + (g == Guid.Empty ? 1m : 100m)`: Roslyn
 duplicates the int->decimal conversion INTO each branch, so the merged
 `acc` copy is a decimal stack value, but the emitted temp was declared
 `int32_t` -- `t1 = arg1;` -- and `icall_decimal_add` then receives an
 `int32_t*`: a C++ compile error (a C0 build failure, NOT a wrong-value
 risk). The same shape compiles and runs correctly when the fold is
 branch-free (the ternary value converts AFTER the merge, or the body
-uses straight-line arithmetic). **Change surface**: the stack-fold's
-branch-merge temp typing must carry the merged slot's IL type (decimal
--> `Il2CppDecimal`) instead of defaulting to int32.
+uses straight-line arithmetic). **Root-cause site (corrected -- the
+original registration blamed the stack-fold, which is WRONG):** the
+parameter kind seed loop in `CodeGenerator.EmitBody` (~:2550-2564) knew
+only the Guid value shape, so the phi propagation chain through
+`ExprKind(LocExpr)` fell to the "val" default and the merged slot was
+declared `int32_t`. **Fixed** by commit 044eaefe (= 257b860f): the seed
+loop adds the four wide-value-type seeds (dec/dto/dt/ts) and BCL enum
+parameters keep the int32 carrier; the `decphiprobe` e2e regression
+(this shape) is byte-equal with the net48 oracle.
 
 
 ## References (section 11)
@@ -1445,3 +1451,24 @@ GREEN: `ok=True`, oracle sha == runtime sha
   `ilistException` 3dae4d13..., `myIList` 6008a833..., `virtbench`
   0f6fde7c..., `com17type` cbd03919..., `nestiface1` 040e184b...,
   `virtual` 0d40abb6... -- all `ok=True`.
+
+## 14. Probe registered (impl-thenbyfam hand-off): the float (0x0C) sort-key family shares the double kernel ABI
+
+Registered from the impl-thenbyfam seat as a SUSPECTED defect -- NOT
+fixed here, NOT yet measured. `LinqKeyFamilyCode` folds float (0x0C) and
+double (0x0D) into the SAME key family code "2"
+(`src/il2cppc/Emit/MethodMap.Linq.cs:3220`), and the family-2 runtime
+leaf invokes the key selector through `InvokeKeyI4D`, typed
+`double (*)(int32_t)` (`src/runtime/src/linq_sort.cpp:164,174`) -- both
+for the primary OrderBy key and for the fused ThenBy composite
+(`linq_sort.cpp:1377,1389`). A `Func<int,float>` leaf returns a 4-byte
+float per the managed ABI, so reading that return through a `double`
+fn-pointer is the same class of ABI misread the 11.5 decimal shapes hit
+at their own boundary. The OrderBy e2e surface has NO float-key coverage
+today (`linqorder2` stays on `OrderBy<int,int>` + `ThenBy<int,int>`), so
+the misread is suspected, not measured.
+
+Follow-up probe (registered): case `thenby-floatprobe`, covering the
+`Func<int,float>` and `Func<double,float>` key selectors x 4 directions
+(OrderBy / ThenBy, each ascending / descending), byte-equality against
+the net48 oracle.
