@@ -4815,12 +4815,18 @@ public static class StackFold
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i4_i8" => "_i4_i8",
                 "il2cpp::il2cpp_linq_order_by_key_i4_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i4_d" => "_i4_d",
+                // impl-floatkey: the float-key primary entries (the float
+                // family has its own reader -- b5-gaps §14).
+                "il2cpp::il2cpp_linq_order_by_key_i4_f"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_i4_f" => "_i4_f",
                 "il2cpp::il2cpp_linq_order_by_key_i8_i4"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i8_i4" => "_i8_i4",
                 "il2cpp::il2cpp_linq_order_by_key_i8_i8"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i8_i8" => "_i8_i8",
                 "il2cpp::il2cpp_linq_order_by_key_i8_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i8_d" => "_i8_d",
+                "il2cpp::il2cpp_linq_order_by_key_i8_f"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_i8_f" => "_i8_f",
                 // impl-linqleft: the DECIMAL element carriers (a decimal[]
                 // source and a decimal GroupBy bucket) for EVERY primary key
                 // family the decimal OrderBy supports. The secondary family
@@ -4974,7 +4980,8 @@ public static class StackFold
                     // key families. The primary family is encoded in the
                     // primary OrderBy entry's suffix; the SECONDARY family
                     // rides the ThenBy marker's AppendLiterals (0=int32,
-                    // 1=int64, 2=double -- LinqKeyFamilyCode). Both
+                    // 1=int64, 2=double, 3=float -- LinqValKeyFamilyCode).
+                    // Both
                     // directions ride trailing literals. The old per-family
                     // entries (then_by_key_i4 / _i4_i8 / ...) keyed the
                     // SECONDARY reader off the primary family: a mixed pair
@@ -4983,7 +4990,7 @@ public static class StackFold
                     // return slot -- a silent mis-order on x64.
                     string? secondaryCode = resolved.AppendLiterals is { Length: >= 1 }
                         ? resolved.AppendLiterals[0] : null;
-                    if (secondaryCode is not ("0" or "1" or "2"))
+                    if (secondaryCode is not ("0" or "1" or "2" or "3"))
                     {
                         throw new NotSupportedException(
                             $"Enumerable.ThenBy receiver '{recvLoc.Name}' marker carries no numeric " +
@@ -4995,9 +5002,11 @@ public static class StackFold
                         "_i4" => "0",
                         "_i4_i8" => "1",
                         "_i4_d" => "2",
+                        "_i4_f" => "3",
                         "_i8_i4" => "0",
                         "_i8_i8" => "1",
                         "_i8_d" => "2",
+                        "_i8_f" => "3",
                         _ => throw new NotSupportedException(
                             $"Enumerable.ThenBy over primary entry suffix '{familySuffix}' has no " +
                             "numeric fused-composite mapping (impl-thenbyfam)"),

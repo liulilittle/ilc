@@ -2741,9 +2741,11 @@ public class MethodMapTestsLinq
     [Theory]
     [InlineData("OrderBy", 0x08, "il2cpp::il2cpp_linq_order_by_key_i8_i4")]
     [InlineData("OrderBy", 0x0A, "il2cpp::il2cpp_linq_order_by_key_i8_i8")]
+    [InlineData("OrderBy", 0x0C, "il2cpp::il2cpp_linq_order_by_key_i8_f")]
     [InlineData("OrderBy", 0x0D, "il2cpp::il2cpp_linq_order_by_key_i8_d")]
     [InlineData("OrderByDescending", 0x08, "il2cpp::il2cpp_linq_order_by_key_desc_i8_i4")]
     [InlineData("OrderByDescending", 0x0A, "il2cpp::il2cpp_linq_order_by_key_desc_i8_i8")]
+    [InlineData("OrderByDescending", 0x0C, "il2cpp::il2cpp_linq_order_by_key_desc_i8_f")]
     [InlineData("OrderByDescending", 0x0D, "il2cpp::il2cpp_linq_order_by_key_desc_i8_d")]
     public void Resolve_OrderBy_LongSource_MapsToI8KeyIcall(
         string name, byte keyByte, string icall)
@@ -2839,8 +2841,9 @@ public class MethodMapTestsLinq
     }
 
     // impl-thenbyfam: the numeric ThenBy marker carries the SECONDARY key
-    // family code in AppendLiterals (0=int32, 1=int64, 2=double -- the
-    // LinqKeyFamilyCode contract): the fused composite picks the key reader
+    // family code in AppendLiterals (0=int32, 1=int64, 2=double, 3=float --
+    // the LinqValKeyFamilyCode contract): the fused composite picks the key
+    // reader
     // PER KEY, and a mixed pair (OrderBy(int).ThenBy(double) /
     // OrderBy(double).ThenBy(int)) that dropped the secondary family read the
     // secondary key from the WRONG callback return slot -- a silent mis-order
@@ -2848,9 +2851,11 @@ public class MethodMapTestsLinq
     [Theory]
     [InlineData("ThenBy", 0x08, "0")]
     [InlineData("ThenBy", 0x0A, "1")]
+    [InlineData("ThenBy", 0x0C, "3")]
     [InlineData("ThenBy", 0x0D, "2")]
     [InlineData("ThenByDescending", 0x08, "0")]
     [InlineData("ThenByDescending", 0x0A, "1")]
+    [InlineData("ThenByDescending", 0x0C, "3")]
     [InlineData("ThenByDescending", 0x0D, "2")]
     public void Resolve_ThenBy_Int32Source_MarkerCarriesSecondaryFamilyCode(
         string name, byte keyByte, string famCode)
@@ -2872,6 +2877,7 @@ public class MethodMapTestsLinq
     [Theory]
     [InlineData("ThenBy", 0x08, "0")]
     [InlineData("ThenBy", 0x0A, "1")]
+    [InlineData("ThenBy", 0x0C, "3")]
     [InlineData("ThenBy", 0x0D, "2")]
     public void Resolve_ThenBy_LongSource_MarkerCarriesSecondaryFamilyCode(
         string name, byte keyByte, string famCode)
@@ -2895,8 +2901,10 @@ public class MethodMapTestsLinq
     // entry (il2cpp_linq_order_by_key[_desc]_i4_i8 / _i4_d).
     [Theory]
     [InlineData("OrderBy", 0x0A, "il2cpp::il2cpp_linq_order_by_key_i4_i8")]
+    [InlineData("OrderBy", 0x0C, "il2cpp::il2cpp_linq_order_by_key_i4_f")]
     [InlineData("OrderBy", 0x0D, "il2cpp::il2cpp_linq_order_by_key_i4_d")]
     [InlineData("OrderByDescending", 0x0A, "il2cpp::il2cpp_linq_order_by_key_desc_i4_i8")]
+    [InlineData("OrderByDescending", 0x0C, "il2cpp::il2cpp_linq_order_by_key_desc_i4_f")]
     [InlineData("OrderByDescending", 0x0D, "il2cpp::il2cpp_linq_order_by_key_desc_i4_d")]
     public void Resolve_OrderBy_Int32SourceWideKey_MapsToWideKeyIcall(
         string name, byte keyByte, string icall)

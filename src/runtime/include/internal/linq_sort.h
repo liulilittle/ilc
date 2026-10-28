@@ -146,10 +146,16 @@ Il2CppArray* il2cpp_linq_then_by_key_desc_i4(Il2CppArray* src, Il2CppObject* k1S
 // cached EXACTLY ONCE (net48 EnumerableSorter), the merge sort is STABLE, the
 // source is never written and the result is a NEW int32 array.
 //   _i4_i8  TKey is int64/uint64;
-//   _i4_d   TKey is float/double (the F-stack carrier).
+//   _i4_d   TKey is double (the 8-byte F-stack carrier);
+//   _i4_f   TKey is float (impl-floatkey: a Func<TSource,float> leaf returns
+//           a 4-byte float per the MS x64 ABI -- reading it through a double
+//           fn-pointer mixes the callee's XMM0 residue into every key, the
+//           b5-gaps §14 silent mis-order -- thenby-floatprobe).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_order_by_key_i4_i8(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_i4_i8(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_i4_f(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i4_f(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_i4_d(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* keySel);
 
@@ -160,7 +166,7 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* 
 // primary key is the int32 key of the preceding OrderBy entry; the secondary
 // key crosses in the int64 / F-stack slot.
 //   _i4_i8  TKey is int64/uint64;
-//   _i4_d   TKey is float/double.
+//   _i4_d   TKey is double.
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_then_by_key_i4_i8(Il2CppArray* src, Il2CppObject* k1Sel,
                                            Il2CppObject* k2Sel, int32_t k1desc = 0);
@@ -221,7 +227,11 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_i8_i8(Il2CppArray* src, Il2CppObject*
 
 // The int64-source float/double-key counterparts (p0conv2 D3 extension): the
 // key crosses in the F-stack slot. Same cached-once / stable / fresh int64[]
-// result contract as the int32-key entries above.
+// result contract as the int32-key entries above. _i8_f is the float family
+// (impl-floatkey, b5-gaps §14): the 4-byte float return is read through a
+// float(*) reader, never through the double reader.
+Il2CppArray* il2cpp_linq_order_by_key_i8_f(Il2CppArray* src, Il2CppObject* keySel);
+Il2CppArray* il2cpp_linq_order_by_key_desc_i8_f(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_i8_d(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* keySel);
 
@@ -307,7 +317,8 @@ Il2CppArray* il2cpp_linq_then_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* k
 // residue). One dispatch entry per element family serves every (k1fam, k2fam)
 // pair; the four flags ride trailing literals:
 //   k1desc (0 asc / 1 desc), k2desc (0 asc / 1 desc), k1fam, k2fam
-// with family codes 0=int32, 1=int64, 2=double (the LinqKeyFamilyCode
+// with family codes 0=int32, 1=int64, 2=double, 3=float (impl-floatkey: the
+// float family has its own float(*) reader -- the LinqValKeyFamilyCode
 // contract). The transpiler gates both families compile-time; an
 // out-of-range code is a LOUD InvalidOperationException, never a guessed
 // reader. Same single-cache / stable / fresh-array contract as the

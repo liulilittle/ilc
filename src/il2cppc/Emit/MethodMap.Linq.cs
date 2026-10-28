@@ -2361,10 +2361,11 @@ public static partial class MethodRefResolver
                 // primary family is read off the OrderBy entry in StackFold.
                 //
                 // impl-thenbyfam: the NUMERIC element surface (int32/int64
-                // source, int32/int64/double keys) carries the SECONDARY key
-                // family in AppendLiterals too (0=int32, 1=int64, 2=double --
-                // LinqKeyFamilyCode): the fused composite picks the key reader
-                // PER KEY, and a mixed pair (OrderBy(int).ThenBy(double) /
+                // source, int32/int64/double/float keys) carries the SECONDARY
+                // key family in AppendLiterals too (0=int32, 1=int64,
+                // 2=double, 3=float -- LinqValKeyFamilyCode): the fused
+                // composite picks the key reader PER KEY, and a mixed pair
+                // (OrderBy(int).ThenBy(double) /
                 // OrderBy(double).ThenBy(int)) that dropped the secondary
                 // family read the secondary key from the WRONG callback return
                 // slot -- a silent mis-order on x64. StackFold folds this into
@@ -2383,7 +2384,7 @@ public static partial class MethodRefResolver
                 }
                 if (genArgs is { Length: >= 2 }
                     && ThenByKernelSuffix(genArgs[0], genArgs[1]) is not null
-                    && LinqKeyFamilyCode(genArgs[1], genArgNames, 1) is { } numSecondary)
+                    && LinqValKeyFamilyCode(genArgs[1]) is { } numSecondary)
                 {
                     // impl-thenbyfam: the SECONDARY key family must ride the
                     // marker (the decimal carriers already do): the fused
@@ -2391,8 +2392,9 @@ public static partial class MethodRefResolver
                     // (e.g. OrderBy(int).ThenBy(double)) that dropped the
                     // secondary family read the secondary key from the WRONG
                     // callback return slot -- a silent mis-order on x64.
-                    // LinqKeyFamilyCode is 0=int32, 1=int64, 2=double for the
-                    // numeric families ThenByKernelSuffix already gated.
+                    // LinqValKeyFamilyCode is 0=int32, 1=int64, 2=double,
+                    // 3=float for the numeric families ThenByKernelSuffix
+                    // already gated.
                     return I(name == "ThenBy"
                             ? ResolvedMethod.ThenByCombineMarker
                             : ResolvedMethod.ThenByDescCombineMarker,
@@ -3224,6 +3226,25 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
+    // impl-floatkey: the NUMERIC-element fused-composite key-family CODE (the
+    // il2cpp_linq_then_by_key_val_i4 / _val_i8 dispatch):
+    //   0 int32 (incl. bool/char/narrow), 1 int64, 2 double, 3 float.
+    // float (0x0C) is deliberately SEPARATE from double (0x02): a
+    // Func<TSource,float> leaf returns a 4-byte float per the MS x64 ABI, and
+    // reading that return through a double(*) fn-pointer mixes the callee's
+    // XMM0 residue into every key -- the silent mis-order b5-gaps §14
+    // measured (thenby-floatprobe). This code space is disjoint from the
+    // DECIMAL composite's LinqKeyFamilyCode (which also assigns 3=decimal,
+    // 4=DateTime, 5=Guid on its own runtime dispatch).
+    private static string? LinqValKeyFamilyCode(byte b) => b switch
+    {
+        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",
+        0x0A or 0x0B => "1",
+        0x0D => "2",
+        0x0C => "3",
+        _ => null,
+    };
+
     private static string LinqElementFamily(byte[]? genArgs, string? receiverType, string? arg0Type)
     {
         if (genArgs is { Length: >= 1 })
@@ -3592,7 +3613,7 @@ public static partial class MethodRefResolver
             throw new NotSupportedException(
                 $"Enumerable.{member}<{elemArgType},?> not wired: the runtime int32-source " +
                 "key-selector surface covers int32/int64/double/float keys only " +
-                "(il2cpp_linq_order_by_key[_desc]_i4 / _i4_i8 / _i4_d)");
+                "(il2cpp_linq_order_by_key[_desc]_i4 / _i4_i8 / _i4_f / _i4_d)");
         }
         // impl-linq3 (B): a DateTime / Guid key rides the struct-carrier sort
         // (the ticks comparison / the net48 Guid field-wise contract); other
@@ -3617,7 +3638,15 @@ public static partial class MethodRefResolver
             0x0A or 0x0B
                 => desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4_i8"
                          : "il2cpp::il2cpp_linq_order_by_key_i4_i8",
-            0x0C or 0x0D
+            // impl-floatkey: float gets its OWN entry -- a Func<int,float>
+            // leaf returns a 4-byte float per the MS x64 ABI, so the entry
+            // must read the key through a float(*) reader (the shared _i4_d
+            // entry read it as a double and mixed the callee's XMM0 residue
+            // into every key -- b5-gaps §14, thenby-floatprobe).
+            0x0C
+                => desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4_f"
+                         : "il2cpp::il2cpp_linq_order_by_key_i4_f",
+            0x0D
                 => desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4_d"
                          : "il2cpp::il2cpp_linq_order_by_key_i4_d",
             _ => "",
@@ -3627,7 +3656,7 @@ public static partial class MethodRefResolver
             throw new NotSupportedException(
                 $"Enumerable.{member}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
                 "not wired: the runtime int32-source key-selector surface covers int32/int64/" +
-                "double/float keys only (il2cpp_linq_order_by_key[_desc]_i4 / _i4_i8 / _i4_d)");
+                "double/float keys only (il2cpp_linq_order_by_key[_desc]_i4 / _i4_i8 / _i4_f / _i4_d)");
         }
         return I(entry, 2, true, true, false, new[] { "a", "" }, returnTypeName: "System.Int32[]");
     }
@@ -4438,7 +4467,11 @@ public static partial class MethodRefResolver
                 {
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
                     0x0A or 0x0B => "i8",
-                    0x0C or 0x0D => "d",
+                    // impl-floatkey: float gets its OWN entry (a 4-byte float
+                    // return read through a double(*) fn-pointer mixes the
+                    // callee's XMM0 residue into every key -- b5-gaps §14).
+                    0x0C => "f",
+                    0x0D => "d",
                     _ => null,
                 };
                 if (keyFam == null)

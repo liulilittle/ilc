@@ -1452,23 +1452,60 @@ GREEN: `ok=True`, oracle sha == runtime sha
   0f6fde7c..., `com17type` cbd03919..., `nestiface1` 040e184b...,
   `virtual` 0d40abb6... -- all `ok=True`.
 
-## 14. Probe registered (impl-thenbyfam hand-off): the float (0x0C) sort-key family shares the double kernel ABI
+## 14. FIXED (impl-floatkey): the float (0x0C) sort-key family shared the double kernel ABI
 
-Registered from the impl-thenbyfam seat as a SUSPECTED defect -- NOT
-fixed here, NOT yet measured. `LinqKeyFamilyCode` folds float (0x0C) and
-double (0x0D) into the SAME key family code "2"
-(`src/il2cppc/Emit/MethodMap.Linq.cs:3220`), and the family-2 runtime
-leaf invokes the key selector through `InvokeKeyI4D`, typed
-`double (*)(int32_t)` (`src/runtime/src/linq_sort.cpp:164,174`) -- both
-for the primary OrderBy key and for the fused ThenBy composite
-(`linq_sort.cpp:1377,1389`). A `Func<int,float>` leaf returns a 4-byte
-float per the managed ABI, so reading that return through a `double`
-fn-pointer is the same class of ABI misread the 11.5 decimal shapes hit
-at their own boundary. The OrderBy e2e surface has NO float-key coverage
-today (`linqorder2` stays on `OrderBy<int,int>` + `ThenBy<int,int>`), so
-the misread is suspected, not measured.
+Registered from the impl-thenbyfam seat as a SUSPECTED defect:
+`LinqKeyFamilyCode` folded float (0x0C) and double (0x0D) into the SAME
+key family code "2" (`src/il2cppc/Emit/MethodMap.Linq.cs`), and the
+family-2 runtime leaf invoked the key selector through `InvokeKeyI4D`,
+typed `double (*)(int32_t)` (`src/runtime/src/linq_sort.cpp`) -- both for
+the primary OrderBy key and for the fused ThenBy composite. A
+`Func<int,float>` leaf returns a 4-byte float per the managed ABI, so
+reading that return through a `double` fn-pointer is an ABI misread.
 
-Follow-up probe (registered): case `thenby-floatprobe`, covering the
-`Func<int,float>` and `Func<double,float>` key selectors x 4 directions
-(OrderBy / ThenBy, each ascending / descending), byte-equality against
-the net48 oracle.
+**probe: REPRODUCED -- real defect (measured, then FIXED).** The
+registered e2e case `thenby-floatprobe` (int32[] source x float /
+double-key controls x OrderBy / OrderByDescending / fused ThenBy /
+ThenByDescending x 4 direction combinations x duplicate keys, plus the
+wired int64[]-source float surface) ran RED against the net48 oracle on
+the unfixed tree: 15 of 18 records differed (`ok=False`,
+sha oracle 4154264a... vs runtime cc28018c...), EVERY differing record
+involved a float key and every double-key control matched. The runtime
+ordered float keys by the UNSIGNED 32-BIT BIT PATTERN of the float return
+read as the low half of a (zero-residue) double: `-1.5f` (0xBFC00000)
+sorted LAST ascending instead of first -- the exact ABI misread shape
+predicted. The selector exactly-once contract held (11 calls for n=11);
+only the key VALUES were misread.
+
+Fix (impl-floatkey): the float family got its own reader and code.
+- Runtime: `InvokeKeyI4F` = `float (*)(int32_t)` (+ instance form) and
+  `InvokeKeyI8SrcF` = `float (*)(int64_t)`; new entries
+  `il2cpp_linq_order_by_key[_desc]_i4_f` and
+  `il2cpp_linq_order_by_key[_desc]_i8_f` (`SortInt32KeyCopyT<float>` /
+  `SortInt64KeyCopy<float>` + `CmpKeyValue<float>`).
+- Numeric fused composite: `LinqValKeyFamilyCode` (NEW -- the numeric
+  code space 0=int32, 1=int64, 2=double, 3=float) feeds the ThenBy
+  marker literal; the val_i4 / val_i8 dispatch matrices grew from 3x3=9
+  to 4x4=16 (k1fam, k2fam) combinations, the float row/column reading
+  through `InvokeKeyI4F` / `InvokeKeyI8SrcF`. The DECIMAL composite's
+  own `LinqKeyFamilyCode` space (3=decimal, 4=DateTime, 5=Guid) is
+  untouched.
+- StackFold: primary suffixes `_i4_f` / `_i8_f` map to primary code
+  "3"; the secondary literal gate accepts "3".
+- Unit: 7 new MethodMapTestsLinq assertions (red 7/519 before, green
+  526/526 after); full suite 3835/3835 (baseline 3828 + 7).
+- e2e GREEN: `thenby-floatprobe` ok=True, byte-identical (same sha);
+  regressions `thenbyfamprobe` edc19205, `thenbydescprobe` ef9c6524,
+  `linqorder2` 6a72ece6, `zmatrix` 24ba1e99 all ok=True unchanged.
+
+Residual (registered, NOT probed here): the same float-through-double
+fold remains live on three surfaces this probe cannot reach -- (a) a
+float SECONDARY key on the DECIMAL fused composite (the dec marker still
+carries LinqKeyFamilyCode's "2"=double for 0x0C), (b) reference-element
+sources (`il2cpp_linq_order_by_key_ref_d` reads a Func<T,float> key
+through InvokeKeyRefD), (c) the List<T> receiver entries
+(`il2cpp_linq_list_order_by_key[_desc]_d`). None has e2e coverage today;
+they need their own float readers/wiring before they can be called
+correct. Also re-confirmed LOUD: `double[]`/`float[]` ELEMENT sources
+have NO OrderBy(keySelector) at all (transpile-time reject), so no
+silent path hides there.
