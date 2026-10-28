@@ -1089,6 +1089,55 @@ public class MethodMapTestsType
     }
 
     //--------------------------------------------------------------------------
+    // LOUD-whitelist self-identification (audit-loud-inv F cluster): every
+    // remaining catch-all throw in the Type/Assembly/AssemblyName domain must
+    // carry the "LOUD whitelist" marker with its whitelist category and a
+    // Reference Source citation (verified against microsoft/referencesource
+    // master): category 4 rows cite the net48 member's overload-set lines
+    // (the throw only covers net48-nonexistent member/arity shapes), the
+    // category-3 rows (MakeGenericType / InvokeMember COM forms /
+    // MakeGenericMethod) cite the net48 member line and carry the "(3"
+    // object-model marker. Spot-checks 8 representative sites (5x category 4,
+    // 3x category 3).
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("System", "Type", "GetMethods",
+        new byte[] { 0x00, 0x02, 0x12, 0x05, 0x0E, 0x11, 0x05 },
+        "net48 has no such member/arity", "mscorlib/system/type.cs:561,565")] // (string, BindingFlags) shape
+    [InlineData("System", "Type", "GetEnumNames",
+        new byte[] { 0x00, 0x01, 0x12, 0x05, 0x11, 0x05 },
+        "net48 has no such member/arity", "mscorlib/system/type.cs:1386")] // (BindingFlags) shape
+    [InlineData("System", "Type", "op_Equality",
+        new byte[] { 0x00, 0x03, 0x12, 0x05, 0x12, 0x05, 0x12, 0x05, 0x12, 0x05 },
+        "net48 has no such member/arity", "mscorlib/system/type.cs:1808")] // 3-arg shape
+    [InlineData("System", "Type", "MakeArrayType",
+        new byte[] { 0x00, 0x02, 0x12, 0x05, 0x08, 0x08 },
+        "net48 has no such member/arity", "mscorlib/system/type.cs:153,154")] // (int, int) shape
+    [InlineData("System", "Type", "InvokeMember",
+        new byte[] { 0x00, 0x07, 0x12, 0x05, 0x0E, 0x11, 0x05, 0x12, 0x05, 0x1C, 0x1D, 0x1C, 0x11, 0x05, 0x1D, 0x1C },
+        "(3", "mscorlib/system/type.cs:299-311")] // CultureInfo + activationAttributes COM forms
+    [InlineData("System", "Type", "MakeGenericType",
+        new byte[] { 0x00, 0x01, 0x12, 0x05, 0x0E },
+        "(3", "mscorlib/system/type.cs:1317")] // (string) shape -- not the wired (Type[])
+    [InlineData("System.Reflection", "Assembly", "GetType",
+        new byte[] { 0x00, 0x04, 0x12, 0x05, 0x0E, 0x02, 0x02, 0x02 },
+        "net48 has no such member/arity", "mscorlib/system/reflection/assembly.cs:748,753,758")] // (string, bool, bool, bool) shape
+    [InlineData("System.Reflection", "MethodInfo", "MakeGenericMethod",
+        new byte[] { 0x00, 0x02, 0x12, 0x05, 0x1D, 0x12, 0x05, 0x1D, 0x12, 0x05 },
+        "(3", "mscorlib/system/reflection/methodinfo.cs:93,917")] // 2-arg shape -- not the wired (Type[])
+    public void Resolve_Type_LoudWhitelist_SelfIdentifying_Citations(
+        string ns, string typeName, string memberName, byte[] signature,
+        string expectedFragment, string expectedCitation)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember(Synthesize(ns, typeName, memberName, signature), memberName));
+
+        Assert.Contains("LOUD whitelist", ex.Message);
+        Assert.Contains(expectedFragment, ex.Message);
+        Assert.Contains($"[Reference Source {expectedCitation}]", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
     // Harness -- same synthetic-PE pipeline as MethodRefResolverDispatchTests.
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName, string? arg0Type = null, string? receiverType = null)

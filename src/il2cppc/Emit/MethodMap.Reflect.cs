@@ -282,7 +282,7 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_makegenericmethod_loud", 1, true, true, true,
                         new[] { "", "a" }, returnTypeName: "System.String");
                 throw new NotSupportedException(
-                    $"{owner}::MakeGenericMethod with {ps.Length} parameter(s) not wired in RF-N7 -- only the (Type[]) overload maps to the LOUD stub il2cpp_makegenericmethod_loud");
+                    $"{owner}::MakeGenericMethod with {ps.Length} parameter(s) not wired in RF-N7 -- only the (Type[]) overload maps to the LOUD stub il2cpp_makegenericmethod_loud -- LOUD whitelist (3: no runtime generic-method instantiation/type-loading model, the (Type[]) overload itself always throws the stub's NotSupportedException; audit-correction: object-model category 3, not machine state) [Reference Source mscorlib/system/reflection/methodinfo.cs:93,917]");
             // REFL3 (item 2): MethodBase.GetParameters() (the parameterless
             // overload the MethodInfo/ConstructorInfo receivers bind). The
             // receiver is the MEMBER VALUE string (a method-name string or the

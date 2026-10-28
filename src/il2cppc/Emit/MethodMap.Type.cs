@@ -26,16 +26,23 @@ namespace Il2Cpp.Transpiler.Emit;
 // GetMember 3-param, GetProperty 4/6-param, GetMethod 5/6-param, GetConstructor
 // 4/5-param, GetNestedTypes(BindingFlags), GetEvent(string, BindingFlags),
 // the instance GetTypeCode(), Assembly.GetName(bool), Assembly.GetType
-// 3-param) are all wired. Categories (Reference Source line numbers):
-//   (1) machine state -- GetTypeFromProgID/GetTypeFromCLSID extra overloads +
-//       InvokeMember 6/7-param (the COM registry; net48 type.cs:167-225/299-311).
-//   (2) runtime type unknown -- Type.Equals(object) with a non-Type/untracked
-//       argument (net48 type.cs:1781) and get_IsGenericTypeDefinition on a
+// 3-param) are all wired. Categories (Reference Source line numbers,
+// verified against microsoft/referencesource master -- mscorlib/system/
+// type.cs 1895 lines, reflection/assembly.cs 3240, assemblyname.cs 567):
+//   (1) machine state -- GetTypeFromProgID/GetTypeFromCLSID extra overloads
+//       (the COM registry; net48 type.cs:167-194/207-221).
+//   (2) runtime type unknown -- get_IsGenericTypeDefinition on a
 //       GetType-derived receiver (net48 type.cs:1166 -- the registry cannot
 //       tell a generic definition from its closed clones).
-//   (3) no runtime descriptor -- MakeGenericType (net48 type.cs:1188 region;
-//       the runtime has no generic-argument fabrication, so the (Type[])
-//       overload maps to the explicit LOUD stub il2cpp_makegenerictype_loud).
+//   (3) no runtime descriptor/object model -- MakeGenericType (net48
+//       type.cs:1317; the runtime has no generic-argument fabrication, so the
+//       (Type[]) overload maps to the explicit LOUD stub
+//       il2cpp_makegenerictype_loud), MethodInfo.MakeGenericMethod (net48
+//       reflection/methodinfo.cs:93 -- no runtime generic-method
+//       instantiation), and the InvokeMember CultureInfo/activationAttributes
+//       forms (net48 type.cs:299-311 -- the COM RCW/IDispatch domain; audit
+//       correction: statically-known net48 members, so the blocker is the
+//       missing object model (3), not machine state (1)).
 //   (4) net48-nonexistent arity -- every other catch-all; the net48 overload
 //       sets are: GetTypeCode type.cs:234; GetProperty 645/656/666/674/684/694/
 //       714; GetMethod 474/492/509/522/535/543; GetField 569/572; GetMethods 561/
@@ -46,8 +53,9 @@ namespace Il2Cpp.Transpiler.Emit;
 //       GetArrayRank 386; MakeArrayType 153/154; MakeByRefType 152;
 //       MakePointerType 150; GetEnumNames 1386; GetEnumValues 1400;
 //       GetEnumName 1535; GetEnumUnderlyingType 1468; GetGenericArguments 1344;
-//       GetGenericTypeDefinition 1362; op_Equality 1800; the Assembly/
-//       AssemblyName property/arity guards (reflection_assembly.cs:720/758).
+//       GetGenericTypeDefinition 1362; op_Equality 1808; the Assembly/
+//       AssemblyName property/arity guards (assembly.cs:712/720, 748/753/758,
+//       800, 725, 643, 661; assemblyname.cs:71, 295).
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -123,7 +131,7 @@ public static partial class MethodRefResolver
                 // string->TypeCode path (the catch-all LOUD).
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_typecode_from_name", 0, true, false, true);
-                throw new NotSupportedException("Type.GetTypeCode() (instance) not wired in M5 -- the simplified Type model has no name-string to TypeCode path (static Type.GetTypeCode(Type) is wired)");
+                throw new NotSupportedException("Type.GetTypeCode() (instance) with >= 2 parameter(s) not wired in M5 -- LOUD whitelist (net48 has no such member/arity; audit-correction: the ps.Length==0 instance path is wired via il2cpp_typeinfo_get_typecode_from_name and the static (Type) overload via il2cpp_type_get_typecode, so this catch-all only covers net48-nonexistent arities) [Reference Source mscorlib/system/type.cs:234]");
             // Type.IsAssignableFrom(Type c) -- instance: target = this,
             // source = c (runtime conformance model: identity, array prefix,
             // baseClass chain, interface scan). refl2: the receiver AND the
@@ -161,7 +169,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x1C)
                     return I("il2cpp::il2cpp_typeinfo_equals_non_type", 1, true, false, true,
                         new[] { "", "" });
-                throw new NotSupportedException($"Type.Equals(object) with {(arg0Type == null ? "untracked" : $"non-Type argument {arg0Type}")} not wired in M5 -- ps=[{string.Join(",", ps.Select(b => b.ToString("x2")))}] count={ps.Length}");
+                throw new NotSupportedException($"Type.Equals(object) with {(arg0Type == null ? "untracked" : $"non-Type argument {arg0Type}")} not wired in M5 -- LOUD whitelist (net48 has no such member/arity; audit-correction: the (object) overload is wired unconditionally via il2cpp_typeinfo_equals_non_type and the (Type) overload via the name-equality arms, so this catch-all only covers net48-nonexistent argument shapes) [Reference Source mscorlib/system/type.cs:1781,1792] -- ps=[{string.Join(",", ps.Select(b => b.ToString("x2")))}] count={ps.Length}");
             // Type.GetProperty/GetMethod/GetField(string name) -- M5.5
             // typeinfo queries (see typeinfo.h managed-string ABI). The
             // receiver is the Type VALUE (the full-name string, same shape
@@ -228,7 +236,7 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_property_types_ret_flags", 6, true, true, true,
                         new[] { "", "", "", "a", "i" }, returnTypeName: "System.String",
                         argOrder: new[] { 0, 1, 4, 5, 2 });
-                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5/refl5/refl-arity -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type) / (string, Type, Type[]) / (string, Type, Type[], ParameterModifier[]) / (string, BindingFlags, Binder, Type, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_property(_flags/_types/_return_type/_types_ret/_types_ret_flags)");
+                throw new NotSupportedException($"Type.GetProperty with {ps.Length} parameter(s) not wired in M5.5/refl5/refl-arity -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type) / (string, Type, Type[]) / (string, Type, Type[], ParameterModifier[]) / (string, BindingFlags, Binder, Type, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_property(_flags/_types/_return_type/_types_ret/_types_ret_flags) -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:645,656,666,674,684,694,714]");
             case "GetMethod":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_method", 1, true, true, true,
@@ -275,7 +283,7 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_method_types_flags", 6, true, true, true,
                         new[] { "", "", "a", "i" }, returnTypeName: "System.String",
                         argOrder: new[] { 0, 1, 5, 2 });
-                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5/refl5/refl-arity -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type[], ParameterModifier[]) / (string, BindingFlags, Binder, Type[], ParameterModifier[]) / (string, BindingFlags, Binder, CallingConventions, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_method(_flags/_types/_types_flags)");
+                throw new NotSupportedException($"Type.GetMethod with {ps.Length} parameter(s) not wired in M5.5/refl5/refl-arity -- the (string) / (string, BindingFlags) / (string, Type[]) / (string, Type[], ParameterModifier[]) / (string, BindingFlags, Binder, Type[], ParameterModifier[]) / (string, BindingFlags, Binder, CallingConventions, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_method(_flags/_types/_types_flags) -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:474,492,509,522,535,543]");
             case "GetField":
                 if (ps.Length == 1 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_field", 1, true, true, true,
@@ -283,7 +291,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0E)
                     return I("il2cpp::il2cpp_typeinfo_get_field_flags", 2, true, true, true,
                         new[] { "", "", "i" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetField with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_field(_flags)");
+                throw new NotSupportedException($"Type.GetField with {ps.Length} parameter(s) not wired in M5.5 -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_field(_flags) -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:569,572]");
             // R2 (B2): member ENUMERATION -- GetMethods()/GetFields()/
             // GetProperties()/GetConstructors()/GetInterfaces(). Each maps to
             // a runtime icall that materialises an Il2CppArray* of member-NAME
@@ -303,7 +311,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_methods_flags", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetMethods with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_methods; the (BindingFlags) overload to il2cpp_typeinfo_get_methods_flags");
+                throw new NotSupportedException($"Type.GetMethods with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_methods; the (BindingFlags) overload to il2cpp_typeinfo_get_methods_flags -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:561,565]");
             case "GetFields":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_fields", 0, true, true, true,
@@ -311,7 +319,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_fields_flags", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetFields with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_fields; the (BindingFlags) overload to il2cpp_typeinfo_get_fields_flags");
+                throw new NotSupportedException($"Type.GetFields with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_fields; the (BindingFlags) overload to il2cpp_typeinfo_get_fields_flags -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:579,582]");
             case "GetProperties":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_properties", 0, true, true, true,
@@ -319,7 +327,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_properties_flags", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetProperties with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_properties; the (BindingFlags) overload to il2cpp_typeinfo_get_properties_flags");
+                throw new NotSupportedException($"Type.GetProperties with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_properties; the (BindingFlags) overload to il2cpp_typeinfo_get_properties_flags -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:729,730]");
             case "GetConstructors":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_constructors", 0, true, true, true,
@@ -327,7 +335,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_constructors_flags", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetConstructors with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_constructors; the (BindingFlags) overload to il2cpp_typeinfo_get_constructors_flags");
+                throw new NotSupportedException($"Type.GetConstructors with {ps.Length} parameter(s) not wired in R2/refl5 -- the () overload maps to il2cpp_typeinfo_get_constructors; the (BindingFlags) overload to il2cpp_typeinfo_get_constructors_flags -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:451,456]");
             // GAP-5 (P1): Type.GetConstructor(Type[]) -- the single-ctor query
             // by arity. The receiver is the Type VALUE (full-name string);
             // the runtime matches a PUBLIC ctor of the types array length and
@@ -340,7 +348,7 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_constructor", 1, true, true, true,
                         new[] { "", "a" }, returnTypeName: "System.Reflection.ConstructorInfo");
                 if (ps.Length == 1 && ps[0] == 0x0E)
-                    throw new NotSupportedException("Type.GetConstructor(string) does not exist in net48 (the ctor name overload is .NET Core-only)");
+                    throw new NotSupportedException("Type.GetConstructor(string) does not exist in net48 (the ctor name overload is .NET Core-only) -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:405,422,434]");
                 // REFL-ARITY: Type.GetConstructor(BindingFlags, Binder, Type[],
                 // ParameterModifier[]) -- the 4-param form net48 HAS. The binder
                 // and modifiers are ignored by the match (default binder; by-ref
@@ -364,12 +372,12 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_get_constructor_flags", 5, true, true, true,
                         new[] { "", "a", "i" }, returnTypeName: "System.Reflection.ConstructorInfo",
                         argOrder: new[] { 0, 4, 1 });
-                throw new NotSupportedException($"Type.GetConstructor with {ps.Length} parameter(s) not wired in GAP-5/refl-arity -- only the (Type[]), (BindingFlags, Binder, Type[], ParameterModifier[]) and (BindingFlags, Binder, CallingConventions, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_constructor(_flags)");
+                throw new NotSupportedException($"Type.GetConstructor with {ps.Length} parameter(s) not wired in GAP-5/refl-arity -- only the (Type[]), (BindingFlags, Binder, Type[], ParameterModifier[]) and (BindingFlags, Binder, CallingConventions, Type[], ParameterModifier[]) overloads map to il2cpp_typeinfo_get_constructor(_flags) -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:405,422,434]");
             case "GetInterfaces":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_interfaces", 0, true, true, true,
                         returnTypeName: "System.Type[]");
-                throw new NotSupportedException($"Type.GetInterfaces with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_interfaces");
+                throw new NotSupportedException($"Type.GetInterfaces with {ps.Length} parameter(s) not wired in R2 -- only the () overload maps to il2cpp_typeinfo_get_interfaces -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:595]");
             // refl2 (item 6): Type.GetInterface(string[, bool]) -- the single-
             // interface query by FULL or SIMPLE name across the type's own +
             // base chain. The receiver is the Type VALUE (name string); the
@@ -384,7 +392,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x02)
                     return I("il2cpp::il2cpp_typeinfo_get_interface", 2, true, true, true,
                         new[] { "", "", "i" }, returnTypeName: "System.Type");
-                throw new NotSupportedException($"Type.GetInterface with {ps.Length} parameter(s) not wired in refl2 -- only the (string) / (string, bool) overloads map to il2cpp_typeinfo_get_interface");
+                throw new NotSupportedException($"Type.GetInterface with {ps.Length} parameter(s) not wired in refl2 -- only the (string) / (string, bool) overloads map to il2cpp_typeinfo_get_interface -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:587,590]");
             // RF-N5 (NEXT2-DECISION section ② RF-N5): GetNestedTypes() -- the
             // typeinfo's nested sub-table (own nested types only, metadata
             // declaration order; net48 never inherits nested types). Each
@@ -406,7 +414,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_nested_types_flags", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.Type[]");
-                throw new NotSupportedException($"Type.GetNestedTypes with {ps.Length} parameter(s) not wired in RF-N5/refl-arity -- the () overload maps to il2cpp_typeinfo_get_nested_types; the (BindingFlags) overload to il2cpp_typeinfo_get_nested_types_flags");
+                throw new NotSupportedException($"Type.GetNestedTypes with {ps.Length} parameter(s) not wired in RF-N5/refl-arity -- the () overload maps to il2cpp_typeinfo_get_nested_types; the (BindingFlags) overload to il2cpp_typeinfo_get_nested_types_flags -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:739,744]");
             // REFL6B (item A): Type.GetNestedType(string) / (string,
             // BindingFlags) -- ONE runtime filter icall over the nested
             // sub-table (il2cpp_typeinfo_get_nested_type: simple-name match on
@@ -426,7 +434,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_nested_type", 2, true, true, true,
                         new[] { "", "", "i" }, returnTypeName: "System.Type");
-                throw new NotSupportedException($"Type.GetNestedType with {ps.Length} parameter(s) not wired in refl6b -- only the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_nested_type");
+                throw new NotSupportedException($"Type.GetNestedType with {ps.Length} parameter(s) not wired in refl6b -- only the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_nested_type -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:749,754]");
             // RF-N5 (NEXT2-DECISION section ② RF-N5): GetMembers() -- the
             // five-enumeration union (the runtime concats the public methods
             // WITH their property/event accessors -- net48 returns accessors
@@ -444,7 +452,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_members_flags", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetMembers with {ps.Length} parameter(s) not wired in RF-N5/refl5 -- the () overload maps to il2cpp_typeinfo_get_members; the (BindingFlags) overload to il2cpp_typeinfo_get_members_flags");
+                throw new NotSupportedException($"Type.GetMembers with {ps.Length} parameter(s) not wired in RF-N5/refl5 -- the () overload maps to il2cpp_typeinfo_get_members; the (BindingFlags) overload to il2cpp_typeinfo_get_members_flags -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:776,779]");
             // refl6a (item B, probe p-refl6-gmember): Type.GetMember(string) /
             // GetMember(string, BindingFlags). ONE runtime filter icall
             // (il2cpp_typeinfo_get_members_flags_name) over the refl5
@@ -474,7 +482,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_members_flags_name_types", 3, true, true, true,
                         new[] { "", "", "i", "i" }, returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetMember with {ps.Length} parameter(s) not wired in refl6a/refl-arity -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_members_flags_name; the (string, MemberTypes, BindingFlags) overload to il2cpp_typeinfo_get_members_flags_name_types");
+                throw new NotSupportedException($"Type.GetMember with {ps.Length} parameter(s) not wired in refl6a/refl-arity -- the (string) / (string, BindingFlags) overloads map to il2cpp_typeinfo_get_members_flags_name; the (string, MemberTypes, BindingFlags) overload to il2cpp_typeinfo_get_members_flags_name_types -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:759,763,768]");
             // RF-N7 (NEXT2-DECISION section 2 RF-N7): Type.MakeGenericType
             // -- explicit LOUD. The runtime has no generic-argument fabrication
             // (no fabrication, the genericArgNames Plan B stays deferred) and no SRE-like
@@ -486,7 +494,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x1D)
                     return I("il2cpp::il2cpp_makegenerictype_loud", 1, true, true, true,
                         new[] { "", "a" }, returnTypeName: "System.Type");
-                throw new NotSupportedException($"Type.MakeGenericType with {ps.Length} parameter(s) not wired in RF-N7 -- only the (Type[]) overload maps to the LOUD stub il2cpp_makegenerictype_loud");
+                throw new NotSupportedException($"Type.MakeGenericType with {ps.Length} parameter(s) not wired in RF-N7 -- only the (Type[]) overload maps to the LOUD stub il2cpp_makegenerictype_loud -- LOUD whitelist (3: no runtime generic-argument fabrication/type-loading model, the (Type[]) overload itself always throws the stub's NotSupportedException; audit-correction: object-model category 3, not machine state) [Reference Source mscorlib/system/type.cs:1317]");
             // C3-1 (COM-C3) / RF-N1: GetEvents() -- the event-table member
             // enumeration (own + base chain, ALL events -- Il2CppEventInfo has
             // no flags field, the documented simplification). The events
@@ -501,7 +509,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_events_flags", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetEvents with {ps.Length} parameter(s) not wired in C3-1/refl5 -- the () overload maps to il2cpp_typeinfo_get_events; the (BindingFlags) overload to il2cpp_typeinfo_get_events_flags");
+                throw new NotSupportedException($"Type.GetEvents with {ps.Length} parameter(s) not wired in C3-1/refl5 -- the () overload maps to il2cpp_typeinfo_get_events; the (BindingFlags) overload to il2cpp_typeinfo_get_events_flags -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:637,640]");
             // C3-1 (COM-C3): Type.GetEvent(string) -- the single-event member
             // query (own + base chain), the M5.5 get_property/get_method/get_field
             // shape: the receiver is the Type VALUE (full-name string), the
@@ -519,7 +527,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
                     return I("il2cpp::il2cpp_typeinfo_get_event_flags", 2, true, true, true,
                         new[] { "", "", "i" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetEvent with {ps.Length} parameter(s) not wired in C3-1/refl-arity -- the (string) overload maps to il2cpp_typeinfo_get_event; the (string, BindingFlags) overload to il2cpp_typeinfo_get_event_flags");
+                throw new NotSupportedException($"Type.GetEvent with {ps.Length} parameter(s) not wired in C3-1/refl-arity -- the (string) overload maps to il2cpp_typeinfo_get_event; the (string, BindingFlags) overload to il2cpp_typeinfo_get_event_flags -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:629,632]");
             // Type.op_Equality(Type, Type) -- the C# == operator (csc emits
             // `call`, never callvirt; the resolver's default op_* heuristic
             // classifies it INSTANCE and the call path would throw "pops this
@@ -534,7 +542,7 @@ public static partial class MethodRefResolver
             case "op_Equality":
                 if (ps.Length == 2)
                     return I("il2cpp::runtime::icall_string_equals_static", 2, true, false, false);
-                throw new NotSupportedException($"Type.op_Equality with {ps.Length} arg(s) not wired in M5 -- only the 2-arg (Type, Type) overload maps to string equality");
+                throw new NotSupportedException($"Type.op_Equality with {ps.Length} arg(s) not wired in M5 -- only the 2-arg (Type, Type) overload maps to string equality -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:1808]");
             // P6: Type.GetTypeFromHandleUnsafe (stub: returns nullptr).
             case "GetTypeFromHandleUnsafe": return I("il2cpp::runtime::icall_type_get_type_from_handle_unsafe", 1, true, true, false, new[] { "i" });
             // P6: Type.op_Inequality (stub: returns 0).
@@ -626,7 +634,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_array_rank", 0, true, false, true);
                 throw new NotSupportedException(
-                    $"Type.GetArrayRank with {ps.Length} parameter(s) not wired in refl2 -- only the net48 () overload exists");
+                    $"Type.GetArrayRank with {ps.Length} parameter(s) not wired in refl2 -- only the net48 () overload exists -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:386]");
             // refl2 (A): Type.IsConstructedGenericType. The FOLDED typeof chain
             // decides it from the TypeSpec blob (a closed GENERICINST -> 1); a
             // RUNTIME receiver is the definition name and can never be a closed
@@ -648,19 +656,19 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_typeinfo_make_array_type", 1, true, true, true,
                         new[] { "", "i" }, returnTypeName: "System.Type");
                 throw new NotSupportedException(
-                    $"Type.MakeArrayType with {ps.Length} parameter(s) not wired in refl2 -- the () and (int rank) overloads map to il2cpp_typeinfo_make_array_type");
+                    $"Type.MakeArrayType with {ps.Length} parameter(s) not wired in refl2 -- the () and (int rank) overloads map to il2cpp_typeinfo_make_array_type -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:153,154]");
             case "MakeByRefType":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_make_byref_type", 0, true, true, true,
                         new[] { "" }, returnTypeName: "System.Type");
                 throw new NotSupportedException(
-                    $"Type.MakeByRefType with {ps.Length} parameter(s) not wired in refl2 -- only the () overload maps to il2cpp_typeinfo_make_byref_type");
+                    $"Type.MakeByRefType with {ps.Length} parameter(s) not wired in refl2 -- only the () overload maps to il2cpp_typeinfo_make_byref_type -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:152]");
             case "MakePointerType":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_make_pointer_type", 0, true, true, true,
                         new[] { "" }, returnTypeName: "System.Type");
                 throw new NotSupportedException(
-                    $"Type.MakePointerType with {ps.Length} parameter(s) not wired in refl2 -- only the () overload maps to il2cpp_typeinfo_make_pointer_type");
+                    $"Type.MakePointerType with {ps.Length} parameter(s) not wired in refl2 -- only the () overload maps to il2cpp_typeinfo_make_pointer_type -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:150]");
             case "get_IsEnum":
                 return I("il2cpp::il2cpp_typeinfo_is_enum", 0, true, false, true);
             // refl6a (item A, probe p-refl6-enum): the System.Type enum surface
@@ -678,7 +686,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_enum_names", 0, true, true, true,
                         returnTypeName: "System.String[]");
-                throw new NotSupportedException($"Type.GetEnumNames with {ps.Length} parameter(s) not wired in refl6a -- only the () overload maps to il2cpp_typeinfo_get_enum_names");
+                throw new NotSupportedException($"Type.GetEnumNames with {ps.Length} parameter(s) not wired in refl6a -- only the () overload maps to il2cpp_typeinfo_get_enum_names -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:1386]");
             case "GetEnumValues":
                 // ReturnTypeName "System.Array" keeps the returned value
                 // array in the Array domain (.Length / GetValue(int) -- the
@@ -688,7 +696,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_enum_values", 0, true, true, true,
                         returnTypeName: "System.Array");
-                throw new NotSupportedException($"Type.GetEnumValues with {ps.Length} parameter(s) not wired in refl6a -- only the () overload maps to il2cpp_typeinfo_get_enum_values");
+                throw new NotSupportedException($"Type.GetEnumValues with {ps.Length} parameter(s) not wired in refl6a -- only the () overload maps to il2cpp_typeinfo_get_enum_values -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:1400]");
             case "GetEnumName":
                 // string GetEnumName(object value) -- the boxed value rides
                 // as the second managed-ref slot (the enumext name-string
@@ -696,7 +704,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 1 && ps[0] == 0x1C)
                     return I("il2cpp::il2cpp_typeinfo_get_enum_name", 1, true, true, true,
                         new[] { "", "" }, returnTypeName: "System.String");
-                throw new NotSupportedException($"Type.GetEnumName with {ps.Length} parameter(s) not wired in refl6a -- only the (object value) overload maps to il2cpp_typeinfo_get_enum_name");
+                throw new NotSupportedException($"Type.GetEnumName with {ps.Length} parameter(s) not wired in refl6a -- only the (object value) overload maps to il2cpp_typeinfo_get_enum_name -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:1535]");
             case "GetEnumUnderlyingType":
                 // Type GetEnumUnderlyingType() -- returns a Type VALUE
                 // (full-name string, e.g. "System.Int32" / "System.Int64").
@@ -705,7 +713,7 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_enum_underlying_type", 0, true, true, true,
                         returnTypeName: "System.Type");
-                throw new NotSupportedException($"Type.GetEnumUnderlyingType with {ps.Length} parameter(s) not wired in refl6a -- only the () overload maps to il2cpp_typeinfo_get_enum_underlying_type");
+                throw new NotSupportedException($"Type.GetEnumUnderlyingType with {ps.Length} parameter(s) not wired in refl6a -- only the () overload maps to il2cpp_typeinfo_get_enum_underlying_type -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:1468]");
             case "get_IsValueType":
                 return I("il2cpp::il2cpp_typeinfo_is_value_type", 0, true, false, true);
             case "get_IsInterface":
@@ -759,12 +767,12 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_generic_arguments", 0, true, true, true,
                         returnTypeName: "System.Type[]");
-                throw new NotSupportedException($"Type.GetGenericArguments with {ps.Length} parameter(s) not wired in RF-N4 -- only the () overload maps to il2cpp_typeinfo_get_generic_arguments");
+                throw new NotSupportedException($"Type.GetGenericArguments with {ps.Length} parameter(s) not wired in RF-N4 -- only the () overload maps to il2cpp_typeinfo_get_generic_arguments -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:1344]");
             case "GetGenericTypeDefinition":
                 if (ps.Length == 0)
                     return I("il2cpp::il2cpp_typeinfo_get_generic_type_definition", 0, true, true, true,
                         returnTypeName: "System.Type");
-                throw new NotSupportedException($"Type.GetGenericTypeDefinition with {ps.Length} parameter(s) not wired in RF-N4 -- only the () overload maps to il2cpp_typeinfo_get_generic_type_definition");
+                throw new NotSupportedException($"Type.GetGenericTypeDefinition with {ps.Length} parameter(s) not wired in RF-N4 -- only the () overload maps to il2cpp_typeinfo_get_generic_type_definition -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/type.cs:1362]");
             // C1 (A1): Type-COM creation. Type.GetTypeFromProgID(string) /
             // Type.GetTypeFromCLSID(Guid) produce the COM Type VALUE string
             // "COMCLSID:<32hex>" (il2cpp_com.h -- the simplified Type model's
@@ -800,7 +808,7 @@ public static partial class MethodRefResolver
                 // CultureInfo + object[] activationAttributes) forms net48 HAS
                 // remain LOUD -- the COM RCW/IDispatch invocation is the
                 // task's "真不可支持" COM domain (no RCW model).
-                throw new NotSupportedException($"Type.InvokeMember with {ps.Length} parameter(s) not wired in C2 -- only the (string, BindingFlags, Binder, object, object[]) overload maps to icall_com_invoke_member; the CultureInfo/activationAttributes forms are the COM domain (whitelist category 1)");
+                throw new NotSupportedException($"Type.InvokeMember with {ps.Length} parameter(s) not wired in C2 -- only the (string, BindingFlags, Binder, object, object[]) overload maps to icall_com_invoke_member; the CultureInfo/activationAttributes forms are the COM RCW/IDispatch domain -- LOUD whitelist (3: the runtime has no COM RCW/IDispatch object model; audit-correction: these are statically-known net48 members, the blocker is the missing object model, not machine state) [Reference Source mscorlib/system/type.cs:299-311]");
             default: return null;
         }
     }
@@ -849,13 +857,13 @@ public static partial class MethodRefResolver
                             appendLiterals: new[] { asmLit });
                     }
                     throw new NotSupportedException(
-                        $"Type::get_AssemblyQualifiedName with {count} parameter(s) not wired in REFL4 -- the () property maps to il2cpp_typeinfo_get_assembly_qualified_name with the AssemblyDef simple-name literal");
+                        $"Type::get_AssemblyQualifiedName with {count} parameter(s) not wired in REFL4 -- the () property maps to il2cpp_typeinfo_get_assembly_qualified_name with the AssemblyDef simple-name literal -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assembly.cs:725]");
                 case "get_Assembly":
                     if (count == 0)
                         return new ResolvedMethod(ResolvedMethod.LiteralMarker + asmName, 0, false, true, true,
                             Array.Empty<bool>(), true, ReturnTypeName: "System.Reflection.Assembly");
                     throw new NotSupportedException(
-                        $"Type::get_Assembly with {count} parameter(s) not wired in REFL4 -- the () property folds to the assembly simple-name literal");
+                        $"Type::get_Assembly with {count} parameter(s) not wired in REFL4 -- the () property folds to the assembly simple-name literal -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assembly.cs:725]");
             }
         }
         return null;
@@ -902,7 +910,7 @@ public static partial class MethodRefResolver
                     return new ResolvedMethod(ResolvedMethod.IdentityMarker, 1, false, true, true,
                         new[] { false }, true, ReturnTypeName: "System.Reflection.AssemblyName");
                 throw new NotSupportedException(
-                    $"Assembly::GetName with {count} parameter(s) not wired in p-refl2-gapmatrix/refl-arity -- the () overload and the (bool copiedName) overload are identity (the AssemblyName VALUE is the assembly simple-name string)");
+                    $"Assembly::GetName with {count} parameter(s) not wired in p-refl2-gapmatrix/refl-arity -- the () overload and the (bool copiedName) overload are identity (the AssemblyName VALUE is the assembly simple-name string) -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assembly.cs:712,720]");
             case "GetType":
                 if (count == 1 && ps[0] == 0x0E)
                     // pc = the EXPLICIT arg count (the receiver is popped
@@ -927,32 +935,32 @@ public static partial class MethodRefResolver
                         new[] { "", "", "i", "i" }, returnTypeName: "System.Type",
                         appendLiterals: new[] { $"il2cpp::il2cpp_string_intern_literal(\"{asmName}\")" });
                 throw new NotSupportedException(
-                    $"Assembly::GetType with {count} parameter(s) not wired in p-refl2-gapmatrix/refl-arity -- the (string) overload maps to il2cpp_assemblyinfo_get_type; the (string, bool throwOnError) overload to il2cpp_assemblyinfo_get_type_ex; the (string, bool throwOnError, bool ignoreCase) overload to il2cpp_assemblyinfo_get_type_ex2");
+                    $"Assembly::GetType with {count} parameter(s) not wired in p-refl2-gapmatrix/refl-arity -- the (string) overload maps to il2cpp_assemblyinfo_get_type; the (string, bool throwOnError) overload to il2cpp_assemblyinfo_get_type_ex; the (string, bool throwOnError, bool ignoreCase) overload to il2cpp_assemblyinfo_get_type_ex2 -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assembly.cs:748,753,758]");
             case "GetTypes":
                 if (count == 0)
                     return I("il2cpp::il2cpp_assemblyinfo_get_types", 0, true, true, true,
                         new[] { "" }, returnTypeName: "System.Type[]",
                         appendLiterals: new[] { $"il2cpp::il2cpp_string_intern_literal(\"{asmName}\")" });
                 throw new NotSupportedException(
-                    $"Assembly::GetTypes with {count} parameter(s) not wired in p-refl2-gapmatrix -- only the () overload maps to il2cpp_assemblyinfo_get_types");
+                    $"Assembly::GetTypes with {count} parameter(s) not wired in p-refl2-gapmatrix -- only the () overload maps to il2cpp_assemblyinfo_get_types -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assembly.cs:800]");
             case "get_FullName":
                 if (count == 0)
                     return I("il2cpp::il2cpp_assemblyname_get_full_name", 0, true, true, true,
                         new[] { "" }, returnTypeName: "System.String");
                 throw new NotSupportedException(
-                    $"Assembly::get_FullName with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () property maps to il2cpp_assemblyname_get_full_name");
+                    $"Assembly::get_FullName with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () property maps to il2cpp_assemblyname_get_full_name -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assembly.cs:725]");
             case "GetExecutingAssembly":
                 if (count == 0)
                     return new ResolvedMethod(ResolvedMethod.LiteralMarker + asmName, 0, false, true, false,
                         Array.Empty<bool>(), false, ReturnTypeName: "System.Reflection.Assembly");
                 throw new NotSupportedException(
-                    $"Assembly::GetExecutingAssembly with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () overload folds to the input assembly simple-name literal");
+                    $"Assembly::GetExecutingAssembly with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () overload folds to the input assembly simple-name literal -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assembly.cs:643]");
             case "GetEntryAssembly":
                 if (count == 0)
                     return new ResolvedMethod(ResolvedMethod.LiteralMarker + asmName, 0, false, true, false,
                         Array.Empty<bool>(), false, ReturnTypeName: "System.Reflection.Assembly");
                 throw new NotSupportedException(
-                    $"Assembly::GetEntryAssembly with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () overload folds to the input assembly simple-name literal");
+                    $"Assembly::GetEntryAssembly with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () overload folds to the input assembly simple-name literal -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assembly.cs:661]");
             default:
                 return null;
         }
@@ -973,13 +981,13 @@ public static partial class MethodRefResolver
                     return new ResolvedMethod(ResolvedMethod.IdentityMarker, 0, false, true, true,
                         Array.Empty<bool>(), true, ReturnTypeName: "System.String");
                 throw new NotSupportedException(
-                    $"AssemblyName::get_Name with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () property is identity (the AssemblyName VALUE is the assembly simple-name string)");
+                    $"AssemblyName::get_Name with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () property is identity (the AssemblyName VALUE is the assembly simple-name string) -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assemblyname.cs:71]");
             case "get_FullName":
                 if (count == 0)
                     return I("il2cpp::il2cpp_assemblyname_get_full_name", 0, true, true, true,
                         new[] { "" }, returnTypeName: "System.String");
                 throw new NotSupportedException(
-                    $"AssemblyName::get_FullName with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () property maps to il2cpp_assemblyname_get_full_name");
+                    $"AssemblyName::get_FullName with {count} parameter(s) not wired in p-refl2-gapmatrix -- the () property maps to il2cpp_assemblyname_get_full_name -- LOUD whitelist (net48 has no such member/arity) [Reference Source mscorlib/system/reflection/assemblyname.cs:295]");
             default:
                 return null;
         }
