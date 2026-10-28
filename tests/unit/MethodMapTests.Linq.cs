@@ -1912,8 +1912,48 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
     }
 
-    //==========================================================================
-    // impl-linq3 (C): Select over a DECIMAL bucket (net48
+    // impl-linqleft: OrderBy / OrderByDescending over a DECIMAL bucket with a
+    // System.DateTime / System.Guid KEY (the same struct carriers the decimal
+    // source sort already uses). Before this change the bucket gate LOUDed
+    // ("covers int32/int64/double/decimal keys only").
+    [Theory]
+    [InlineData("OrderBy", "DateTime", "il2cpp::il2cpp_linq_grouping_order_by_key_dec_dt")]
+    [InlineData("OrderByDescending", "DateTime", "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_dt")]
+    [InlineData("OrderBy", "Guid", "il2cpp::il2cpp_linq_grouping_order_by_key_dec_guid")]
+    [InlineData("OrderByDescending", "Guid", "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_guid")]
+    public void Resolve_DecimalBucket_OrderBy_StructKey_MapsToCarrierSort(
+        string name, string keyType, string icall)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeOrderByStructKey(name, 0x00, true, keyType),
+            receiverType: "System.Linq.IGrouping");
+
+        Assert.Equal(icall, resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    // impl-linqleft: ThenBy / ThenByDescending over a DECIMAL element with a
+    // System.DateTime / System.Guid secondary key maps to the fused-composite
+    // marker. StackFold resolves the primary family off the OrderBy entry and
+    // the secondary family is carried in AppendLiterals.
+    [Theory]
+    [InlineData("ThenBy", "DateTime", ResolvedMethod.ThenByCombineMarker, "4")]
+    [InlineData("ThenByDescending", "DateTime", ResolvedMethod.ThenByDescCombineMarker, "4")]
+    [InlineData("ThenBy", "Guid", ResolvedMethod.ThenByCombineMarker, "5")]
+    [InlineData("ThenByDescending", "Guid", ResolvedMethod.ThenByDescCombineMarker, "5")]
+    public void Resolve_ThenBy_DecimalElementStructKey_MapsToCompositeMarker(
+        string name, string keyType, string marker, string keyFam)
+    {
+        var resolved = ResolveMethodSpec(
+            SynthesizeThenByDecStructKey(name, keyType));
+
+        Assert.Equal(marker, resolved.CppName);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+        Assert.Equal(new[] { keyFam }, resolved.AppendLiterals);
+    }
     // Select<IGrouping,TResult>): the bucket snapshot feeds the DECIMAL-SOURCE
     // select_dec_* / select_idx_dec_* kernels. Before this change the bucket
     // Select LOUD-rejected ("the int32 predicate/selector operators have no
@@ -1953,22 +1993,26 @@ public class MethodMapTestsLinq
         Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
     }
 
-    // The bucket INDEX Select with a REFERENCE result stays LOUD (the decimal
-    // index reference-result entry does not exist; the decimal-SOURCE surface
-    // has the same gap).
+    // The bucket INDEX Select with a REFERENCE result (net48
+    // Select<decimal,int,string>) rides the decimal index reference-result
+    // kernel: the bucket snapshot feeds il2cpp_linq_select_idx_dec_ref.
     [Fact]
-    public void Resolve_DecimalBucket_Select_IndexRef_ThrowsLoud()
+    public void Resolve_DecimalBucket_Select_IndexRef_MapsToIndexRefKernel()
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpecWithReceiver(
+        var resolved = ResolveMethodSpecWithReceiver(
             SynthesizeGenericDecimalSource("Select",
                 new byte[] { 0x10, 0x02, 0x02,
                     0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                     0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                     0x15, 0x12, 0x0D, 0x03, 0x13, 0x00, 0x08, 0x0E },
                 0x0E),
-            receiverType: "System.Linq.IGrouping"));
+            receiverType: "System.Linq.IGrouping");
 
-        Assert.Contains("not wired", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_grouping_select_idx_dec_ref", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
     }
 
     // Aggregate with a DECIMAL accumulator (net48 Aggregate<TSource,decimal>):
@@ -2981,6 +3025,42 @@ public class MethodMapTestsLinq
             0x11));
         Assert.Equal("il2cpp::il2cpp_linq_select_idx_dec_dec", resolved.CppName);
         Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+    }
+
+    // The decimal-source INDEX Select with a REFERENCE result (net48
+    // Select<decimal,int,string>): the selector returns Il2CppObject* and the
+    // result is a fresh reference array.
+    [Fact]
+    public void Resolve_DecimalSourceSelect_IndexRef_MapsToSelectIdxDecRef()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericDecimalSource("Select",
+            new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0D, 0x03, 0x13, 0x00, 0x08, 0x0E },
+            0x0E));
+        Assert.Equal("il2cpp::il2cpp_linq_select_idx_dec_ref", resolved.CppName);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("System.String[]", resolved.ReturnTypeName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
+    }
+
+    // The reference-source INDEX Select with a DECIMAL result (net48
+    // Select<TSource,int,decimal>): the 16-byte decimal result rides a fresh
+    // decimal[]. This is the "ref source" counterpart of the decimal index
+    // surface (the value structs and the reference result were already wired).
+    [Fact]
+    public void Resolve_RefSourceSelect_IndexDecimal_MapsToSelectIdxRefDec()
+    {
+        var resolved = ResolveMethodSpec(
+            SynthesizeGenericValueSourceValueResult("Select", indexForm: true,
+                srcByte: 0x0E, resTypeName: "System.Decimal"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_select_idx_ref_dec", resolved.CppName);
+        Assert.Equal("System.Decimal[]", resolved.ReturnTypeName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "a", "" }, resolved.ParamTypeNames);
     }
 
     //==========================================================================
@@ -4408,6 +4488,13 @@ public class MethodMapTestsLinq
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }
+
+    // ThenBy over a DECIMAL element with a System.DateTime / System.Guid
+    // secondary key: the MethodSpec carries TSource = System.Decimal and TKey =
+    // the struct TypeRef; only the generic arguments drive the mapping (the
+    // member-ref signature is not decoded for ThenBy).
+    private static MemoryStream SynthesizeThenByDecStructKey(string methodName, string keyTypeName)
+        => SynthesizeOrderByStructKey(methodName, 0x00, true, keyTypeName);
 
     // Select over a DECIMAL source with a REFERENCE result (net48
     // Select<decimal,string>): the decimal-source reference-result surface.

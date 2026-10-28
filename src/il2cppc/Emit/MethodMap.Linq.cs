@@ -635,9 +635,14 @@ public static partial class MethodRefResolver
                     // The bucket keyed sort: the key selector projects a decimal
                     // element to a key of the int32/int64/double/decimal
                     // families (the same dispatch as the decimal-source
-                    // OrderBy); a DateTime/Guid key stays LOUD.
+                    // OrderBy); a DateTime/Guid key rides the struct carriers.
                     bool desc = name == "OrderByDescending";
                     byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                    // impl-linqleft: DateTime / Guid keys (the same carriers
+                    // the decimal-source sort already uses: ticks / field-wise).
+                    if (keyByte == 0x11 && LinqStructKeyFamilyName(genArgNames, 1) is { } structKey)
+                        return I($"il2cpp::il2cpp_linq_grouping_order_by_key{(desc ? "_desc" : "")}_dec_{structKey}",
+                            2, true, true, false, new[] { "", "" }, returnTypeName: "System.Decimal[]");
                     string? decKeyFam = keyByte switch
                     {
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
@@ -682,12 +687,9 @@ public static partial class MethodRefResolver
                     {
                         if (IsRefFamilyByte(genArgs[1]))
                         {
-                            if (selIdx)
-                                throw new NotSupportedException(
-                                    "Enumerable.Select over a System.Decimal GroupBy bucket with an " +
-                                    "(element, index) selector returning a reference is not wired " +
-                                    "(the runtime has no decimal index reference-result entry)");
-                            return I("il2cpp::il2cpp_linq_grouping_select_dec_ref",
+                            return I(selIdx
+                                    ? "il2cpp::il2cpp_linq_grouping_select_idx_dec_ref"
+                                    : "il2cpp::il2cpp_linq_grouping_select_dec_ref",
                                 2, true, true, false, new[] { "", "" },
                                 returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
                         }
@@ -895,12 +897,12 @@ public static partial class MethodRefResolver
                     // reference-result entry and stays LOUD.
                     if (IsRefFamilyByte(genArgs[1]))
                     {
-                        if (selIdx)
-                            throw new NotSupportedException(
-                                "Enumerable.Select over a System.Decimal source with an (element, index) " +
-                                "selector returning a reference is not wired (the runtime has no decimal " +
-                                "index reference-result entry)");
-                        return I("il2cpp::il2cpp_linq_select_dec_ref",
+                        // impl-linqleft: the (element, index) reference-result
+                        // form rides il2cpp_linq_select_idx_dec_ref (the same
+                        // Il2CppObject* selector ABI, now with the index).
+                        return I(selIdx
+                                ? "il2cpp::il2cpp_linq_select_idx_dec_ref"
+                                : "il2cpp::il2cpp_linq_select_dec_ref",
                             2, true, true, false, TwoArg,
                             returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
                     }
@@ -1474,6 +1476,13 @@ public static partial class MethodRefResolver
                         if (IsRefFamilyByte(genArgs[1]))
                             return I("il2cpp::il2cpp_linq_select_idx_ref_ref", 2, true, true, false, TwoArg,
                                 returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null));
+                        // impl-linqleft: a DECIMAL result over a reference
+                        // source with the index selector (net48
+                        // Select<TSource,int,decimal>); the 0x11 byte is
+                        // name-resolved.
+                        if (genArgs[1] == 0x11 && IsDecimalGenArg(genArgNames, 1))
+                            return I("il2cpp::il2cpp_linq_select_idx_ref_dec", 2, true, true, false, TwoArg,
+                                returnTypeName: "System.Decimal[]");
                         string? idxVs = LinqValueResultSuffixWide(genArgs[1], genArgNames, 1);
                         if (idxVs is null)
                             throw new NotSupportedException(
@@ -2248,6 +2257,24 @@ public static partial class MethodRefResolver
                 // StackFold fold recognises the matching OrderBy assignment
                 // (il2cpp_linq_order_by_key[_desc]_i8_<keyfam>) and rewrites it
                 // into the i8 composite.
+                //
+                // impl-linqleft: a DECIMAL element (decimal[] source or a
+                // decimal GroupBy bucket) with a System.DateTime / System.Guid
+                // secondary key has a fused composite too
+                // (il2cpp_linq_[grouping_]then_by_key[_desc]_dec_<k1>_<k2>).
+                // The secondary key family is carried in AppendLiterals; the
+                // primary family is read off the OrderBy entry in StackFold.
+                if (genArgs is { Length: >= 2 } && genArgs[0] == 0x11
+                    && IsDecimalGenArg(genArgNames, 0)
+                    && LinqKeyFamilyCode(genArgs[1], genArgNames, 1) is { } decSecondary)
+                {
+                    return I(name == "ThenBy"
+                            ? ResolvedMethod.ThenByCombineMarker
+                            : ResolvedMethod.ThenByDescCombineMarker,
+                        2, false, false, false, new[] { "", "" },
+                        returnTypeName: "System.Decimal[]",
+                        appendLiterals: new[] { decSecondary });
+                }
                 if (genArgs is not { Length: >= 2 }
                     || ThenByKernelSuffix(genArgs[0], genArgs[1]) is null)
                 {
@@ -2988,6 +3015,22 @@ public static partial class MethodRefResolver
         if (n is "System.Guid" or "V:System.Guid" or "Guid") return "guid";
         return null;
     }
+
+    // impl-linqleft: the DECIMAL-element fused-composite key-family CODE of a
+    // generic key argument (the trailing literal of the runtime dispatch):
+    //   0 int32 (incl. bool/char/narrow), 1 int64, 2 double/float,
+    //   3 decimal, 4 System.DateTime, 5 System.Guid.
+    // null when the key has no composite carrier (a user struct / reference).
+    private static string? LinqKeyFamilyCode(byte b, string[]? genArgNames, int index) => b switch
+    {
+        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",
+        0x0A or 0x0B => "1",
+        0x0C or 0x0D => "2",
+        0x11 when IsDecimalGenArg(genArgNames, index) => "3",
+        0x11 when LinqStructKeyFamilyName(genArgNames, index) == "dt" => "4",
+        0x11 when LinqStructKeyFamilyName(genArgNames, index) == "guid" => "5",
+        _ => null,
+    };
 
     private static string LinqElementFamily(byte[]? genArgs, string? receiverType, string? arg0Type)
     {

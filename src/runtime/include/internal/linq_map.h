@@ -437,6 +437,7 @@ Il2CppArray* il2cpp_linq_select_idx_dec_i8(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_dec_d(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_dec_f(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_dec_dec(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_dec_ref(Il2CppArray* src, Il2CppObject* sel);
 
 // p0linq4 (D2): Select with an (element, index) selector returning decimal --
 // the Func<TSource,int,decimal> overload over an int32 source. Same 16-byte
@@ -482,6 +483,7 @@ Il2CppArray* il2cpp_linq_select_idx_ref_f(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_ref_dt(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_ref_ts(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_ref_guid(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_ref_dec(Il2CppArray* src, Il2CppObject* sel);
 
 //------------------------------------------------------------------------------
 // LINQ GROUPING domain (D-LINQ-4) -- Enumerable.GroupBy, int32 family.
@@ -1035,6 +1037,7 @@ Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_i4(Il2CppObject* grouping, Il2
 Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_i8(Il2CppObject* grouping, Il2CppObject* sel);
 Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_d(Il2CppObject* grouping, Il2CppObject* sel);
 Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_f(Il2CppObject* grouping, Il2CppObject* sel);
+Il2CppArray*  il2cpp_linq_grouping_select_idx_dec_ref(Il2CppObject* grouping, Il2CppObject* sel);
 Il2CppArray*  il2cpp_linq_grouping_reverse_dec(Il2CppObject* grouping);
 Il2CppArray*  il2cpp_linq_grouping_take_dec(Il2CppObject* grouping, int32_t count);
 Il2CppArray*  il2cpp_linq_grouping_skip_dec(Il2CppObject* grouping, int32_t count);
@@ -1057,6 +1060,14 @@ Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_i4(Il2CppObject* groupi
 Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_i8(Il2CppObject* grouping, Il2CppObject* keySel);
 Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_d(Il2CppObject* grouping, Il2CppObject* keySel);
 Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_dec(Il2CppObject* grouping, Il2CppObject* keySel);
+// impl-linqleft: the decimal bucket with a System.DateTime / System.Guid key.
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_dec_dt(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_dt(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_dec_guid(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_dec_guid(Il2CppObject* grouping, Il2CppObject* keySel);
+// impl-linqleft: the fused decimal-bucket ThenBy composite (desc/k1fam/k2fam
+// arrive as trailing literals).
+Il2CppArray*  il2cpp_linq_grouping_then_by_key_dec(Il2CppObject* grouping, Il2CppObject* k1Sel, Il2CppObject* k2Sel, int32_t k1desc, int32_t k2desc, int32_t k1fam, int32_t k2fam);
 bool          il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDecimal value);
 Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result);
 

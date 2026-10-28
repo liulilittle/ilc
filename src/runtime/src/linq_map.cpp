@@ -645,6 +645,18 @@ runtime::Il2CppDecimal InvokeSelDecIdxDec(Il2CppDelegate* d, const runtime::Il2C
         : reinterpret_cast<SelDecIdxDecFn>(d->methodPtr)(v, index);
 }
 
+// impl-linqleft: the 3-arg decimal-source selector returning a REFERENCE
+// result (Select<decimal,int,TResult> with a reference TResult).
+typedef Il2CppObject* (*SelDecIdxRefFn)(runtime::Il2CppDecimal, int32_t);
+typedef Il2CppObject* (*SelDecIdxRefThisFn)(Il2CppObject*, runtime::Il2CppDecimal, int32_t);
+
+Il2CppObject* InvokeSelDecIdxRef(Il2CppDelegate* d, const runtime::Il2CppDecimal& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDecIdxRefThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<SelDecIdxRefFn>(d->methodPtr)(v, index);
+}
+
 runtime::Il2CppDateTime InvokeSelDecDtKey(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
 {
     return d->target != nullptr
@@ -4046,6 +4058,30 @@ Il2CppArray* il2cpp_linq_select_idx_dec_dec(Il2CppArray* src, Il2CppObject* sel)
     return out;
 }
 
+// impl-linqleft: Select over a DECIMAL source with an (element, index)
+// selector returning a REFERENCE result (net48 Select<decimal,int,TResult>).
+// The selector returns Il2CppObject*; the result is a fresh reference array.
+Il2CppArray* il2cpp_linq_select_idx_dec_ref(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireDecimalFamily(src);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(void*), true, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* r = InvokeSelDecIdxRef(d, *DecAt(src, i), i);
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(out, i));
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+        *slot = r;
+    }
+    return out;
+}
+
 //------------------------------------------------------------------------------
 // p0linq4 (D2) -- Select with an (element, index) selector returning decimal.
 //
@@ -4134,6 +4170,44 @@ Il2CppArray* il2cpp_linq_select_ref_dec(Il2CppArray* src, Il2CppObject* sel)
         const runtime::Il2CppDecimal slot = d->target != nullptr
             ? reinterpret_cast<SelRefToDecThisFn>(d->methodPtr)(d->target, elem)
             : reinterpret_cast<SelRefToDecFn>(d->methodPtr)(elem);
+        std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot,
+                    sizeof(runtime::Il2CppDecimal));
+    }
+    return out;
+}
+
+namespace {
+
+typedef runtime::Il2CppDecimal (*SelRefToDecIdxFn)(Il2CppObject* elem, int32_t index);
+typedef runtime::Il2CppDecimal (*SelRefToDecIdxThisFn)(Il2CppObject* self, Il2CppObject* elem,
+                                                       int32_t index);
+
+} // namespace
+
+// impl-linqleft: the reference-source INDEX Select with a DECIMAL result
+// (net48 Select<TSource,int,decimal>). The element crosses as Il2CppObject*,
+// the zero-based source index as int32, and the 16-byte decimal result rides
+// the return slot into a fresh decimal[].
+Il2CppArray* il2cpp_linq_select_idx_ref_dec(Il2CppArray* src, Il2CppObject* sel)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    RequireRefFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)),
+                                        false, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = RefAt(src, i);
+        const runtime::Il2CppDecimal slot = d->target != nullptr
+            ? reinterpret_cast<SelRefToDecIdxThisFn>(d->methodPtr)(d->target, elem, i)
+            : reinterpret_cast<SelRefToDecIdxFn>(d->methodPtr)(elem, i);
         std::memcpy(il2cpp_array_get_elem_ptr(out, i), &slot,
                     sizeof(runtime::Il2CppDecimal));
     }
@@ -7816,6 +7890,11 @@ bool il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDe
         ThrowIfNullReceiver(grouping);                                                 \
         return il2cpp_linq_select_idx_dec_f(RequireDecGroupElements(grouping), sel);   \
     }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_select_idx_dec_ref(Il2CppObject* grouping, Il2CppObject* sel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_select_idx_dec_ref(RequireDecGroupElements(grouping), sel); \
+    }                                                                                  \
     void il2cpp_linq_grouping_first_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping) \
     {                                                                                  \
         ThrowIfNullReceiver(grouping);                                                 \
@@ -7990,6 +8069,31 @@ bool il2cpp_linq_grouping_contains_dec(Il2CppObject* grouping, runtime::Il2CppDe
     {                                                                                  \
         ThrowIfNullReceiver(grouping);                                                 \
         return il2cpp_linq_order_by_key_desc_dec_dec(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_dec_dt(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_dec_dt(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_dec_dt(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_desc_dec_dt(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_dec_guid(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_dec_guid(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_dec_guid(Il2CppObject* grouping, Il2CppObject* keySel) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_order_by_key_desc_dec_guid(RequireDecGroupElements(grouping), keySel); \
+    }                                                                                  \
+    Il2CppArray* il2cpp_linq_grouping_then_by_key_dec(Il2CppObject* grouping, Il2CppObject* k1Sel, Il2CppObject* k2Sel, int32_t k1desc, int32_t k2desc, int32_t k1fam, int32_t k2fam) \
+    {                                                                                  \
+        ThrowIfNullReceiver(grouping);                                                 \
+        return il2cpp_linq_then_by_key_dec(RequireDecGroupElements(grouping), k1Sel, k2Sel, k1desc, k2desc, k1fam, k2fam); \
     }
 
 IL2CPP_LINQ_GRP_DEC_OPS(a, b)

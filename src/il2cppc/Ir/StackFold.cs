@@ -4774,6 +4774,34 @@ public static class StackFold
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i8_i8" => "_i8_i8",
                 "il2cpp::il2cpp_linq_order_by_key_i8_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i8_d" => "_i8_d",
+                // impl-linqleft: the DECIMAL element carriers (a decimal[]
+                // source and a decimal GroupBy bucket) for EVERY primary key
+                // family the decimal OrderBy supports. The secondary family
+                // code is appended from the ThenBy marker's AppendLiterals.
+                "il2cpp::il2cpp_linq_order_by_key_dec_i4"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_dec_i4" => "src_dec_i4",
+                "il2cpp::il2cpp_linq_order_by_key_dec_i8"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_dec_i8" => "src_dec_i8",
+                "il2cpp::il2cpp_linq_order_by_key_dec_d"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_dec_d" => "src_dec_d",
+                "il2cpp::il2cpp_linq_order_by_key_dec_dec"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_dec_dec" => "src_dec_dec",
+                "il2cpp::il2cpp_linq_order_by_key_dec_dt"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_dec_dt" => "src_dec_dt",
+                "il2cpp::il2cpp_linq_order_by_key_dec_guid"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_dec_guid" => "src_dec_guid",
+                "il2cpp::il2cpp_linq_grouping_order_by_key_dec_i4"
+                    or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_i4" => "grp_dec_i4",
+                "il2cpp::il2cpp_linq_grouping_order_by_key_dec_i8"
+                    or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_i8" => "grp_dec_i8",
+                "il2cpp::il2cpp_linq_grouping_order_by_key_dec_d"
+                    or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_d" => "grp_dec_d",
+                "il2cpp::il2cpp_linq_grouping_order_by_key_dec_dec"
+                    or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_dec" => "grp_dec_dec",
+                "il2cpp::il2cpp_linq_grouping_order_by_key_dec_dt"
+                    or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_dt" => "grp_dec_dt",
+                "il2cpp::il2cpp_linq_grouping_order_by_key_dec_guid"
+                    or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_guid" => "grp_dec_guid",
                 _ => null,
             };
             // D-LO2-1 (linqorder2): Enumerable.ThenBy / ThenByDescending --
@@ -4846,9 +4874,58 @@ public static class StackFold
                 // resolved primary entry: "_i4" -> _i4, "_i8_i4" -> _i8_i4,
                 // "_i8_i8" -> _i8_i8.
                 var familySuffix = ThenByPrimaryEntrySuffix(obValue.Resolved!.CppName)!;
-                var compositeEntry = thenDesc
-                    ? "il2cpp::il2cpp_linq_then_by_key_desc" + familySuffix
-                    : "il2cpp::il2cpp_linq_then_by_key" + familySuffix;
+                string compositeEntry;
+                string[] compositeParamNames;
+                string compositeReturnType;
+                string[]? decimalCompositeLiterals = null;
+                if (familySuffix.StartsWith("src_dec_", StringComparison.Ordinal)
+                    || familySuffix.StartsWith("grp_dec_", StringComparison.Ordinal))
+                {
+                    // impl-linqleft: DECIMAL element composite. The primary
+                    // key family is encoded in the suffix; the secondary key
+                    // family rides the ThenBy marker's AppendLiterals. Both
+                    // arrive as trailing literals on the single runtime
+                    // dispatch entry.
+                    bool grouping = familySuffix.StartsWith("grp_dec_", StringComparison.Ordinal);
+                    string primaryFam = familySuffix.Substring(
+                        (grouping ? "grp_dec_" : "src_dec_").Length);
+                    string primaryCode = primaryFam switch
+                    {
+                        "i4" => "0",
+                        "i8" => "1",
+                        "d" => "2",
+                        "dec" => "3",
+                        "dt" => "4",
+                        "guid" => "5",
+                        _ => "3",
+                    };
+                    string secondaryCode = resolved.AppendLiterals is { Length: >= 1 }
+                        ? resolved.AppendLiterals[0] : "3";
+                    compositeEntry = grouping
+                        ? "il2cpp::il2cpp_linq_grouping_then_by_key_dec"
+                        : "il2cpp::il2cpp_linq_then_by_key_dec";
+                    compositeParamNames = grouping
+                        ? new[] { "", "", "" }
+                        : new[] { "a", "", "" };
+                    compositeReturnType = "System.Decimal[]";
+                    // The primary OrderBy direction is part of the fused sort: a
+                    // descending primary must keep its descending order.
+                    bool primaryDesc = obValue.Resolved!.CppName!.Contains(
+                        "order_by_key_desc_", StringComparison.Ordinal);
+                    decimalCompositeLiterals = new[]
+                    {
+                        primaryDesc ? "1" : "0", thenDesc ? "1" : "0",
+                        primaryCode, secondaryCode,
+                    };
+                }
+                else
+                {
+                    compositeEntry = thenDesc
+                        ? "il2cpp::il2cpp_linq_then_by_key_desc" + familySuffix
+                        : "il2cpp::il2cpp_linq_then_by_key" + familySuffix;
+                    compositeParamNames = new[] { "a", "", "" };
+                    compositeReturnType = familySuffix == "_i4" ? "System.Int32[]" : "System.Int64[]";
+                }
                 var composite = new CallExpr
                 {
                     Function = $"call_{ins.Operand}",
@@ -4857,8 +4934,9 @@ public static class StackFold
                     Resolved = new ResolvedMethod(
                         compositeEntry,
                         3, false, true, true, new[] { false, false, false }, false,
-                        ParamTypeNames: new[] { "a", "", "" },
-                        ReturnTypeName: familySuffix == "_i4" ? "System.Int32[]" : "System.Int64[]"),
+                        ParamTypeNames: compositeParamNames,
+                        ReturnTypeName: compositeReturnType,
+                        AppendLiterals: decimalCompositeLiterals),
                     IsPInvoke = false,
                     SetLastError = false,
                 };

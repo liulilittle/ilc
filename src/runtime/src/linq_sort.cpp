@@ -736,6 +736,65 @@ Il2CppArray* SortDecI4KeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool des
                                     CmpKeyValue<int32_t>);
 }
 
+//------------------------------------------------------------------------------
+// impl-linqleft: SortDecTwoKeysCopyT -- the DECIMAL-source counterpart of
+// SortInt32TwoKeysCopy / SortInt64TwoKeysCopy. Builds a fresh decimal[] holding
+// the stable (k1, k2) composite order of 'src' under the key selectors 'k1Sel'
+// and 'k2Sel' (net48 EnumerableSorter chain semantics for
+// OrderBy(k1).ThenBy(k2) / .ThenByDescending(k2)). Each element's PRIMARY key
+// and SECONDARY key are cached EXACTLY ONCE, so a side-effecting selector is
+// never re-invoked. The two key types are INDEPENDENT (e.g. DateTime primary +
+// Guid secondary). GC SAFETY: the elements are snapshotted into a native
+// vector BEFORE any selector call and BOTH selectors are rooted across the key
+// phase; the result array is allocated only after the last selector call.
+//------------------------------------------------------------------------------
+template <typename TK1, typename TK2, typename Invoke1, typename Invoke2,
+          typename Cmp1, typename Cmp2>
+Il2CppArray* SortDecTwoKeysCopyT(Il2CppArray* src, Il2CppDelegate* k1Sel,
+                                 Il2CppDelegate* k2Sel, bool k1Desc, bool k2Desc,
+                                 Invoke1 invoke1, Invoke2 invoke2,
+                                 Cmp1 cmp1, Cmp2 cmp2)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&k1Sel));
+    roots.Add(reinterpret_cast<void**>(&k2Sel));
+
+    if (n > 0)
+    {
+        std::vector<runtime::Il2CppDecimal> elems(static_cast<size_t>(n));
+        std::memcpy(elems.data(), src->data,
+                    static_cast<size_t>(n) * sizeof(runtime::Il2CppDecimal));
+        std::vector<TK1> k1(static_cast<size_t>(n));
+        std::vector<TK2> k2(static_cast<size_t>(n));
+        std::vector<int32_t> order(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i) order[i] = i;
+        for (int32_t i = 0; i < n; ++i) k1[i] = invoke1(k1Sel, elems[i]);
+        for (int32_t i = 0; i < n; ++i) k2[i] = invoke2(k2Sel, elems[i]);
+        std::vector<int32_t> scratch(static_cast<size_t>(n));
+        MergeSortStable(order.data(), scratch.data(), 0, n,
+                        [&](int32_t a, int32_t b) -> int32_t {
+                            const int32_t c1 = cmp1(k1[a], k1[b]);
+                            if (c1 != 0)
+                            {
+                                return k1Desc ? -c1 : c1;
+                            }
+                            const int32_t c2 = cmp2(k2[a], k2[b]);
+                            return k2Desc ? -c2 : c2;
+                        });
+        Il2CppArray* result = il2cpp_array_new(
+            nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, n);
+        runtime::Il2CppDecimal* out =
+            reinterpret_cast<runtime::Il2CppDecimal*>(result->data);
+        for (int32_t i = 0; i < n; ++i) out[i] = elems[order[i]];
+        return result;
+    }
+    return il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, 0);
+}
+
 // p0grp: the DECIMAL-source keyed sort with an int64 / double / decimal key.
 static int64_t InvokeKeyDecI8(Il2CppDelegate* keySel, const runtime::Il2CppDecimal& v)
 {
@@ -1724,6 +1783,98 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_guid(Il2CppArray* src, Il2CppObje
     Il2CppDelegate* d = RequireKeySelector(keySel);
     return SortDecKeyCopyT<Il2CppGuid>(s, d, true, InvokeKeyDecGuid,
         CmpGuidKey);
+}
+
+//------------------------------------------------------------------------------
+// impl-linqleft: the DECIMAL-element fused composite sort behind
+// OrderBy(k1).ThenBy(k2) / .ThenByDescending(k2) over a decimal[] source or a
+// decimal GroupBy bucket. The primary and secondary key families are
+// INDEPENDENT, so one dispatch entry serves every combination the OrderBy
+// surface supports. Family codes: 0=int32, 1=int64, 2=double, 3=decimal,
+// 4=System.DateTime, 5=System.Guid. Each selector is cached EXACTLY ONCE.
+//------------------------------------------------------------------------------
+namespace
+{
+Il2CppArray* SortDecTwoKeysDispatch(Il2CppArray* s, Il2CppDelegate* d1,
+                                    Il2CppDelegate* d2, bool k1Desc, bool k2Desc,
+                                    int32_t k1fam, int32_t k2fam)
+{
+#define DEC_K2_CASES(K1TYPE, K1INV, K1CMP)                                                   \
+    case 0: return SortDecTwoKeysCopyT<K1TYPE, int32_t>(s, d1, d2, k1Desc, k2Desc, K1INV,   \
+        InvokeKeyDecI4, K1CMP, CmpKeyValue<int32_t>);                                        \
+    case 1: return SortDecTwoKeysCopyT<K1TYPE, int64_t>(s, d1, d2, k1Desc, k2Desc, K1INV,   \
+        InvokeKeyDecI8, K1CMP, CmpKeyValue<int64_t>);                                        \
+    case 2: return SortDecTwoKeysCopyT<K1TYPE, double>(s, d1, d2, k1Desc, k2Desc, K1INV,    \
+        InvokeKeyDecD, K1CMP, CmpKeyValue<double>);                                          \
+    case 3: return SortDecTwoKeysCopyT<K1TYPE, runtime::Il2CppDecimal>(s, d1, d2, k1Desc,    \
+        k2Desc, K1INV, InvokeKeyDecDec, K1CMP, CmpDecKeyValue);                              \
+    case 4: return SortDecTwoKeysCopyT<K1TYPE, runtime::Il2CppDateTime>(s, d1, d2, k1Desc,   \
+        k2Desc, K1INV, InvokeKeyDecDt, K1CMP, CmpDateTimeKey);                               \
+    case 5: return SortDecTwoKeysCopyT<K1TYPE, Il2CppGuid>(s, d1, d2, k1Desc, k2Desc,        \
+        K1INV, InvokeKeyDecGuid, K1CMP, CmpGuidKey);
+
+    switch (k1fam)
+    {
+    case 0:
+        switch (k2fam)
+        {
+            DEC_K2_CASES(int32_t, InvokeKeyDecI4, CmpKeyValue<int32_t>)
+        default: break;
+        }
+        break;
+    case 1:
+        switch (k2fam)
+        {
+            DEC_K2_CASES(int64_t, InvokeKeyDecI8, CmpKeyValue<int64_t>)
+        default: break;
+        }
+        break;
+    case 2:
+        switch (k2fam)
+        {
+            DEC_K2_CASES(double, InvokeKeyDecD, CmpKeyValue<double>)
+        default: break;
+        }
+        break;
+    case 3:
+        switch (k2fam)
+        {
+            DEC_K2_CASES(runtime::Il2CppDecimal, InvokeKeyDecDec, CmpDecKeyValue)
+        default: break;
+        }
+        break;
+    case 4:
+        switch (k2fam)
+        {
+            DEC_K2_CASES(runtime::Il2CppDateTime, InvokeKeyDecDt, CmpDateTimeKey)
+        default: break;
+        }
+        break;
+    case 5:
+        switch (k2fam)
+        {
+            DEC_K2_CASES(Il2CppGuid, InvokeKeyDecGuid, CmpGuidKey)
+        default: break;
+        }
+        break;
+    default: break;
+    }
+#undef DEC_K2_CASES
+    il2cpp_throw_invalid_operation_exception(
+        "Enumerable.ThenBy: unknown decimal key family");
+    return nullptr;
+}
+} // namespace
+
+Il2CppArray* il2cpp_linq_then_by_key_dec(Il2CppArray* src, Il2CppObject* k1Sel,
+                                         Il2CppObject* k2Sel, int32_t k1desc,
+                                         int32_t k2desc, int32_t k1fam, int32_t k2fam)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(runtime::Il2CppDecimal));
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    return SortDecTwoKeysDispatch(s, d1, d2, k1desc != 0, k2desc != 0, k1fam, k2fam);
 }
 
 // The REFERENCE source: the elements are read FRESH through the rooted source

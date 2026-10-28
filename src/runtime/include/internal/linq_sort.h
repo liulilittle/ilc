@@ -243,6 +243,18 @@ Il2CppArray* il2cpp_linq_order_by_key_dec_dt(Il2CppArray* src, Il2CppObject* key
 Il2CppArray* il2cpp_linq_order_by_key_desc_dec_dt(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_dec_guid(Il2CppArray* src, Il2CppObject* keySel);
 Il2CppArray* il2cpp_linq_order_by_key_desc_dec_guid(Il2CppArray* src, Il2CppObject* keySel);
+
+//------------------------------------------------------------------------------
+// impl-linqleft: ThenBy / ThenByDescending over a DECIMAL source (or a decimal
+// GroupBy bucket) -- the fused (k1, k2) composite sort. Each selector is cached
+// EXACTLY ONCE, the sort is stable, and the result is a fresh decimal[]. The
+// primary and secondary key families are INDEPENDENT and arrive as trailing
+// literals: k1desc (0/1), k2desc (0/1), k1fam, k2fam where 0=int32, 1=int64,
+// 2=double, 3=decimal, 4=System.DateTime, 5=System.Guid.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_then_by_key_dec(Il2CppArray* src, Il2CppObject* k1Sel,
+                                         Il2CppObject* k2Sel, int32_t k1desc,
+                                         int32_t k2desc, int32_t k1fam, int32_t k2fam);
 Il2CppArray* il2cpp_linq_order_by_key_ref_dt(Il2CppArray* src, Il2CppObject* keySel,
                                              int32_t desc);
 Il2CppArray* il2cpp_linq_order_by_key_ref_guid(Il2CppArray* src, Il2CppObject* keySel,
