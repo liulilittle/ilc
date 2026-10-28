@@ -2838,6 +2838,59 @@ public class MethodMapTestsLinq
         Assert.Equal("System.Int32[]", resolved.ReturnTypeName);
     }
 
+    // impl-thenbyfam: the numeric ThenBy marker carries the SECONDARY key
+    // family code in AppendLiterals (0=int32, 1=int64, 2=double -- the
+    // LinqKeyFamilyCode contract): the fused composite picks the key reader
+    // PER KEY, and a mixed pair (OrderBy(int).ThenBy(double) /
+    // OrderBy(double).ThenBy(int)) that dropped the secondary family read the
+    // secondary key from the WRONG callback return slot -- a silent mis-order
+    // on x64.
+    [Theory]
+    [InlineData("ThenBy", 0x08, "0")]
+    [InlineData("ThenBy", 0x0A, "1")]
+    [InlineData("ThenBy", 0x0D, "2")]
+    [InlineData("ThenByDescending", 0x08, "0")]
+    [InlineData("ThenByDescending", 0x0A, "1")]
+    [InlineData("ThenByDescending", 0x0D, "2")]
+    public void Resolve_ThenBy_Int32Source_MarkerCarriesSecondaryFamilyCode(
+        string name, byte keyByte, string famCode)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, keyByte }));
+
+        Assert.Equal(name == "ThenBy"
+            ? ResolvedMethod.ThenByCombineMarker : ResolvedMethod.ThenByDescCombineMarker,
+            resolved.CppName);
+        Assert.NotNull(resolved.AppendLiterals);
+        Assert.Equal(famCode, resolved.AppendLiterals![0]);
+    }
+
+    [Theory]
+    [InlineData("ThenBy", 0x08, "0")]
+    [InlineData("ThenBy", 0x0A, "1")]
+    [InlineData("ThenBy", 0x0D, "2")]
+    public void Resolve_ThenBy_LongSource_MarkerCarriesSecondaryFamilyCode(
+        string name, byte keyByte, string famCode)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0A, keyByte }));
+
+        Assert.Equal(name == "ThenBy"
+            ? ResolvedMethod.ThenByCombineMarker : ResolvedMethod.ThenByDescCombineMarker,
+            resolved.CppName);
+        Assert.NotNull(resolved.AppendLiterals);
+        Assert.Equal(famCode, resolved.AppendLiterals![0]);
+        Assert.Equal("System.Int64[]", resolved.ReturnTypeName);
+    }
+
     // The int32-source OrderBy with an int64 / double key maps to the wide-key
     // entry (il2cpp_linq_order_by_key[_desc]_i4_i8 / _i4_d).
     [Theory]

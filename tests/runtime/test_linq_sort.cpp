@@ -149,6 +149,11 @@ il2cpp::Il2CppArray* NewInt32Array(int32_t length)
     return il2cpp::il2cpp_array_new(nullptr, 4, false, length);
 }
 
+il2cpp::Il2CppArray* NewInt64Array(int32_t length)
+{
+    return il2cpp::il2cpp_array_new(nullptr, 8, false, length);
+}
+
 il2cpp::Il2CppArray* NewRefArray(int32_t length)
 {
     return il2cpp::il2cpp_array_new(&g_mockElemClass, 8, true, length);
@@ -157,6 +162,15 @@ il2cpp::Il2CppArray* NewRefArray(int32_t length)
 void FillInt32(il2cpp::Il2CppArray* arr, const int32_t* values, int32_t count)
 {
     int32_t* data = reinterpret_cast<int32_t*>(arr->data);
+    for (int32_t i = 0; i < count; ++i)
+    {
+        data[i] = values[i];
+    }
+}
+
+void FillInt64(il2cpp::Il2CppArray* arr, const int64_t* values, int32_t count)
+{
+    int64_t* data = reinterpret_cast<int64_t*>(arr->data);
     for (int32_t i = 0; i < count; ++i)
     {
         data[i] = values[i];
@@ -190,6 +204,30 @@ void ExpectInt32Content(il2cpp::Il2CppArray* arr, const int32_t* expected, int32
         for (int32_t i = 0; i < count; ++i)
         {
             std::printf("%s%d", i > 0 ? " " : "", data[i]);
+        }
+        std::printf(")\n");
+        ++g_failures;
+    }
+}
+
+void ExpectInt64Content(il2cpp::Il2CppArray* arr, const int64_t* expected, int32_t count, const char* what)
+{
+    const int64_t* data = reinterpret_cast<const int64_t*>(arr->data);
+    bool ok = true;
+    for (int32_t i = 0; i < count; ++i)
+    {
+        if (data[i] != expected[i])
+        {
+            ok = false;
+            break;
+        }
+    }
+    if (!ok)
+    {
+        std::printf("FAIL: %s (content: ", what);
+        for (int32_t i = 0; i < count; ++i)
+        {
+            std::printf("%s%lld", i > 0 ? " " : "", static_cast<long long>(data[i]));
         }
         std::printf(")\n");
         ++g_failures;
@@ -359,6 +397,33 @@ int32_t CountingKey2(int32_t x)
 {
     ++g_key2Calls;
     return x % 10;
+}
+
+//------------------------------------------------------------------------------
+// impl-thenbyfam: MIXED key-family selectors for the val_* composite entries.
+// The double keys carry a FRACTIONAL part (an int32 read of the callback
+// return slot cannot reproduce this order) and the int64 keys are WIDE
+// (digit << 32: a 32-bit read of the low word sees 0 for every element).
+//------------------------------------------------------------------------------
+
+// Fractional double secondary / primary key over an int32 element.
+double KeyUnitsD(int32_t x) { return (x % 10) * 0.25 + 0.5; }
+double KeyTensD(int32_t x) { return (x / 10) * 0.25 + 0.5; }
+
+// WIDE int64 primary key over an int32 element (the low 32 bits are 0).
+int64_t KeyTensI8Wide(int32_t x) { return static_cast<int64_t>(x / 10) << 32; }
+
+// int64-element selectors (the i8 source entries).
+int32_t KeyTensSrcI8(int64_t x) { return static_cast<int32_t>(x / 10); }
+int32_t KeyUnitsSrcI8(int64_t x) { return static_cast<int32_t>(x % 10); }
+int64_t KeyTensSrcI8Wide(int64_t x) { return (x / 10) << 32; }
+double KeyUnitsSrcI8D(int64_t x) { return (x % 10) * 0.25 + 0.5; }
+
+// Fractional double secondary key that counts every invocation.
+double CountingKeyD(int32_t x)
+{
+    ++g_key2Calls;
+    return (x % 10) * 0.25 + 0.5;
 }
 
 } // namespace
@@ -708,6 +773,124 @@ int main()
                      [&] { il2cpp::il2cpp_linq_then_by_key_i4(b, keyMulti, Del(KeyUnits)); });
         ExpectThrows(kInvalidOpType, "a multicast secondary selector throws InvalidOperationException",
                      [&] { il2cpp::il2cpp_linq_then_by_key_desc_i4(b, Del(KeyTens), keyMulti); });
+    }
+
+    // --- 9b. impl-thenbyfam: the MIXED key-family fused composite (val_*) ---
+    {
+        // { 53, 54, 51, 12, 11 }: primary = tens (5,5,5,1,1), secondary =
+        // units (3,4,1,2,1). The mixed entries must pick the reader PER KEY:
+        //   (i4, d)  secondary key 1.25/1.5/0.75/1.0/0.75 -- a FRACTIONAL
+        //            double, unreproducible by an int32 read of the return
+        //            slot;
+        //   (i4, i8) primary key tens<<32 -- a WIDE int64, a 32-bit read of
+        //            the low word is 0 for every element;
+        //   (d, i4)  FRACTIONAL double primary, int32 secondary.
+        il2cpp::Il2CppArray* a = NewInt32Array(5);
+        const int32_t vals[5] = { 53, 54, 51, 12, 11 };
+        FillInt32(a, vals, 5);
+        const int32_t compositeAsc[5] = { 11, 12, 51, 53, 54 };
+        const int32_t compositeSecDesc[5] = { 12, 11, 54, 53, 51 };
+        const int32_t compositePrimDescSecDesc[5] = { 54, 53, 51, 12, 11 };
+
+        il2cpp::Il2CppArray* ri4d = il2cpp::il2cpp_linq_then_by_key_val_i4(
+            a, Del(KeyTens), Del(KeyUnitsD), 0, 0, 0, 2);
+        ExpectInt32Content(ri4d, compositeAsc, 5,
+            "then_by_key_val_i4 (i4 prim, double sec) orders by the FRACTIONAL secondary key");
+        il2cpp::Il2CppArray* ri4dSecDesc = il2cpp::il2cpp_linq_then_by_key_val_i4(
+            a, Del(KeyTens), Del(KeyUnitsD), 0, 1, 0, 2);
+        ExpectInt32Content(ri4dSecDesc, compositeSecDesc, 5,
+            "then_by_key_val_i4 (i4 prim, double sec) k2desc=1 flips ONLY the secondary");
+        il2cpp::Il2CppArray* ri4dBoth = il2cpp::il2cpp_linq_then_by_key_val_i4(
+            a, Del(KeyTens), Del(KeyUnitsD), 1, 1, 0, 2);
+        ExpectInt32Content(ri4dBoth, compositePrimDescSecDesc, 5,
+            "then_by_key_val_i4 (i4 prim, double sec) k1desc=1 k2desc=1 flips BOTH");
+        il2cpp::Il2CppArray* rdi4 = il2cpp::il2cpp_linq_then_by_key_val_i4(
+            a, Del(KeyTensD), Del(KeyUnits), 0, 0, 2, 0);
+        ExpectInt32Content(rdi4, compositeAsc, 5,
+            "then_by_key_val_i4 (double prim, i4 sec) orders by the FRACTIONAL primary key");
+        il2cpp::Il2CppArray* rdi4Desc = il2cpp::il2cpp_linq_then_by_key_val_i4(
+            a, Del(KeyTensD), Del(KeyUnits), 1, 0, 2, 0);
+        const int32_t compositePrimDesc[5] = { 51, 53, 54, 11, 12 };
+        ExpectInt32Content(rdi4Desc, compositePrimDesc, 5,
+            "then_by_key_val_i4 (double prim, i4 sec) k1desc=1 keeps the primary descending");
+
+        // (i4, i8): the WIDE int64 primary (tens<<32); a 32-bit low-word read
+        // is 0 for every element and would collapse the primary groups.
+        il2cpp::Il2CppArray* ri4i8 = il2cpp::il2cpp_linq_then_by_key_val_i4(
+            a, Del(KeyTensI8Wide), Del(KeyUnits), 0, 0, 1, 0);
+        ExpectInt32Content(ri4i8, compositeAsc, 5,
+            "then_by_key_val_i4 (WIDE i8 prim, i4 sec) reads the int64 return slot");
+
+        // Each selector is invoked EXACTLY ONCE per element on the mixed
+        // entries too (net48 EnumerableSorter caches BOTH keys).
+        g_keyCalls = 0;
+        g_key2Calls = 0;
+        il2cpp::Il2CppArray* b = NewInt32Array(9);
+        const int32_t inter[9] = { 53, 14, 78, 32, 61, 97, 45, 89, 26 };
+        FillInt32(b, inter, 9);
+        il2cpp::il2cpp_linq_then_by_key_val_i4(b, Del(CountingKey), Del(CountingKeyD),
+                                               0, 0, 0, 2);
+        ExpectI32(g_keyCalls, 9, "val_i4 mixed entries call the PRIMARY selector once per element");
+        ExpectI32(g_key2Calls, 9, "val_i4 mixed entries call the SECONDARY selector once per element");
+
+        // The int64-source counterpart (val_i8): mixed (i4 prim, d sec) and
+        // (i8 prim WIDE, i4 sec) over long[] elements.
+        il2cpp::Il2CppArray* l = NewInt64Array(5);
+        const int64_t lvals[5] = { 53, 54, 51, 12, 11 };
+        FillInt64(l, lvals, 5);
+        il2cpp::Il2CppArray* ri8 = il2cpp::il2cpp_linq_then_by_key_val_i8(
+            l, Del(KeyTensSrcI8), Del(KeyUnitsSrcI8D), 0, 0, 0, 2);
+        const int64_t lCompositeAsc[5] = { 11, 12, 51, 53, 54 };
+        ExpectInt64Content(ri8, lCompositeAsc, 5,
+            "then_by_key_val_i8 (i4 prim, double sec) over an int64 source");
+        il2cpp::Il2CppArray* ri8Wide = il2cpp::il2cpp_linq_then_by_key_val_i8(
+            l, Del(KeyTensSrcI8Wide), Del(KeyUnitsSrcI8), 0, 0, 1, 0);
+        ExpectInt64Content(ri8Wide, lCompositeAsc, 5,
+            "then_by_key_val_i8 (WIDE i8 prim, i4 sec) reads the int64 return slot");
+        il2cpp::Il2CppArray* ri8SecDesc = il2cpp::il2cpp_linq_then_by_key_val_i8(
+            l, Del(KeyTensSrcI8), Del(KeyUnitsSrcI8D), 0, 1, 0, 2);
+        const int64_t lCompositeSecDesc[5] = { 12, 11, 54, 53, 51 };
+        ExpectInt64Content(ri8SecDesc, lCompositeSecDesc, 5,
+            "then_by_key_val_i8 (i4 prim, double sec) k2desc=1 flips ONLY the secondary");
+        ExpectInt64Content(l, lvals, 5, "then_by_key_val_i8 leaves the int64 source untouched");
+        Expect(ri8 != l, "then_by_key_val_i8 returns a NEW array (not the source)");
+
+        // Unknown family codes cannot come from the transpiler (it gates both
+        // families compile-time); the entry fails LOUD, never with a guessed
+        // reader.
+        ExpectThrows(kInvalidOpType, "val_i4 with an unknown k1fam throws InvalidOperationException",
+                     [&] { il2cpp::il2cpp_linq_then_by_key_val_i4(a, Del(KeyTens), Del(KeyUnitsD), 0, 0, 7, 0); });
+        ExpectThrows(kInvalidOpType, "val_i4 with an unknown k2fam throws InvalidOperationException",
+                     [&] { il2cpp::il2cpp_linq_then_by_key_val_i4(a, Del(KeyTens), Del(KeyUnitsD), 0, 0, 0, 9); });
+        ExpectThrows(kInvalidOpType, "val_i8 with an unknown k2fam throws InvalidOperationException",
+                     [&] { il2cpp::il2cpp_linq_then_by_key_val_i8(l, Del(KeyTensSrcI8), Del(KeyUnitsSrcI8D), 0, 0, 0, 5); });
+
+        // Error paths: null selectors, wrong element family / stride.
+        il2cpp::Il2CppArray* refArr = NewRefArray(2);
+        ExpectThrows(kNotSupportedType, "val_i4 of a reference array throws NotSupportedException",
+                     [&] { il2cpp::il2cpp_linq_then_by_key_val_i4(refArr, Del(KeyTens), Del(KeyUnitsD), 0, 0, 0, 2); });
+        ExpectThrows(kNotSupportedType, "val_i4 of an int64 array throws NotSupportedException (stride gate)",
+                     [&] { il2cpp::il2cpp_linq_then_by_key_val_i4(l, Del(KeyTens), Del(KeyUnitsD), 0, 0, 0, 2); });
+        ExpectThrows(kNotSupportedType, "val_i8 of an int32 array throws NotSupportedException (stride gate)",
+                     [&] { il2cpp::il2cpp_linq_then_by_key_val_i8(a, Del(KeyTensSrcI8), Del(KeyUnitsSrcI8D), 0, 0, 0, 2); });
+        ExpectThrows(kArgNullType, "val_i4 with a null primary selector throws ArgumentNullException",
+                     [&] { il2cpp::il2cpp_linq_then_by_key_val_i4(a, nullptr, Del(KeyUnitsD), 0, 0, 0, 2); });
+        ExpectThrows(kArgNullType, "val_i4 with a null secondary selector throws ArgumentNullException",
+                     [&] { il2cpp::il2cpp_linq_then_by_key_val_i4(a, Del(KeyTens), nullptr, 0, 0, 0, 2); });
+        ExpectThrows(kArgNullType, "val_i8 with a null source throws ArgumentNullException",
+                     [&] { il2cpp::il2cpp_linq_then_by_key_val_i8(nullptr, Del(KeyTensSrcI8), Del(KeyUnitsSrcI8D), 0, 0, 0, 2); });
+
+        // Empty and single-element arrays are validated no-ops.
+        il2cpp::Il2CppArray* empty = NewInt32Array(0);
+        il2cpp::Il2CppArray* re = il2cpp::il2cpp_linq_then_by_key_val_i4(
+            empty, Del(KeyTens), Del(KeyUnitsD), 0, 0, 0, 2);
+        ExpectI32(re->length, 0, "val_i4 of an empty array returns an empty array");
+        il2cpp::Il2CppArray* single = NewInt32Array(1);
+        const int32_t one[1] = { 42 };
+        FillInt32(single, one, 1);
+        il2cpp::Il2CppArray* rs = il2cpp::il2cpp_linq_then_by_key_val_i4(
+            single, Del(KeyTens), Del(KeyUnitsD), 0, 1, 0, 2);
+        ExpectInt32Content(rs, one, 1, "val_i4 of a single-element array");
     }
 
     // --- 10. Error paths ---

@@ -2359,6 +2359,17 @@ public static partial class MethodRefResolver
                 // (il2cpp_linq_[grouping_]then_by_key[_desc]_dec_<k1>_<k2>).
                 // The secondary key family is carried in AppendLiterals; the
                 // primary family is read off the OrderBy entry in StackFold.
+                //
+                // impl-thenbyfam: the NUMERIC element surface (int32/int64
+                // source, int32/int64/double keys) carries the SECONDARY key
+                // family in AppendLiterals too (0=int32, 1=int64, 2=double --
+                // LinqKeyFamilyCode): the fused composite picks the key reader
+                // PER KEY, and a mixed pair (OrderBy(int).ThenBy(double) /
+                // OrderBy(double).ThenBy(int)) that dropped the secondary
+                // family read the secondary key from the WRONG callback return
+                // slot -- a silent mis-order on x64. StackFold folds this into
+                // il2cpp_linq_then_by_key_val_i4 / _val_i8 with both family
+                // literals.
                 if (genArgs is { Length: >= 2 } && genArgs[0] == 0x11
                     && IsDecimalGenArg(genArgNames, 0)
                     && LinqKeyFamilyCode(genArgs[1], genArgNames, 1) is { } decSecondary)
@@ -2369,6 +2380,25 @@ public static partial class MethodRefResolver
                         2, false, false, false, new[] { "", "" },
                         returnTypeName: "System.Decimal[]",
                         appendLiterals: new[] { decSecondary });
+                }
+                if (genArgs is { Length: >= 2 }
+                    && ThenByKernelSuffix(genArgs[0], genArgs[1]) is not null
+                    && LinqKeyFamilyCode(genArgs[1], genArgNames, 1) is { } numSecondary)
+                {
+                    // impl-thenbyfam: the SECONDARY key family must ride the
+                    // marker (the decimal carriers already do): the fused
+                    // composite picks ONE key reader per key, and a mixed pair
+                    // (e.g. OrderBy(int).ThenBy(double)) that dropped the
+                    // secondary family read the secondary key from the WRONG
+                    // callback return slot -- a silent mis-order on x64.
+                    // LinqKeyFamilyCode is 0=int32, 1=int64, 2=double for the
+                    // numeric families ThenByKernelSuffix already gated.
+                    return I(name == "ThenBy"
+                            ? ResolvedMethod.ThenByCombineMarker
+                            : ResolvedMethod.ThenByDescCombineMarker,
+                        2, false, false, false, new[] { "", "" },
+                        returnTypeName: genArgs[0] == 0x08 ? "System.Int32[]" : "System.Int64[]",
+                        appendLiterals: new[] { numSecondary });
                 }
                 if (genArgs is not { Length: >= 2 }
                     || ThenByKernelSuffix(genArgs[0], genArgs[1]) is null)

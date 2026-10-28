@@ -297,4 +297,29 @@ Il2CppArray* il2cpp_linq_then_by_key_i8_d(Il2CppArray* src, Il2CppObject* k1Sel,
 Il2CppArray* il2cpp_linq_then_by_key_desc_i8_d(Il2CppArray* src, Il2CppObject* k1Sel,
                                                Il2CppObject* k2Sel, int32_t k1desc = 0);
 
+//------------------------------------------------------------------------------
+// impl-thenbyfam: the MIXED key-family fused composite over the int32 / int64
+// value sources. The primary and secondary key families are INDEPENDENT (an
+// int32 key returns in the int32 slot, an int64 key in the int64 slot, a
+// double key in the F-stack slot), so each key gets its own reader and cache
+// type -- sharing one reader across both selectors read the secondary key
+// from the WRONG return slot (a silent mis-order on x64, the eax / xmm0
+// residue). One dispatch entry per element family serves every (k1fam, k2fam)
+// pair; the four flags ride trailing literals:
+//   k1desc (0 asc / 1 desc), k2desc (0 asc / 1 desc), k1fam, k2fam
+// with family codes 0=int32, 1=int64, 2=double (the LinqKeyFamilyCode
+// contract). The transpiler gates both families compile-time; an
+// out-of-range code is a LOUD InvalidOperationException, never a guessed
+// reader. Same single-cache / stable / fresh-array contract as the
+// homogeneous entries above.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_then_by_key_val_i4(Il2CppArray* src, Il2CppObject* k1Sel,
+                                            Il2CppObject* k2Sel, int32_t k1desc,
+                                            int32_t k2desc, int32_t k1fam,
+                                            int32_t k2fam);
+Il2CppArray* il2cpp_linq_then_by_key_val_i8(Il2CppArray* src, Il2CppObject* k1Sel,
+                                            Il2CppObject* k2Sel, int32_t k1desc,
+                                            int32_t k2desc, int32_t k1fam,
+                                            int32_t k2fam);
+
 } // namespace il2cpp

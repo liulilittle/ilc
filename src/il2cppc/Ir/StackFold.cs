@@ -4970,16 +4970,49 @@ public static class StackFold
                 }
                 else
                 {
-                    // The int32/int64-source composite: the entry suffix fixes
-                    // the element/key family and the SECONDARY direction; the
-                    // PRIMARY direction rides one trailing literal (default 0 =
-                    // ascending in linq_sort.h).
-                    compositeEntry = thenDesc
-                        ? "il2cpp::il2cpp_linq_then_by_key_desc" + familySuffix
-                        : "il2cpp::il2cpp_linq_then_by_key" + familySuffix;
+                    // impl-thenbyfam: the numeric composite dispatches on BOTH
+                    // key families. The primary family is encoded in the
+                    // primary OrderBy entry's suffix; the SECONDARY family
+                    // rides the ThenBy marker's AppendLiterals (0=int32,
+                    // 1=int64, 2=double -- LinqKeyFamilyCode). Both
+                    // directions ride trailing literals. The old per-family
+                    // entries (then_by_key_i4 / _i4_i8 / ...) keyed the
+                    // SECONDARY reader off the primary family: a mixed pair
+                    // (OrderBy(int).ThenBy(double) / OrderBy(double).ThenBy
+                    // (int)) read the secondary key from the WRONG callback
+                    // return slot -- a silent mis-order on x64.
+                    string? secondaryCode = resolved.AppendLiterals is { Length: >= 1 }
+                        ? resolved.AppendLiterals[0] : null;
+                    if (secondaryCode is not ("0" or "1" or "2"))
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.ThenBy receiver '{recvLoc.Name}' marker carries no numeric " +
+                            "secondary key family literal (impl-thenbyfam); the fused composite " +
+                            "must know both key families to pick the right key readers");
+                    }
+                    string primaryCode = familySuffix switch
+                    {
+                        "_i4" => "0",
+                        "_i4_i8" => "1",
+                        "_i4_d" => "2",
+                        "_i8_i4" => "0",
+                        "_i8_i8" => "1",
+                        "_i8_d" => "2",
+                        _ => throw new NotSupportedException(
+                            $"Enumerable.ThenBy over primary entry suffix '{familySuffix}' has no " +
+                            "numeric fused-composite mapping (impl-thenbyfam)"),
+                    };
+                    compositeEntry = familySuffix.StartsWith("_i4", StringComparison.Ordinal)
+                        ? "il2cpp::il2cpp_linq_then_by_key_val_i4"
+                        : "il2cpp::il2cpp_linq_then_by_key_val_i8";
                     compositeParamNames = new[] { "a", "", "" };
-                    compositeReturnType = familySuffix == "_i4" ? "System.Int32[]" : "System.Int64[]";
-                    compositeLiterals = new[] { primaryDesc ? "1" : "0" };
+                    compositeReturnType = familySuffix.StartsWith("_i4", StringComparison.Ordinal)
+                        ? "System.Int32[]" : "System.Int64[]";
+                    compositeLiterals = new[]
+                    {
+                        primaryDesc ? "1" : "0", thenDesc ? "1" : "0",
+                        primaryCode, secondaryCode,
+                    };
                 }
                 var composite = new CallExpr
                 {
