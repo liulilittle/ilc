@@ -1723,6 +1723,19 @@ public static class TypeEmitter
                 case StaticFieldSemantic.UInt64:
                     w.Line($"uint64_t {name} = 0; // 64-bit unsigned value");
                     break;
+                // probe-sfieldfloat: static float/double fields store a REAL
+                // floating value (the historical int32_t slot truncated 3.5 to
+                // 3 at every store and load). Same member types the INSTANCE
+                // field path emits for FieldTypeKind.Float/Double, so a static
+                // read/write is width-identical to an instance one. The
+                // initializer image is the metadata ConstantValue when the
+                // field carries one (otherwise 0; the .cctor assigns).
+                case StaticFieldSemantic.Float:
+                    w.Line($"float {name} = {f.ConstantValue ?? "0"}; // 32-bit floating value");
+                    break;
+                case StaticFieldSemantic.Double:
+                    w.Line($"double {name} = {f.ConstantValue ?? "0"}; // 64-bit floating value");
+                    break;
                 // DateTime/TimeSpan static fields are the 8-byte runtime value
                 // structs (StaticFieldCppType names the same C++ type for the
                 // generated.h extern). int32_t storage truncated the ticks and
@@ -1830,6 +1843,9 @@ public static class TypeEmitter
     //       the M1 int32_t slot truncated a 64-bit WNDPROC/HWND value).
     //   Int64 / UInt64 -- 64-bit integer statics (0x0A/0x0B): int64_t/uint64_t
     //       storage (an int32_t slot would truncate a long value).
+    //   Float / Double -- 32/64-bit floating statics (0x0C/0x0D): float/double
+    //       storage (an int32_t slot truncated every store/load -- the
+    //       probe-sfieldfloat `static double D = 3.5; D++;` -> 3/4 defect).
     //   DateTime / TimeSpan -- 8-byte runtime value structs (ticks would be
     //       truncated by int32_t; must agree with EmitStaticStorage).
     //   Value     -- everything else (int32_t storage).
@@ -1846,7 +1862,7 @@ public static class TypeEmitter
     // signature keeps the M1 int32_t emission -- the historical behavior, so
     // classification can only improve, never regress.
     //--------------------------------------------------------------------------
-    private enum StaticFieldSemantic { Value, Reference, Decimal, IntPtr, UIntPtr, Int64, UInt64, DateTime, TimeSpan, FnPtr }
+    private enum StaticFieldSemantic { Value, Reference, Decimal, IntPtr, UIntPtr, Int64, UInt64, Float, Double, DateTime, TimeSpan, FnPtr }
 
     // Full-name -> value semantic map shared by the model and the metadata
     // signature paths (decimalcase pairing; wf16 extends it to the wide
@@ -1859,6 +1875,10 @@ public static class TypeEmitter
         "System.UIntPtr" => (StaticFieldSemantic.UIntPtr, "System.UIntPtr"),
         "System.Int64" => (StaticFieldSemantic.Int64, "System.Int64"),
         "System.UInt64" => (StaticFieldSemantic.UInt64, "System.UInt64"),
+        // probe-sfieldfloat: the floating statics (0x0C/0x0D) keep their real
+        // storage width -- int32_t truncated every store/load.
+        "System.Single" => (StaticFieldSemantic.Float, "System.Single"),
+        "System.Double" => (StaticFieldSemantic.Double, "System.Double"),
         // DateTime/TimeSpan statics (Zero/MinValue/MaxValue) are 8-byte
         // runtime value structs -- int32_t storage would truncate ticks and
         // disagree with EmitStaticStorage's inline definitions.
@@ -1933,6 +1953,11 @@ public static class TypeEmitter
                     if (typeByte is 0x1B) return (StaticFieldSemantic.FnPtr, "");
                     if (typeByte is 0x0A) return (StaticFieldSemantic.Int64, "System.Int64");
                     if (typeByte is 0x0B) return (StaticFieldSemantic.UInt64, "System.UInt64");
+                    // probe-sfieldfloat: the floating statics (0x0C/0x0D) keep
+                    // their real storage width -- the M1 int32_t slot truncated
+                    // the value at every store/load.
+                    if (typeByte is 0x0C) return (StaticFieldSemantic.Float, "System.Single");
+                    if (typeByte is 0x0D) return (StaticFieldSemantic.Double, "System.Double");
                     // Value types: a decimal field needs 16-byte storage; the
                     // wide integer/pointer structs (IntPtr etc., encoded as a
                     // VALUETYPE + TypeDefOrRef by some compilers) need their
@@ -1989,6 +2014,12 @@ public static class TypeEmitter
             StaticFieldSemantic.FnPtr => "void*",
             StaticFieldSemantic.Int64 => "int64_t",
             StaticFieldSemantic.UInt64 => "uint64_t",
+            // probe-sfieldfloat: the floating statics keep their real width --
+            // the generated.h extern and the EmitStaticStorage DEFINITION must
+            // stay type-identical (decimalcase cmake FAIL rule), so both name
+            // float/double (the same types the INSTANCE field path emits).
+            StaticFieldSemantic.Float => "float",
+            StaticFieldSemantic.Double => "double",
             StaticFieldSemantic.DateTime => "il2cpp::runtime::Il2CppDateTime",
             StaticFieldSemantic.TimeSpan => "il2cpp::runtime::Il2CppTimeSpan",
             _ => "int32_t"

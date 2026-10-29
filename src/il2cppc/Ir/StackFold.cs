@@ -2778,6 +2778,12 @@ public static class StackFold
             return int.Parse(signature.Substring(2, 2), System.Globalization.NumberStyles.HexNumber) switch
             {
                 0x0A or 0x0B => "l",   // I8 / U8
+                // probe-sfieldfloat: R4/R8 statics hold a FLOATING value -- the
+                // preserved old value of `D++` must keep the floating width or
+                // the snapshot temp truncates it (3.5 -> 3). "d" covers both:
+                // the IR holds every float in a double slot (the emitter's
+                // locKind seed declares the snapshot double for 0x0C too).
+                0x0C or 0x0D => "d",
                 _ => "i",
             };
         }

@@ -1072,8 +1072,13 @@ public static class MetadataLoader
             // nb9 F5: INSTANCE fields of the wide primitive families keep their
             // REAL width (a closure's captured long/double/float was emitted as
             // an int32 member and then read through int64_t*/double* -> silent
-            // truncation and out-of-bounds reads). Static fields keep the
-            // historical int32 value slot.
+            // truncation and out-of-bounds reads). STATIC fields of the wide
+            // floating families (0x0C/0x0D) keep their real width too --
+            // DecodeExtendedStaticType (the `extended` arm below) returns
+            // FieldTypeKind.Float/Double for them (probe-sfieldfloat: the old
+            // Int32 kind emitted int32_t static storage and truncated every
+            // store/load of a `static double/float`). The remaining static
+            // integer primitives keep the historical int32 value slot.
             case 0x0A when !extended: return (FieldTypeKind.Int64, "System.Int64");
             case 0x0B when !extended: return (FieldTypeKind.UInt64, "System.UInt64");
             case 0x0C when !extended: return (FieldTypeKind.Float, "System.Single");
@@ -1087,9 +1092,10 @@ public static class MetadataLoader
     }
 
     // Primitive value-type field shapes for STATIC fields: the storage slot
-    // stays the historical int32_t (value semantics; widths beyond 32 bits are
-    // an M3 layout concern), the System full name rides the model so the
-    // reflection field table and the static-field classifier see the real type.
+    // keeps the real width for the wide floating families (float/double -- an
+    // int32_t slot truncated the value at every store/load, probe-sfieldfloat),
+    // the System full name rides the model so the reflection field table and
+    // the static-field classifier see the real type.
     private static (FieldTypeKind Kind, string TypeName) DecodeExtendedStaticType(byte typeByte) => typeByte switch
     {
         0x02 => (FieldTypeKind.Int32, "System.Boolean"),
@@ -1101,8 +1107,15 @@ public static class MetadataLoader
         0x09 => (FieldTypeKind.Int32, "System.UInt32"),
         0x0A => (FieldTypeKind.Int32, "System.Int64"),
         0x0B => (FieldTypeKind.Int32, "System.UInt64"),
-        0x0C => (FieldTypeKind.Int32, "System.Single"),
-        0x0D => (FieldTypeKind.Int32, "System.Double"),
+        // probe-sfieldfloat: R4/R8 static fields are FLOATING values -- the
+        // historical Int32 kind emitted int32_t storage, so `static double D =
+        // 3.5; D++;` read 3 and stored 4 (the value was truncated on every
+        // store and load). Same kinds the INSTANCE field path decodes
+        // (FieldTypeKind.Float/Double, DecodeFieldSignature's !extended arms),
+        // so TypeEmitter.StaticFieldSemantics can classify the storage width
+        // from the model alone.
+        0x0C => (FieldTypeKind.Float, "System.Single"),
+        0x0D => (FieldTypeKind.Double, "System.Double"),
         0x18 => (FieldTypeKind.Int32, "System.IntPtr"),
         0x19 => (FieldTypeKind.Int32, "System.UIntPtr"),
         // GN-18 B1 (fnptr fields): a STATIC `delegate*` (0x1B) field needs the

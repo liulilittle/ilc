@@ -25,8 +25,14 @@ public static class TypeKindResolver
             case 0x1E: return (FieldTypeKind.Reference, "System.Object", "Il2CppObject*");
             case 0x0A: return (FieldTypeKind.Int64, "System.Int64", "int64_t");
             case 0x0B: return (FieldTypeKind.UInt64, "System.UInt64", "int64_t");
-            case 0x0C: return isStaticField ? (FieldTypeKind.Int32, "System.Single", "int32_t") : (FieldTypeKind.Float, "System.Single", "float");
-            case 0x0D: return isStaticField ? (FieldTypeKind.Int32, "System.Double", "int32_t") : (FieldTypeKind.Double, "System.Double", "double");
+            // probe-sfieldfloat: the static-field arm keeps the REAL floating
+            // width too -- int32_t storage truncated every store/load of a
+            // `static double/float` (the same defect MetadataLoader.
+            // DecodeExtendedStaticType carried). No caller passes
+            // isStaticField today; the table is kept consistent so a future
+            // static-field caller cannot reintroduce the truncation.
+            case 0x0C: return (FieldTypeKind.Float, "System.Single", "float");
+            case 0x0D: return (FieldTypeKind.Double, "System.Double", "double");
             case 0x18: case 0x19: return isStaticField ? (FieldTypeKind.Int32, "System.IntPtr", "int32_t") : (FieldTypeKind.NativeInt, "System.IntPtr", "intptr_t");
             case 0x11:
                 if (varIndex >= 0 && genericArgs != null && varIndex < genericArgs.Length)

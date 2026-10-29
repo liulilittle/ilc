@@ -2685,6 +2685,15 @@ public static class CodeGenerator
             // preserves a static field's old value across a postfix increment).
             else if (fieldDefP != null && fieldDefP.FieldTypeName is "System.Int64" or "System.UInt64")
                 locKind[asp.Target] = "l";
+            // probe-sfieldfloat: a STATIC float/double field read (`t1 = <sf_dbl>`)
+            // must keep the floating width too -- the ExprKind default "val"
+            // declared the temp int32_t and truncated 3.5 to 3 (the same defect
+            // class as the Int64 seed above). The IR holds every float in a
+            // DOUBLE slot (MethodBodyReader.LocalTypeKind maps 0x0C/0x0D to "d",
+            // StackFold ldc.r4 -> DoubleConstExpr), so System.Single seeds "d"
+            // as well -- a float storage widens exactly into the double slot.
+            else if (fieldDefP != null && fieldDefP.FieldTypeName is "System.Double" or "System.Single")
+                locKind[asp.Target] = "d";
         }
         for (var i = 0; i < stmts.Count; i++)
         {
@@ -3471,6 +3480,38 @@ public static class CodeGenerator
         }
 
         _curLocKinds = locKind;
+        // probe-sfieldfloat: the set of STATIC FIELDS whose value is FLOATING
+        // (keyed by the IR field name StackFold.FieldName builds: owner + "."
+        // + field). A static field read stays UN-materialized on the IR stack,
+        // so ExprIsDouble (which only knows LocExpr slots) could not see its
+        // width: `D / k` (a double static field divided by a non-constant int)
+        // fell to the int32 checked_div and truncated. The loader-decoded
+        // FieldTypeName carries the width here.
+        var staticFloatFields = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var st in types)
+        {
+            // The IR keys a static field read by the METADATA full name
+            // (StackFold.FieldName: owner + "." + field, the declaring-chain
+            // form for a nested owner). Register both model spellings so a
+            // nested owner matches whichever form the model carries.
+            var ownerNames = st.FullName == TypeEmitter.ReflectionFullName(st)
+                ? new[] { st.FullName }
+                : new[] { st.FullName, TypeEmitter.ReflectionFullName(st) };
+            foreach (var sf in st.StaticFields)
+            {
+                if (sf.IsLiteral) continue;
+                // System.Single rides the double slot -- the IR holds every
+                // float in one (MethodBodyReader.LocalTypeKind 0x0C -> "d").
+                // Only the FLOATING families need this channel: a static
+                // 64-bit integer read is widened by its own conv.i8 call
+                // (icall_conv_i8_i4, ResultKind "l"), so ExprIsInt64 already
+                // sees it.
+                if (sf.FieldTypeName is not ("System.Double" or "System.Single")) continue;
+                foreach (var on in ownerNames)
+                    staticFloatFields.Add(on + "." + sf.Name);
+            }
+        }
+        _curStaticFloatFields = staticFloatFields;
 
         // perf2 str_chars: known-length STRING LITERAL locals. A local whose
         // single assignment is a StringConstExpr (ldstr -> g_strPool[id]) holds
@@ -4056,6 +4097,7 @@ public static class CodeGenerator
         _curLoopSafeAccesses = new();
         _curStrLiteralLengths = new();
         _curLocKinds = new();
+        _curStaticFloatFields = new(StringComparer.Ordinal);
         _curReturnType = default;
         return (w.ToString(), refLocals, rootAnalysis, structFieldRoots);
     }
@@ -7471,6 +7513,11 @@ default: return false;                           // primitives/VAR(handled by ca
     {
         DoubleConstExpr => true,
         LocExpr l => _curLocKinds.TryGetValue(l.Name, out var k) && k == "d",
+        // probe-sfieldfloat: a static float/double field read on the stack is a
+        // floating operand (see _curStaticFloatFields) -- without this arm
+        // `D / k` (non-constant int divisor) folded at int32 width and
+        // truncated the value.
+        StaticFieldExpr sf => _curStaticFloatFields.Contains(sf.FieldName),
         BinaryExpr b => b.Kind == "d" || ExprIsDouble(b.Left) || ExprIsDouble(b.Right),
         UnaryExpr u => ExprIsDouble(u.Operand),
         CallExpr c => c.ResultKind == "d",
@@ -7739,6 +7786,17 @@ default: return false;                           // primitives/VAR(handled by ca
     // (bitopcase G1/G2/G3/G5). Reset after every method body.
     private static System.Collections.Generic.Dictionary<string, string> _curLocKinds =
         new();
+
+    // probe-sfieldfloat: per-method set of STATIC FIELD reads (keyed by the IR
+    // field name, StackFold.FieldName: owner + "." + field) whose decoded value
+    // is FLOATING. A static field read is pushed onto the IR stack as a bare
+    // StaticFieldExpr, so the LocExpr-only width predicate ExprIsDouble could
+    // not see its real width and folded arithmetic at int32 width (a
+    // `static double D` divided by a non-constant int truncated to int32).
+    // Populated in EmitBody from the loader-decoded FieldTypeName; reset after
+    // every method body (the _curLocKinds pattern).
+    private static System.Collections.Generic.HashSet<string> _curStaticFloatFields =
+        new(StringComparer.Ordinal);
 
     // enumparseic/enumdeep: a TryParse out slot declared as a plain int32
     // local carries kind "val" (the default int32 slot) rather than an enum
