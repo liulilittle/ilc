@@ -584,16 +584,18 @@ double il2cpp_linq_average_d(Il2CppArray* src)
     return sum / static_cast<double>(src->length);
 }
 
-// The float family (nb9 H-F2): a float Select materializes a REAL float[], so
-// these read 4-byte elements and keep net48's float carriers (Sum/Min/Max ->
-// float, Average -> float with a double accumulator).
+// The float family (nb9 H-F2): a float source is EITHER a 4-byte float[] or
+// an 8-byte double carrier (a float Select result), so every element read
+// follows the array's real cell width through
+// il2cpp_array_get_elem_float_as_double. These keep net48's float carriers
+// (Sum/Min/Max -> float, Average -> float with a double accumulator).
 float il2cpp_linq_sum_f(Il2CppArray* src)
 {
     CheckSource(src);
     double sum = 0.0;
     for (int32_t i = 0; i < src->length; ++i)
     {
-        sum += static_cast<double>(*reinterpret_cast<const float*>(il2cpp_array_get_elem_ptr(src, i)));
+        sum += il2cpp_array_get_elem_float_as_double(src, i);
     }
     return static_cast<float>(sum);
 }
@@ -605,13 +607,13 @@ float il2cpp_linq_min_f(Il2CppArray* src)
     {
         il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
     }
-    float best = *reinterpret_cast<const float*>(il2cpp_array_get_elem_ptr(src, 0));
+    double best = il2cpp_array_get_elem_float_as_double(src, 0);
     for (int32_t i = 1; i < src->length; ++i)
     {
-        const float elem = *reinterpret_cast<const float*>(il2cpp_array_get_elem_ptr(src, i));
+        const double elem = il2cpp_array_get_elem_float_as_double(src, i);
         if (elem < best) best = elem;
     }
-    return best;
+    return static_cast<float>(best);
 }
 
 float il2cpp_linq_max_f(Il2CppArray* src)
@@ -621,13 +623,13 @@ float il2cpp_linq_max_f(Il2CppArray* src)
     {
         il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
     }
-    float best = *reinterpret_cast<const float*>(il2cpp_array_get_elem_ptr(src, 0));
+    double best = il2cpp_array_get_elem_float_as_double(src, 0);
     for (int32_t i = 1; i < src->length; ++i)
     {
-        const float elem = *reinterpret_cast<const float*>(il2cpp_array_get_elem_ptr(src, i));
+        const double elem = il2cpp_array_get_elem_float_as_double(src, i);
         if (elem > best) best = elem;
     }
-    return best;
+    return static_cast<float>(best);
 }
 
 float il2cpp_linq_average_f(Il2CppArray* src)
@@ -640,7 +642,7 @@ float il2cpp_linq_average_f(Il2CppArray* src)
     double sum = 0.0;
     for (int32_t i = 0; i < src->length; ++i)
     {
-        sum += static_cast<double>(*reinterpret_cast<const float*>(il2cpp_array_get_elem_ptr(src, i)));
+        sum += il2cpp_array_get_elem_float_as_double(src, i);
     }
     return static_cast<float>(sum / static_cast<double>(src->length));
 }
@@ -1419,8 +1421,7 @@ Il2CppObject* FoldRefF(Il2CppArray* src, Il2CppObject* seed, Il2CppDelegate* d)
     const int32_t n = src->length;
     for (int32_t i = 0; i < n; ++i)
     {
-        const double elem = static_cast<double>(
-            *reinterpret_cast<const float*>(il2cpp_array_get_elem_ptr(src, i)));
+        const double elem = il2cpp_array_get_elem_float_as_double(src, i);
         seed = d->target != nullptr
             ? reinterpret_cast<RefBinDThisFn>(d->methodPtr)(d->target, seed, elem)
             : reinterpret_cast<RefBinDFn>(d->methodPtr)(seed, elem);
@@ -1798,9 +1799,14 @@ float FoldFD(Il2CppArray* src, float seed, Il2CppDelegate* d)
     return acc;
 }
 
-// Fold a float accumulator over a REAL float-element source (nb9 H-F2: the
-// float Select materializes float[]; the callback ABI is unchanged -- the
-// float parameter still rides the F stack as double).
+// Fold a float accumulator over a float-element source. A float Select
+// materializes an 8-byte double carrier (elemKind 4 or 3) while a real float[]
+// literal keeps 4-byte cells; both are the same TSource family to the
+// transpiler, so the read follows the ARRAY's real cell width
+// (il2cpp_array_get_elem_float_as_double). A raw 4-byte read of an 8-byte
+// carrier takes the low four zero bytes of every double (the fold returned the
+// seed). The callback ABI is unchanged -- the float parameter still rides the
+// F stack as double.
 float FoldFF(Il2CppArray* src, float seed, Il2CppDelegate* d)
 {
     RootScope roots;
@@ -1810,7 +1816,7 @@ float FoldFF(Il2CppArray* src, float seed, Il2CppDelegate* d)
     const int32_t n = src->length;
     for (int32_t i = 0; i < n; ++i)
     {
-        const float elem = *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(src, i));
+        const double elem = il2cpp_array_get_elem_float_as_double(src, i);
         acc = d->target != nullptr
             ? reinterpret_cast<FAccDThisFn>(d->methodPtr)(d->target, acc, elem)
             : reinterpret_cast<FAccDFn>(d->methodPtr)(acc, elem);
@@ -2124,7 +2130,9 @@ float il2cpp_linq_aggregate_f_d(Il2CppArray* src, Il2CppObject* func)
     return acc;
 }
 
-// nb9 H-F2: no-seed float aggregate over a REAL float[] source.
+// nb9 H-F2: no-seed float aggregate over a float-element source. The source
+// cell width is followed (a real float[] is 4 bytes, a Select carrier 8), so a
+// raw 4-byte read can never slice a double carrier.
 float il2cpp_linq_aggregate_f_f(Il2CppArray* src, Il2CppObject* func)
 {
     CheckSource(src);
@@ -2136,10 +2144,10 @@ float il2cpp_linq_aggregate_f_f(Il2CppArray* src, Il2CppObject* func)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
-    float acc = *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(src, 0));
+    float acc = static_cast<float>(il2cpp_array_get_elem_float_as_double(src, 0));
     for (int32_t i = 1; i < src->length; ++i)
     {
-        const float elem = *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(src, i));
+        const double elem = il2cpp_array_get_elem_float_as_double(src, i);
         acc = d->target != nullptr
             ? reinterpret_cast<FAccDThisFn>(d->methodPtr)(d->target, acc, elem)
             : reinterpret_cast<FAccDFn>(d->methodPtr)(acc, elem);
@@ -2860,7 +2868,9 @@ int32_t ZipReadI4(Il2CppArray* arr, int32_t i, int32_t side)
     {
         case 1: return *reinterpret_cast<int32_t*>(p);
         case 2: return static_cast<int32_t>(*reinterpret_cast<int64_t*>(p));
-        case 3: return static_cast<int32_t>(*reinterpret_cast<float*>(p));
+        case 3: return arr->elemSize == 8
+            ? static_cast<int32_t>(*reinterpret_cast<double*>(p))
+            : static_cast<int32_t>(*reinterpret_cast<float*>(p));
         case 4: return static_cast<int32_t>(*reinterpret_cast<double*>(p));
         case 5: return static_cast<int32_t>(*reinterpret_cast<uint32_t*>(p));
         default: return NarrowElemAt(arr, i, side); // narrow codes or the I4 default
@@ -2875,7 +2885,9 @@ int64_t ZipReadI8(Il2CppArray* arr, int32_t i, int32_t side)
         case 2: case 6: case 7: return *reinterpret_cast<int64_t*>(p);
         case 1: return static_cast<int64_t>(*reinterpret_cast<int32_t*>(p));
         case 4: return static_cast<int64_t>(*reinterpret_cast<double*>(p));
-        case 3: return static_cast<int64_t>(*reinterpret_cast<float*>(p));
+        case 3: return arr->elemSize == 8
+            ? static_cast<int64_t>(*reinterpret_cast<double*>(p))
+            : static_cast<int64_t>(*reinterpret_cast<float*>(p));
         default: break;
     }
     if (arr->elemSize == 8) return *reinterpret_cast<int64_t*>(p);
@@ -2884,16 +2896,19 @@ int64_t ZipReadI8(Il2CppArray* arr, int32_t i, int32_t side)
 
 // Read element `i` as the double carrier. elemKind comes FIRST: a 4-byte
 // single cell and an 8-byte double cell are indistinguishable from the width
-// alone, and this runtime's own FLOAT-result arrays are 8-byte cells carrying
-// elemKind 3 with the float's bits in the low 4 bytes -- reading one of those
-// as a double would take the higher undefined bits as part of the value.
+// alone. A float-family cell follows the ARRAY's real width: the runtime's own
+// float-result arrays are 8-byte cells carrying an EXACT double (elemKind 3 or
+// 4), while a real float[] literal keeps 4-byte cells -- a raw float read of
+// an 8-byte carrier takes the low four zero bytes of every double.
 double ZipReadD(Il2CppArray* arr, int32_t i, int32_t side)
 {
     char* p = il2cpp_array_get_elem_ptr(arr, i);
     switch (arr->elemKind)
     {
         case 4: return *reinterpret_cast<double*>(p);
-        case 3: return static_cast<double>(*reinterpret_cast<float*>(p));
+        case 3: return arr->elemSize == 8
+            ? *reinterpret_cast<double*>(p)
+            : static_cast<double>(*reinterpret_cast<float*>(p));
         case 1: return static_cast<double>(*reinterpret_cast<int32_t*>(p));
         case 2: case 6: case 7: return static_cast<double>(*reinterpret_cast<int64_t*>(p));
         case 5: return static_cast<double>(*reinterpret_cast<uint32_t*>(p));
