@@ -606,7 +606,25 @@ public static class StackFold
                         Push(new NullExpr { TypeName = "System.EventArgs" }, ins);
                         break;
                     }
-                    Push(new StaticFieldExpr { FieldName = FieldName(md, ins) }, ins); break;
+                {
+                    var sf = new StaticFieldExpr { FieldName = FieldName(md, ins) };
+                    // impl-arrayagg (defect 2): a List<T> FIELD load must carry
+                    // its declared type into objTypes -- the LINQ receiver hint
+                    // is read off the pushed slot. Materialize the load into a
+                    // typed temp (the same shape Push gives a call result).
+                    var sft = FieldTypeFullName(md, ins);
+                    if (sft != null && sft.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal))
+                    {
+                        var sfn = $"t{temps.Count}";
+                        temps.Add(sfn);
+                        tempWidths[sfn] = "r";
+                        stmts.Add(new AssignStmt { Target = sfn, Value = sf, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                        objTypes[sfn] = sft;
+                        stack.Push(new LocExpr { Name = sfn });
+                    }
+                    else Push(sf, ins);
+                    break;
+                }
                 case ILOpCode.Ldsflda:
                     // ldsflda (ECMA 0x7F): address of a static field -- the
                     // Ldflda counterpart (work order #10). `"A:" + order` with
@@ -622,15 +640,33 @@ public static class StackFold
                     EnsureCctor(stmts, ctx, md, ins, types);
                     stmts.Add(new AssignStmt { Target = FieldName(md, ins), Value = stack.Pop(), SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) }); break;
                 case ILOpCode.Ldfld:
-                    Push(new FieldExpr
+                {
+                    var fobj = stack.Pop();
+                    var fe = new FieldExpr
                     {
-                        Object = stack.Pop(),
+                        Object = fobj,
                         FieldCppName = SanitizeField(FieldToken(md, ins)),
                         OwnerFullName = OwnerFullName(md, ins),
                         IsRefField = IsRefField(md, ins),
                         IsValueTypeObject = types != null && IsValueTypeOwner(OwnerFullName(md, ins), types)
-                    }, ins);
+                    };
+                    // impl-arrayagg (defect 2): a captured local's List<T>
+                    // field (the closure display class) is the SAME receiver
+                    // hint gap as a static List field -- materialize the load
+                    // into a typed temp so the LINQ gate sees the List.
+                    var fet = FieldTypeFullName(md, ins);
+                    if (fet != null && fet.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal))
+                    {
+                        var fen = $"t{temps.Count}";
+                        temps.Add(fen);
+                        tempWidths[fen] = "r";
+                        stmts.Add(new AssignStmt { Target = fen, Value = fe, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                        objTypes[fen] = fet;
+                        stack.Push(new LocExpr { Name = fen });
+                    }
+                    else Push(fe, ins);
                     break;
+                }
                 case ILOpCode.Ldflda:
                     Push(new FieldAddrExpr
                     {
@@ -9070,6 +9106,37 @@ public static class StackFold
                 return (md.GetString(mr.Name), owner, md.GetBlobBytes(mr.Signature).Length > 0 ? string.Join("", md.GetBlobBytes(mr.Signature).Select(b => b.ToString("X2"))) : "");
             }
             throw new NotSupportedException($"field token kind {handle.Kind} not supported in M3");
+        }
+
+        // impl-arrayagg (defect 2): the DECLARED managed type of an
+        // ldfld/ldsfld field, decoded from its signature
+        // ("System.Collections.Generic.List`1_System.Decimal" for a
+        // List<decimal> field). A List receiver loaded from a FIELD (a captured
+        // local's display-class field, a static/instance List field) carried no
+        // objTypes hint, so a LINQ operator on it fell to the ARRAY family and
+        // reinterpreted the List object as Il2CppArray* (its items pointer read
+        // as a length). Null when the signature shape is not decodable -- the
+        // caller then keeps the historical untyped FieldExpr.
+        static string? FieldTypeFullName(MetadataReader? md, IlInstruction ins)
+        {
+            if (md == null) return null;
+            try
+            {
+                var handle = MetadataTokens.Handle((int)ins.Operand);
+                BlobHandle sig;
+                if (handle.Kind == HandleKind.FieldDefinition)
+                    sig = md.GetFieldDefinition((FieldDefinitionHandle)handle).Signature;
+                else if (handle.Kind == HandleKind.MemberReference)
+                    sig = md.GetMemberReference((MemberReferenceHandle)handle).Signature;
+                else return null;
+                var s = md.GetBlobReader(sig);
+                if (s.ReadByte() != 0x06) return null; // FIELD signature
+                return ReadM3Arg(md, ref s, s.ReadByte());
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         // Field name: with md non-null, resolve the token ->

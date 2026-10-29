@@ -1660,13 +1660,13 @@ e2e (mingw, oracle sha == runtime sha):
    (`MethodMap.Linq.cs`, Aggregate count==4). The array surface has the
    `_rs_*` entries; the list surface needs one entry per (accumulator, TResult)
    pair.
-2. **`List<decimal>` element receiver** -- a `List<decimal>` LOCAL is not
-   tracked as a List (the stack-kind vocabulary has no decimal tag), so
-   `ldec.Aggregate(...)` falls into the ARRAY Aggregate arm with a List object
-   reinterpreted as `Il2CppArray*` (a wrong value / access violation). Only a
-   CHAINED `decimal[].ToList().Aggregate(0m, ...)` keeps the tracked
-   `List`1_System.Decimal` receiver and reaches the list domain (probed as
-   `dec_chain_dec`). Needs the type tracker to carry the decimal element tag.
+2. **`List<decimal>` element receiver** -- FIXED by impl-arrayagg (see
+   section 18). A `List<decimal>` LOCAL used to be untracked as a List (the
+   stack-kind vocabulary had no decimal tag), so `ldec.Aggregate(...)` fell
+   into the ARRAY Aggregate arm with a List object reinterpreted as
+   `Il2CppArray*` (a wrong value / access violation). Only a CHAINED
+   `decimal[].ToList().Aggregate(0m, ...)` kept the tracked
+   `List`1_System.Decimal` receiver.
 3. **GroupBy key families** (A cluster) -- evidence (transpile log):
    `GroupBy<int32,TimeSpan>` -> "a value-type (System.TimeSpan) key has no
    runtime key carrier"; `GroupBy<int64,DateTime>` -> "the stage-1 runtime
@@ -1687,11 +1687,11 @@ e2e (mingw, oracle sha == runtime sha):
    no cell ABI`. The Zip side descriptor has no 16-byte DateTimeOffset code
    (IL2CPP_LINQ_CELL_DTOFFSET exists in linq_family.h but no zip side maps to
    it). A new side code + result family is needed.
-6. **Array numeric NON-DIAGONAL Aggregate** (same defect class, ARRAY domain,
-   out of this seat's List mandate): `long[].Aggregate(0, ...)`,
-   `double[].Aggregate(0L, ...)`, `float[].Aggregate(0.0, ...)` still bind
-   seed_i4/seed_i8/seed_d (int32 element reads). The new list entries are not
-   array entries; the array arm needs its own (element, accumulator) dispatch.
+6. **Array numeric NON-DIAGONAL Aggregate** -- FIXED by impl-arrayagg (see
+   section 18). `long[].Aggregate(0, ...)`, `double[].Aggregate(0L, ...)`,
+   `float[].Aggregate(0.0, ...)` used to bind seed_i4/seed_i8/seed_d (int32
+   element reads); the ARRAY arm now has its own (element cell, accumulator)
+   dispatch (`il2cpp_linq_aggregate_seed_cell_<acc>`).
 7. **A by-value VALUE-STRUCT List element** (`List<DateTime>` /
    `List<TimeSpan>` / `List<Guid>` / a user struct) -- no list element storage
    kind exists, so the Aggregate arm rejects it (LOUD) instead of passing a
@@ -1701,3 +1701,85 @@ e2e (mingw, oracle sha == runtime sha):
    numeric accumulator) -- still routes to the int32 reader (a silent wrong
    value / ABI mismatch). Not in the A-cluster list; registered for the next
    pass.
+
+## 18. impl-arrayagg: the ARRAY (element cell, accumulator family) seed matrix + List<decimal> receiver tracking
+
+Fixes items 6 and 2 of section 17.2 (the ARRAY-domain half of the same defect
+class b87d225f fixed for the List domain).
+
+### 18.1 The defect (measured)
+
+The ARRAY `Aggregate(seed, func)` arm only had diagonal / one-family kernels:
+
+  seed_i4 / seed_i8 / seed_d / seed_f   element reader FIXED at int32
+  seed_i8_i8                            element reader at int64 (diagonal)
+  seed_d_d                              element reader at double (diagonal)
+  seed_f_d / seed_f_f                   the float accumulator diagonals
+
+Every NON-DIAGONAL (element, accumulator) pair bound one of the int32-element
+entries, so it read the wrong number of bytes out of the source cell and/or
+called the lambda through a mismatched fn-pointer. Measured classes:
+
+- `long[]` + int accumulator read the LOW 32 bits of each 8-byte cell;
+- `double[]` + int/long accumulator read the low 32 bits;
+- `float[]` + int/long accumulator read the float BITS as int32;
+- `float[]` + double accumulator paired TWO 4-byte float cells as one double
+  (and misaligned the tail);
+- `byte[]` / `short[]` (1/2-byte cells) were read as int32 (an over-read);
+- `string[]` + a numeric accumulator read a POINTER's low 32 bits;
+- a decimal accumulator over a non-int32 source used the int32 reader.
+
+### 18.2 Fixed
+
+`linq.cpp` now provides one entry per ACCUMULATOR family that reads the source
+element at the cell's REAL width:
+
+  il2cpp_linq_aggregate_seed_cell_i4   int32_t(*)(int32_t, ELEM)
+  il2cpp_linq_aggregate_seed_cell_i8   int64_t(*)(int64_t, ELEM)
+  il2cpp_linq_aggregate_seed_cell_f    float(*)(double, ELEM)   (F-stack carrier)
+  il2cpp_linq_aggregate_seed_cell_d    double(*)(double, ELEM)
+  il2cpp_linq_aggregate_seed_cell_dec  16-byte result slot + value-slot seed
+  il2cpp_linq_aggregate_seed_cell_ref  rooted accumulator local
+
+The trailing `cell` literal is an IL2CPP_LINQ_CELL_* code (linq_family.h,
+APPENDED -- never a consumed IL argument) and ELEM follows it: int32 for
+int32/narrow, int64 for i8, double for f/d, Il2CppObject* for a reference cell,
+Il2CppDecimal for a decimal cell. `MethodMap.Linq.cs` keeps the historical
+entries for the int32 source / diagonal pairs and routes every other pair to
+`seed_cell_<accFam>`.
+
+`List<decimal>` receiver tracking (section 17.2 item 2): `LinqListKind` now
+uses the NAME-aware `LinqListKindOfElemByte` overload and accepts the
+`_decimal` / `_System.Decimal` suffix, answering list kind 12 (the boxed
+decimal listobj storage). `StackFold` materializes an `ldfld`/`ldsfld` of a
+`List<T>` FIELD into a typed temp so a stored / captured / static List receiver
+carries its declared type into objTypes (the LINQ receiver hint).
+
+### 18.3 e2e
+
+`probe-arrayagg` (47 records): int/long/float/double/byte/short/string/decimal
+sources x int/long/float/double/decimal/string accumulators + 4 empty sources +
+4 `List<decimal>` LOCAL shapes (stored local, static field, method parameter,
+closure capture).
+
+- RED at baseline (b87d225f): runtime exit -1073741819 (0xC0000005), 0 records,
+  all 47 records `<missing>`.
+- GREEN: oracle sha == runtime sha =
+  `875acf6e26244e8402b86331620627fe28c1abb5df716832dae91edc28af88ff`.
+- Regressions byte-identical: probe-linqagg2 `eb49da63`, probe-aggvt2
+  `12a416bb`, probe-floatagg `3a01e028`, linqorder2 `6a72ece6`, zmatrix
+  `24ba1e99`, listops `0ed62ea4`, linqcase `2d76fda3`.
+- Unit 3908/3908, C0 il2cppc Debug 0 errors.
+
+### 18.4 Still open after this seat
+
+- `List<T>.Aggregate(seed, func, resultSelector)` (section 17.2 item 1) -- the
+  List `_rs_*` projection matrix; still a transpile-time LOUD.
+- `DefaultIfEmpty(source, defaultValue)` for a non-decimal source -- still LOUD.
+- `Array` Aggregate with a resultSelector over a NON-int32 source -- the ARRAY
+  `_rs_*` entries are still int32-element readers; the cell matrix covers the
+  3-parameter form only.
+- A by-value value-struct ARRAY element (user struct) with a numeric
+  accumulator -- no cell ABI; stays LOUD.
+- A reference accumulator over a NON-narrow non-int32 ARRAY family keeps the
+  pre-existing per-source-family ref entries (unchanged here).

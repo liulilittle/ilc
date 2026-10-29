@@ -116,7 +116,7 @@ public static partial class MethodRefResolver
             // (list)), reading the items pointer as an array header -> a wrong
             // value or an index-out-of-range on a non-empty list.
             var aggFam = LinqSourceFamily(genArgs, receiverType, count >= 2 ? arg1Type : arg0Type);
-            if (LinqListKind(srcType, genArgs, aggFam) is { } aggListKind)
+            if (LinqListKind(srcType, genArgs, aggFam, genArgNames) is { } aggListKind)
             {
                 var listAgg = TryMapLinqList(md, sigHandle, name, count, genArgs, aggListKind,
                     aggFam, srcType, TwoArg, OneArg, genArgNames);
@@ -837,7 +837,7 @@ public static partial class MethodRefResolver
         // from arg0Type alone (that is the delegate slot for arity >= 2).
         //--------------------------------------------------------------------------
         var linqSrcFam = LinqSourceFamily(genArgs, receiverType, count >= 2 ? arg1Type : arg0Type);
-        var listKind = LinqListKind(srcType, genArgs, linqSrcFam);
+        var listKind = LinqListKind(srcType, genArgs, linqSrcFam, genArgNames);
         if (listKind is { } lk)
         {
             var listDispatch = TryMapLinqList(md, sigHandle, name, count, genArgs, lk, linqSrcFam,
@@ -2802,11 +2802,21 @@ public static partial class MethodRefResolver
                             if (vtBase != null)
                                 return I(vtBase, 3, true, false, false,
                                     new[] { "a", "dec", "" }, resultKind: "dec");
-                            return decSrc
-                                ? I("il2cpp::il2cpp_linq_aggregate_seed_dec_dec", 3, true, false, false,
-                                    new[] { "a", "dec", "" }, resultKind: "dec")
-                                : I("il2cpp::il2cpp_linq_aggregate_seed_dec", 3, true, false, false,
+                            if (decSrc)
+                                return I("il2cpp::il2cpp_linq_aggregate_seed_dec_dec", 3, true, false, false,
                                     new[] { "a", "dec", "" }, resultKind: "dec");
+                            // impl-arrayagg: a DECIMAL accumulator over a
+                            // non-int32 numeric/reference source. The base
+                            // `seed_dec` reads a 4-byte int32 out of every
+                            // cell; the cell matrix reads the element at its
+                            // REAL width and calls the decimal leaf ABI.
+                            string? decCell = LinqArrayCellCode(genArgs, genArgNames, receiverType, arg0Type);
+                            if (decCell is null or "7")
+                                return I("il2cpp::il2cpp_linq_aggregate_seed_dec", 3, true, false, false,
+                                    new[] { "a", "dec", "" }, resultKind: "dec");
+                            return I("il2cpp::il2cpp_linq_aggregate_seed_cell_dec", 3, true, false, false,
+                                new[] { "a", "dec", "" }, resultKind: "dec",
+                                appendLiterals: new[] { decCell });
                         }
                         // count == 4: the result selector runs ONCE on the
                         // final decimal accumulator (net48
@@ -2911,31 +2921,92 @@ public static partial class MethodRefResolver
                     string? i8Track = accByte == 0x0B ? "System.Int64" : null;
                     if (count == 3)
                     {
-                        return acc switch
+                        // impl-arrayagg: the ARRAY (element family, accumulator
+                        // family) matrix. The pre-existing entries are
+                        // diagonal/one-family kernels whose element reader is
+                        // fixed at int32 (seed_i4/seed_i8/seed_d/seed_f) or at
+                        // the DIAGONAL width (seed_i8_i8 / seed_d_d); every
+                        // NON-DIAGONAL pair bound them and read the wrong
+                        // number of bytes out of the cell. The DIAGONAL/int32
+                        // cases keep their historical entries; every other
+                        // (element, accumulator) pair rides the cell matrix
+                        // (seed_cell_<acc>), which reads the element at its
+                        // REAL width and calls the accumulator's own leaf ABI.
+                        string srcFamCell = LinqSourceFamily(genArgs, receiverType, arg0Type);
+                        string? cell = LinqArrayCellCode(genArgs, genArgNames, receiverType, arg0Type);
+                        switch (acc)
                         {
-                            "i4" => I("il2cpp::il2cpp_linq_aggregate_seed_i4", 3, true, false, false,
-                                new[] { "a", "i", "" }),
-                            "i8" => srcFam == "i8"
-                                ? I("il2cpp::il2cpp_linq_aggregate_seed_i8_i8", 3, true, false, false,
-                                    new[] { "a", "l", "" }, resultKind: "l", returnTypeName: i8Track)
-                                : I("il2cpp::il2cpp_linq_aggregate_seed_i8", 3, true, false, false,
-                                    new[] { "a", "l", "" }, resultKind: "l", returnTypeName: i8Track),
-                            "f" => srcFam is "f" or "d"
-                                ? I("il2cpp::il2cpp_linq_aggregate_seed_f_d", 3, true, false, false,
-                                    new[] { "a", "d", "" }, resultKind: "d")
-                                : I("il2cpp::il2cpp_linq_aggregate_seed_f", 3, true, false, false,
-                                    new[] { "a", "d", "" }, resultKind: "d"),
-                            "d" => srcFam is "f" or "d"
-                                ? I("il2cpp::il2cpp_linq_aggregate_seed_d_d", 3, true, false, false,
-                                    new[] { "a", "d", "" }, resultKind: "d")
-                                : I("il2cpp::il2cpp_linq_aggregate_seed_d", 3, true, false, false,
-                                    new[] { "a", "d", "" }, resultKind: "d"),
-                            // nb9 H-B6: the ref accumulator reads the SOURCE
-                            // element by family (ref pointer, int64, double,
-                            // float widened, or int32).
-                            _ => I("il2cpp::il2cpp_linq_aggregate_seed_ref" + AggRefSrcSuffix(srcFam),
-                                3, true, true, false, new[] { "a", "", "" }),
-                        };
+                            case "i4":
+                                if (srcFamCell == "i4")
+                                    return I("il2cpp::il2cpp_linq_aggregate_seed_i4", 3, true, false, false,
+                                        new[] { "a", "i", "" });
+                                if (cell == null)
+                                    throw new NotSupportedException(
+                                        "Enumerable.Aggregate over this ARRAY element family with an int32 " +
+                                        "accumulator is not wired: no cell ABI for the source element");
+                                return I("il2cpp::il2cpp_linq_aggregate_seed_cell_i4", 3, true, false, false,
+                                    new[] { "a", "i", "" }, appendLiterals: new[] { cell });
+                            case "i8":
+                                if (srcFamCell == "i4")
+                                    return I("il2cpp::il2cpp_linq_aggregate_seed_i8", 3, true, false, false,
+                                        new[] { "a", "l", "" }, resultKind: "l", returnTypeName: i8Track);
+                                if (srcFamCell == "i8")
+                                    return I("il2cpp::il2cpp_linq_aggregate_seed_i8_i8", 3, true, false, false,
+                                        new[] { "a", "l", "" }, resultKind: "l", returnTypeName: i8Track);
+                                if (cell == null)
+                                    throw new NotSupportedException(
+                                        "Enumerable.Aggregate over this ARRAY element family with an int64 " +
+                                        "accumulator is not wired: no cell ABI for the source element");
+                                return I("il2cpp::il2cpp_linq_aggregate_seed_cell_i8", 3, true, false, false,
+                                    new[] { "a", "l", "" }, resultKind: "l", returnTypeName: i8Track,
+                                    appendLiterals: new[] { cell });
+                            case "f":
+                                if (srcFamCell == "i4")
+                                    return I("il2cpp::il2cpp_linq_aggregate_seed_f", 3, true, false, false,
+                                        new[] { "a", "d", "" }, resultKind: "d");
+                                if (srcFamCell == "f")
+                                    return I("il2cpp::il2cpp_linq_aggregate_seed_f_f", 3, true, false, false,
+                                        new[] { "a", "d", "" }, resultKind: "d");
+                                if (srcFamCell == "d")
+                                    return I("il2cpp::il2cpp_linq_aggregate_seed_f_d", 3, true, false, false,
+                                        new[] { "a", "d", "" }, resultKind: "d");
+                                if (cell == null)
+                                    throw new NotSupportedException(
+                                        "Enumerable.Aggregate over this ARRAY element family with a float " +
+                                        "accumulator is not wired: no cell ABI for the source element");
+                                return I("il2cpp::il2cpp_linq_aggregate_seed_cell_f", 3, true, false, false,
+                                    new[] { "a", "d", "" }, resultKind: "d", appendLiterals: new[] { cell });
+                            case "d":
+                                if (srcFamCell == "i4")
+                                    return I("il2cpp::il2cpp_linq_aggregate_seed_d", 3, true, false, false,
+                                        new[] { "a", "d", "" }, resultKind: "d");
+                                if (srcFamCell == "d")
+                                    return I("il2cpp::il2cpp_linq_aggregate_seed_d_d", 3, true, false, false,
+                                        new[] { "a", "d", "" }, resultKind: "d");
+                                if (cell == null)
+                                    throw new NotSupportedException(
+                                        "Enumerable.Aggregate over this ARRAY element family with a double " +
+                                        "accumulator is not wired: no cell ABI for the source element");
+                                return I("il2cpp::il2cpp_linq_aggregate_seed_cell_d", 3, true, false, false,
+                                    new[] { "a", "d", "" }, resultKind: "d", appendLiterals: new[] { cell });
+                            default:
+                                // nb9 H-B6: the ref accumulator reads the SOURCE
+                                // element by family (ref pointer, int64, double,
+                                // float widened, or int32). A NARROW (1/2-byte)
+                                // source needs the cell reader -- the base
+                                // int32 read over-reads the cell.
+                                if (srcFamCell == "narrow")
+                                {
+                                    if (cell == null)
+                                        throw new NotSupportedException(
+                                            "Enumerable.Aggregate over this ARRAY element family with a " +
+                                            "reference accumulator is not wired: no cell ABI for the source element");
+                                    return I("il2cpp::il2cpp_linq_aggregate_seed_cell_ref", 3, true, true, false,
+                                        new[] { "a", "", "" }, appendLiterals: new[] { cell });
+                                }
+                                return I("il2cpp::il2cpp_linq_aggregate_seed_ref" + AggRefSrcSuffix(srcFam),
+                                    3, true, true, false, new[] { "a", "", "" });
+                        }
                     }
                     // count == 4: TResult decides the result carrier. 0x0B
                     // (ulong) rides the int64 carrier like 0x0A (B4-1/P0-06).
@@ -3858,15 +3929,52 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
+    // impl-arrayagg: the IL2CPP_LINQ_CELL_* literal of an ARRAY source's
+    // element family -- the trailing literal of the cell-matrix seed entries.
+    // Null when the source is a value struct (the dedicated dt/ts/guid entries
+    // serve it) or an unknown shape.
+    private static string? LinqArrayCellCode(byte[]? genArgs, string[]? genArgNames,
+        string? receiverType, string? arg0Type)
+    {
+        if (genArgs is { Length: >= 1 })
+        {
+            var b = genArgs[0];
+            if (b == 0x11) return IsDecimalGenArg(genArgNames, 0) ? "11" : null;
+            if (IsRefFamilyByte(b)) return "15";
+            return LinqCellCodeOfElemByte(b);
+        }
+        var name = receiverType ?? arg0Type;
+        if (name == null) return null;
+        if (name.EndsWith("System.Decimal[]", StringComparison.Ordinal)) return "11";
+        if (name.EndsWith("System.Int32[]", StringComparison.Ordinal)) return "7";
+        if (name.EndsWith("System.Int64[]", StringComparison.Ordinal)
+            || name.EndsWith("System.UInt64[]", StringComparison.Ordinal)) return "8";
+        if (name.EndsWith("System.Single[]", StringComparison.Ordinal)) return "9";
+        if (name.EndsWith("System.Double[]", StringComparison.Ordinal)) return "10";
+        if (name.EndsWith("System.SByte[]", StringComparison.Ordinal)) return "0";
+        if (name.EndsWith("System.Byte[]", StringComparison.Ordinal)) return "1";
+        if (name.EndsWith("System.Boolean[]", StringComparison.Ordinal)) return "2";
+        if (name.EndsWith("System.Int16[]", StringComparison.Ordinal)) return "3";
+        if (name.EndsWith("System.UInt16[]", StringComparison.Ordinal)) return "4";
+        if (name.EndsWith("System.Char[]", StringComparison.Ordinal)) return "5";
+        if (name.EndsWith("System.UInt32[]", StringComparison.Ordinal)) return "6";
+        if (name.EndsWith("[]", StringComparison.Ordinal)) return "15";
+        return null;
+    }
+
     // The List<T> element-kind literal (linq_list.h IL2CPP_LIST_KIND_*), or
     // null when the receiver is not a List<T>. The tracked List receiver names
     // come from the newobj AOT expansion (List`1_int / List`1_string / ...) or
     // from the ToList ReturnTypeName ("System.Collections.Generic.List`1").
-    private static string? LinqListKind(string? receiverType, byte[]? genArgs, string srcFam)
+    private static string? LinqListKind(string? receiverType, byte[]? genArgs, string srcFam,
+        string[]? genArgNames = null)
     {
         if (receiverType == null) return null;
         if (!receiverType.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal))
             return null;
+        var suffix = receiverType.Length > "System.Collections.Generic.List`1".Length
+            ? receiverType["System.Collections.Generic.List`1".Length..]
+            : "";
         // ELEMENT AUTHORITY: the MethodSpec generic argument decides the
         // element family. The tracked receiver NAME is only a heuristic --
         // MEASURED: a `List<double>` receiver inside a method that also builds a
@@ -3877,12 +3985,21 @@ public static partial class MethodRefResolver
         // MethodSpec at all (and for the reference-element names below).
         if (genArgs is { Length: >= 1 })
         {
+            // impl-arrayagg (defect 2): the 0x11 value-type byte needs the
+            // NAME-aware overload. The old call used the byte-only overload,
+            // which answers null for 0x11, so a `List<decimal>` fell through
+            // to the reference tag ("1") -- the list kernels then read 8-byte
+            // reference slots out of 16-byte decimal cells (a silent wrong
+            // value). Only System.Decimal has a list cell kind (12); the other
+            // value types have no list storage kind and stay on the reference
+            // tag for the downstream LOUD gates.
+            if (LinqListKindOfElemByte(genArgs[0], genArgNames, 0) is { } eleKind) return eleKind;
+            // The non-generic aggregate surface (Sum/Min/Max/Average) carries
+            // a synthesized single element byte with NO name table, so the
+            // tracked receiver name is the only decimal evidence.
+            if (genArgs[0] == 0x11 && suffix is "_decimal" or "_System.Decimal") return "12";
             if (srcFam == "ref") return "1";
-            if (LinqListKindOfElemByte(genArgs[0]) is { } eleKind) return eleKind;
         }
-        var suffix = receiverType.Length > "System.Collections.Generic.List`1".Length
-            ? receiverType["System.Collections.Generic.List`1".Length..]
-            : "";
         return suffix switch
         {
             "_int" => "0",
@@ -3896,6 +4013,10 @@ public static partial class MethodRefResolver
             "_ushort" => "9",
             "_char" => "10",
             "_uint" => "11",
+            // impl-arrayagg (defect 2): the boxed decimal List storage kind.
+            // The AOT expansion suffix is "_System.Decimal"; a collapsed /
+            // synthetic name may carry the short "_decimal".
+            "_decimal" or "_System.Decimal" => "12",
             "_string" or "_class" or "_object" or "_array" => "1",
             _ when suffix.Length > 1 => "1", // any nested generic element is a reference
             // The unsuffixed pseudo-type (ToList's tracked result): the family
@@ -3908,7 +4029,7 @@ public static partial class MethodRefResolver
             // 1-byte cell).
             _ when genArgs is { Length: >= 1 } => srcFam == "ref"
                 ? "1"
-                : LinqListKindOfElemByte(genArgs[0]) ?? "1",
+                : LinqListKindOfElemByte(genArgs[0], genArgNames, 0) ?? "1",
             _ => srcFam switch
             {
                 "ref" => "1",

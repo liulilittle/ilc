@@ -33,6 +33,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_array.h"
+#include "decimal.h"      // impl-arrayagg: runtime::Il2CppDecimal (cell matrix)
 #include "guid.h"         // delta 1: Il2CppGuid (Min/Max over Guid[])
 #include "il2cpp_time.h"  // delta 1: Il2CppDateTime / Il2CppTimeSpan
 
@@ -423,6 +424,51 @@ NB9_DECL_AGG_NUM_SRC(il2cpp_linq_aggregate_seed_d_d, double)
 #undef NB9_DECL_AGG_NUM_SRC
 
 double  il2cpp_linq_aggregate_seed_d_d(Il2CppArray* src, double seed, Il2CppObject* func);
+
+//------------------------------------------------------------------------------
+// impl-arrayagg: the ARRAY (element CELL, accumulator family) seed-fold matrix.
+//
+// The pre-existing ARRAY entries are DIAGONAL/one-family kernels: the element
+// reader is fixed at int32 (seed_i4/seed_i8/seed_d/seed_f), at int64
+// (seed_i8_i8), or at an 8-byte double (seed_d_d). Every NON-DIAGONAL
+// (element, accumulator) pair therefore read the wrong number of bytes out of
+// the source cell and/or called the lambda through a mismatched fn-pointer --
+// long[] + int accumulator read the low 32 bits of each 8-byte cell,
+// float[] + double accumulator paired two 4-byte float cells as one double,
+// double[] + int/long accumulator read the low 32 bits, a narrow (1/2-byte)
+// source was read as int32, and a reference source with a numeric accumulator
+// read a POINTER's low 32 bits.
+//
+// These six entries take the source cell code (IL2CPP_LINQ_CELL_*, an APPENDED
+// literal -- never a consumed IL argument) and read the element at its REAL
+// width, keeping the accumulator in its own family and invoking the lambda
+// through that family's own leaf ABI:
+//   int32 accumulator      int32_t(*)(int32_t, ELEM)
+//   int64 accumulator      int64_t(*)(int64_t, ELEM)
+//   float accumulator      float(*)(double, ELEM)   (the F-stack carrier)
+//   double accumulator     double(*)(double, ELEM)
+//   decimal accumulator    Il2CppDecimal(*)(Il2CppDecimal, ELEM) via the
+//                          16-byte result slot / seed value slot
+//   reference accumulator  Il2CppObject*(*)(Il2CppObject*, ELEM) (rooted local)
+// where ELEM follows the CELL family: int32 for int32/narrow, int64 for i8,
+// double for f/d (a float cell widens into the F-stack slot), Il2CppObject*
+// for a reference cell, and Il2CppDecimal for a decimal cell.
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_aggregate_seed_cell_i4(Il2CppArray* src, int32_t seed,
+                                           Il2CppObject* func, int32_t cell);
+int64_t il2cpp_linq_aggregate_seed_cell_i8(Il2CppArray* src, int64_t seed,
+                                           Il2CppObject* func, int32_t cell);
+float   il2cpp_linq_aggregate_seed_cell_f(Il2CppArray* src, double seed,
+                                          Il2CppObject* func, int32_t cell);
+double  il2cpp_linq_aggregate_seed_cell_d(Il2CppArray* src, double seed,
+                                          Il2CppObject* func, int32_t cell);
+void    il2cpp_linq_aggregate_seed_cell_dec(runtime::Il2CppDecimal* result,
+                                            Il2CppArray* src,
+                                            const runtime::Il2CppDecimal* seed,
+                                            Il2CppObject* func, int32_t cell);
+Il2CppObject* il2cpp_linq_aggregate_seed_cell_ref(Il2CppArray* src,
+                                                  Il2CppObject* seed,
+                                                  Il2CppObject* func, int32_t cell);
 
 // nb9 fix P0-4: ToArray over ANY element family (clones by the source's own
 // elemSize / isRefElem).

@@ -35,6 +35,7 @@
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
+#include "linq_family.h"  // impl-arrayagg: LinqCellRead* (the cell matrix)
 #include "decimal.h"      // P0LINQ1: runtime::Il2CppDecimal (the zip value result)
 #include "il2cpp_time.h"  // P0LINQ1: runtime::Il2CppDateTime / Il2CppTimeSpan
 #include "guid.h"         // P0LINQ1: Il2CppGuid (the zip value result)
@@ -2197,6 +2198,177 @@ Il2CppObject* il2cpp_linq_aggregate_seed_f_rs_ref(Il2CppArray* src, float seed,
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&rd));
     return ProjectFRef(rd, FoldF(src, seed, fd));
+}
+
+//------------------------------------------------------------------------------
+// impl-arrayagg: the ARRAY (element CELL, accumulator family) seed-fold
+// matrix (see linq.h). The source cell code decides how the element is read
+// and which leaf ABI the accumulator callback uses; the accumulator keeps its
+// OWN family across every step.
+//------------------------------------------------------------------------------
+namespace {
+
+// One fold step for a numeric/decimal/reference ACCUMULATOR: the leaf is
+// Acc(*)(Acc, ELEM) (static) or Acc(*)(Il2CppObject*, Acc, ELEM) (bound).
+template <typename Acc, typename Elem>
+Acc CellAggStep(Il2CppDelegate* d, Acc acc, Elem elem)
+{
+    typedef Acc (*Fn)(Acc, Elem);
+    typedef Acc (*ThisFn)(Il2CppObject*, Acc, Elem);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, acc, elem)
+        : reinterpret_cast<Fn>(d->methodPtr)(acc, elem);
+}
+
+// The FLOAT accumulator: the value rides the widened double F-stack slot, so
+// the leaf's first parameter is double and only the RETURN is float.
+template <typename AccParam, typename AccRet, typename Elem>
+AccRet CellAggStepF(Il2CppDelegate* d, AccParam acc, Elem elem)
+{
+    typedef AccRet (*Fn)(AccParam, Elem);
+    typedef AccRet (*ThisFn)(Il2CppObject*, AccParam, Elem);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, acc, elem)
+        : reinterpret_cast<Fn>(d->methodPtr)(acc, elem);
+}
+
+template <typename Acc>
+Acc CellAggNext(Il2CppDelegate* d, Acc acc, Il2CppArray* src, int32_t i,
+                int32_t cell)
+{
+    switch (cell)
+    {
+        case IL2CPP_LINQ_CELL_I8:
+            return CellAggStep<Acc, int64_t>(d, acc, LinqCellReadI8(src, i, cell));
+        case IL2CPP_LINQ_CELL_F:
+        case IL2CPP_LINQ_CELL_D:
+            return CellAggStep<Acc, double>(d, acc, LinqCellReadD(src, i, cell));
+        case IL2CPP_LINQ_CELL_REF:
+            return CellAggStep<Acc, Il2CppObject*>(
+                d, acc, LinqCellReadRef(src, i, cell));
+        case IL2CPP_LINQ_CELL_DECIMAL:
+            return CellAggStep<Acc, runtime::Il2CppDecimal>(
+                d, acc, LinqCellReadDec(src, i));
+        default:
+            return CellAggStep<Acc, int32_t>(
+                d, acc, LinqCellReadI4(src, i, cell));
+    }
+}
+
+float CellAggNextF(Il2CppDelegate* d, float acc, Il2CppArray* src, int32_t i,
+                   int32_t cell)
+{
+    switch (cell)
+    {
+        case IL2CPP_LINQ_CELL_I8:
+            return CellAggStepF<double, float, int64_t>(
+                d, acc, LinqCellReadI8(src, i, cell));
+        case IL2CPP_LINQ_CELL_F:
+        case IL2CPP_LINQ_CELL_D:
+            return CellAggStepF<double, float, double>(
+                d, acc, LinqCellReadD(src, i, cell));
+        case IL2CPP_LINQ_CELL_REF:
+            return CellAggStepF<double, float, Il2CppObject*>(
+                d, acc, LinqCellReadRef(src, i, cell));
+        case IL2CPP_LINQ_CELL_DECIMAL:
+            return CellAggStepF<double, float, runtime::Il2CppDecimal>(
+                d, acc, LinqCellReadDec(src, i));
+        default:
+            return CellAggStepF<double, float, int32_t>(
+                d, acc, LinqCellReadI4(src, i, cell));
+    }
+}
+
+} // namespace
+
+int32_t il2cpp_linq_aggregate_seed_cell_i4(Il2CppArray* src, int32_t seed,
+                                           Il2CppObject* func, int32_t cell)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i) acc = CellAggNext<int32_t>(d, acc, src, i, cell);
+    return acc;
+}
+
+int64_t il2cpp_linq_aggregate_seed_cell_i8(Il2CppArray* src, int64_t seed,
+                                           Il2CppObject* func, int32_t cell)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    int64_t acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i) acc = CellAggNext<int64_t>(d, acc, src, i, cell);
+    return acc;
+}
+
+float il2cpp_linq_aggregate_seed_cell_f(Il2CppArray* src, double seed,
+                                        Il2CppObject* func, int32_t cell)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    float acc = static_cast<float>(seed);
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i) acc = CellAggNextF(d, acc, src, i, cell);
+    return acc;
+}
+
+double il2cpp_linq_aggregate_seed_cell_d(Il2CppArray* src, double seed,
+                                         Il2CppObject* func, int32_t cell)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    double acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i) acc = CellAggNext<double>(d, acc, src, i, cell);
+    return acc;
+}
+
+void il2cpp_linq_aggregate_seed_cell_dec(runtime::Il2CppDecimal* result,
+                                         Il2CppArray* src,
+                                         const runtime::Il2CppDecimal* seed,
+                                         Il2CppObject* func, int32_t cell)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    runtime::Il2CppDecimal acc = *seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+        acc = CellAggNext<runtime::Il2CppDecimal>(d, acc, src, i, cell);
+    std::memcpy(result, &acc, sizeof(acc));
+}
+
+Il2CppObject* il2cpp_linq_aggregate_seed_cell_ref(Il2CppArray* src,
+                                                  Il2CppObject* seed,
+                                                  Il2CppObject* func, int32_t cell)
+{
+    CheckSource(src);
+    Il2CppDelegate* d = RequireCallback(func);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppObject* acc = seed;
+    roots.Add(reinterpret_cast<void**>(&acc));
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+        acc = CellAggNext<Il2CppObject*>(d, acc, src, i, cell);
+    return acc;
 }
 
 //------------------------------------------------------------------------------
