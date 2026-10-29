@@ -39,7 +39,7 @@ $unitDir = Join-Path $Root "tests/unit"
 $names = [System.Collections.Generic.SortedSet[string]]::new()
 Get-ChildItem -LiteralPath $unitDir -Filter *.cs -File | ForEach-Object {
     $text = Get-Content -LiteralPath $_.FullName -Raw
-    foreach ($m in [regex]::Matches($text, '(?:CaseExePath|OpenCaseExe)\("([A-Za-z0-9_]+)"\)'))
+    foreach ($m in [regex]::Matches($text, '(?:CaseExePath|OpenCaseExe)\("([A-Za-z0-9_\-]+)"\)'))
     {
         [void]$names.Add($m.Groups[1].Value)
     }

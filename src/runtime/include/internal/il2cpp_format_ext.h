@@ -121,13 +121,18 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
                                          Il2CppObject* provider);
 
 //------------------------------------------------------------------------------
-// floatfix: icall_format_float_custom -- Single.ToString(format[, provider]).
-// Only "R" carries float-width semantics: the shortest decimal that
-// round-trips through the FLOAT width (net48 "R" of 0.1f is "0.1", while the
-// double "R" of the widened value prints "0.100000001490116"). Every other
-// format forwards to the double engine (the established rendering for
-// F/N/E/G/C/P/custom is unchanged). The value rides the double carrier (the
-// exact float widening; the target is (float)value).
+// floatfix/singlefmt: icall_format_float_custom -- Single.ToString(format[,
+// provider]). "R" is the shortest FLOAT round-trip (net48 two-tier
+// G7->G9; the double engine printed full double precision). EVERY OTHER
+// format runs the FLOAT-width digit base -- net48's native Number.FormatSingle
+// converts the widened double at a 7-significant-digit base (9 for E with
+// precision > 6 and G with precision > 7), not the double engine's 15-digit
+// base (oracle probe-singlefmt: 0.1f "F10" -> "0.1000000000"; 0.1f "G10" ->
+// "0.100000001"; 16777216f "F" -> "16777220.00"). Specials (NaN / +-Infinity)
+// return the PROVIDER spelling before any format work (InvariantCulture
+// "Infinity"/"-Infinity"; the default zh-CN culture U+221E). The boxed
+// composite items ({0:F10} of a float) route the same engine. The value rides
+// the double carrier (the exact float widening; the target is (float)value).
 //------------------------------------------------------------------------------
 Il2CppObject* icall_format_float_custom(double value, Il2CppObject* format,
                                         Il2CppObject* provider);

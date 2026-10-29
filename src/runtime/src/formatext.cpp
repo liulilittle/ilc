@@ -77,27 +77,39 @@ const int kWideDigits = 17;
 // default culture (zh-CN). See the header's CULTURE FIXING divergence note.
 const char16_t kCurrencySymbol = u'\u00A5';
 
+// singlefmt: the net48 FLOAT digit base for F/N/C/P/custom (and the default
+// E/G tiers) -- net48's native Number.FormatSingle converts the widened
+// double at SEVEN significant digits (nine for wide E/G), not the double
+// engine's 15. Oracle: probe-singlefmt (0.1f "F10" -> "0.1000000000").
+const int kFloatBaseDigits = 7;
+
 // The zh-CN positive-infinity symbol: U+221E (infinity) (net48 probe4: EVERY
 // format renders +-Infinity as the culture symbol).
 const char16_t kInfinitySymbol = u'\u221E';
 
-// The 15-digit base of a finite double (value == d[0].d[1].. x 10^exp10).
+// The digit base of a finite floating value (value == d[0].d[1].. x
+// 10^exp10). 'd' holds kWideDigits bytes; only the first 'digits' are
+// meaningful (kBaseDigits for the double engine, 7/9 for the float engine).
 struct DoubleDigits
 {
-    char d[kBaseDigits]; // correctly rounded significant digits
+    char d[kWideDigits]; // correctly rounded significant digits
     int  exp10;          // decimal exponent of d[0]
     bool neg;
 };
 
-void GetDoubleDigits(double value, DoubleDigits& out)
+// Correctly rounded 'digits'-significant-digit decimal of 'value'
+// (snprintf("%.(digits-1)e") -- the msvcrt-class conversion base net48 uses
+// for BOTH widths; digits is 15 for the double engine and 7/9 for the float
+// engine, per the net48 Number.FormatSingle oracle).
+void GetDoubleDigits(double value, DoubleDigits& out, int digits)
 {
     char tmp[32];
-    std::snprintf(tmp, sizeof tmp, "%.14e", value);
+    std::snprintf(tmp, sizeof tmp, "%.*e", digits - 1, value);
     out.neg = (tmp[0] == '-');
     const char* p = tmp + (out.neg ? 1 : 0);
     out.d[0] = *p++;
     ++p; // skip '.'
-    for (int i = 1; i < kBaseDigits; ++i)
+    for (int i = 1; i < digits; ++i)
     {
         out.d[i] = *p++;
     }
@@ -276,11 +288,12 @@ int IncrementDigits(char* d, int len)
 // Writes into 'out' (kMaxBuffer); returns the length; NOT NUL-terminated.
 // The sign is omitted when the rounded magnitude is zero (-0.0 -> "0.00",
 // net48-verified); the '.' is omitted when fracDigits == 0 (N0/F0 layout).
-// Rounding is half AWAY FROM ZERO on the 15-digit base (see the file header).
-int FormatFixed(double value, int fracDigits, char* out)
+// Rounding is half AWAY FROM ZERO on the 'baseDigits' significant-digit base
+// (kBaseDigits for the double engine, 7/9 for the float engine).
+int FormatFixed(double value, int fracDigits, char* out, int baseDigits)
 {
     DoubleDigits dg;
-    GetDoubleDigits(value, dg);
+    GetDoubleDigits(value, dg, baseDigits);
 
     // Integer part: d[k] sits at 10^(exp10 - k); the digits with
     // exp10 - k >= 0 are d[0..exp10], in order ("1234..."). A negative
@@ -292,19 +305,19 @@ int FormatFixed(double value, int fracDigits, char* out)
     {
         for (int i = 0; i < intLen; ++i)
         {
-            intBuf[intN++] = (i < kBaseDigits) ? dg.d[i] : '0';
+            intBuf[intN++] = (i < baseDigits) ? dg.d[i] : '0';
         }
     }
 
     // Fraction digits: the 1-based fraction position j holds digit
-    // d[exp10 + j] (out of [0, 14] -> zero: leading zeros or beyond the
-    // base -- the base-limited digits match net48's own base).
+    // d[exp10 + j] (out of [0, baseDigits-1] -> zero: leading zeros or
+    // beyond the base -- the base-limited digits match net48's own base).
     char frac[kMaxBuffer];
     int f = 0;
     for (int i = 0; i <= fracDigits; ++i) // entry fracDigits = the dropped digit
     {
         const int k = dg.exp10 + i + 1;
-        frac[f++] = (k >= 0 && k < kBaseDigits) ? dg.d[k] : '0';
+        frac[f++] = (k >= 0 && k < baseDigits) ? dg.d[k] : '0';
     }
     frac[f] = '\0';
 
@@ -345,16 +358,16 @@ int FormatFixed(double value, int fracDigits, char* out)
 }
 
 // FormatFixed on a finite value (the caller handled the specials).
-int FormatFinite(double value, int fracDigits, char* out)
+int FormatFinite(double value, int fracDigits, char* out, int baseDigits)
 {
-    return FormatFixed(value, fracDigits, out);
+    return FormatFixed(value, fracDigits, out, baseDigits);
 }
 
 // FormatFinite with ',' inserted every 3 digits in the integer part (N/P).
-int FormatGroupedFinite(double value, int fracDigits, char* out)
+int FormatGroupedFinite(double value, int fracDigits, char* out, int baseDigits)
 {
     char tmp[kMaxBuffer];
-    const int n = FormatFinite(value, fracDigits, tmp);
+    const int n = FormatFinite(value, fracDigits, tmp, baseDigits);
     int o = 0;
     int i = 0;
     if (tmp[0] == '-')
@@ -420,11 +433,11 @@ int EmitSci(char* out, bool neg, char lead, const char* frac, int fracDigits, in
 
 // Format a finite double in scientific notation (E format). 'exp' is capped
 // at 3 digits by the double range (|exp| <= 324). Rounding is half AWAY
-// FROM ZERO on the 15-digit base.
-int FormatSciFinite(double value, int fracDigits, char* out, char expChar)
+// FROM ZERO on the 'baseDigits' significant-digit base.
+int FormatSciFinite(double value, int fracDigits, char* out, char expChar, int baseDigits)
 {
     DoubleDigits dg;
-    GetDoubleDigits(value, dg);
+    GetDoubleDigits(value, dg, baseDigits);
 
     // Mantissa fraction: d[1..fracDigits]; entry fracDigits holds the
     // dropped digit (mantissa position fracDigits + 1), zero beyond the
@@ -433,7 +446,7 @@ int FormatSciFinite(double value, int fracDigits, char* out, char expChar)
     int f = 0;
     for (int i = 1; i <= fracDigits + 1 && f < kMaxBuffer; ++i)
     {
-        frac[f++] = (i < kBaseDigits) ? dg.d[i] : '0';
+        frac[f++] = (i < baseDigits) ? dg.d[i] : '0';
     }
     while (f <= fracDigits)
     {
@@ -872,7 +885,7 @@ int FormatGeneralDouble(double value, int sigDigits, char expChar, char* out)
                                        sigDigits, expChar, out);
     }
     DoubleDigits dg;
-    GetDoubleDigits(value, dg);
+    GetDoubleDigits(value, dg, kBaseDigits);
     return FormatGeneralFromDigits(dg.d, kBaseDigits, dg.exp10, dg.neg,
                                    sigDigits, expChar, out);
 }
@@ -1729,7 +1742,7 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
                 // '%'/per-mille/scaling-comma shift is applied by the emitter
                 // (spec.scale), NOT here (scaling twice would square it).
                 DoubleDigits dg;
-                GetDoubleDigits(value, dg);
+                GetDoubleDigits(value, dg, kBaseDigits);
                 std::string sciDigits(dg.d, kBaseDigits);
                 char16_t sciOut[kMaxBuffer + 16];
                 const int len = EmitSciCustomFormat(sciDigits, dg.exp10 + 1,
@@ -1750,7 +1763,7 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
                 scaled /= f;
             }
             char fixedBuf[kMaxBuffer];
-            const int fn = FormatFixed(scaled, cs.fracPh, fixedBuf);
+            const int fn = FormatFixed(scaled, cs.fracPh, fixedBuf, kBaseDigits);
             fixedBuf[fn] = '\0'; // FormatFixed does NOT NUL-terminate
             const bool neg = (fixedBuf[0] == '-');
             const int start = neg ? 1 : 0;
@@ -1791,21 +1804,21 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
             {
                 return special(value);
             }
-            len = FormatFinite(value, precision < 0 ? 2 : precision, buf);
+            len = FormatFinite(value, precision < 0 ? 2 : precision, buf, kBaseDigits);
             break;
         case 'N':
             if (IsSpecial(value))
             {
                 return special(value);
             }
-            len = FormatGroupedFinite(value, precision < 0 ? 2 : precision, buf);
+            len = FormatGroupedFinite(value, precision < 0 ? 2 : precision, buf, kBaseDigits);
             break;
         case 'E':
             if (IsSpecial(value))
             {
                 return special(value);
             }
-            len = FormatSciFinite(value, precision < 0 ? 6 : precision, buf, expChar);
+            len = FormatSciFinite(value, precision < 0 ? 6 : precision, buf, expChar, kBaseDigits);
             break;
         case 'C':
         {
@@ -1814,7 +1827,7 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
                 return special(value);
             }
             char tail[kMaxBuffer];
-            const int t = FormatGroupedFinite(value, precision < 0 ? 2 : precision, tail);
+            const int t = FormatGroupedFinite(value, precision < 0 ? 2 : precision, tail, kBaseDigits);
             return inv ? MakeCurrencyStringInvariant(tail, t) : MakeCurrencyString(tail, t);
         }
         case 'P':
@@ -1825,7 +1838,7 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
             }
             // net48's double P scales the VALUE by 100.0 in double (the
             // double rounding of the product is observable -- probe4).
-            len = FormatGroupedFinite(value * 100.0, precision < 0 ? 2 : precision, buf);
+            len = FormatGroupedFinite(value * 100.0, precision < 0 ? 2 : precision, buf, kBaseDigits);
             if (inv) buf[len++] = ' '; // invariant "n %" (space before '%')
             buf[len++] = '%'; // zh-CN "n%" layout (no space)
             break;
@@ -1928,13 +1941,21 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
                 text = icall_object_to_string(boxed);
             }
         }
-        else if (name != nullptr && (std::strcmp(name, "System.Double") == 0 ||
-                                     std::strcmp(name, "System.Single") == 0))
+        else if (name != nullptr && std::strcmp(name, "System.Double") == 0)
         {
-            // float widens to double in the box (boxingext2.h contract).
             const double v = *reinterpret_cast<const double*>(
                 reinterpret_cast<const char*>(boxed) + 8);
             text = reinterpret_cast<Il2CppString*>(icall_format_double_custom(v, format, provider));
+        }
+        else if (name != nullptr && std::strcmp(name, "System.Single") == 0)
+        {
+            // singlefmt: a boxed Single rides the SAME float-width engine as
+            // Single.ToString(format) (net48 AppendFormat -> IFormattable ->
+            // Number.FormatSingle: the 7/9-digit float base). The box payload
+            // is the exact float widening (boxingext2.h contract).
+            const double v = *reinterpret_cast<const double*>(
+                reinterpret_cast<const char*>(boxed) + 8);
+            text = reinterpret_cast<Il2CppString*>(icall_format_float_custom(v, format, provider));
         }
         else if (name != nullptr && std::strcmp(name, "System.Decimal") == 0)
         {
@@ -2062,17 +2083,37 @@ Il2CppObject* icall_format_iface_tostring(Il2CppObject* boxed, Il2CppObject* for
 }
 
 //------------------------------------------------------------------------------
-// floatfix: net48 Single.ToString("R") -- the shortest decimal that
-// round-trips through the FLOAT width. The double "R" of the widened value
-// prints full double precision (0.1f -> "0.100000001490116"), while net48
-// prints the float-round-trip shortest ("0.1"). Nine significant digits
-// always round-trip an IEEE float, so the ascending-precision scan terminates
-// at the same representation net48 picks.
+// floatfix/singlefmt: net48 Single.ToString(format[, provider]).
+//
+// "R" is the two-tier FLOAT round-trip (floatfix, unchanged below). Every
+// OTHER format runs the FLOAT-width digit base -- net48's native
+// Number.FormatSingle converts the widened double at a 7-significant-digit
+// base (9 for wide E/G), NOT the double engine's 15-digit base. Oracle
+// (probe-singlefmt, net48 host capture 2026-10-29):
+//   * F/N/C/P/custom: base 7 -- 0.1f "F10" -> "0.1000000000" (the double
+//     engine's 15-digit base would print "0.1000000015"); 16777216f "F" ->
+//     "16777220.00".
+//   * E: base 7 for precision <= 6, base 9 for precision > 6 -- 0.1f "E9" ->
+//     "1.000000010E-001" (double: "1.000000015E-001").
+//   * G: base 7 for precision <= 7, base 9 for precision > 7 -- 0.1f "G10" ->
+//     "0.100000001" (double: "0.1000000015"); "G99" stays the 9-digit base.
+//   * specials: NaN / +-Infinity return the PROVIDER spelling BEFORE any
+//     format work (probe: InvariantCulture "R" of +Inf -> "Infinity"; the
+//     default zh-CN culture -> U+221E), like the double engine.
+// The non-finite/finite split and the rounding machinery are the double
+// engine's, re-invoked at the float base width (kBaseDigits stays the
+// double face; the float face passes 7/9).
 //------------------------------------------------------------------------------
 namespace {
 Il2CppObject* FormatSingleR(double value)
 {
     const float f = static_cast<float>(value);
+    // net48 R of a zero magnitude drops the sign (oracle: -0.0f "R"/"r" ->
+    // "0"); the %.7g/%.9g ladder would print "-0".
+    if (f == 0.0f)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("0"));
+    }
     char buf[64];
     // net48 R (two tiers): G7 first; parse the digits back and compare the
     // FLOAT bits -- a mismatch falls back to G9 (nine digits always
@@ -2088,30 +2129,163 @@ Il2CppObject* FormatSingleR(double value)
     }
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(buf));
 }
+
+// The net48 float digit base per standard specifier (oracle probe-singlefmt):
+// F/N/C/P/custom always 7; E widens to 9 above precision 6; G above 7.
+int FloatBaseDigits(char upper, int precision)
+{
+    if (upper == 'E')
+    {
+        return (precision > 6) ? 9 : 7;
+    }
+    if (upper == 'G')
+    {
+        return (precision > 7) ? 9 : 7;
+    }
+    return 7;
+}
 } // namespace
 
 Il2CppObject* icall_format_float_custom(double value, Il2CppObject* format,
                                         Il2CppObject* provider)
 {
-    // Only "R" carries float-width semantics; every other format forwards to
-    // the double engine (the established Single.ToString(format) rendering
-    // for F/N/E/G/C/P/custom is unchanged). Non-finite floats take the same
-    // spellings the double engine produces for them (net48: "NaN"/U+221E).
+    const bool inv = IsInvariantProvider(provider);
+    // net48: non-finite values return the PROVIDER's spelling BEFORE any
+    // format work -- even an invalid format specifier ("NaN"/"Infinity" on
+    // InvariantCulture; the zh-CN host renders U+221E/-U+221E). The carrier
+    // is the exact float widening, so the double status IS the float status.
+    if (IsSpecial(value))
+    {
+        return inv ? MakeSpecialStringInvariant(value) : MakeSpecialString(value);
+    }
+
+    char buf[kMaxBuffer + 8];
+    char spec = 'G';
+    int precision = -1;
     if (format != nullptr)
     {
-        const Il2CppString* fs = reinterpret_cast<const Il2CppString*>(format);
-        if (fs->length == 1 && (fs->chars[0] == u'R' || fs->chars[0] == u'r'))
+        Il2CppString* fs = reinterpret_cast<Il2CppString*>(format);
+        if (fs->length == 0)
         {
-            if (value != value)
-                return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("NaN"));
-            if (value > 3.4028234663852886e38)
-                return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("\xE2\x88\x9E")); // U+221E
-            if (value < -3.4028234663852886e38)
-                return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("-\xE2\x88\x9E"));
-            return FormatSingleR(value);
+            spec = 'G';
+            precision = 0;
+        }
+        else if (!TryParseStandard(fs->chars, fs->length, spec, precision))
+        {
+            // net48: a non-standard format is a CUSTOM format over the
+            // 7-digit float base (oracle: 0.1f "0.0000000000" ->
+            // "0.1000000000"; custom scientific "0.00000000E+00" of pi ->
+            // "3.14159300E+00" -- base 7, too).
+            CustomSpec cs;
+            if (!ParseCustomPattern(fs->chars, fs->length, cs))
+            {
+                il2cpp_throw_format_exception("Format specifier was invalid.");
+            }
+            double scaled = value;
+            if (cs.scientific)
+            {
+                DoubleDigits dg;
+                GetDoubleDigits(value, dg, kFloatBaseDigits);
+                std::string sciDigits(dg.d, kFloatBaseDigits);
+                char16_t sciOut[kMaxBuffer + 16];
+                const int len = EmitSciCustomFormat(sciDigits, dg.exp10 + 1,
+                                                    dg.neg, cs, fs->chars,
+                                                    fs->length, sciOut);
+                return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(sciOut, len));
+            }
+            if (cs.scale > 0)
+            {
+                double f = 1.0;
+                for (int k = 0; k < cs.scale; ++k) f *= 10.0;
+                scaled *= f;
+            }
+            else if (cs.scale < 0)
+            {
+                double f = 1.0;
+                for (int k = 0; k < -cs.scale; ++k) f *= 10.0;
+                scaled /= f;
+            }
+            char fixedBuf[kMaxBuffer];
+            const int fn = FormatFixed(scaled, cs.fracPh, fixedBuf, kFloatBaseDigits);
+            fixedBuf[fn] = '\0'; // FormatFixed does NOT NUL-terminate
+            const bool neg = (fixedBuf[0] == '-');
+            const int start = neg ? 1 : 0;
+            const char* dot = std::strchr(fixedBuf + start, '.');
+            const int intLen = (dot != nullptr)
+                ? static_cast<int>(dot - (fixedBuf + start))
+                : (fn - start);
+            char16_t out[kMaxBuffer + 16];
+            const int len = EmitCustomFormat(fixedBuf + start, intLen,
+                                             (dot != nullptr) ? dot + 1 : nullptr,
+                                             cs.fracPh, neg, cs, fs->chars, fs->length, out);
+            return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(out, len));
         }
     }
-    return icall_format_double_custom(value, format, provider);
+    const char upper = static_cast<char>(spec & ~0x20);
+    const bool lower = (spec >= 'a' && spec <= 'z');
+    const char expChar = lower ? 'e' : 'E';
+    int len = 0;
+    switch (upper)
+    {
+        case 'G':
+        {
+            // net48 float G: the 7-digit base (9 above precision 7); NO
+            // explicit precision is G7 semantics ("G"/"G0"/""/null all
+            // render the 7-digit base -- oracle: 16777216f "G" ->
+            // "1.677722E+07"). No wide-base branch: the float base caps at
+            // 9 digits ("G99" -> the 9-digit base text).
+            const int baseDigits = FloatBaseDigits('G', precision);
+            const int sigDigits = (precision < 1) ? 7 : precision;
+            DoubleDigits dg;
+            GetDoubleDigits(value, dg, baseDigits);
+            len = FormatGeneralFromDigits(dg.d, baseDigits, dg.exp10, dg.neg,
+                                          sigDigits, expChar, buf);
+            break;
+        }
+        case 'F':
+            len = FormatFinite(value, precision < 0 ? 2 : precision, buf,
+                               FloatBaseDigits('F', precision));
+            break;
+        case 'N':
+            len = FormatGroupedFinite(value, precision < 0 ? 2 : precision, buf,
+                                      FloatBaseDigits('N', precision));
+            break;
+        case 'E':
+        {
+            const int prec = (precision < 0) ? 6 : precision;
+            len = FormatSciFinite(value, prec, buf, expChar,
+                                  FloatBaseDigits('E', prec));
+            break;
+        }
+        case 'C':
+        {
+            char tail[kMaxBuffer];
+            const int t = FormatGroupedFinite(value, precision < 0 ? 2 : precision, tail,
+                                              kFloatBaseDigits);
+            return inv ? MakeCurrencyStringInvariant(tail, t) : MakeCurrencyString(tail, t);
+        }
+        case 'P':
+        {
+            // net48's P scales the VALUE by 100.0 first (the same double
+            // multiply the double engine's oracle-verified P path uses; the
+            // product then rounds at the 7-digit float base).
+            len = FormatGroupedFinite(value * 100.0, precision < 0 ? 2 : precision, buf,
+                                      kFloatBaseDigits);
+            if (inv) buf[len++] = ' '; // invariant "n %" (space before '%')
+            buf[len++] = '%'; // zh-CN "n%" layout (no space)
+            break;
+        }
+        case 'R':
+        {
+            // The two-tier float round-trip (floatfix); specials were routed
+            // above with the provider spelling.
+            return FormatSingleR(value);
+        }
+        default:
+            il2cpp_throw_format_exception("Format specifier was invalid.");
+    }
+    buf[len] = '\0';
+    return MakeString(buf);
 }
 
 }} // namespace il2cpp::runtime
