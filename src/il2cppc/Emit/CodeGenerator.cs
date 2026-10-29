@@ -4659,19 +4659,63 @@ public static class CodeGenerator
                         // NullSafePtrCast reinterprets). The numeric codes
                         // ("l"/"i") and ""/null stay raw passthroughs: the
                         // IL carriers (int32/int64 slots) already match those
-                        // icall params (every vctor_-routed ctor mapping
-                        // audit: DateTime/TimeSpan/dtoffset/decimal/biginteger/
-                        // intptr/stopwatch/nullable carry only null/""/"l"/"i").
-                        // Any other cast code here has no verified newobj
-                        // rendering -- reject LOUDLY instead of silently
-                        // mis-emitting.
+                        // icall params.
+                        //
+                        // FULL VALUE DOMAIN (tupctor regression): the earlier
+                        // "audit" of this loop missed one producer, so a
+                        // ValueTuple literal/return aborted the WHOLE assembly
+                        // ("vctor 'System_ValueTuple_2_int_string_ctor' arg 1:
+                        // cast 'tupctor' has no verified newobj rendering" --
+                        // tuple1/tuple2/tuple3 EXIT=1). Enumerated from EVERY
+                        // ParamTypeNames producer reachable through the
+                        // value-type-newobj path (StackFold "vctor_{token}" ->
+                        // MethodRefResolver.Resolve):
+                        //   null       -- no casts array: DateTime 3/6/7/8-arg,
+                        //                 TimeSpan 3/4/5-arg, Decimal 1/5-arg,
+                        //                 DateTimeOffset, BigInteger, Stopwatch,
+                        //                 every USER value-type ctor (and any
+                        //                 user method shape) -> passthrough
+                        //   ""         -- Decimal (float)/(double) ctor, the
+                        //                 Nullable ctor/`TryMapNullableMember`
+                        //                 ["",""] -> passthrough
+                        //   "l"        -- DateTime/TimeSpan (long ticks), the
+                        //                 IntPtr/UIntPtr ctor receiver slot 0
+                        //                 (never read: the loop starts at 1)
+                        //                 -> passthrough (int64 slot, int64_t
+                        //                 param)
+                        //   "i"        -- DateTime (ticks, DateTimeKind) arg 2
+                        //                 -> passthrough (int32 slot)
+                        //   "g"        -- Guid ctor receiver slot 0 (never read
+                        //                 here; a Guid ARG would still need the
+                        //                 GuidValueBytePtr rendering, so it is
+                        //                 deliberately NOT whitelisted)
+                        //   "s"/"a"    -- Guid ctor(string)/ctor(byte[]): the
+                        //                 Il2CppObject* carrier must be re-typed
+                        //                 (pointer casts, below)
+                        //   "tupctor"  -- System.ValueTuple`N .ctor elements
+                        //                 (MethodRefResolver.cs:1158, pc entries;
+                        //                 the receiver slot 0 is never read --
+                        //                 the non-il2cpp:: arm above already
+                        //                 emits `(&t0)`, so every entry this
+                        //                 loop sees is an ELEMENT). RAW
+                        //                 PASSTHROUGH, exactly the pre-9868177a
+                        //                 emission: `System_ValueTuple_2_int_
+                        //                 string_ctor((&t0), arg0, arg1)` (green
+                        //                 bbee8d5d reference).
+                        //   "drop"     -- consumed above (no value-type ctor
+                        //                 uses it today; the DateTime/TimeSpan
+                        //                 dropped-kind shapes are not routed
+                        //                 here)
+                        // Any cast code OUTSIDE this list has no verified
+                        // newobj rendering -- reject LOUDLY instead of
+                        // silently mis-emitting.
                         argE = castV switch
                         {
-                            null or "" or "l" or "i" => argE,
+                            null or "" or "l" or "i" or "tupctor" => argE,
                             "s" => NullSafePtrCast("Il2CppString*", argE),
                             "a" => NullSafePtrCast("Il2CppArray*", argE),
                             _ => throw new NotSupportedException(
-                                $"vctor '{resolvedVc.CppName}' arg {ai}: cast '{castV}' has no verified newobj rendering -- LOUD whitelist (pointer carriers are 's'/'a')"),
+                                $"vctor '{resolvedVc.CppName}' arg {ai}: cast '{castV}' has no verified newobj rendering -- LOUD whitelist (passthrough: null/\"\"/\"l\"/\"i\"/\"tupctor\"; pointer carriers: 's'/'a')"),
                         };
                         argCode.Add(argE);
                     }
