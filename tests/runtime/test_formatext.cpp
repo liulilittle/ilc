@@ -768,11 +768,67 @@ int main()
         ExpectFmtF(1234567.625f, "E8", "1.23456763E+006", "float 1234567.625 E8 (base 9) tie rounds away");
         ExpectFmtF(1234567.625f, "R", "1234567.63", "float 1234567.625 R uses the base-9 tie");
 
-        // The double face must stay byte-identical (no float tie rule there).
+        // The double face keeps the 15-digit base for F/N/C/P/G15.
         ExpectFmtD(12345645.0, "G15", "12345645", "double 12345645 G15 unchanged");
         ExpectFmtD(2.675, "F2", "2.68", "double 2.675 F2 unchanged");
         ExpectFmtD(123456789012345.5, "G15", "123456789012346",
                    "double 123456789012345.5 G15 unchanged");
+    }
+
+    // --- 11. tiebreak2: the DOUBLE 15-digit base follows the same net48 tie
+    // rule (half AWAY FROM ZERO), and E above precision 14 reads the widened
+    // 16/17-digit base. Expected strings are the net48 oracle capture
+    // (tests/cases/probe-tiebreak2, InvariantCulture; C renders the zh-CN
+    // symbol here because the test passes a null provider).
+    {
+        // exp10 = 15: a 16-digit integer ending in 5 with an EVEN prefix (the
+        // CRT rounded it DOWN, net48 rounds it up).
+        ExpectFmtD(1234567890123445.0, "G15", "1.23456789012345E+15",
+                   "double 1234567890123445 G15 tie rounds away");
+        ExpectFmtD(1234567890123445.0, "G", "1.23456789012345E+15",
+                   "double 1234567890123445 G tie rounds away");
+        ExpectFmtD(1234567890123445.0, "F0", "1234567890123450",
+                   "double 1234567890123445 F0 rounds from the tie-up base");
+        ExpectFmtD(1234567890123445.0, "N2", "1,234,567,890,123,450.00",
+                   "double 1234567890123445 N2 tie rounds away");
+        ExpectFmtD(1234567890123445.0, "P2", "123,456,789,012,345,000.00%",
+                   "double 1234567890123445 P2 tie rounds away (digit scale +2)");
+        ExpectFmtD(1234567890123445.0, "0.000000000000000",
+                   "1234567890123450.000000000000000",
+                   "double 1234567890123445 custom fixed tie rounds away");
+        ExpectFmtD(1234567890123445.0, "0.000000000000000E+00",
+                   "1.234567890123450E+15",
+                   "double 1234567890123445 custom scientific tie rounds away");
+        ExpectFmtD(-1234567890123445.0, "G15", "-1.23456789012345E+15",
+                   "double -1234567890123445 G15 tie rounds away");
+        // exp10 = 14 .. -4: the tie walks down the fraction.
+        ExpectFmtD(100000000000000.5, "G15", "100000000000001",
+                   "double 100000000000000.5 G15 tie rounds away");
+        ExpectFmtD(10000000000000.25, "G15", "10000000000000.3",
+                   "double 10000000000000.25 G15 tie rounds away");
+        ExpectFmtD(1.000030517578125, "G15", "1.00003051757813",
+                   "double 1.000030517578125 G15 tie rounds away");
+        ExpectFmtD(0.0001010894775390625, "G15", "0.000101089477539063",
+                   "double 0.0001010894775390625 G15 tie rounds away");
+        // Odd-prefix / near-tie controls: unchanged.
+        ExpectFmtD(1234567890123455.0, "G15", "1.23456789012346E+15",
+                   "double 1234567890123455 G15 (odd prefix) one digit up");
+        ExpectFmtD(1234567890123444.0, "G15", "1.23456789012344E+15",
+                   "double 1234567890123444 G15 (near tie) rounds down");
+
+        // E above precision 14 reads the widened (17-digit) base.
+        ExpectFmtD(1234567890123445.0, "E14", "1.23456789012345E+015",
+                   "double 1234567890123445 E14 tie rounds away");
+        ExpectFmtD(1234567890123445.0, "E15", "1.234567890123445E+015",
+                   "double 1234567890123445 E15 widens to 16 digits");
+        ExpectFmtD(1234567890123445.0, "E16", "1.2345678901234450E+015",
+                   "double 1234567890123445 E16 widens to 17 digits");
+        ExpectFmtD(1234567890123445.0, "E17", "1.23456789012344500E+015",
+                   "double 1234567890123445 E17 pads past the base");
+        ExpectFmtD(3.141592653589793, "E15", "3.141592653589793E+000",
+                   "double pi E15 uses the widened base (15 digits give ...790)");
+        ExpectFmtD(3.141592653589793, "F15", "3.141592653589790",
+                   "double pi F15 stays on the 15-digit base");
     }
 
     // --- Report ---

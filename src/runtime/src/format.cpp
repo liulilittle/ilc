@@ -125,21 +125,23 @@ int FormatU32Hex(char* out, uint32_t value)
     return len;
 }
 
-// net48 default double.ToString approximation ("G15"): 15 significant
-// digits with .NET's layout rules. The digits come from snprintf("%.15g")
-// -- 15 significant digits, correctly rounded, with C's fixed/scientific
-// boundary (fixed for decimal exponent in [-4, 14]) which matches .NET's
-// rule (fixed iff -5 < exponent < 15) EMPIRICALLY VERIFIED against net48:
+// net48 default double.ToString ("G15"): 15 significant digits with .NET's
+// layout rules. The finite text comes from the SHARED double G15 engine
+// (format_double_default -> formatext FormatGeneralDouble over
+// GetTieBaseDigits), whose base is the same correctly rounded 15-digit
+// conversion the previous snprintf("%.15g") used -- with net48's half AWAY
+// FROM ZERO tie rule instead of the CRT's half to even (tiebreak2 oracle:
+// 1234567890123445.0 -> "1.23456789012345E+15"). The layout rule is .NET's
+// (fixed iff -5 < exponent < 15), EMPIRICALLY VERIFIED against net48:
 //   1e-5  -> "1E-05" (scientific),  1e14 -> "100000000000000" (fixed),
 //   1e15  -> "1E+15" (scientific),  0.1+0.2 -> "0.3" (net48 G15, no
 //   round-trip fallback -- .NET Core 3.0+ differs).
-// Post-processing only adapts C's spelling to .NET's: 'e' -> 'E' (C already
-// signs and zero-pads the exponent to 2 digits, like .NET), -0.0 -> "0",
-// NaN/+-Infinity -> .NET words: NaN as "NaN", infinities as the culture
-// symbol U+221E/-U+221E (U+221E, UTF-8 E2 88 9E -- the .NET Framework
-// invariant-culture infinity symbol, net48 zh-CN verified, same spelling
-// as console.cpp's console_format_double). 'out' must hold kFormatBufferSize
-// chars; always NUL-terminates.
+// The engine already spells the exponent with 'E' and signs / zero-pads it to
+// 2 digits, and drops the -0.0 sign. NaN/+-Infinity -> .NET words: NaN as
+// "NaN", infinities as the culture symbol U+221E/-U+221E (U+221E, UTF-8
+// E2 88 9E -- the .NET Framework invariant-culture infinity symbol, net48
+// zh-CN verified, same spelling as console.cpp's console_format_double).
+// 'out' must hold kFormatBufferSize chars; always NUL-terminates.
 void FormatDoubleG15(double value, char* out)
 {
     // Specials first: NaN and the infinities have fixed .NET spellings;
@@ -167,15 +169,9 @@ void FormatDoubleG15(double value, char* out)
         return;
     }
 
-    // %.15g: 15 significant digits in .NET's fixed/scientific layout; the
-    // only C-isms left are the lowercase 'e' and the leading sign of -0.0
-    // (already excluded above). Max length: 25 chars (scientific form).
-    std::snprintf(out, kFormatBufferSize, "%.15g", value);
-    char* e = std::strchr(out, 'e');
-    if (e != nullptr)
-    {
-        *e = 'E'; // .NET uses an uppercase exponent marker
-    }
+    // The shared G15 engine (see the header comment): tie-corrected digit
+    // base, .NET layout, uppercase exponent.
+    il2cpp::runtime::format_double_default(value, out, kFormatBufferSize);
 }
 
 // .NET Parse whitespace: the ASCII set (0x09-0x0D and 0x20). .NET also

@@ -454,6 +454,30 @@ int main()
     Expect(console_format_single(std::numeric_limits<double>::infinity()) == "\xE2\x88\x9E",
            "format_single renders +inf as UTF-8 U+221E (net48 zh-CN)");
 
+    // --- 3b2. tiebreak2: the console float/double text carries the net48
+    // tie rule (half AWAY FROM ZERO). console_format_single now delegates to
+    // icall_format_float_custom (the Single.ToString() engine), so an EXACT
+    // 7-digit tie prints the rounded-up digit instead of the CRT's half-even
+    // one; console_format_double reads the shared G15 engine. Expected strings
+    // are the net48 oracle capture (tests/cases/probe-tiebreak2).
+    Expect(console_format_single(static_cast<double>(12345645.0f)) == "1.234565E+07",
+           "format_single renders the 12345645f tie as \"1.234565E+07\" (net48)");
+    Expect(console_format_single(static_cast<double>(6000000.5f)) == "6000001",
+           "format_single renders the 6000000.5f tie as \"6000001\" (net48)");
+    Expect(console_format_single(static_cast<double>(0.00048828125f)) == "0.0004882813",
+           "format_single renders the 0.00048828125f tie as \"0.0004882813\" (net48)");
+    Expect(console_format_single(static_cast<double>(-12345645.0f)) == "-1.234565E+07",
+           "format_single renders the negative float tie away from zero");
+    Expect(console_format_single(static_cast<double>(12345655.0f)) == "1.234566E+07",
+           "format_single keeps the odd-prefix float control at one digit up");
+    Expect(console_format_double(1234567890123445.0) == "1.23456789012345E+15",
+           "format_double renders the 15-digit double tie as \"1.23456789012345E+15\" (net48)");
+    Expect(console_format_double(10000000000000.25) == "10000000000000.3",
+           "format_double renders the 10000000000000.25 tie as \"10000000000000.3\" (net48)");
+    Expect(console_format_double(-1234567890123445.0) == "-1.23456789012345E+15",
+           "format_double renders the negative double tie away from zero");
+    Expect(console_format_double(1234567890123444.0) == "1.23456789012344E+15",
+           "format_double keeps the near-tie double control unchanged");
     // --- 4. Shared formatting helpers (direct) ---
     Expect(console_format_int32(0) == "0", "format_int32 renders zero");
     Expect(console_format_int32(-12345) == "-12345", "format_int32 renders negatives");

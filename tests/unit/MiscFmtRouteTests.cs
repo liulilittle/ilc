@@ -49,8 +49,55 @@ public class MiscFmtRouteTests
     }
 
     //--------------------------------------------------------------------------
+    // tiebreak2 (console float + double 15-digit-base ties): the e2e case must
+    // drive BOTH console faces through the runtime -- Console.WriteLine(float)
+    // / Write(float) / Console.Out.Write*(float) on the FLOAT icalls (the G7
+    // tie text) and the same four double arms on the DOUBLE icalls (the
+    // 15-digit tie text). The expected bytes are the net48 oracle
+    // (tests/cases/probe-tiebreak2, run by scripts/difftest.ps1).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Emit_Tiebreak2_RoutesBothConsoleFaces()
+    {
+        var cpp = GenerateProbeCase(CaseExePath("probe-tiebreak2"), "Cases_ProbeTiebreak2.cpp");
+
+        // Float face: all four console float surfaces.
+        Assert.Contains("icall_console_write_line_f", cpp);
+        Assert.Contains("icall_console_write_f", cpp);
+        Assert.Contains("icall_console_stream_write_f", cpp);
+        Assert.Contains("icall_console_stream_write_line_f", cpp);
+
+        // Double face: the same four arms stay on the double icalls.
+        Assert.Contains("icall_console_write_line_d", cpp);
+        Assert.Contains("icall_console_write_d", cpp);
+        Assert.Contains("icall_console_stream_write_d", cpp);
+        Assert.Contains("icall_console_stream_write_line_d", cpp);
+
+        // The case also covers the Single.ToString(format) float engine and the
+        // double ToString/format surfaces (both are the tie-corrected bases).
+        Assert.Contains("icall_format_float_custom", cpp);
+        Assert.Contains("icall_format_double_custom", cpp);
+        Assert.Contains("icall_double_to_string", cpp);
+    }
+
+    //--------------------------------------------------------------------------
     // Test harness.
     //--------------------------------------------------------------------------
+    private static string GenerateProbeCase(string exe, string cppFile)
+    {
+        var types = MetadataLoader.LoadAssembly(exe);
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CodeGenerator.Generate(types, dir, exe);
+            return File.ReadAllText(Path.Combine(dir, "src", cppFile));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
     private static string GenerateProbe()
     {
         var exe = CaseExePath("probe-miscfmt");

@@ -26,6 +26,7 @@
 #include "il2cpp_string.h"
 #include "il2cpp_array.h"            // Il2CppArray (char[] console overloads)
 #include "il2cpp_format.h"           // icall_int64_to_string / icall_uint64_to_string
+#include "il2cpp_format_ext.h"       // icall_format_float_custom (tiebreak2 float text)
 #include "decimal_format.h"          // icall_decimal_to_string (decimal console overloads)
 #include "il2cpp_stringbuilder.h"    // icall_string_format_1/2/3 + icall_string_format
 #include "il2cpp_value_semantics.h"  // icall_object_to_string (boxed ToString dispatch)
@@ -397,6 +398,47 @@ std::string console_format_int32(int32_t value)
     return std::to_string(value);
 }
 
+namespace {
+
+// UTF-8 bytes of a managed string (the CP 65001 console policy: the same
+// per-unit loop PrintCharCode applies, collected into a std::string instead of
+// written to a FILE*). The numeric texts carry ASCII digits plus the single
+// BMP symbol U+221E, but the loop is the general encoder (unpaired surrogate
+// -> U+FFFD, like PrintCharCode).
+std::string ManagedTextUtf8(const Il2CppString* text)
+{
+    std::string out;
+    if (text == nullptr)
+        return out;
+    out.reserve(static_cast<size_t>(text->length));
+    for (int32_t i = 0; i < text->length; ++i)
+    {
+        const unsigned int u = static_cast<unsigned int>(text->chars[i]);
+        if (u < 0x80u)
+        {
+            out.push_back(static_cast<char>(u));
+        }
+        else if (u < 0x800u)
+        {
+            out.push_back(static_cast<char>(0xC0u | (u >> 6)));
+            out.push_back(static_cast<char>(0x80u | (u & 0x3Fu)));
+        }
+        else if (u >= 0xD800u && u <= 0xDFFFu)
+        {
+            out.append("\xEF\xBF\xBD"); // unpaired surrogate -> U+FFFD
+        }
+        else
+        {
+            out.push_back(static_cast<char>(0xE0u | (u >> 12)));
+            out.push_back(static_cast<char>(0x80u | ((u >> 6) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | (u & 0x3Fu)));
+        }
+    }
+    return out;
+}
+
+} // namespace
+
 std::string console_format_double(double value)
 {
     // net48 renders the double DEFAULT as "G15" -- 15 significant digits,
@@ -404,13 +446,19 @@ std::string console_format_double(double value)
     // stripped -- NOT the shortest round-trip text (.NET Core 3.0+
     // behavior). Measured against a net48 reference: Sqrt(2) ->
     // "1.4142135623731" (15 digits), 0.1+0.2 -> "0.3", 2^63 ->
-    // "9.22337203685478E+18". The digits come from snprintf("%.15g") -- the
-    // same 15-digit CRT conversion format.cpp's G15 path uses; only the
-    // C-isms are adapted ('e' -> 'E', -0.0 -> "0"). +-Infinity follows the
-    // net48 reference (zh-CN host, empirical capture): the culture symbol
-    // U+221E (infinity) -- UTF-8 bytes E2 88 9E -- with a leading ASCII '-' for
-    // the negative form (-U+221E). stdout runs in binary mode
-    // (ConsoleStreamInitializer), so the bytes reach the stream verbatim,
+    // "9.22337203685478E+18".
+    //
+    // tiebreak2: the text is the SHARED double G15 engine
+    // (format_double_default -> formatext GetTieBaseDigits), not a local
+    // snprintf("%.15g"): the CRT converter rounds an EXACT half-way tie to
+    // EVEN while net48 rounds half AWAY FROM ZERO (oracle: 1234567890123445.0
+    // -> "1.23456789012345E+15", the CRT gave "1.23456789012344E+15";
+    // 10000000000000.25 -> "10000000000000.3"). Non-ties are unchanged.
+    //
+    // +-Infinity follows the net48 reference (zh-CN host, empirical capture):
+    // the culture symbol U+221E (infinity) -- UTF-8 bytes E2 88 9E -- with a
+    // leading ASCII '-' for the negative form (-U+221E). stdout runs in binary
+    // mode (ConsoleStreamInitializer), so the bytes reach the stream verbatim,
     // byte-identical to what WriteStringUtf8 produces for a managed string
     // carrying the same code units (the formatext.cpp convention).
     if (std::isnan(value))
@@ -421,12 +469,8 @@ std::string console_format_double(double value)
         return "0"; // net48: the sign of -0.0 is not rendered
 
     char buffer[64];
-    std::snprintf(buffer, sizeof(buffer), "%.15g", value);
-    std::string result(buffer);
-    const std::string::size_type exponentPos = result.find('e');
-    if (exponentPos != std::string::npos)
-        result[exponentPos] = 'E'; // "1e+21" -> "1E+21" (net48 exponent form)
-    return result;
+    il2cpp::runtime::format_double_default(value, buffer, static_cast<int>(sizeof(buffer)));
+    return std::string(buffer);
 }
 
 std::string console_format_single(double value)
@@ -434,24 +478,23 @@ std::string console_format_single(double value)
     // net48 TextWriter.Write(float) -> Single.ToString(): the FLOAT G7 text
     // (7 significant digits, NOT the double G15). Oracle: probe-miscfmt
     // (0.1f -> "0.1", 3.14159265f -> "3.141593", 16777216f -> "1.677722E+07",
-    // -0.0f -> "0", 1e-8f -> "1E-08"). The carrier is the exact float
-    // widening (the M4 double-slot ABI), so narrow back to float before the
-    // digit conversion.
-    if (std::isnan(value))
-        return "NaN";
-    if (std::isinf(value))
-        return std::signbit(value) ? "-\xE2\x88\x9E" : "\xE2\x88\x9E";
-    if (value == 0.0)
-        return "0"; // net48: the sign of -0.0f is not rendered
-
-    char buffer[64];
-    std::snprintf(buffer, sizeof(buffer), "%.7g",
-                  static_cast<double>(static_cast<float>(value)));
-    std::string result(buffer);
-    const std::string::size_type exponentPos = result.find('e');
-    if (exponentPos != std::string::npos)
-        result[exponentPos] = 'E'; // "1e+07" -> "1E+07" (net48 exponent form)
-    return result;
+    // -0.0f -> "0", 1e-8f -> "1E-08").
+    //
+    // tiebreak2: delegate to the SHARED float engine -- the same entry
+    // icall_single_to_string uses (a null format is "G"), so the console text
+    // is byte-identical to Single.ToString() by construction. That engine's
+    // digit base rounds an EXACT tie half AWAY FROM ZERO (net48), where the
+    // previous local snprintf("%.7g") rounded half to EVEN (oracle:
+    // 12345645f -> "1.234565E+07", CRT "1.234564E+07"; 6000000.5f ->
+    // "6000001", CRT "6000000"; 0.00048828125f -> "0.0004882813").
+    // The special face is identical too: NaN -> "NaN", +-Infinity -> the
+    // zh-CN U+221E / -U+221E symbols (the same UTF-8 bytes as before), and
+    // -0.0f -> "0" (the engine omits the sign of a zero magnitude). The
+    // carrier is the exact float widening (the M4 double-slot ABI), so narrow
+    // back to float before the conversion.
+    const double f = static_cast<double>(static_cast<float>(value));
+    return ManagedTextUtf8(reinterpret_cast<const Il2CppString*>(
+        il2cpp::runtime::icall_format_float_custom(f, nullptr, nullptr)));
 }
 
 void icall_console_write_line_b(int32_t value)

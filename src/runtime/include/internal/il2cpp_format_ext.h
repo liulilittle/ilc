@@ -138,6 +138,26 @@ Il2CppObject* icall_format_float_custom(double value, Il2CppObject* format,
                                         Il2CppObject* provider);
 
 //------------------------------------------------------------------------------
+// tiebreak2: format_double_default -- the net48 DEFAULT double text (the
+// "G15" base: 15 significant digits, .NET fixed/scientific layout switch,
+// trailing zeros stripped) written as NUL-terminated UTF-8 into 'out' (at
+// least 32 bytes; 'capacity' bounds the copy). This is the single source of
+// the double G15 text shared by format.cpp's icall_double_to_string and
+// console.cpp's console_format_double.
+//
+// The digit base is formatext.cpp's GetTieBaseDigits, so an EXACT half-way tie
+// rounds AWAY FROM ZERO like net48 (oracle: 1234567890123445.0 ->
+// "1.23456789012345E+15"; the CRT's "%.15g" half-to-even gave
+// "1.23456789012344E+15"). Non-tie values are byte-identical to the previous
+// snprintf("%.15g") text.
+//
+// FINITE values only: the caller keeps its own NaN / +-Infinity / zero
+// spelling (format.cpp and console.cpp differ there by design -- the console
+// emits the culture U+221E bytes directly).
+//------------------------------------------------------------------------------
+void format_double_default(double value, char* out, int capacity);
+
+//------------------------------------------------------------------------------
 // icall_format_narrow_custom -- ToString(format[, provider]) for the NARROW
 // integer types (System.Byte / System.SByte / System.Int16 / System.UInt16).
 //
