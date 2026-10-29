@@ -122,6 +122,14 @@ inline void il2cpp_guid_ctor_string(uint8_t bytes[16], Il2CppObject* s)
 // ToString("D"): the 36-char lowercase form above, as a managed string.
 Il2CppString* il2cpp_guid_to_string(const uint8_t bytes[16]);
 
+// ToByteArray(): the 16-byte .NET storage image as a FRESH managed byte[16]
+// (net48 allocates a new array per call -- mutating a returned array never
+// corrupts the Guid slot). A null buffer yields nullptr (defensive -- the
+// il2cpp_ipaddress_get_address_bytes precedent). The primitive-array
+// convention is the IPAddress.GetAddressBytes shape (elemSize 1,
+// isRefElement false).
+Il2CppArray* il2cpp_guid_to_byte_array(const uint8_t bytes[16]);
+
 // ToString(format): the full .NET family -- null/"D" dashed, "N" bare,
 // "B" braced, "P" parenthesised, "X" the {0x...} hex form. Case-insensitive;
 // anything else is FormatException (net48 contract).

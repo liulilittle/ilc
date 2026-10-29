@@ -4647,7 +4647,33 @@ public static class CodeGenerator
                             ? resolvedVc.ParamTypeNames[ai]
                             : null;
                         if (castV == "drop") continue;
-                        argCode.Add(EmitExpr(c.Args[ai], md, types));
+                        var argE = EmitExpr(c.Args[ai], md, types);
+                        // guid-tobytes: the vctor_ path used to ignore every
+                        // non-drop cast code -- a newobj `new Guid(m.ToByteArray
+                        // ())` passed the Il2CppObject* array slot RAW into
+                        // il2cpp_guid_ctor_bytes's Il2CppArray* param ("cannot
+                        // convert 'Il2CppObject*' to 'Il2CppArray*'", the same
+                        // class of break as the newobj Guid(string) string-pool
+                        // entry). Render the POINTER-carrier casts exactly like
+                        // EmitIcallCallArgs ("s"/"a" -- the same exact-address
+                        // NullSafePtrCast reinterprets). The numeric codes
+                        // ("l"/"i") and ""/null stay raw passthroughs: the
+                        // IL carriers (int32/int64 slots) already match those
+                        // icall params (every vctor_-routed ctor mapping
+                        // audit: DateTime/TimeSpan/dtoffset/decimal/biginteger/
+                        // intptr/stopwatch/nullable carry only null/""/"l"/"i").
+                        // Any other cast code here has no verified newobj
+                        // rendering -- reject LOUDLY instead of silently
+                        // mis-emitting.
+                        argE = castV switch
+                        {
+                            null or "" or "l" or "i" => argE,
+                            "s" => NullSafePtrCast("Il2CppString*", argE),
+                            "a" => NullSafePtrCast("Il2CppArray*", argE),
+                            _ => throw new NotSupportedException(
+                                $"vctor '{resolvedVc.CppName}' arg {ai}: cast '{castV}' has no verified newobj rendering -- LOUD whitelist (pointer carriers are 's'/'a')"),
+                        };
+                        argCode.Add(argE);
                     }
                     var argList = argCode.Count > 0 ? ", " + string.Join(", ", argCode) : "";
                     if (resolvedVc.ResultIsReceiver)

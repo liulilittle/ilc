@@ -320,6 +320,30 @@ public class MethodMapGuidTests
     }
 
     //--------------------------------------------------------------------------
+    // ToByteArray -- instance, byte[] result; the receiver address passes
+    // through to the icall's const uint8_t[16] parameter (the
+    // IPAddress.GetAddressBytes shape -- MethodMapTests.Net.cs). Without this
+    // arm the call fell through to the generated-name fallback
+    // (System_Guid_ToByteArray_<sig>, never declared -- guid-tobytes RED).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Guid_ToByteArray_MapsToBytesIcall()
+    {
+        // instance byte[] ToByteArray(): ret SZARRAY (0x1D) + element byte
+        // (0x05), no params.
+        var resolved = ResolveMember(Synthesize("System", "Guid", "ToByteArray",
+            new byte[] { 0x00, 0x00, 0x1D, 0x05 }), "ToByteArray");
+
+        Assert.Equal("il2cpp::il2cpp_guid_to_byte_array", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(0, resolved.ParamCount);
+        Assert.True(resolved.ReturnsValue);
+        Assert.True(resolved.ReturnsRef);
+        Assert.Equal("g", resolved.ParamTypeNames![0]);
+        Assert.Equal("System.Byte[]", resolved.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as
     // MethodRefResolverDispatchTests)
     //--------------------------------------------------------------------------

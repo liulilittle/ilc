@@ -372,6 +372,26 @@ Il2CppString* il2cpp_guid_to_string_format(const uint8_t bytes[16], Il2CppString
 }
 
 //------------------------------------------------------------------------------
+// ToByteArray() -- the 16-byte .NET storage image as a FRESH managed byte[16]
+// (net48 returns a new array per call, so mutating one return value never
+// corrupts the Guid slot or a previous return value -- the guid-tobytes
+// contract). Primitive-array convention identical to the
+// il2cpp_ipaddress_get_address_bytes precedent (ipaddr.cpp
+// AddressBytesToArray): elemSize 1, isRefElement false. A null buffer yields
+// nullptr (defensive).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_guid_to_byte_array(const uint8_t bytes[16])
+{
+    if (bytes == nullptr)
+    {
+        return nullptr;
+    }
+    Il2CppArray* arr = il2cpp_array_new(nullptr, 1, false, 16);
+    std::memcpy(arr->data, bytes, 16);
+    return arr;
+}
+
+//------------------------------------------------------------------------------
 // Equals / CompareTo -- net48 field-wise contract (see guid.h).
 //------------------------------------------------------------------------------
 bool il2cpp_guid_equals(const uint8_t a[16], const uint8_t b[16])

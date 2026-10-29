@@ -30,8 +30,9 @@ namespace Il2Cpp.Transpiler.Emit;
 //
 // The full net48 surface is wired: NewGuid / Parse / TryParse / the
 // byte[] + string + 11-component ctors / ToString(format) /
-// ToString(format, provider) / Equals(Guid) / CompareTo(Guid) /
-// op_Equality / op_Inequality / GetHashCode. The boxed-value members
+// ToString(format, provider) / ToByteArray() / Equals(Guid) /
+// CompareTo(Guid) / op_Equality / op_Inequality / GetHashCode. The
+// boxed-value members
 // (Equals(object) / CompareTo(object)) route through the value-vs-object
 // helpers il2cpp_guid_equals_object / il2cpp_guid_compare_object (the
 // System_Guid_class box exists -- metadata.cpp + icall_box_guid).
@@ -106,6 +107,21 @@ public static partial class MethodRefResolver
             case "op_Inequality":
                 if (ps.Length == 2 && ps[0] == 0x11 && ps[1] == 0x11)
                     return I("!il2cpp::il2cpp_guid_equals", 2, true, false, false, new[] { "g", "g" });
+                return null;
+            // Guid.ToByteArray() (net48): the 16-byte .NET storage image as a
+            // FRESH managed byte[16] (a new array per call -- mutating one
+            // return value never corrupts the Guid slot). The receiver is the
+            // Guid value slot ("g" byte-slot cast); the result is a managed
+            // byte[] ref -- exactly the IPAddress.GetAddressBytes shape
+            // (MethodMap.Net.cs, ipaddr.h
+            // il2cpp_ipaddress_get_address_bytes). Without this arm the call
+            // fell through to the generated-name fallback
+            // (System_Guid_ToByteArray_<sig>, never declared -- the
+            // guid-tobytes RED).
+            case "ToByteArray":
+                if (ps.Length == 0)
+                    return I("il2cpp::il2cpp_guid_to_byte_array", 0, true, true, true,
+                        new[] { "g" }, returnTypeName: "System.Byte[]");
                 return null;
             case "Equals":
                 if (ps.Length == 1 && ps[0] == 0x11)
