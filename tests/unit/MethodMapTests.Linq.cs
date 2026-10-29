@@ -731,6 +731,111 @@ public class MethodMapTestsLinq
     }
 
     //--------------------------------------------------------------------------
+    // floatfix (b5-gaps 14): the List<T> AGGREGATE family. The seed forms are
+    // 3-arg static extensions, so the source type reaches the resolver only
+    // through the fold's post-pop re-resolve (the FIRST IL argument -- the
+    // List receiver -- passed as receiverType, the StackFold a0Type channel).
+    // The LIST gate must then dispatch the LIST domain: the source rides ""
+    // UNCAST (the array-family "a" cast would reinterpret the list items
+    // pointer as an Il2CppArray length). The FLOAT family keeps its own
+    // kernels -- net48 List<float>.Aggregate rounds EVERY step to R4, so the
+    // double-family entry is a wrong value even with a clean route.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ListAggregate_NoSeed_Float_WithReceiverHint_MapsToListAggregateF()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Aggregate",
+            memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x08,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x00, 0x08 },
+            genericSignature: new byte[] { 0x0A, 0x01, 0x0C }),
+            "System.Collections.Generic.List`1_float");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_f", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+        Assert.Equal("d", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ListAggregate_Seed_Float_WithReceiverHint_MapsToListSeedF()
+    {
+        // Aggregate<float, float>(source, seed, Func<float,float,float>):
+        // 3 params, ret VAR1 (TAccumulate), seed VAR1, func Func`3<VAR1,VAR0,VAR1>;
+        // MethodSpec args (TSource=0x0C float, TAccumulate=0x0C float).
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Aggregate",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x03, 0x13, 0x01,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x13, 0x01,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x01, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0C, 0x0C }),
+            "System.Collections.Generic.List`1_float");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_f", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        // the seed rides the double F stack (float widens exactly); the list
+        // object and the func delegate pass UNCAST.
+        Assert.Equal(new[] { "", "d", "" }, resolved.ParamTypeNames);
+        Assert.Equal("d", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ListAggregate_Seed_Double_WithReceiverHint_MapsToListSeedDD()
+    {
+        // K=4 (double cells) + a double accumulator: the SAME-CELL-WIDTH kernel
+        // (the base seed_d reads INT32 elements -- a wide-cell snapshot would
+        // feed the low 32 bits of every cell into an int32 callback slot).
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Aggregate",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x03, 0x13, 0x01,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x13, 0x01,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x01, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0D, 0x0D }),
+            "System.Collections.Generic.List`1_double");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_d_d", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "d", "" }, resolved.ParamTypeNames);
+        Assert.Equal("d", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ListAggregate_Seed_Int32_WithReceiverHint_MapsToListSeedI4()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Aggregate",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x03, 0x13, 0x01,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x13, 0x01,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x01, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x08 }),
+            "System.Collections.Generic.List`1_int");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_i4", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i", "" }, resolved.ParamTypeNames);
+        Assert.Null(resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ListAggregate_Seed_Int64_WithReceiverHint_MapsToListSeedI8I8()
+    {
+        // K=2 (long cells) + an int64 accumulator: the SAME-CELL-WIDTH kernel
+        // (the base seed_i8 reads INT32 elements).
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Aggregate",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x03, 0x13, 0x01,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x13, 0x01,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x01, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0A, 0x0A }),
+            "System.Collections.Generic.List`1_long");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_i8_i8", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "l", "" }, resolved.ParamTypeNames);
+        Assert.Equal("l", resolved.ResultKind);
+    }
+
+    //--------------------------------------------------------------------------
     // Average() -> il2cpp_linq_average_i4: double result (resultKind "d").
     //--------------------------------------------------------------------------
     [Fact]

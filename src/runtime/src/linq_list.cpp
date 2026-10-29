@@ -2733,6 +2733,17 @@ double il2cpp_linq_list_aggregate_d(Il2CppObject* list, Il2CppObject* func, int3
     return il2cpp_linq_aggregate_d(SnapshotOf(list, kind), func);
 }
 
+// floatfix: the FLOAT no-seed entry. The kind=F snapshot holds REAL 4-byte
+// float cells (il2cpp_list_obj_to_array_float), so the fold must read them
+// at that width and keep the accumulator float -- the double-family kernel
+// (il2cpp_linq_aggregate_d) reinterprets pairs of float cells as doubles and
+// accumulates without per-step R4 rounding (both a wrong value).
+float il2cpp_linq_list_aggregate_f(Il2CppObject* list, Il2CppObject* func, int32_t kind)
+{
+    RequireList(list);
+    return il2cpp_linq_aggregate_f_f(SnapshotOf(list, kind), func);
+}
+
 int32_t il2cpp_linq_list_aggregate_seed_i4(Il2CppObject* list, int32_t seed,
                                            Il2CppObject* func, int32_t kind)
 {
@@ -2748,10 +2759,56 @@ int64_t il2cpp_linq_list_aggregate_seed_i8(Il2CppObject* list, int64_t seed,
 }
 
 double il2cpp_linq_list_aggregate_seed_d(Il2CppObject* list, double seed,
-                                          Il2CppObject* func, int32_t kind)
+                                           Il2CppObject* func, int32_t kind)
 {
     RequireList(list);
     return il2cpp_linq_aggregate_seed_d(SnapshotOf(list, kind), seed, func);
+}
+
+// floatfix: the FLOAT seed entry. The seed crosses on the double F stack (a
+// float parameter widens exactly -- narrowing back here is lossless because
+// the caller's float value widened into it) and the accumulator stays float,
+// folding through the FAccDFn float(*)(double,double) leaf ABI: a
+// float-returning lambda is a C++ `float f(double, double)` and must be read
+// through a float fn-pointer (the double read mixes the callee's
+// XMM0[63:32] residue into every step). Per-step R4 rounding == net48.
+float il2cpp_linq_list_aggregate_seed_f(Il2CppObject* list, double seed,
+                                        Il2CppObject* func, int32_t kind)
+{
+    RequireList(list);
+    return il2cpp_linq_aggregate_seed_f_f(SnapshotOf(list, kind),
+                                          static_cast<float>(seed), func);
+}
+
+// floatfix: the WIDE-element seed entries. The base seed_d / seed_i8 kernels
+// read INT32 elements (the int-source + wide-accumulator shape -- the DBin*
+// callback ABI's second slot is int32_t); a List<double> / List<long>
+// snapshot holds REAL 8-byte cells and its lambda is a `d(d,d)` / `l(l,l)`
+// leaf, so the fold must use the same-cell-width kernels (FoldDD / FoldI8I8)
+// or every step reads the low 32 bits of the cell and misaligns the callback.
+double il2cpp_linq_list_aggregate_seed_d_d(Il2CppObject* list, double seed,
+                                           Il2CppObject* func, int32_t kind)
+{
+    RequireList(list);
+    return il2cpp_linq_aggregate_seed_d_d(SnapshotOf(list, kind), seed, func);
+}
+
+int64_t il2cpp_linq_list_aggregate_seed_i8_i8(Il2CppObject* list, int64_t seed,
+                                              Il2CppObject* func, int32_t kind)
+{
+    RequireList(list);
+    return il2cpp_linq_aggregate_seed_i8_i8(SnapshotOf(list, kind), seed, func);
+}
+
+// floatfix: the float-accumulator entry over a WIDE (double-cell) snapshot --
+// FoldFD's element read adapts to the array's own elemSize, so this entry
+// serves the (float acc, double-element list) shape.
+float il2cpp_linq_list_aggregate_seed_f_d(Il2CppObject* list, double seed,
+                                          Il2CppObject* func, int32_t kind)
+{
+    RequireList(list);
+    return il2cpp_linq_aggregate_seed_f_d(SnapshotOf(list, kind),
+                                          static_cast<float>(seed), func);
 }
 
 Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,

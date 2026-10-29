@@ -2061,4 +2061,57 @@ Il2CppObject* icall_format_iface_tostring(Il2CppObject* boxed, Il2CppObject* for
     return icall_format_composite_item(boxed, format, 0, provider);
 }
 
+//------------------------------------------------------------------------------
+// floatfix: net48 Single.ToString("R") -- the shortest decimal that
+// round-trips through the FLOAT width. The double "R" of the widened value
+// prints full double precision (0.1f -> "0.100000001490116"), while net48
+// prints the float-round-trip shortest ("0.1"). Nine significant digits
+// always round-trip an IEEE float, so the ascending-precision scan terminates
+// at the same representation net48 picks.
+//------------------------------------------------------------------------------
+namespace {
+Il2CppObject* FormatSingleR(double value)
+{
+    const float f = static_cast<float>(value);
+    char buf[64];
+    // net48 R (two tiers): G7 first; parse the digits back and compare the
+    // FLOAT bits -- a mismatch falls back to G9 (nine digits always
+    // round-trip an IEEE float). Oracle: 0.1f -> "0.1", 0.66666668653f ->
+    // "0.6666667", 0.33333334327f -> "0.333333343", 1.00000011921f ->
+    // "1.00000012".
+    std::snprintf(buf, sizeof(buf), "%.7g", static_cast<double>(f));
+    if (std::strtof(buf, nullptr) != f)
+        std::snprintf(buf, sizeof(buf), "%.9g", static_cast<double>(f));
+    for (char* q = buf; *q != 0; ++q)
+    {
+        if (*q == 0x65) { *q = 0x45; break; } // net48 prints the exponent E uppercase
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(buf));
+}
+} // namespace
+
+Il2CppObject* icall_format_float_custom(double value, Il2CppObject* format,
+                                        Il2CppObject* provider)
+{
+    // Only "R" carries float-width semantics; every other format forwards to
+    // the double engine (the established Single.ToString(format) rendering
+    // for F/N/E/G/C/P/custom is unchanged). Non-finite floats take the same
+    // spellings the double engine produces for them (net48: "NaN"/U+221E).
+    if (format != nullptr)
+    {
+        const Il2CppString* fs = reinterpret_cast<const Il2CppString*>(format);
+        if (fs->length == 1 && (fs->chars[0] == u'R' || fs->chars[0] == u'r'))
+        {
+            if (value != value)
+                return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("NaN"));
+            if (value > 3.4028234663852886e38)
+                return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("\xE2\x88\x9E")); // U+221E
+            if (value < -3.4028234663852886e38)
+                return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("-\xE2\x88\x9E"));
+            return FormatSingleR(value);
+        }
+    }
+    return icall_format_double_custom(value, format, provider);
+}
+
 }} // namespace il2cpp::runtime

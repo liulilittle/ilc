@@ -2585,6 +2585,15 @@ public static class CodeGenerator
                 locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "dt";
             else if (parts[i].StartsWith("V:System.TimeSpan", StringComparison.Ordinal))
                 locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "ts";
+            // floatfix: a FLOAT ("f") or DOUBLE ("d") parameter rides the
+            // double F-stack slot -- seed "d" so ExprIsDouble sees the
+            // arithmetic operands: `a / b` over float parameters must fold to
+            // the double division, never the int32 checked_div (which
+            // truncates 1.0f/3.0f to 0 -- the probe-califloat c_f2 defect).
+            // The declaration comes from the function signature (double);
+            // this kind only feeds the operand classification.
+            else if (parts[i] is "d" or "f")
+                locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "d";
         }
         // Instance method `this` (arg0) is always a managed reference -- the
         // inline pass rewrites it into fresh temps (`inl0 = arg0`) and copies
@@ -10710,8 +10719,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
 
     // calli target RETURN C++ type. The return byte may be void, an
     // int32/int64/double slot, or a managed reference (raw element bytes:
-    // 0x01 void, 0x08/0x09 int32, 0x0A/0x0B int64, 0x0C/0x0D double, 0x0E/0x12/
-    // 0x1C/0x1D/0x1F reference). int64/double returns widen the temp slot.
+    // 0x01 void, 0x08/0x09 int32, 0x0A/0x0B int64, 0x0C float / 0x0D double,
+    // 0x0E/0x12/0x1C/0x1D/0x1F reference). int64/double returns widen the
+    // temp slot.
     private static string CalliReturnCpp(byte returnByte)
     {
         if (returnByte == 0x01) return "void";
@@ -10719,7 +10729,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // in the object model): the default C++ type for a calli result.
         if (returnByte is 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 or 0x17) return "int32_t";
         if (returnByte is 0x0A or 0x0B) return "int64_t";
-        if (returnByte is 0x0C or 0x0D) return "double";
+        // floatfix: a float (0x0C) calli target is a C++ `float` function --
+        // the 4-byte XMM0 return must be read through float(*)(), the same
+        // isReturn rule as ReturnTypeCpp 0x0C ("float"); the old "double"
+        // read mixed the callee's XMM0[63:32] residue into the value (the
+        // bit-level denormal defect). The RESULT SLOT stays the "d" double
+        // carrier (StackFold's calli ResultKind mirrors UserCallResultKind:
+        // float widens into the slot exactly, lossless).
+        if (returnByte == 0x0C) return "float";
+        if (returnByte == 0x0D) return "double";
         if (returnByte is 0x0E or 0x12 or 0x1C or 0x1D or 0x1F) return "Il2CppObject*";
         // P-D3 (section 7.3 calli whitelist): 0x18 ELEMENT_TYPE_I (IntPtr/native-int)
         // must carry the FULL pointer width -- the old int32_t collapsed the

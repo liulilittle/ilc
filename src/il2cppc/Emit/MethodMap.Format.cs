@@ -97,10 +97,12 @@ public static partial class MethodRefResolver
                 FormatCasts(receiverIsAddress ? "deref:d" : "unbox:d", ps.Length),
                 appendLiterals: ps.Length == 1 ? new[] { "nullptr" } : null,
                 providerCulture: ps.Length == 2),
-            // float values live in double slots (the icall_double_to_string
-            // precedent in MethodMap.ValueType.cs); ToString(format) routes
-            // to the double formatter the same way.
-            "System.Single" => I("il2cpp::runtime::icall_format_double_custom", ps.Length, true, true, true,
+            // floatfix: Single.ToString(format) routes to the FLOAT-width
+            // formatter -- "R" is the shortest FLOAT round-trip decimal
+            // (net48 0.1f.ToString("R") == "0.1"; the double engine of the
+            // widened value printed "0.100000001490116"). Every other format
+            // forwards inside the runtime to the double engine unchanged.
+            "System.Single" => I("il2cpp::runtime::icall_format_float_custom", ps.Length, true, true, true,
                 FormatCasts(receiverIsAddress ? "deref:d" : "unbox:d", ps.Length),
                 appendLiterals: ps.Length == 1 ? new[] { "nullptr" } : null,
                 providerCulture: ps.Length == 2),

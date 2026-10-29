@@ -1,4 +1,4 @@
-﻿using System.Reflection.Metadata;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using Il2Cpp.Transpiler.Model;
 using Il2Cpp.Transpiler.Opt;
@@ -754,7 +754,21 @@ public static partial class MethodRefResolver
             // fires, and MoveNext falls to the generated-name path (undefined
             // symbol). The definition name (generics stripped) is what the
             // IEnumerator owner arm matches against.
-            ReturnTypeName: IteratorInterfaceDefName(returnTypeName));
+            // floatfix: a USER method returning a GENERIC INSTANTIATION
+            // (List<float> etc.) must ALSO carry the bare managed name so the
+            // call result temp is objTypes-tracked -- the static-call source
+            // hint (arg1Type for arity 2, the post-pop re-resolve for arity
+            // >= 3) reads it and the List gate prefix-matches
+            // "System.Collections.Generic.List`1". Without it a
+            // MakeList().Aggregate(...) hid the List receiver and fell to the
+            // array family with the List object cast to Il2CppArray* (the
+            // items pointer read as a length).
+            ReturnTypeName: IteratorInterfaceDefName(returnTypeName)
+                ?? (returnType == SignatureTypeCode.GenericTypeInstance
+                    ? (returnTypeName != null && returnTypeName.StartsWith("r:", StringComparison.Ordinal)
+                        ? returnTypeName[2..]
+                        : returnTypeName)
+                    : null));
     }
 
     // G1 (C1): a multidim ARRAY accessor MemberRef -- the multidim indexer
@@ -978,7 +992,7 @@ public static partial class MethodRefResolver
         var mr2 = md.GetMemberReference(handle);
         var mrName = md.GetString(mr2.Name);
         var owner2 = ResolveOwnerFullName(md, mr2.Parent);
-        var (pc, retType, pt, _) = MethodSignatureCoder.Decode(md, mr2.Signature);
+        var (pc, retType, pt, retTypeName) = MethodSignatureCoder.Decode(md, mr2.Signature);
 
         // G1 (C1): a multidim ARRAY accessor -- the multidim indexer
         // (`m[0,1]` -> int32_t[0...,0...]::Get(int32,int32)) or element write
@@ -1246,6 +1260,20 @@ public static partial class MethodRefResolver
             // ResolveMethodDefinition -- the caller temp must be intptr_t.
             ResultKind: vtRet != null ? "vt:" + vtRet
                 : retType is SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr ? "ptr" : null,
+            // floatfix: a USER method returning a GENERIC INSTANTIATION
+            // (List<float> etc.) carries the bare managed name so the call
+            // result temp is objTypes-tracked -- the static-call source hint
+            // (arg1Type for arity 2, the post-pop re-resolve for arity >= 3)
+            // reads it and the List gate prefix-matches
+            // "System.Collections.Generic.List`1". Without it a
+            // MakeList().Aggregate(...) hid the List receiver and fell to the
+            // array family with the List object cast to Il2CppArray* (the
+            // items pointer read as a length). Same contract as the
+            // ResolveMethodDefinition arm above.
+            ReturnTypeName: retType == SignatureTypeCode.GenericTypeInstance
+                && retTypeName != null && retTypeName.StartsWith("r:", StringComparison.Ordinal)
+                ? retTypeName[2..]
+                : null,
             // P26 (bcldeep/charconv): the MemberReference fallthrough for an
             // EXTERNAL BCL owner is a PHANTOM generated name -- flag it so
             // StackFold.EmitCall REJECTS it loudly at the FINAL resolution

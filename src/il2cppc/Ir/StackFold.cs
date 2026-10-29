@@ -116,6 +116,31 @@ public static class StackFold
         // derived type must match; before the fix every throw was a fixed
         // System.Exception and derived catches never matched).
         var objTypes = new Dictionary<string, string>();
+        // floatfix: seed the parameter slots' tracked managed types from the
+        // method signature. A managed-typed PARAMETER (ldarg -> argN) carried
+        // no objTypes entry before, so a helper method taking List<T> hid the
+        // receiver type from every resolver hint (the static re-resolve below
+        // reads args[0]'s tracked type -- null for a parameter) and List
+        // LINQ operators inside helper methods fell to the array family with
+        // the raw List object cast to Il2CppArray*. The "r:"-prefixed model
+        // names (MethodSignatureCoder: CLASS/GENERICINST/SZARRAY encode the
+        // managed full name) are exact metadata -- the same shapes the
+        // newobj/ToList temp tracking already carries for locals. Byref
+        // parameters push ADDRESSES, not values -- they stay unseeded.
+        if (ctx.ParamTypeNames is { Length: > 0 })
+        {
+            var firstParamArg = ctx.IsStatic ? 0 : 1; // instance: arg0 = this
+            for (var pi = 0; pi < ctx.ParamTypeNames.Length; pi++)
+            {
+                var ptn = ctx.ParamTypeNames[pi];
+                if (ptn.Length == 0 || !ptn.StartsWith("r:", StringComparison.Ordinal)
+                    || ptn.EndsWith("&", StringComparison.Ordinal))
+                    continue;
+                var argIdx = firstParamArg + pi;
+                if (argIdx >= ctx.ArgCount) continue;
+                objTypes[ArgName(argIdx)] = ptn[2..];
+            }
+        }
         // p-refl2-gapmatrix (B08): local name -> the member-VALUE provenance
         // recorded for a folded typeof-chain GetMethod/GetField call whose
         // result was stored into the local. Lets a downstream member flag
@@ -2613,6 +2638,17 @@ public static class StackFold
             if (t != null) objTypes[target] = t;
         }
 
+        // floatfix: the user-call ReturnTypeName carries the signature
+        // coder's "r:" managed-reference prefix (MethodSignatureCoder's
+        // CLASS/GENERICINST/SZARRAY encodings), while the objTypes values are
+        // BARE managed names (the newobj/ToList tracking convention). A
+        // List-returning user method's result temp must record the bare name
+        // -- the List gate prefix-matches "System.Collections.Generic.List`1"
+        // -- or List LINQ operators on the call result fall to the array
+        // family (the MakeFloatList().Aggregate funnel).
+        static string? BareManagedName(string? name) =>
+            name != null && name.StartsWith("r:", StringComparison.Ordinal) ? name[2..] : name;
+
         // M5-JOIN (A2 review): a REUSED join slot must not keep a stale hint
         // -- if any arm's value type disagrees with the recorded one the join
         // is AMBIGUOUS: drop the hint so the resolver defers instead of
@@ -3025,6 +3061,11 @@ public static class StackFold
                 // int64/double/pointer return (callimulti probe: `int32_t t0
                 // = (int64_t)(loc0)(...)`). Mirror UserCallResultKind's
                 // widths so the result slot matches CalliReturnCpp.
+                // floatfix: the float (0x0C) SLOT stays "d" even though
+                // CalliReturnCpp now renders the call as float(*)() -- the
+                // float result widens into the double carrier exactly
+                // (lossless), the same float-in-double slot convention as a
+                // USER call's float return (UserCallResultKind 0x0C -> "d").
                 ResultKind = (byte)returnType switch
                 {
                     0x0A or 0x0B => "l",
@@ -4353,7 +4394,7 @@ public static class StackFold
                         // receiver tracking (Rows.Count vs Columns.Count
                         // dispatch on the concrete collection).
                         if (resolved.ReturnTypeName != null && args.Count > 0 && args[0] is LocExpr rt)
-                            objTypes[rt.Name] = resolved.ReturnTypeName;
+                            objTypes[rt.Name] = BareManagedName(resolved.ReturnTypeName);
                         Push(args[0], ins);
                     }
                     return;
@@ -4467,7 +4508,7 @@ public static class StackFold
                             objTypes[gt.Name] = "System.Type"; // GetType() -> the type NAME string; .Name on it is identity
                         }
                         else if (resolved.ReturnTypeName != null && stack.Peek() is LocExpr rt)
-                            objTypes[rt.Name] = resolved.ReturnTypeName;
+                            objTypes[rt.Name] = BareManagedName(resolved.ReturnTypeName);
                     }
                     else
                     {
@@ -4683,8 +4724,18 @@ public static class StackFold
             // For non-virtual INSTANCE calls the receiver is args[0] -- its
             // address/value shape decides the receiver cast (ldloca -> deref,
             // boxed -> unbox); the pre-pop stack top was the LAST argument.
+            // floatfix: a Linq AGGREGATE binding also re-resolves here. The
+            // seed/result-selector forms are 3/4-arg static extensions -- the
+            // SOURCE (a List<T> receiver) sits BELOW the seed/lambda on the IL
+            // stack, so the pre-pop resolution can never see its tracked type
+            // (arg0Type = the lambda, arg1Type = the seed) and the array-family
+            // arm binds with the raw List object cast to Il2CppArray* (reading
+            // the items pointer as a length). After the pop, args[0] IS the
+            // first IL argument, so the aggregate icall re-resolves with the
+            // real source type and the List gate dispatches the list domain.
             if (md != null && args.Count > 0 && resolved is { IsInstance: false }
-                && !resolved.CppName.StartsWith("il2cpp::", StringComparison.Ordinal))
+                && (!resolved.CppName.StartsWith("il2cpp::", StringComparison.Ordinal)
+                    || resolved.CppName.StartsWith("il2cpp::il2cpp_linq_aggregate", StringComparison.Ordinal)))
             {
                 var a0Type = args[0] is LocExpr fl2 && objTypes.TryGetValue(fl2.Name, out var tt2) ? tt2 : null;
                 if (a0Type != null)
@@ -4864,7 +4915,7 @@ public static class StackFold
                 "il2cpp::il2cpp_linq_order_by_key_i4_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i4_d" => "_i4_d",
                 // impl-floatkey: the float-key primary entries (the float
-                // family has its own reader -- b5-gaps §14).
+                // family has its own reader -- b5-gaps 搂14).
                 "il2cpp::il2cpp_linq_order_by_key_i4_f"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i4_f" => "_i4_f",
                 "il2cpp::il2cpp_linq_order_by_key_i8_i4"
@@ -4886,7 +4937,7 @@ public static class StackFold
                 "il2cpp::il2cpp_linq_order_by_key_dec_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_dec_d" => "src_dec_d",
                 // impl-orderfam: the DECIMAL-source FLOAT-key primaries (the
-                // float family has its own reader -- b5-gaps §14).
+                // float family has its own reader -- b5-gaps 搂14).
                 "il2cpp::il2cpp_linq_order_by_key_dec_f"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_dec_f" => "src_dec_f",
                 "il2cpp::il2cpp_linq_order_by_key_dec_dec"
@@ -5011,7 +5062,7 @@ public static class StackFold
                         "dt" => "4",
                         "guid" => "5",
                         // impl-orderfam: the float family has its own reader
-                        // column on the runtime dec dispatch (b5-gaps §14).
+                        // column on the runtime dec dispatch (b5-gaps 搂14).
                         "f" => "6",
                         _ => "3",
                     };
@@ -5331,7 +5382,7 @@ public static class StackFold
                 if (resolved?.CppName == "il2cpp::runtime::icall_object_get_type" && stack.Peek() is LocExpr gt2)
                     objTypes[gt2.Name] = "System.Type"; // GetType() -> the type NAME string; .Name on it is identity
                 else if (resolved?.ReturnTypeName != null && stack.Peek() is LocExpr rt2)
-                    objTypes[rt2.Name] = resolved.ReturnTypeName;
+                    objTypes[rt2.Name] = BareManagedName(resolved.ReturnTypeName);
                 // D5 (surface 4): a SHARED method-level generic method's MVAR
                 // return (PickUser2::Pick<int> -- the callee emits the boxed
                 // object slot) records the CONCRETE T on the result temp. The
@@ -7577,7 +7628,7 @@ public static class StackFold
                     // the MARKER as the coded index, so every TypeSpec-parent
                     // span call (ReadOnlySpan`1<char>::op_Implicit) resolved a
                     // garbage owner and the char[] carrier gate never matched
-                    // (P3-1鈶?e2e red: "op_Implicit not wired in M5").
+                    // (P3-1閳?e2e red: "op_Implicit not wired in M5").
                     _ = sig.ReadByte();
                     var th = sig.ReadTypeHandle();
                     owner = th.Kind switch
@@ -7602,7 +7653,7 @@ public static class StackFold
         // parameter renders one segment), so the old
         // ParamCount==paramTypesShapes.Length precondition compared the CALL's
         // parameter count against the ALTERNATIVE COUNT -- every multi-shape
-        // gate with a 1-parameter call was structurally dead (P3-1鈶?e2e red:
+        // gate with a 1-parameter call was structurally dead (P3-1閳?e2e red:
         // the char[] op_Implicit carrier never matched either shape).
         static bool SpanCarrierIdentitySig(MetadataReader md, int token, params string[] paramTypesShapes)
         {

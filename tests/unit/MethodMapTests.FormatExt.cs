@@ -26,8 +26,9 @@ using Xunit;
 //     System.Int16 / System.UInt16 WERE this shape (a silent C++ compile
 //     failure) and are now wired to icall_format_narrow_custom; the remaining
 //     Format-chain members are System.UInt32 / System.UInt64.
-//   * System.Single IS in the chain (routes to icall_format_double_custom --
-//     float lives in double slots, the icall_double_to_string precedent).
+//   * System.Single IS in the chain (routes to icall_format_float_custom --
+//     floatfix: "R" is the float-width round-trip format; the runtime
+//     forwards the other formats to the double engine).
 //   * decimal-domain T3: System.Decimal joined the chain (Format ?? Decimal
 //     dispatch) -- ToString(string) routes to icall_decimal_to_string_custom
 //     (the pre-wiring gap-shape test was updated accordingly).
@@ -222,16 +223,18 @@ public class MethodMapFormatExtTests
     }
 
     //--------------------------------------------------------------------------
-    // System.Single -- wired: routes to icall_format_double_custom (float
-    // values live in double slots -- the icall_double_to_string precedent in
-    // MethodMap.ValueType.cs). Full surface mirrors the Double coverage.
+    // System.Single -- wired: routes to icall_format_float_custom (floatfix:
+    // "R" carries float-width semantics -- the shortest FLOAT round-trip; the
+    // runtime forwards every other format to the double engine unchanged).
+    // The value rides the double slot (the icall_single_to_string precedent
+    // in MethodMap.ValueType.cs). Full surface mirrors the Double coverage.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Single_ToStringWithFormat_MapsToDoubleCustomIcall()
+    public void Resolve_Single_ToStringWithFormat_MapsToFloatCustomIcall()
     {
         var resolved = ResolveMember(Synthesize("System", "Single", "ToString", Sig(0x0E, 0x0E)), "ToString");
 
-        Assert.Equal("il2cpp::runtime::icall_format_double_custom", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_format_float_custom", resolved.CppName);
         Assert.Equal(1, resolved.ParamCount);
         Assert.True(resolved.ReturnsRef);
         Assert.Equal(new[] { "unbox:d", "" }, resolved.ParamTypeNames);
@@ -243,7 +246,7 @@ public class MethodMapFormatExtTests
         var resolved = ResolveMember(Synthesize("System", "Single", "ToString",
             new byte[] { 0x00, 0x02, 0x0E, 0x0E, 0x12, 0x05 }), "ToString");
 
-        Assert.Equal("il2cpp::runtime::icall_format_double_custom", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_format_float_custom", resolved.CppName);
         Assert.Equal(2, resolved.ParamCount);
         Assert.Equal(new[] { "unbox:d", "", "drop" }, resolved.ParamTypeNames);
     }
@@ -254,7 +257,7 @@ public class MethodMapFormatExtTests
         var resolved = ResolveMember(Synthesize("System", "Single", "ToString", Sig(0x0E, 0x0E)), "ToString",
             receiverIsAddress: true);
 
-        Assert.Equal("il2cpp::runtime::icall_format_double_custom", resolved.CppName);
+        Assert.Equal("il2cpp::runtime::icall_format_float_custom", resolved.CppName);
         Assert.Equal(new[] { "deref:d", "" }, resolved.ParamTypeNames);
     }
 

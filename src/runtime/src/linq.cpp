@@ -1775,7 +1775,11 @@ float FoldF(Il2CppArray* src, float seed, Il2CppDelegate* d)
 }
 
 // Fold a float accumulator over a double-element source (a float Select
-// result is materialized as double[]).
+// result is materialized as double[]). floatfix: the element read adapts to
+// the array's OWN elemSize -- a REAL float[] (4-byte cells, nb9 H-F2) and
+// the 8-byte double carrier both feed the same kernel
+// (il2cpp_array_get_elem_float_as_double); a raw double reinterpret read
+// pairs of float cells (a silent wrong value + an OOB tail read).
 float FoldFD(Il2CppArray* src, float seed, Il2CppDelegate* d)
 {
     RootScope roots;
@@ -1785,7 +1789,7 @@ float FoldFD(Il2CppArray* src, float seed, Il2CppDelegate* d)
     const int32_t n = src->length;
     for (int32_t i = 0; i < n; ++i)
     {
-        const double elem = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        const double elem = il2cpp_array_get_elem_float_as_double(src, i);
         acc = d->target != nullptr
             ? reinterpret_cast<FAccDThisFn>(d->methodPtr)(d->target, acc, elem)
             : reinterpret_cast<FAccDFn>(d->methodPtr)(acc, elem);
@@ -2106,10 +2110,12 @@ float il2cpp_linq_aggregate_f_d(Il2CppArray* src, Il2CppObject* func)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&d));
     roots.Add(reinterpret_cast<void**>(&src));
-    float acc = static_cast<float>(*reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, 0)));
+    // floatfix: the element read adapts to the array's OWN elemSize (a REAL
+    // float[] is 4-byte cells; a float Select carrier is 8-byte doubles).
+    float acc = static_cast<float>(il2cpp_array_get_elem_float_as_double(src, 0));
     for (int32_t i = 1; i < src->length; ++i)
     {
-        const double elem = *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(src, i));
+        const double elem = il2cpp_array_get_elem_float_as_double(src, i);
         acc = d->target != nullptr
             ? reinterpret_cast<FAccDThisFn>(d->methodPtr)(d->target, acc, elem)
             : reinterpret_cast<FAccDFn>(d->methodPtr)(acc, elem);

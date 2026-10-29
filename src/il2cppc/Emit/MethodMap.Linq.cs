@@ -4278,23 +4278,57 @@ public static partial class MethodRefResolver
                 // the source element family).
                 if (count == 2)
                 {
-                    string suffix = K switch { "2" => "i8", "3" or "4" => "d", _ => "i4" };
+                    // floatfix: K=3 (float elements) keeps its OWN entry -- the
+                    // list snapshot is REAL 4-byte float cells
+                    // (il2cpp_list_obj_to_array_float), so the double-family
+                    // kernel would read 8-byte cells out of a 4-byte snapshot
+                    // AND accumulate in double (net48 rounds every step to R4).
+                    string suffix = K switch { "2" => "i8", "3" => "f", "4" => "d", _ => "i4" };
                     return I($"il2cpp::il2cpp_linq_list_aggregate_{suffix}", 2, true, false, false,
-                        L2, resultKind: suffix == "i8" ? "l" : suffix == "d" ? "d" : null,
+                        L2, resultKind: suffix == "i8" ? "l" : suffix is "f" or "d" ? "d" : null,
                         appendLiterals: new[] { K });
                 }
                 if (count >= 3)
                 {
                     byte accByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                    // floatfix: 0x0C (float) is its OWN accumulator family --
+                    // il2cpp_linq_list_aggregate_seed_f carries a float
+                    // accumulator over the float-cell snapshot (the seed rides
+                    // the double F stack; FAccDFn float(*)(double,double)
+                    // leaves). Folding 0x0C into "d" accumulated in double and
+                    // read the lambda's float return through a double
+                    // fn-pointer (bit-level wrong).
                     string suffix = accByte switch
                     {
                         0x0A or 0x0B => "i8",
-                        0x0C or 0x0D => "d",
+                        0x0C => "f",
+                        0x0D => "d",
                         _ => "i4",
                     };
-                    string seedCast = suffix == "i8" ? "l" : suffix == "d" ? "d" : "i";
-                    return I($"il2cpp::il2cpp_linq_list_aggregate_seed_{suffix}", 3, true, false, false,
-                        new[] { "", seedCast, "" }, resultKind: suffix == "i8" ? "l" : suffix == "d" ? "d" : null,
+                    // The float seed rides the F-stack family as double (the
+                    // same convention as the array-family "f" arm's "d" cast).
+                    string seedCast = suffix == "i8" ? "l" : suffix == "i4" ? "i" : "d";
+                    // floatfix: the WIDE element families need the
+                    // SAME-CELL-WIDTH kernel when the accumulator matches the
+                    // element family -- the base seed_d / seed_i8 kernels read
+                    // INT32 elements (the int-source + wide-acc shape, the
+                    // DBin*/I8Bin* callback second slot is int32_t), while a
+                    // List<double>/List<long> snapshot holds REAL 8-byte cells
+                    // and its lambda is a `d(d,d)`/`l(l,l)` leaf. Mismatched
+                    // (element, accumulator) families keep the base entries
+                    // (the snapshot read misalignment there is a pre-existing
+                    // gap -- see the report residuals; net48 rarely folds a
+                    // wide element into a narrower accumulator).
+                    string entry = suffix switch
+                    {
+                        "d" when K == "4" => "il2cpp::il2cpp_linq_list_aggregate_seed_d_d",
+                        "i8" when K == "2" => "il2cpp::il2cpp_linq_list_aggregate_seed_i8_i8",
+                        "f" when K == "4" => "il2cpp::il2cpp_linq_list_aggregate_seed_f_d",
+                        _ => $"il2cpp::il2cpp_linq_list_aggregate_seed_{suffix}",
+                    };
+                    return I(entry, 3, true, false, false,
+                        new[] { "", seedCast, "" },
+                        resultKind: suffix == "i8" ? "l" : suffix is "f" or "d" ? "d" : null,
                         appendLiterals: new[] { K });
                 }
                 return null;

@@ -121,6 +121,18 @@ Il2CppObject* icall_format_double_custom(double value, Il2CppObject* format,
                                          Il2CppObject* provider);
 
 //------------------------------------------------------------------------------
+// floatfix: icall_format_float_custom -- Single.ToString(format[, provider]).
+// Only "R" carries float-width semantics: the shortest decimal that
+// round-trips through the FLOAT width (net48 "R" of 0.1f is "0.1", while the
+// double "R" of the widened value prints "0.100000001490116"). Every other
+// format forwards to the double engine (the established rendering for
+// F/N/E/G/C/P/custom is unchanged). The value rides the double carrier (the
+// exact float widening; the target is (float)value).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_format_float_custom(double value, Il2CppObject* format,
+                                        Il2CppObject* provider);
+
+//------------------------------------------------------------------------------
 // icall_format_narrow_custom -- ToString(format[, provider]) for the NARROW
 // integer types (System.Byte / System.SByte / System.Int16 / System.UInt16).
 //

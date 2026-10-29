@@ -288,6 +288,42 @@ public class FnPtrTests
     }
 
     //--------------------------------------------------------------------------
+    // floatfix (b5-gaps 15): a float (0x0C) calli RETURN is a C++ float
+    // function -- the indirect call must read the 4-byte XMM0 float return
+    // through float(*)(), never double(*)() (which mixes the callee's
+    // XMM0[63:32] residue into the value -- the bit-level denormal defect).
+    // The result SLOT stays the "d" double carrier (the UserCallResultKind
+    // float convention: float widens into the slot exactly, lossless).
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Fold_Calli_FloatReturn_ResultKindIsDoubleSlot()
+    {
+        // ldftn <Add>; calli float32(void); ret
+        using var pe = SynthesizeMain(BodyKind.FloatReturn);
+        var md = pe.GetMetadataReader();
+
+        var stmts = Fold(pe, md);
+
+        var call = (stmts.OfType<AssignStmt>().FirstOrDefault()?.Value
+            ?? stmts.OfType<RetStmt>().FirstOrDefault()?.Value) as CallExpr;
+        Assert.NotNull(call);
+        Assert.Equal("d", call.ResultKind);
+    }
+
+    [Fact]
+    public void Emit_Calli_FloatReturn_RendersFloatFnptr()
+    {
+        // ldftn <Add>; calli float32(void); ret -- the zero-param fnptr cast
+        // renders `float(*)()` (the old mapping rendered `double(*)()`).
+        using var pe = SynthesizeMain(BodyKind.FloatReturn);
+        var cpp = GenerateMain(pe);
+
+        Assert.Contains("float(*)", cpp);
+        Assert.Contains("NullReferenceException", cpp);
+        Assert.DoesNotContain("double(*)", cpp);
+    }
+
+    //--------------------------------------------------------------------------
     // Test harness.
     //--------------------------------------------------------------------------
     private enum BodyKind
@@ -301,6 +337,7 @@ public class FnPtrTests
         FnPtrParam,   // ldftn Add; ldftn Add; calli void(fnptr(void)); ret (F: param)
         PtrParam,     // ldftn Add; ldftn Add; calli void(int32*); ret  (P: param)
         HasThisCall,  // ldc.i4.3; ldnull; ldftn Add; calli int32(this,int32); ret (0x20)
+        FloatReturn,  // ldftn Add; calli float32(void); ret         (0x0C return)
     }
 
     private static List<Stmt> Fold(PEReader pe, MetadataReader md)
@@ -363,6 +400,8 @@ public class FnPtrTests
         // HAS_THIS (0x20) + default cc: int32(this, int32) -- conv 0x20, 1
         // param, ret int32 (0x08), param int32 (0x08).
         var hasThisSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x20, 0x01, 0x08, 0x08 }));
+        // float32(void) return: 00 00 0C (conv 0, 0 params, ret R4 0x0C).
+        var floatRetSig = mdb.AddStandaloneSignature(mdb.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x0C }));
         var addToken = MetadataTokens.GetToken(add);
         var valueSigToken = MetadataTokens.GetToken(valueSig);
         var voidSigToken = MetadataTokens.GetToken(voidSig);
@@ -372,6 +411,7 @@ public class FnPtrTests
         var fnptrParamSigToken = MetadataTokens.GetToken(fnptrParamSig);
         var ptrParamSigToken = MetadataTokens.GetToken(ptrParamSig);
         var hasThisSigToken = MetadataTokens.GetToken(hasThisSig);
+        var floatRetSigToken = MetadataTokens.GetToken(floatRetSig);
 
         var il = new BlobBuilder();
         var encoder = new InstructionEncoder(il);
@@ -404,9 +444,11 @@ public class FnPtrTests
             case BodyKind.PtrReturn:
             case BodyKind.FnPtrReturn:
             case BodyKind.IntPtrReturn:
+            case BodyKind.FloatReturn:
                 LdFtn(encoder, addToken);
                 Calli(encoder, kind == BodyKind.PtrReturn ? ptrRetSigToken
                     : kind == BodyKind.FnPtrReturn ? fnptrRetSigToken
+                    : kind == BodyKind.FloatReturn ? floatRetSigToken
                     : intptrRetSigToken);
                 break;
             case BodyKind.FnPtrParam:

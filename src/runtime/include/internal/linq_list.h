@@ -307,12 +307,33 @@ void il2cpp_linq_list_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppObje
 int32_t il2cpp_linq_list_aggregate_i4(Il2CppObject* list, Il2CppObject* func, int32_t kind);
 int64_t il2cpp_linq_list_aggregate_i8(Il2CppObject* list, Il2CppObject* func, int32_t kind);
 double  il2cpp_linq_list_aggregate_d(Il2CppObject* list, Il2CppObject* func, int32_t kind);
+// floatfix: the FLOAT no-seed entry -- the kind=F snapshot is REAL 4-byte
+// float cells, so the fold reads them at that width and the accumulator
+// rounds to R4 every step (net48 List<float>.Aggregate semantics).
+float   il2cpp_linq_list_aggregate_f(Il2CppObject* list, Il2CppObject* func, int32_t kind);
 int32_t il2cpp_linq_list_aggregate_seed_i4(Il2CppObject* list, int32_t seed,
                                            Il2CppObject* func, int32_t kind);
 int64_t il2cpp_linq_list_aggregate_seed_i8(Il2CppObject* list, int64_t seed,
                                            Il2CppObject* func, int32_t kind);
 double  il2cpp_linq_list_aggregate_seed_d(Il2CppObject* list, double seed,
                                           Il2CppObject* func, int32_t kind);
+// floatfix: the FLOAT seed entry -- the seed rides the double F stack (a
+// float parameter widens exactly) and the accumulator stays float, folding
+// through the FAccDFn float(*)(double,double) leaf ABI (a float-returning
+// lambda read through a float fn-pointer, per-step R4 rounding).
+float   il2cpp_linq_list_aggregate_seed_f(Il2CppObject* list, double seed,
+                                          Il2CppObject* func, int32_t kind);
+// floatfix: the WIDE-element seed entries -- the same-cell-width kernels for
+// a List<double> / List<long> snapshot (the base seed_d/seed_i8 kernels read
+// INT32 elements; a wide-cell snapshot + its `d(d,d)`/`l(l,l)` lambda needs
+// FoldDD/FoldI8I8). The float-acc-over-double-list entry rides FoldFD's
+// elemSize-adaptive element read.
+double  il2cpp_linq_list_aggregate_seed_d_d(Il2CppObject* list, double seed,
+                                            Il2CppObject* func, int32_t kind);
+int64_t il2cpp_linq_list_aggregate_seed_i8_i8(Il2CppObject* list, int64_t seed,
+                                              Il2CppObject* func, int32_t kind);
+float   il2cpp_linq_list_aggregate_seed_f_d(Il2CppObject* list, double seed,
+                                            Il2CppObject* func, int32_t kind);
 
 // GroupBy over the list (snapshot + the array grouping kernel; int32 lists).
 Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
