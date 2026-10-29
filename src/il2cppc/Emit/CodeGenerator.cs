@@ -2678,6 +2678,13 @@ public static class CodeGenerator
             // name; a fnptr has no managed full name).
             else if (fieldDefP != null && fieldDefP.TypeKind == FieldTypeKind.NativeInt && string.IsNullOrEmpty(fieldDefP.FieldTypeName))
                 locKind[asp.Target] = "p";
+            // impl-postfixinc2: a STATIC 64-bit field read (`t1 = <sf_long>`)
+            // must keep the full width. The ExprKind default "val" declared the
+            // temp int32_t and truncated the value (probe-postfixinc2:
+            // 5000000000 -> 705032704 on the pre-store snapshot temp that
+            // preserves a static field's old value across a postfix increment).
+            else if (fieldDefP != null && fieldDefP.FieldTypeName is "System.Int64" or "System.UInt64")
+                locKind[asp.Target] = "l";
         }
         for (var i = 0; i < stmts.Count; i++)
         {

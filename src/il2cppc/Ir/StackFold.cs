@@ -638,7 +638,23 @@ public static class StackFold
                     Push(new StaticFieldAddrExpr { FieldName = FieldName(md, ins) }, ins); break;
                 case ILOpCode.Stsfld:
                     EnsureCctor(stmts, ctx, md, ins, types);
-                    stmts.Add(new AssignStmt { Target = FieldName(md, ins), Value = stack.Pop(), SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) }); break;
+                    {
+                        // Postfix increment on a static field
+                        // (`ldsfld SF; dup; ldc.i4.1; add; stsfld SF`): the dup
+                        // copy is a LAZY StaticFieldExpr read, so a consumer
+                        // placed after the store would observe the NEW value.
+                        // net48 hands the ORIGINAL value to the postfix
+                        // expression's consumer -- snapshot every live stack
+                        // read of this field into a temp BEFORE the store
+                        // (same contract as the local/param EmitStore path).
+                        var sfTarget = FieldName(md, ins);
+                        var sfValue = stack.Pop();
+                        SnapshotStackReads(stmts, stack, sfTarget, ins, ReferencesStaticField,
+                            md != null ? FieldWidthFromSignature(ResolveField(md, ins).Signature) : null,
+                            staticFieldSlot: true);
+                        stmts.Add(new AssignStmt { Target = sfTarget, Value = sfValue, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                    }
+                    break;
                 case ILOpCode.Ldfld:
                 {
                     var fobj = stack.Pop();
@@ -2714,26 +2730,63 @@ public static class StackFold
         // Fix: snapshot any stack value still referencing the target into a
         // temp BEFORE the assignment statement (evaluated before it), replacing
         // the stack top with the snapshot temp.
-        void EmitStore(string target, IlInstruction ins)
+        //
+        // The SAME invalidation applies to a STATIC FIELD store (postfix
+        // increment: `ldsfld SF; dup; ldc.i4.1; add; stsfld SF` -- the dup
+        // copy is a lazy StaticFieldExpr read and must observe the pre-store
+        // value). The Stsfld branch and the folded static-property setter
+        // route through this helper too (probe-postfixinc2).
+        void SnapshotStackReads(List<Stmt> sink, Stack<Expr> stackArg, string target, IlInstruction ins,
+            Func<Expr, string, bool> readsTarget, string? readWidth = null, bool staticFieldSlot = false)
         {
-            var value = stack.Pop();
-            var bottomToTop = BottomToTop(stack);
+            var bottomToTop = BottomToTop(stackArg);
             var rebuilt = new List<Expr>(bottomToTop.Count);
             foreach (var e in bottomToTop)
             {
-                if (ReferencesTarget(e, target))
+                if (readsTarget(e, target))
                 {
-                    var name = $"t{temps.Count}";
+                    // A STATIC-FIELD snapshot uses a non-"tN" name on purpose:
+                    // TempSlotPass's metadata-free kind mirror classifies a
+                    // StaticFieldExpr read "val", so a `tN` snapshot of a LONG
+                    // static field was merged into an int32 slot and the
+                    // preserved old value truncated (probe-postfixinc2:
+                    // 5000000000 -> 705032704). A non-candidate name is
+                    // poisoned by the pass, so the slot keeps the width the
+                    // emitter seeds for it (CodeGenerator locKind
+                    // System.Int64/System.UInt64 -> "l").
+                    var name = staticFieldSlot ? $"tsnap{temps.Count}" : $"t{temps.Count}";
                     temps.Add(name);
-                    tempWidths[name] = ExprWidth(e, ctx, tempWidths);
-                    stmts.Add(new AssignStmt { Target = name, Value = e, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                    tempWidths[name] = readWidth ?? ExprWidth(e, ctx, tempWidths);
+                    sink.Add(new AssignStmt { Target = name, Value = e, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
                     rebuilt.Add(new LocExpr { Name = name });
                 }
                 else rebuilt.Add(e);
             }
-            stack.Clear();
-            foreach (var e in rebuilt) stack.Push(e); // rebuilt is bottom-to-top; pushing in order reproduces the same order
-                        stmts.Add(new AssignStmt { Target = target, Value = SharedReturnToValueLocal(value, target), SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+            stackArg.Clear();
+            foreach (var e in rebuilt) stackArg.Push(e); // rebuilt is bottom-to-top; pushing in order reproduces the same order
+        }
+
+        // Width of a field's VALUE slot from its decoded signature blob
+        // ("06 <elem>", the ResolveField encoding). A `long` static-field read
+        // that must be preserved across a store needs a full-width snapshot
+        // temp -- ExprWidth cannot classify a StaticFieldExpr (no metadata
+        // there) and would hand out int32, truncating the old value
+        // (probe-postfixinc2: 5000000000 -> 705032704).
+        static string FieldWidthFromSignature(string signature)
+        {
+            if (signature.Length < 4) return "i";
+            return int.Parse(signature.Substring(2, 2), System.Globalization.NumberStyles.HexNumber) switch
+            {
+                0x0A or 0x0B => "l",   // I8 / U8
+                _ => "i",
+            };
+        }
+
+        void EmitStore(string target, IlInstruction ins)
+        {
+            var value = stack.Pop();
+            SnapshotStackReads(stmts, stack, target, ins, ReferencesTarget);
+            stmts.Add(new AssignStmt { Target = target, Value = SharedReturnToValueLocal(value, target), SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
             // M5 wiring: propagate the recorded managed type through the
             // store (`object d = 3.14;` -- the box temp's type follows into
             // the local so WriteLine(d) resolves the boxed type).
@@ -2826,6 +2879,45 @@ public static class StackFold
             NewObjExpr => false, // pure allocation, no argument expressions
             _ => false
         };
+
+        // Static-field counterpart of ReferencesTarget: a StaticFieldExpr is a
+        // LAZY value read of the field's storage, so a later stsfld to the SAME
+        // field invalidates it (the postfix-increment `ldsfld; dup; ...;
+        // stsfld` shape). StaticFieldAddrExpr is deliberately NOT matched: an
+        // address (`ldsflda`) keeps .NET byref semantics -- reading through it
+        // after the store must observe the NEW value, exactly like net48.
+        static bool ReferencesStaticField(Expr e, string target) => e switch
+        {
+            StaticFieldExpr s => s.FieldName == target,
+            BinaryExpr b => ReferencesStaticField(b.Left, target) || ReferencesStaticField(b.Right, target),
+            UnaryExpr u => ReferencesStaticField(u.Operand, target),
+            CallExpr c => c.Args.Any(a => ReferencesStaticField(a, target)),
+            VirtualCallExpr v => v.Args.Any(a => ReferencesStaticField(a, target)),
+            DelegateInvokeExpr d => d.Args.Any(a => ReferencesStaticField(a, target)),
+            MarshalUtf8Expr m => ReferencesStaticField(m.Arg, target),
+            FieldExpr f => ReferencesStaticField(f.Object, target),
+            FieldAddrExpr f => ReferencesStaticField(f.Object, target),
+            _ => false
+        };
+
+        // Width of a STATIC field's value slot from the model (FieldTypeName).
+        // The folded static-property setter has no field SIGNATURE at hand --
+        // its FoldedAccessor carries only the raw field name -- so a long
+        // backing field would otherwise get an int32 snapshot temp and
+        // truncate the preserved old value.
+        static string? StaticFieldWidthByName(IReadOnlyList<TypeDef>? types, string ownerFullName, string fieldName)
+        {
+            if (types == null) return null;
+            var owner = types.FirstOrDefault(t => t.FullName == ownerFullName
+                || TypeEmitter.ReflectionFullName(t) == ownerFullName);
+            var field = owner?.StaticFields.FirstOrDefault(f => f.Name == fieldName);
+            if (field == null) return null;
+            return field.FieldTypeName switch
+            {
+                "System.Int64" or "System.UInt64" => "l",
+                _ => "i",
+            };
+        }
 
         // RuntimeHelpers.InitializeArray fold body (e2e G1): read the field's
         // RVA blob (FieldDefinition.GetRelativeVirtualAddress + PE section
@@ -5494,6 +5586,14 @@ public static class StackFold
             {
                 if (acc.IsStatic)
                 {
+                    // Postfix increment on a STATIC property (`get_SP; dup;
+                    // ...; set_SP`) folds to a static field read + store; the
+                    // dup'd getter value is a lazy StaticFieldExpr and must be
+                    // snapshotted BEFORE the store (net48 hands the ORIGINAL
+                    // value to the postfix expression's consumer).
+                    SnapshotStackReads(stmts, stack, fieldName, ins, ReferencesStaticField,
+                        StaticFieldWidthByName(types, acc.OwnerFullName, acc.FieldName),
+                        staticFieldSlot: true);
                     stmts.Add(new AssignStmt { Target = fieldName, Value = args[0], SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
                 }
                 else
