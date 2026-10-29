@@ -104,6 +104,11 @@ New-Item -ItemType Directory -Force -Path $oracleDir | Out-Null
 $net48Log = "$logDir/${Case}_diff.$stamp.net48.log"
 cmd /c "dotnet build `"$csproj`" -c Release -o `"$oracleDir`" > `"$net48Log`" 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "net48 build failed (see $net48Log)" }
+# Decide the transpile input BEFORE deploying native libs: a case-owned native dll (mylib/ etc.) must not be mistaken
+# for the managed assembly (run-tests L255-259); net48 produces only an exe here.
+$oracleExe = "$oracleDir/$Case.exe"
+if (-not (Test-Path $oracleExe)) { throw "oracle exe missing: $oracleExe" }
+$transpileInput = if (Test-Path "$oracleDir/$Case.dll") { "$oracleDir/$Case.dll" } else { $oracleExe }
 # P/Invoke cases: build the case-own native libs (mylib/ etc.) into the oracle output dir with the
 # SAME x64 flavor as the oracle exe (net48 oracle must load mylib.dll at the same architecture).
 # The runtime channel compiles the native lib STATIC into il2cpp_gen_exe (CMake), so only the
@@ -122,11 +127,6 @@ foreach ($libDir in $nativeLibDirs) {
         if ($LASTEXITCODE -ne 0) { throw "build $libName.dll for oracle $Case failed (see $libBuildLog)" }
     }
 }
-$oracleExe = "$oracleDir/$Case.exe"
-if (-not (Test-Path $oracleExe)) { throw "oracle exe missing: $oracleExe" }
-# Decide the transpile input BEFORE deploying native libs: a case-owned native dll (mylib/ etc.) must not be mistaken
-# for the managed assembly (run-tests L255-259); net48 produces only an exe here.
-$transpileInput = if (Test-Path "$oracleDir/$Case.dll") { "$oracleDir/$Case.dll" } else { $oracleExe }
 
 $exp = Invoke-RawRun $oracleExe $TimeoutMs $AppArgs
 
@@ -160,6 +160,14 @@ if ($cfgRc -ne 0) { throw "cmake configure failed (see $buildLog)" }
 if ($bldRc -ne 0) { throw "cmake build failed (see $buildLog)" }
 $rtExe = "$buildDir/il2cpp_gen_exe.exe"
 if (-not (Test-Path $rtExe)) { throw "runtime exe missing: $rtExe" }
+# P/Invoke cases: the gen CMake builds the case-own native lib as a SHARED dll under <build>/<lib>/; deploy it next to
+# the runtime exe (mirrors run-tests Deploy-NativeLibs) so the out-of-manifest DllImport resolves at runtime.
+$rtExeDir = (Resolve-Path $buildDir).Path
+Get-ChildItem $buildDir -Recurse -Filter *.dll -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($_.DirectoryName -eq $rtExeDir) { return }
+    try { Copy-Item $_.FullName "$buildDir/" -Force -ErrorAction Stop }
+    catch { Write-Warning "deploy native lib dll failed (non-fatal): $_" }
+}
 $act = Invoke-RawRun $rtExe $TimeoutMs $AppArgs
 
 # Keep raw output as evidence: abort/crash conclusions must be traceable to the original stdout/stderr (byte-level).
