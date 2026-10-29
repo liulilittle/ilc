@@ -18,7 +18,10 @@ using Xunit;
 //   WriteLine(string)                  -> icall_console_write_line_s
 //   WriteLine(bool)                    -> icall_console_write_line_b
 //   WriteLine(char)                    -> icall_console_write_line_c
-//   WriteLine(double | float)          -> icall_console_write_line_d
+//   WriteLine(double)                  -> icall_console_write_line_d
+//   WriteLine(float)                   -> icall_console_write_line_f
+//                                        (miscfmt: net48 float G7 text,
+//                                        never the double G15 text)
 //   WriteLine(long)                    -> il2cpp_console_write_line_l
 //                                        (generated-header inline helper:
 //                                        icall_int64_to_string + write_line_s)
@@ -119,6 +122,38 @@ public class MethodMapConsoleTests
         Assert.False(resolved.ReturnsValue);
         Assert.Equal(1, resolved.ParamCount);
         Assert.True(resolved.IsConsoleWriteLine);
+    }
+
+    //--------------------------------------------------------------------------
+    // miscfmt (float no-format console surface): net48 Console.WriteLine(float)
+    // renders the FLOAT G7 text (0.1f -> "0.1", 3.14159265f -> "3.141593",
+    // 16777216f -> "1.677722E+07", -0.0f -> "0"), NOT the double G15 text.
+    // The 0x0C (ELEMENT_TYPE_R4) arm must route to the float icall; the
+    // double arm (0x0D) stays on icall_console_write_line_d.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_Console_WriteLineSingle_MapsToSingleIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Console", "WriteLine", Sig(0x01, 0x0C)), "WriteLine");
+
+        Assert.Equal("il2cpp::runtime::icall_console_write_line_f", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "d" }, resolved.ParamTypeNames);
+        Assert.True(resolved.IsConsoleWriteLine);
+    }
+
+    [Fact]
+    public void Resolve_Console_WriteSingle_MapsToSingleIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Console", "Write", Sig(0x01, 0x0C)), "Write");
+
+        Assert.Equal("il2cpp::runtime::icall_console_write_f", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "d" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
@@ -255,6 +290,33 @@ public class MethodMapConsoleTests
 
         Assert.Equal("il2cpp::runtime::icall_console_stream_write_u64", m.CppName);
         Assert.Equal(new[] { "", "q" }, m.ParamTypeNames);
+    }
+
+    //--------------------------------------------------------------------------
+    // miscfmt: Console.Out / Console.Error are TextWriter objects; their
+    // Write(float)/WriteLine(float) arms must use the FLOAT no-format icalls
+    // (net48 float G7 text), not the double G15 stream icalls.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ConsoleStream_WriteSingle_MapsToStreamWriteF()
+    {
+        var m = ResolveMemberWithReceiver(Synthesize("System.IO", "TextWriter", "Write", Sig(0x01, 0x0C)),
+            "Write", "System.Console.OutStream");
+
+        Assert.Equal("il2cpp::runtime::icall_console_stream_write_f", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(new[] { "", "d" }, m.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_ConsoleStream_WriteLineSingle_MapsToStreamWriteLineF()
+    {
+        var m = ResolveMemberWithReceiver(Synthesize("System.IO", "TextWriter", "WriteLine", Sig(0x01, 0x0C)),
+            "WriteLine", "System.Console.OutStream");
+
+        Assert.Equal("il2cpp::runtime::icall_console_stream_write_line_f", m.CppName);
+        Assert.True(m.IsInstance);
+        Assert.Equal(new[] { "", "d" }, m.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------

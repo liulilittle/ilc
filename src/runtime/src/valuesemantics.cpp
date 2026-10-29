@@ -576,8 +576,10 @@ bool TryReflectedGetHashCodeDispatch(Il2CppObject* obj, int32_t* result)
 //                                              payload 0/1);
 //     Char                                  -> the UTF-16 unit as a 1-unit
 //                                             string (int32 payload);
-//     Double / Single                       -> net48 "G15" text (8-byte
+//     Double                                -> net48 "G15" text (8-byte
 //                                             widened payload);
+//     Single                                -> net48 "G7" float text
+//                                             (miscfmt: -0.0f -> "0");
 //   any other object   -> the type's full name (klass->name), EXCEPT an
 //                          untracked System.Uri, which renders its URL text
 //                          (icall_uri_to_string -- diffuri001 tostring.queue:
@@ -608,10 +610,16 @@ Il2CppString* icall_object_to_string(Il2CppObject* obj)
                    ? icall_int64_to_string(static_cast<int64_t>(u))
                    : UInt64ToString(u);
     }
-    if (HasKlassName(obj, "System.Double") ||
-        HasKlassName(obj, "System.Single"))
+    if (HasKlassName(obj, "System.Double"))
     {
         return icall_double_to_string(BoxedDoubleValue(obj));
+    }
+    // miscfmt: a boxed Single calls Single.ToString() in net48 -- the FLOAT G7
+    // text, not the double G15 text (the box stores the exact widening, so the
+    // float engine's icall_single_to_string narrows it back).
+    if (HasKlassName(obj, "System.Single"))
+    {
+        return icall_single_to_string(BoxedDoubleValue(obj));
     }
     if (IsBoxedBoolean(obj))
     {

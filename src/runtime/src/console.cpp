@@ -429,6 +429,31 @@ std::string console_format_double(double value)
     return result;
 }
 
+std::string console_format_single(double value)
+{
+    // net48 TextWriter.Write(float) -> Single.ToString(): the FLOAT G7 text
+    // (7 significant digits, NOT the double G15). Oracle: probe-miscfmt
+    // (0.1f -> "0.1", 3.14159265f -> "3.141593", 16777216f -> "1.677722E+07",
+    // -0.0f -> "0", 1e-8f -> "1E-08"). The carrier is the exact float
+    // widening (the M4 double-slot ABI), so narrow back to float before the
+    // digit conversion.
+    if (std::isnan(value))
+        return "NaN";
+    if (std::isinf(value))
+        return std::signbit(value) ? "-\xE2\x88\x9E" : "\xE2\x88\x9E";
+    if (value == 0.0)
+        return "0"; // net48: the sign of -0.0f is not rendered
+
+    char buffer[64];
+    std::snprintf(buffer, sizeof(buffer), "%.7g",
+                  static_cast<double>(static_cast<float>(value)));
+    std::string result(buffer);
+    const std::string::size_type exponentPos = result.find('e');
+    if (exponentPos != std::string::npos)
+        result[exponentPos] = 'E'; // "1e+07" -> "1E+07" (net48 exponent form)
+    return result;
+}
+
 void icall_console_write_line_b(int32_t value)
 {
     std::fputs(value != 0 ? "True" : "False", stdout);
@@ -455,6 +480,23 @@ void icall_console_write_line_d(double value)
     }
 #endif
     const std::string text = console_format_double(value);
+    std::fputs(text.c_str(), stdout);
+    console_write_newline();
+}
+
+void icall_console_write_line_f(double value)
+{
+#ifdef _WIN32
+    // Same code-page rule as icall_console_write_line_d: the only non-ASCII
+    // float text is the U+221E infinity symbol.
+    if (console_output_code_page() != 65001u && std::isinf(value))
+    {
+        std::fputs(std::signbit(value) ? "-?" : "?", stdout);
+        console_write_newline();
+        return;
+    }
+#endif
+    const std::string text = console_format_single(value);
     std::fputs(text.c_str(), stdout);
     console_write_newline();
 }
@@ -527,6 +569,20 @@ void icall_console_write_d(double value)
     }
 #endif
     const std::string text = console_format_double(value);
+    std::fputs(text.c_str(), stdout);
+}
+
+void icall_console_write_f(double value)
+{
+#ifdef _WIN32
+    // Same code-page rule as icall_console_write_line_f (no newline variant).
+    if (console_output_code_page() != 65001u && std::isinf(value))
+    {
+        std::fputs(std::signbit(value) ? "-?" : "?", stdout);
+        return;
+    }
+#endif
+    const std::string text = console_format_single(value);
     std::fputs(text.c_str(), stdout);
 }
 
@@ -1219,6 +1275,19 @@ void icall_console_stream_write_d(Il2CppObject* self, double value)
 void icall_console_stream_write_line_d(Il2CppObject* self, double value)
 {
     icall_console_stream_write_d(self, value);
+    StreamWriteNewline(self);
+}
+
+void icall_console_stream_write_f(Il2CppObject* self, double value)
+{
+    // miscfmt: net48 TextWriter.Write(float) renders the FLOAT G7 text; the
+    // single_to_string icall carries the same text (and the -0.0f sign drop).
+    StreamWriteString(self, icall_single_to_string(value));
+}
+
+void icall_console_stream_write_line_f(Il2CppObject* self, double value)
+{
+    icall_console_stream_write_f(self, value);
     StreamWriteNewline(self);
 }
 

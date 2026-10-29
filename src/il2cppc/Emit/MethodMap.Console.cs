@@ -177,7 +177,8 @@ public static partial class MethodRefResolver
                     0x0A => I(newline ? "il2cpp::runtime::icall_console_write_line_l" : "il2cpp::runtime::icall_console_write_l", 1, false, false, false, casts, null, false, false, true),
                     0x0B => I(newline ? "il2cpp::runtime::icall_console_write_line_u64" : "il2cpp::runtime::icall_console_write_u64", 1, false, false, false, casts, null, false, false, true),
                     0x0D => I(newline ? "il2cpp::runtime::icall_console_write_line_d" : "il2cpp::runtime::icall_console_write_d", 1, false, false, false, casts, null, false, false, true),
-                    0x0C => I(newline ? "il2cpp::runtime::icall_console_write_line_d" : "il2cpp::runtime::icall_console_write_d", 1, false, false, false, casts, null, false, false, true),
+                    // miscfmt: a float rides the float G7 formatter, not G15.
+                    0x0C => I(newline ? "il2cpp::runtime::icall_console_write_line_f" : "il2cpp::runtime::icall_console_write_f", 1, false, false, false, casts, null, false, false, true),
                     0x02 => I(newline ? "il2cpp::runtime::icall_console_write_line_b" : "il2cpp::runtime::icall_console_write_b", 1, false, false, false, casts, null, false, false, true),
                     _ => I(newline ? "il2cpp::runtime::icall_console_write_line_c" : "il2cpp::runtime::icall_console_write_c", 1, false, false, false, casts, null, false, false, true),
                 };
@@ -198,11 +199,12 @@ public static partial class MethodRefResolver
                     return I(newline ? "il2cpp::runtime::icall_console_write_line_c" : "il2cpp::runtime::icall_console_write_c", 1, false, false, false, null, null, false, false, true);
                 case 0x0D:
                     return I(newline ? "il2cpp::runtime::icall_console_write_line_d" : "il2cpp::runtime::icall_console_write_d", 1, false, false, false, null, null, false, false, true);
-                // Single values live in double slots; the double formatter
-                // renders them (documented deviation: .NET G15 prints the
-                // float's own precision).
+                // miscfmt: net48 TextWriter.Write(float) -> Single.ToString():
+                // the FLOAT G7 text (0.1f -> "0.1", 3.14159265f -> "3.141593",
+                // 16777216f -> "1.677722E+07", -0.0f -> "0"), never the double
+                // G15 text the double arm above renders.
                 case 0x0C:
-                    return I(newline ? "il2cpp::runtime::icall_console_write_line_d" : "il2cpp::runtime::icall_console_write_d", 1, false, false, false, new[] { "d" }, null, false, false, true);
+                    return I(newline ? "il2cpp::runtime::icall_console_write_line_f" : "il2cpp::runtime::icall_console_write_f", 1, false, false, false, new[] { "d" }, null, false, false, true);
                 // long / ulong: real runtime icalls (full int64/uint64 range).
                 case 0x0A:
                     return I(newline ? "il2cpp::runtime::icall_console_write_line_l" : "il2cpp::runtime::icall_console_write_l", 1, false, false, false, new[] { "l" }, null, false, false, true);
@@ -404,11 +406,10 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_console_stream_write_u64", 1, false, false, true, new[] { "", "q" });
                 case 0x0D when count == 1:
                     return I("il2cpp::runtime::icall_console_stream_write_d", 1, false, false, true, new[] { "", "d" });
-                // Single values live in double slots; the double formatter
-                // renders them (documented deviation: .NET G15 prints the
-                // float's own precision).
+                // miscfmt: net48 TextWriter.Write(float) -> Single.ToString():
+                // the FLOAT G7 text, never the double G15 text.
                 case 0x0C when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_d", 1, false, false, true, new[] { "", "d" });
+                    return I("il2cpp::runtime::icall_console_stream_write_f", 1, false, false, true, new[] { "", "d" });
                 case 0x11 when count == 1 && vtName == "System.Decimal":
                     return I("il2cpp::runtime::icall_console_stream_write_decimal", 1, false, false, true, new[] { "", "dec" });
                 case 0x1C or 0x12 when count == 1:
@@ -458,8 +459,10 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_console_stream_write_line_u64", 1, false, false, true, new[] { "", "q" });
                 case 0x0D when count == 1:
                     return I("il2cpp::runtime::icall_console_stream_write_line_d", 1, false, false, true, new[] { "", "d" });
+                // miscfmt: net48 TextWriter.WriteLine(float) -> Single.ToString():
+                // the FLOAT G7 text, never the double G15 text.
                 case 0x0C when count == 1:
-                    return I("il2cpp::runtime::icall_console_stream_write_line_d", 1, false, false, true, new[] { "", "d" });
+                    return I("il2cpp::runtime::icall_console_stream_write_line_f", 1, false, false, true, new[] { "", "d" });
                 case 0x11 when count == 1 && vtName == "System.Decimal":
                     return I("il2cpp::runtime::icall_console_stream_write_line_decimal", 1, false, false, true, new[] { "", "dec" });
                 case 0x1C or 0x12 when count == 1:

@@ -415,9 +415,15 @@ Il2CppString* icall_single_to_string(double value)
     if (value < -3.4028234663852886e38)
         return il2cpp_string_new_from_utf8("-\xE2\x88\x9E");
     const float f = static_cast<float>(value);
-    char buf[64];
     // net48 Single default format is G7: seven significant digits (the
-    // shortest-round-trip variant would print 0.33333334 for 1f/3f).
+    // shortest-round-trip variant would print 0.33333334 for 1f/3f). A zero
+    // magnitude drops the sign (-0.0f -> "0") -- snprintf("%.7g") would print
+    // "-0" (probe-miscfmt A0001 oracle: net48 "0").
+    if (f == 0.0f)
+    {
+        return il2cpp_string_new_from_utf8("0");
+    }
+    char buf[64];
     std::snprintf(buf, sizeof(buf), "%.7g", static_cast<double>(f));
     for (char* q = buf; *q != 0; ++q)
     {

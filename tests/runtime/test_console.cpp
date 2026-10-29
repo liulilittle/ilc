@@ -282,6 +282,7 @@ int main()
     using il2cpp::runtime::icall_console_write_line_b;
     using il2cpp::runtime::icall_console_write_line_c;
     using il2cpp::runtime::icall_console_write_line_d;
+    using il2cpp::runtime::icall_console_write_line_f;
     using il2cpp::runtime::icall_console_write_line_u64;
     using il2cpp::runtime::icall_console_write_line_s;
     using il2cpp::runtime::icall_console_write_line_i;
@@ -289,6 +290,7 @@ int main()
     using il2cpp::runtime::icall_console_write_b;
     using il2cpp::runtime::icall_console_write_c;
     using il2cpp::runtime::icall_console_write_d;
+    using il2cpp::runtime::icall_console_write_f;
     using il2cpp::runtime::icall_console_write_s;
     using il2cpp::runtime::icall_console_write_i;
     using il2cpp::runtime::icall_console_read_line;
@@ -296,6 +298,7 @@ int main()
     using il2cpp::runtime::console_format_int32;
     using il2cpp::runtime::console_format_u64;
     using il2cpp::runtime::console_format_double;
+    using il2cpp::runtime::console_format_single;
     using il2cpp::runtime::console_write_newline;
 
 #ifdef _WIN32
@@ -410,6 +413,46 @@ int main()
     Expect(EndCapture() == "1.4142135623731" CONSOLE_NEWLINE "0.3" CONSOLE_NEWLINE
            "9.22337203685478E+18" CONSOLE_NEWLINE "0" CONSOLE_NEWLINE,
            "WriteLine(double) is net48 G15, not shortest round-trip");
+
+    // --- 3d. WriteLine(float)/Write(float): net48 float G7 text (miscfmt) ---
+    // net48 TextWriter.Write(float) renders the FLOAT G7 default (not the
+    // double G15): 0.1f -> "0.1", 3.14159265f -> "3.141593",
+    // 16777216f -> "1.677722E+07", -0.0f -> "0", 1e-8f -> "1E-08".
+    BeginCapture();
+    icall_console_write_line_f(static_cast<double>(0.1f));
+    icall_console_write_line_f(static_cast<double>(3.14159265f));
+    icall_console_write_line_f(16777216.0);
+    icall_console_write_line_f(-0.0);
+    icall_console_write_line_f(static_cast<double>(1e-8f));
+    icall_console_write_line_f(std::numeric_limits<double>::quiet_NaN());
+    icall_console_write_line_f(std::numeric_limits<double>::infinity());
+    icall_console_write_line_f(-std::numeric_limits<double>::infinity());
+    icall_console_write_line_f(static_cast<double>(3.40282347e38f));
+    Expect(EndCapture() == "0.1" CONSOLE_NEWLINE "3.141593" CONSOLE_NEWLINE
+           "1.677722E+07" CONSOLE_NEWLINE "0" CONSOLE_NEWLINE "1E-08" CONSOLE_NEWLINE
+           "NaN" CONSOLE_NEWLINE "\xE2\x88\x9E" CONSOLE_NEWLINE "-\xE2\x88\x9E" CONSOLE_NEWLINE
+           "3.402823E+38" CONSOLE_NEWLINE,
+           "WriteLine(float) renders net48 G7 float text (miscfmt)");
+
+    BeginCapture();
+    icall_console_write_f(static_cast<double>(0.1f));
+    icall_console_write_f(static_cast<double>(3.14159265f));
+    icall_console_write_f(-0.0);
+    Expect(EndCapture() == "0.13.1415930",
+           "Write(float) renders net48 G7 float text without newlines (miscfmt)");
+
+    Expect(console_format_single(static_cast<double>(0.1f)) == "0.1",
+           "format_single renders 0.1f as \"0.1\" (G7)");
+    Expect(console_format_single(static_cast<double>(3.14159265f)) == "3.141593",
+           "format_single renders pi as \"3.141593\" (7 digits, not G15)");
+    Expect(console_format_single(-0.0) == "0",
+           "format_single drops the negative zero sign (net48)");
+    Expect(console_format_single(16777216.0) == "1.677722E+07",
+           "format_single renders 2^24 as \"1.677722E+07\"");
+    Expect(console_format_single(std::numeric_limits<double>::quiet_NaN()) == "NaN",
+           "format_single renders NaN as \"NaN\"");
+    Expect(console_format_single(std::numeric_limits<double>::infinity()) == "\xE2\x88\x9E",
+           "format_single renders +inf as UTF-8 U+221E (net48 zh-CN)");
 
     // --- 4. Shared formatting helpers (direct) ---
     Expect(console_format_int32(0) == "0", "format_int32 renders zero");
@@ -550,6 +593,17 @@ int main()
     Expect(EndCapture() == "A" "B" CONSOLE_NEWLINE CONSOLE_NEWLINE,
            "Out-stream Write/WriteLine emit text + terminator to stdout");
 
+    // 15b2. Out-stream Write(float)/WriteLine(float): net48 float G7 text
+    // (miscfmt) -- the console stream must not render the double G15 text.
+    using il2cpp::runtime::icall_console_stream_write_f;
+    using il2cpp::runtime::icall_console_stream_write_line_f;
+    BeginCapture();
+    icall_console_stream_write_f(outStream, static_cast<double>(0.1f));
+    icall_console_stream_write_line_f(outStream, static_cast<double>(3.14159265f));
+    icall_console_stream_write_line_f(outStream, -0.0);
+    Expect(EndCapture() == "0.1" "3.141593" CONSOLE_NEWLINE "0" CONSOLE_NEWLINE,
+           "Out-stream Write(float)/WriteLine(float) render net48 G7 float text (miscfmt)");
+
     // 15c. Error-stream writes emit to STAR ERR (the Error stream targets stderr).
     BeginCaptureErr();
     icall_console_stream_write_line(errStream,
@@ -646,6 +700,11 @@ int main()
         icall_console_write_d(-std::numeric_limits<double>::infinity());
         Expect(EndCapture() == "?-?",
                "Write(double) infinity emits '?/-?' under 936");
+        BeginCapture();
+        icall_console_write_f(std::numeric_limits<double>::infinity());
+        icall_console_write_f(-std::numeric_limits<double>::infinity());
+        Expect(EndCapture() == "?-?",
+               "Write(float) infinity emits '?/-?' under 936");
         BeginCapture();
         icall_console_write_line_object(
             reinterpret_cast<il2cpp::Il2CppObject*>(il2cpp::il2cpp_string_new(zhong1, 1)));

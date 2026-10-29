@@ -144,6 +144,7 @@ int main()
     using il2cpp::runtime::icall_bool_to_string;
     using il2cpp::runtime::icall_char_to_string;
     using il2cpp::runtime::icall_double_to_string;
+    using il2cpp::runtime::icall_single_to_string;
     using il2cpp::runtime::icall_int32_to_string_hex;
 
     // --- 1. int32 decimal ---
@@ -234,6 +235,38 @@ int main()
         Expect(ninf != nullptr && ninf->length == 2 && ninf->chars[0] == u'-'
                    && ninf->chars[1] == u'\u221E',
                "negative infinity formats as \"-\" + U+221E");
+    }
+
+    // --- 5b. Single.ToString() no-argument (net48 float "G7" text) ---
+    // miscfmt: the default float text is the FLOAT G7 form (3.14159265f ->
+    // "3.141593", 2^24 -> "1.677722E+07"), and a zero magnitude drops the
+    // sign (-0.0f -> "0"). Oracle: probe-miscfmt (net48 host capture
+    // 2026-10-29).
+    Expect(StringIs(icall_single_to_string(0.0), "0"), "single 0 formats as \"0\"");
+    Expect(StringIs(icall_single_to_string(-0.0), "0"),
+           "single -0.0 formats as \"0\" (net48 drops the float zero sign)");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(3.14159265f)), "3.141593"),
+           "single pi formats with 7 significant digits (net48 G7)");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(0.1f)), "0.1"),
+           "single 0.1 formats as \"0.1\"");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(1.0f / 3.0f)), "0.3333333"),
+           "single 1/3 formats as \"0.3333333\" (7 digits, not shortest round-trip)");
+    Expect(StringIs(icall_single_to_string(16777216.0), "1.677722E+07"),
+           "single 2^24 formats scientific with 7 digits");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(1e-8f)), "1E-08"),
+           "single 1e-8 formats as \"1E-08\"");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(1e-5f)), "1E-05"),
+           "single 1e-5 formats as \"1E-05\"");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(3.40282347e38f)),
+                    "3.402823E+38"),
+           "single float.MaxValue formats as \"3.402823E+38\"");
+    Expect(StringIs(icall_single_to_string(std::nan("")), "NaN"),
+           "single NaN formats as \"NaN\"");
+    {
+        il2cpp::Il2CppString* inf = icall_single_to_string(
+            std::numeric_limits<double>::infinity());
+        Expect(inf != nullptr && inf->length == 1 && inf->chars[0] == u'\u221E',
+               "single positive infinity formats as the culture symbol U+221E");
     }
 
     // --- 6. int32 hex ---

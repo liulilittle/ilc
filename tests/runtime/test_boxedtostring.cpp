@@ -12,7 +12,8 @@
 //   (object)4000000000u   -> "4000000000"   (uint32 beyond int32 range)
 //   (object)0u            -> "0"
 //   (object)ulong.MaxValue -> "18446744073709551615"
-//   (object)3.14f         -> "3.14"          (float widened to double, G15)
+//   (object)3.14f         -> "3.14"          (Single.ToString: float G7 text)
+//   (object)(1.0f/3.0f)   -> "0.3333333"     (miscfmt: float G7, not G15)
 //   (object)(-0.0)        -> "0"             (G15 fixed point)
 //   (object)double.NaN    -> "NaN"
 //   (object)1E-05         -> "1E-05"         (G15 scientific)
@@ -215,12 +216,13 @@ void TestDoubleAndFloatBoxes()
                    "(object)(0.1 + 0.2) ToString is \"0.3\" (plain G15)");
     ExpectToString(il2cpp::runtime::icall_box_float(3.14), "3.14",
                    "(object)3.14f ToString is \"3.14\" (widened to double)");
-    // float widens to double BEFORE formatting (boxingext2.h contract): the
-    // text is the G15 of 0.3333333432674408 (the widened float), NOT the G15
-    // of double 1.0/3.0 ("0.333333333333333").
+    // miscfmt: a boxed Single calls Single.ToString() in net48 -- the FLOAT
+    // G7 text of the value, NOT the double G15 text of the widened float.
+    // Oracle (probe-miscfmt, net48 host capture 2026-10-29): (object)(1.0f/3f)
+    // -> "0.3333333" (the pre-miscfmt G15 path printed "0.333333343267441").
     ExpectToString(il2cpp::runtime::icall_box_float(1.0f / 3.0f),
-                   "0.333333343267441",
-                   "(object)(1.0f / 3.0f) ToString is the G15 of the widened float");
+                   "0.3333333",
+                   "(object)(1.0f / 3.0f) ToString is the net48 float G7 text");
 }
 
 void TestCharBox()

@@ -87,6 +87,12 @@ void icall_console_write_line_c(int32_t value);
 // console_format_double). A trailing newline is written.
 void icall_console_write_line_d(double value);
 
+// .NET float.ToString() semantics (miscfmt): the FLOAT G7 text -- seven
+// significant digits, NOT the double G15 text (0.1f -> "0.1",
+// 3.14159265f -> "3.141593", 16777216f -> "1.677722E+07", -0.0f -> "0",
+// 1e-8f -> "1E-08"; see console_format_single). A trailing newline is written.
+void icall_console_write_line_f(double value);
+
 // Full-range uint64 decimal rendering (console_format_u64: the UInt64ToString
 // digit loop) -- UInt64.MaxValue prints "18446744073709551615", never the
 // int64 interpretation -1. A trailing newline is written.
@@ -110,10 +116,12 @@ void icall_console_write_line_u32(uint32_t value);
 // results etc.).
 void icall_console_write_line_object(Il2CppObject* value);
 
-// No-newline variants of the above (System.Console.Write(bool | char | double)).
+// No-newline variants of the above (System.Console.Write(bool | char | double
+// | float)).
 void icall_console_write_b(int32_t value);
 void icall_console_write_c(int32_t value);
 void icall_console_write_d(double value);
+void icall_console_write_f(double value);
 
 //------------------------------------------------------------------------------
 // Full Write/WriteLine overload surface (misc3 console alignment).
@@ -205,6 +213,9 @@ int32_t icall_console_read_key(int32_t intercept);
 std::string console_format_int32(int32_t value);
 std::string console_format_u64(uint64_t value);
 std::string console_format_double(double value);
+// miscfmt: the FLOAT default text (net48 float G7; see
+// icall_console_write_line_f).
+std::string console_format_single(double value);
 
 // Console line terminator (net48 semantics). On Windows stdout is switched to
 // binary mode at startup, so this writes the explicit "\r\n" byte pair; on
@@ -309,6 +320,8 @@ void icall_console_stream_write_u64(Il2CppObject* self, uint64_t value);
 void icall_console_stream_write_line_u64(Il2CppObject* self, uint64_t value);
 void icall_console_stream_write_d(Il2CppObject* self, double value);
 void icall_console_stream_write_line_d(Il2CppObject* self, double value);
+void icall_console_stream_write_f(Il2CppObject* self, double value);
+void icall_console_stream_write_line_f(Il2CppObject* self, double value);
 void icall_console_stream_write_decimal(Il2CppObject* self, const Il2CppDecimal* value);
 void icall_console_stream_write_line_decimal(Il2CppObject* self, const Il2CppDecimal* value);
 void icall_console_stream_write_object(Il2CppObject* self, Il2CppObject* value);
