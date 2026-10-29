@@ -2594,6 +2594,21 @@ public static class CodeGenerator
             // this kind only feeds the operand classification.
             else if (parts[i] is "d" or "f")
                 locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "d";
+            // impl-i64seed: an INT64 ("l") or UINT64 ("q") parameter is the
+            // int64_t C++ slot (the same ParamTypesCpp decoding) -- seed "l"
+            // so ExprIsInt64 sees the arithmetic operands. An unseeded long
+            // param fell to the "val" default and every int32/int64-ambiguous
+            // path folded at INT32 width: param/param div/rem -> the int32
+            // checked_div/checked_rem truncation, a param shift count -> the
+            // 5-bit mask (never 63), a ulong param compare/shift -> the
+            // uint32 casts, unchecked param+param -> no uint64 wrap, and a
+            // `long param == -1L` -> the uint32 negative-literal compare
+            // (probe-i64seed). A long LOCAL needs no seed (the IL local
+            // signature is authoritative) and a long constant is recognized
+            // directly -- this arm closes the parameter-shaped remainder,
+            // exactly mirroring the "d"/"f" seeding above.
+            else if (parts[i] is "l" or "q")
+                locKind[isStaticMethod ? $"arg{i}" : $"arg{i + 1}"] = "l";
         }
         // Instance method `this` (arg0) is always a managed reference -- the
         // inline pass rewrites it into fresh temps (`inl0 = arg0`) and copies
