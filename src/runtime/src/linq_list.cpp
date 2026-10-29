@@ -18,6 +18,7 @@
 #include "linq_list.h"
 
 #include "linq.h"
+#include "linq_family.h" // LinqRequireCell / LinqCellReadDt/Ts/Guid (value-cell folds)
 #include "linq_map.h"
 #include "linq_sort.h"
 
@@ -2780,36 +2781,564 @@ float il2cpp_linq_list_aggregate_seed_f(Il2CppObject* list, double seed,
                                           static_cast<float>(seed), func);
 }
 
-// floatfix: the WIDE-element seed entries. The base seed_d / seed_i8 kernels
-// read INT32 elements (the int-source + wide-accumulator shape -- the DBin*
-// callback ABI's second slot is int32_t); a List<double> / List<long>
-// snapshot holds REAL 8-byte cells and its lambda is a `d(d,d)` / `l(l,l)`
-// leaf, so the fold must use the same-cell-width kernels (FoldDD / FoldI8I8)
-// or every step reads the low 32 bits of the cell and misaligns the callback.
-double il2cpp_linq_list_aggregate_seed_d_d(Il2CppObject* list, double seed,
-                                           Il2CppObject* func, int32_t kind)
+//------------------------------------------------------------------------------
+// The (ELEMENT family, ACCUMULATOR family) seed-fold matrix over a List<T>.
+//
+// The snapshot holds the LIST kind's REAL cells: 4-byte int32 (and 1/2-byte
+// narrow/8-bit bool cells), 8-byte int64, 4-byte float, 8-byte double, an
+// 8-byte reference slot, or a 16-byte System.Decimal value. The accumulator
+// keeps its OWN family and the callback is invoked through the matching typed
+// fn-pointer (the generated lambda's ABI: narrow/integral element -> int32,
+// int64 element -> int64, float/double element -> widened double, reference
+// element -> Il2CppObject*, decimal element -> the 16-byte value struct;
+// float accumulator -> float return with double parameters, decimal
+// accumulator -> the 16-byte value return).
+//
+// The old entries delegated to the ARRAY kernels, whose element reader is
+// fixed at int32 (FoldI4/FoldI8/FoldD/FoldF) or at the snapshot's own width
+// (FoldDD/FoldI8I8/FoldFD), so every NON-DIAGONAL (element, accumulator) pair
+// read the wrong number of bytes out of the cell and/or called the lambda
+// through a mismatched fn-pointer -- a silent wrong value (List<long> folded
+// into an int accumulator read the low 32 bits of every cell, List<float> into
+// a double accumulator paired two float cells as one double, ...).
+//
+// These entries read the element at the LIST kind's real width and keep the
+// accumulator in its own type, so every cell of the matrix is exact.
+//------------------------------------------------------------------------------
+runtime::Il2CppDecimal ReadDec(Il2CppArray* arr, int32_t i)
 {
-    RequireList(list);
-    return il2cpp_linq_aggregate_seed_d_d(SnapshotOf(list, kind), seed, func);
+    runtime::Il2CppDecimal v;
+    std::memcpy(&v, il2cpp_array_get_elem_ptr(arr, i), sizeof(v));
+    return v;
 }
 
-int64_t il2cpp_linq_list_aggregate_seed_i8_i8(Il2CppObject* list, int64_t seed,
-                                              Il2CppObject* func, int32_t kind)
+// The accumulator/element fn-pointer pairs (leaf = static, This = bound
+// instance; the `this` target rides the first slot). NOTE the FLOAT
+// accumulator: its value rides the widened double F-stack slot (the generated
+// leaf is `float f(double acc, ...)` -- the FAccDFn convention), so the first
+// parameter is double, not float; only the RETURN is float.
+#define LST_AGG_ABI(TAG, ACC, ELEM)                              \
+    typedef ACC (*LstAgg##TAG##Fn)(ACC, ELEM);                   \
+    typedef ACC (*LstAgg##TAG##ThisFn)(Il2CppObject*, ACC, ELEM);
+#define LST_AGG_ABI_F(TAG, ELEM)                                 \
+    typedef float (*LstAgg##TAG##Fn)(double, ELEM);              \
+    typedef float (*LstAgg##TAG##ThisFn)(Il2CppObject*, double, ELEM);
+
+LST_AGG_ABI(I4I4, int32_t, int32_t)
+LST_AGG_ABI(I4I8, int32_t, int64_t)
+LST_AGG_ABI(I4D, int32_t, double)
+LST_AGG_ABI(I4Ref, int32_t, Il2CppObject*)
+LST_AGG_ABI(I4Dec, int32_t, runtime::Il2CppDecimal)
+
+LST_AGG_ABI(I8I4, int64_t, int32_t)
+LST_AGG_ABI(I8I8, int64_t, int64_t)
+LST_AGG_ABI(I8D, int64_t, double)
+LST_AGG_ABI(I8Ref, int64_t, Il2CppObject*)
+LST_AGG_ABI(I8Dec, int64_t, runtime::Il2CppDecimal)
+
+LST_AGG_ABI_F(FI4, int32_t)
+LST_AGG_ABI_F(FI8, int64_t)
+LST_AGG_ABI_F(FD, double)
+LST_AGG_ABI_F(FRef, Il2CppObject*)
+LST_AGG_ABI_F(FDec, runtime::Il2CppDecimal)
+
+LST_AGG_ABI(DI4, double, int32_t)
+LST_AGG_ABI(DI8, double, int64_t)
+LST_AGG_ABI(DD, double, double)
+LST_AGG_ABI(DRef, double, Il2CppObject*)
+LST_AGG_ABI(DDec, double, runtime::Il2CppDecimal)
+
+LST_AGG_ABI(DecI4, runtime::Il2CppDecimal, int32_t)
+LST_AGG_ABI(DecI8, runtime::Il2CppDecimal, int64_t)
+LST_AGG_ABI(DecD, runtime::Il2CppDecimal, double)
+LST_AGG_ABI(DecRef, runtime::Il2CppDecimal, Il2CppObject*)
+LST_AGG_ABI(DecDec, runtime::Il2CppDecimal, runtime::Il2CppDecimal)
+
+LST_AGG_ABI(RefI4, Il2CppObject*, int32_t)
+LST_AGG_ABI(RefI8, Il2CppObject*, int64_t)
+LST_AGG_ABI(RefD, Il2CppObject*, double)
+LST_AGG_ABI(RefRef, Il2CppObject*, Il2CppObject*)
+LST_AGG_ABI(RefDec, Il2CppObject*, runtime::Il2CppDecimal)
+
+#undef LST_AGG_ABI
+#undef LST_AGG_ABI_F
+
+// One fold step per ACCUMULATOR family: read the element at the list kind's
+// real width and call the accumulator's lambda through its own ABI.
+static int32_t LstAggStepI4(Il2CppDelegate* d, int32_t acc, Il2CppArray* snap,
+                            int32_t i, int32_t kind)
 {
-    RequireList(list);
-    return il2cpp_linq_aggregate_seed_i8_i8(SnapshotOf(list, kind), seed, func);
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI4I8ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI4I8Fn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI4DThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI4DFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_REF:
+        {
+            Il2CppObject* v = ReadRef(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI4RefThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI4RefFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_DEC:
+        {
+            const runtime::Il2CppDecimal v = ReadDec(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI4DecThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI4DecFn>(d->methodPtr)(acc, v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI4I4ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI4I4Fn>(d->methodPtr)(acc, v);
+        }
+    }
 }
 
-// floatfix: the float-accumulator entry over a WIDE (double-cell) snapshot --
-// FoldFD's element read adapts to the array's own elemSize, so this entry
-// serves the (float acc, double-element list) shape.
-float il2cpp_linq_list_aggregate_seed_f_d(Il2CppObject* list, double seed,
-                                          Il2CppObject* func, int32_t kind)
+static int64_t LstAggStepI8(Il2CppDelegate* d, int64_t acc, Il2CppArray* snap,
+                            int32_t i, int32_t kind)
 {
-    RequireList(list);
-    return il2cpp_linq_aggregate_seed_f_d(SnapshotOf(list, kind),
-                                          static_cast<float>(seed), func);
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI8I8ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI8I8Fn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI8DThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI8DFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_REF:
+        {
+            Il2CppObject* v = ReadRef(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI8RefThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI8RefFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_DEC:
+        {
+            const runtime::Il2CppDecimal v = ReadDec(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI8DecThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI8DecFn>(d->methodPtr)(acc, v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggI8I4ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggI8I4Fn>(d->methodPtr)(acc, v);
+        }
+    }
 }
+
+static float LstAggStepF(Il2CppDelegate* d, float acc, Il2CppArray* snap,
+                         int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggFI8ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggFI8Fn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggFDThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggFDFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_REF:
+        {
+            Il2CppObject* v = ReadRef(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggFRefThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggFRefFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_DEC:
+        {
+            const runtime::Il2CppDecimal v = ReadDec(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggFDecThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggFDecFn>(d->methodPtr)(acc, v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggFI4ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggFI4Fn>(d->methodPtr)(acc, v);
+        }
+    }
+}
+
+static double LstAggStepD(Il2CppDelegate* d, double acc, Il2CppArray* snap,
+                          int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDI8ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDI8Fn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDDThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDDFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_REF:
+        {
+            Il2CppObject* v = ReadRef(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDRefThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDRefFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_DEC:
+        {
+            const runtime::Il2CppDecimal v = ReadDec(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDDecThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDDecFn>(d->methodPtr)(acc, v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDI4ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDI4Fn>(d->methodPtr)(acc, v);
+        }
+    }
+}
+
+static runtime::Il2CppDecimal LstAggStepDec(Il2CppDelegate* d, runtime::Il2CppDecimal acc,
+                                            Il2CppArray* snap, int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDecI8ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDecI8Fn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDecDThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDecDFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_REF:
+        {
+            Il2CppObject* v = ReadRef(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDecRefThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDecRefFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_DEC:
+        {
+            const runtime::Il2CppDecimal v = ReadDec(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDecDecThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDecDecFn>(d->methodPtr)(acc, v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggDecI4ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggDecI4Fn>(d->methodPtr)(acc, v);
+        }
+    }
+}
+
+static Il2CppObject* LstAggStepRef(Il2CppDelegate* d, Il2CppObject* acc, Il2CppArray* snap,
+                                   int32_t i, int32_t kind)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:
+        {
+            const int64_t v = ReadI8(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggRefI8ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggRefI8Fn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_F:
+        case IL2CPP_LIST_KIND_D:
+        {
+            const double v = ReadD(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggRefDThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggRefDFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_REF:
+        {
+            Il2CppObject* v = ReadRef(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggRefRefThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggRefRefFn>(d->methodPtr)(acc, v);
+        }
+        case IL2CPP_LIST_KIND_DEC:
+        {
+            const runtime::Il2CppDecimal v = ReadDec(snap, i);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggRefDecThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggRefDecFn>(d->methodPtr)(acc, v);
+        }
+        default:
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            return d->target != nullptr
+                ? reinterpret_cast<LstAggRefI4ThisFn>(d->methodPtr)(d->target, acc, v)
+                : reinterpret_cast<LstAggRefI4Fn>(d->methodPtr)(acc, v);
+        }
+    }
+}
+
+// The entry macro: validate/root, snapshot at the list kind, fold.
+#define LST_AGG_SEED_ENTRY(NAME, ACC, STEP)                                    \
+    ACC il2cpp_linq_list_aggregate_seed_##NAME(Il2CppObject* list, ACC seed,   \
+                                               Il2CppObject* func, int32_t kind) \
+    {                                                                          \
+        RequireList(list);                                                     \
+        Il2CppDelegate* d = RequireCallback(func, "func");                     \
+        RootScope roots;                                                       \
+        roots.Add(reinterpret_cast<void**>(&list));                            \
+        Il2CppArray* snap = SnapshotOf(list, kind);                            \
+        roots.Add(reinterpret_cast<void**>(&snap));                            \
+        ACC acc = seed;                                                        \
+        const int32_t n = snap->length;                                        \
+        for (int32_t i = 0; i < n; ++i) acc = STEP(d, acc, snap, i, kind);      \
+        return acc;                                                            \
+    }
+
+// The FLOAT accumulator's seed crosses on the double F stack (a float
+// parameter widens exactly), and the accumulator stays float with per-step R4
+// rounding (net48).
+#define LST_AGG_SEED_ENTRY_F(NAME, STEP)                                       \
+    float il2cpp_linq_list_aggregate_seed_##NAME(Il2CppObject* list, double seed, \
+                                                 Il2CppObject* func, int32_t kind) \
+    {                                                                          \
+        RequireList(list);                                                     \
+        Il2CppDelegate* d = RequireCallback(func, "func");                     \
+        RootScope roots;                                                       \
+        roots.Add(reinterpret_cast<void**>(&list));                            \
+        Il2CppArray* snap = SnapshotOf(list, kind);                            \
+        roots.Add(reinterpret_cast<void**>(&snap));                            \
+        float acc = static_cast<float>(seed);                                  \
+        const int32_t n = snap->length;                                        \
+        for (int32_t i = 0; i < n; ++i) acc = STEP(d, acc, snap, i, kind);      \
+        return acc;                                                            \
+    }
+
+// The DECIMAL accumulator rides the explicit 16-byte result slot (the decimal
+// T3 contract: the slot is the FIRST parameter) and the seed crosses as a
+// const pointer to its value slot.
+#define LST_AGG_SEED_ENTRY_DEC(NAME, STEP)                                     \
+    void il2cpp_linq_list_aggregate_seed_##NAME(                               \
+        runtime::Il2CppDecimal* result, Il2CppObject* list,                    \
+        const runtime::Il2CppDecimal* seed, Il2CppObject* func, int32_t kind)  \
+    {                                                                          \
+        RequireList(list);                                                     \
+        Il2CppDelegate* d = RequireCallback(func, "func");                     \
+        RootScope roots;                                                       \
+        roots.Add(reinterpret_cast<void**>(&list));                            \
+        Il2CppArray* snap = SnapshotOf(list, kind);                            \
+        roots.Add(reinterpret_cast<void**>(&snap));                            \
+        runtime::Il2CppDecimal acc = *seed;                                    \
+        const int32_t n = snap->length;                                        \
+        for (int32_t i = 0; i < n; ++i) acc = STEP(d, acc, snap, i, kind);      \
+        std::memcpy(result, &acc, sizeof(acc));                                \
+    }
+
+// The REFERENCE accumulator: the accumulator itself is a managed reference,
+// so its local is rooted across every callback (a lambda may allocate and
+// compact the heap).
+#define LST_AGG_SEED_ENTRY_REF(NAME, STEP)                                     \
+    Il2CppObject* il2cpp_linq_list_aggregate_seed_##NAME(                      \
+        Il2CppObject* list, Il2CppObject* seed, Il2CppObject* func, int32_t kind) \
+    {                                                                          \
+        RequireList(list);                                                     \
+        Il2CppDelegate* d = RequireCallback(func, "func");                     \
+        RootScope roots;                                                       \
+        roots.Add(reinterpret_cast<void**>(&list));                            \
+        Il2CppArray* snap = SnapshotOf(list, kind);                            \
+        roots.Add(reinterpret_cast<void**>(&snap));                            \
+        Il2CppObject* acc = seed;                                              \
+        roots.Add(reinterpret_cast<void**>(&acc));                             \
+        const int32_t n = snap->length;                                        \
+        for (int32_t i = 0; i < n; ++i) acc = STEP(d, acc, snap, i, kind);      \
+        return acc;                                                            \
+    }
+
+// int32 accumulator
+LST_AGG_SEED_ENTRY(i4_i4, int32_t, LstAggStepI4)
+LST_AGG_SEED_ENTRY(i4_i8, int32_t, LstAggStepI4)
+LST_AGG_SEED_ENTRY(i4_f, int32_t, LstAggStepI4)
+LST_AGG_SEED_ENTRY(i4_d, int32_t, LstAggStepI4)
+LST_AGG_SEED_ENTRY(i4_ref, int32_t, LstAggStepI4)
+LST_AGG_SEED_ENTRY(i4_dec, int32_t, LstAggStepI4)
+
+// int64 accumulator
+LST_AGG_SEED_ENTRY(i8_i4, int64_t, LstAggStepI8)
+LST_AGG_SEED_ENTRY(i8_i8, int64_t, LstAggStepI8)
+LST_AGG_SEED_ENTRY(i8_f, int64_t, LstAggStepI8)
+LST_AGG_SEED_ENTRY(i8_d, int64_t, LstAggStepI8)
+LST_AGG_SEED_ENTRY(i8_ref, int64_t, LstAggStepI8)
+LST_AGG_SEED_ENTRY(i8_dec, int64_t, LstAggStepI8)
+
+// float accumulator
+LST_AGG_SEED_ENTRY_F(f_i4, LstAggStepF)
+LST_AGG_SEED_ENTRY_F(f_i8, LstAggStepF)
+LST_AGG_SEED_ENTRY_F(f_f, LstAggStepF)
+LST_AGG_SEED_ENTRY_F(f_d, LstAggStepF)
+LST_AGG_SEED_ENTRY_F(f_ref, LstAggStepF)
+LST_AGG_SEED_ENTRY_F(f_dec, LstAggStepF)
+
+// double accumulator
+LST_AGG_SEED_ENTRY(d_i4, double, LstAggStepD)
+LST_AGG_SEED_ENTRY(d_i8, double, LstAggStepD)
+LST_AGG_SEED_ENTRY(d_f, double, LstAggStepD)
+LST_AGG_SEED_ENTRY(d_d, double, LstAggStepD)
+LST_AGG_SEED_ENTRY(d_ref, double, LstAggStepD)
+LST_AGG_SEED_ENTRY(d_dec, double, LstAggStepD)
+
+// decimal accumulator
+LST_AGG_SEED_ENTRY_DEC(dec_i4, LstAggStepDec)
+LST_AGG_SEED_ENTRY_DEC(dec_i8, LstAggStepDec)
+LST_AGG_SEED_ENTRY_DEC(dec_f, LstAggStepDec)
+LST_AGG_SEED_ENTRY_DEC(dec_d, LstAggStepDec)
+LST_AGG_SEED_ENTRY_DEC(dec_ref, LstAggStepDec)
+LST_AGG_SEED_ENTRY_DEC(dec_dec, LstAggStepDec)
+
+// reference accumulator
+LST_AGG_SEED_ENTRY_REF(ref_i4, LstAggStepRef)
+LST_AGG_SEED_ENTRY_REF(ref_i8, LstAggStepRef)
+LST_AGG_SEED_ENTRY_REF(ref_f, LstAggStepRef)
+LST_AGG_SEED_ENTRY_REF(ref_d, LstAggStepRef)
+LST_AGG_SEED_ENTRY_REF(ref_ref, LstAggStepRef)
+LST_AGG_SEED_ENTRY_REF(ref_dec, LstAggStepRef)
+
+#undef LST_AGG_SEED_ENTRY
+#undef LST_AGG_SEED_ENTRY_F
+#undef LST_AGG_SEED_ENTRY_DEC
+#undef LST_AGG_SEED_ENTRY_REF
+
+//------------------------------------------------------------------------------
+// Aggregate(seed, func) over a NON-decimal VALUE-TYPE ARRAY source
+// (System.DateTime / System.TimeSpan / System.Guid) with an INT32 / INT64 /
+// FLOAT / DOUBLE accumulator.
+//
+// The ARRAY Aggregate arm used to route these to the int32-element base
+// kernels (seed_i4/seed_i8/seed_f/seed_d): the fold read 4 bytes out of an
+// 8-byte DateTime/TimeSpan cell (a silent wrong value) or 4 bytes out of the
+// 16-byte Guid cell, AND called the lambda through an int32 element slot while
+// the generated leaf takes the value struct BY VALUE (an ABI mismatch). The
+// DECIMAL accumulator family was already wired by impl-aggvt
+// (aggregate_seed_{dt,ts,guid}_dec, linq_map.cpp).
+//
+// These entries read the cell at its real width (LinqCellReadDt/Ts/Guid) and
+// call the accumulator family's own leaf ABI. They live in this translation
+// unit (with their declarations in linq_list.h) because the shared value-cell
+// readers are exported by linq_family.h and the list-domain file is the
+// header the generated code already includes for the value-cell helpers.
+//------------------------------------------------------------------------------
+namespace {
+
+template <typename Acc, typename Param, typename Vt>
+Acc FoldVtSeed(Il2CppArray* src, int32_t cell, Acc seed, Il2CppDelegate* d,
+               Vt (*read)(Il2CppArray*, int32_t))
+{
+    LinqRequireCell(src, cell);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    typedef Acc (*Fn)(Param, Vt);
+    typedef Acc (*ThisFn)(Il2CppObject*, Param, Vt);
+    Acc acc = seed;
+    const int32_t n = src->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const Vt elem = read(src, i);
+        acc = d->target != nullptr
+            ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, static_cast<Param>(acc), elem)
+            : reinterpret_cast<Fn>(d->methodPtr)(static_cast<Param>(acc), elem);
+    }
+    return acc;
+}
+
+} // namespace
+
+#define VT_SEED_ENTRY(NAME, ACC, PARAM, VT, CELL, READ)                         \
+    ACC il2cpp_linq_aggregate_seed_##NAME(Il2CppArray* src, ACC seed,           \
+                                          Il2CppObject* func)                   \
+    {                                                                           \
+        return FoldVtSeed<ACC, PARAM, VT>(src, CELL, seed,                      \
+                                          RequireCallback(func, "func"), READ); \
+    }
+
+VT_SEED_ENTRY(dt_i4, int32_t, int32_t, runtime::Il2CppDateTime,
+              IL2CPP_LINQ_CELL_DATETIME, LinqCellReadDt)
+VT_SEED_ENTRY(dt_i8, int64_t, int64_t, runtime::Il2CppDateTime,
+              IL2CPP_LINQ_CELL_DATETIME, LinqCellReadDt)
+VT_SEED_ENTRY(dt_f, float, double, runtime::Il2CppDateTime,
+              IL2CPP_LINQ_CELL_DATETIME, LinqCellReadDt)
+VT_SEED_ENTRY(dt_d, double, double, runtime::Il2CppDateTime,
+              IL2CPP_LINQ_CELL_DATETIME, LinqCellReadDt)
+
+VT_SEED_ENTRY(ts_i4, int32_t, int32_t, runtime::Il2CppTimeSpan,
+              IL2CPP_LINQ_CELL_TIMESPAN, LinqCellReadTs)
+VT_SEED_ENTRY(ts_i8, int64_t, int64_t, runtime::Il2CppTimeSpan,
+              IL2CPP_LINQ_CELL_TIMESPAN, LinqCellReadTs)
+VT_SEED_ENTRY(ts_f, float, double, runtime::Il2CppTimeSpan,
+              IL2CPP_LINQ_CELL_TIMESPAN, LinqCellReadTs)
+VT_SEED_ENTRY(ts_d, double, double, runtime::Il2CppTimeSpan,
+              IL2CPP_LINQ_CELL_TIMESPAN, LinqCellReadTs)
+
+VT_SEED_ENTRY(guid_i4, int32_t, int32_t, Il2CppGuid,
+              IL2CPP_LINQ_CELL_GUID, LinqCellReadGuid)
+VT_SEED_ENTRY(guid_i8, int64_t, int64_t, Il2CppGuid,
+              IL2CPP_LINQ_CELL_GUID, LinqCellReadGuid)
+VT_SEED_ENTRY(guid_f, float, double, Il2CppGuid,
+              IL2CPP_LINQ_CELL_GUID, LinqCellReadGuid)
+VT_SEED_ENTRY(guid_d, double, double, Il2CppGuid,
+              IL2CPP_LINQ_CELL_GUID, LinqCellReadGuid)
+
+#undef VT_SEED_ENTRY
 
 Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
                                              Il2CppObject* keySel, Il2CppObject* elemSel,

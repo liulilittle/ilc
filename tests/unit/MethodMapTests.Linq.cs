@@ -771,7 +771,10 @@ public class MethodMapTestsLinq
             genericSignature: new byte[] { 0x0A, 0x02, 0x0C, 0x0C }),
             "System.Collections.Generic.List`1_float");
 
-        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_f", resolved.CppName);
+        // (element K=float, accumulator=float): the entry name carries BOTH
+        // families -- seed_<acc>_<elem>. The old bare seed_f was the int32-
+        // element entry (a float-cell snapshot was read as int32).
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_f_f", resolved.CppName);
         Assert.Equal(3, resolved.ParamCount);
         // the seed rides the double F stack (float widens exactly); the list
         // object and the func delegate pass UNCAST.
@@ -810,7 +813,8 @@ public class MethodMapTestsLinq
             genericSignature: new byte[] { 0x0A, 0x02, 0x08, 0x08 }),
             "System.Collections.Generic.List`1_int");
 
-        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_i4", resolved.CppName);
+        // (element K=int32, accumulator=int32): seed_<acc>_<elem>.
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_i4_i4", resolved.CppName);
         Assert.Equal(3, resolved.ParamCount);
         Assert.Equal(new[] { "", "i", "" }, resolved.ParamTypeNames);
         Assert.Null(resolved.ResultKind);
@@ -833,6 +837,63 @@ public class MethodMapTestsLinq
         Assert.Equal(3, resolved.ParamCount);
         Assert.Equal(new[] { "", "l", "" }, resolved.ParamTypeNames);
         Assert.Equal("l", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ListAggregate_Seed_Int32Acc_Int64Elem_WithReceiverHint_MapsToListSeedI4I8()
+    {
+        // NON-DIAGONAL: List<long> folded into an int32 accumulator. The entry
+        // must name BOTH families (seed_i4_i8) so the runtime reads the 8-byte
+        // cells and calls the `int(int,long)` leaf; the bare seed_i4 read the
+        // low 32 bits of every cell through an int32 element slot.
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Aggregate",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x03, 0x13, 0x01,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x13, 0x01,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x01, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0A, 0x08 }),
+            "System.Collections.Generic.List`1_long");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_i4_i8", resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i", "" }, resolved.ParamTypeNames);
+        Assert.Null(resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ListAggregate_Seed_Int32Acc_DoubleElem_WithReceiverHint_MapsToListSeedI4D()
+    {
+        // NON-DIAGONAL: List<double> folded into an int32 accumulator
+        // (seed_i4_d); the bare seed_i4 read 4 bytes out of each 8-byte cell.
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Aggregate",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x03, 0x13, 0x01,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x13, 0x01,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x01, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0D, 0x08 }),
+            "System.Collections.Generic.List`1_double");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_i4_d", resolved.CppName);
+        Assert.Equal(new[] { "", "i", "" }, resolved.ParamTypeNames);
+        Assert.Null(resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ListAggregate_Seed_DoubleAcc_FloatElem_WithReceiverHint_MapsToListSeedDF()
+    {
+        // NON-DIAGONAL: List<float> folded into a double accumulator
+        // (seed_d_f). The old route paired two 4-byte float cells as one double.
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("Aggregate",
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x03, 0x13, 0x01,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x13, 0x01,
+                0x15, 0x12, 0x0B, 0x03, 0x13, 0x01, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x0C, 0x0D }),
+            "System.Collections.Generic.List`1_float");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_d_f", resolved.CppName);
+        Assert.Equal(new[] { "", "d", "" }, resolved.ParamTypeNames);
+        Assert.Equal("d", resolved.ResultKind);
     }
 
     //--------------------------------------------------------------------------

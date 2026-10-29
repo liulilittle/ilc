@@ -323,17 +323,114 @@ double  il2cpp_linq_list_aggregate_seed_d(Il2CppObject* list, double seed,
 // lambda read through a float fn-pointer, per-step R4 rounding).
 float   il2cpp_linq_list_aggregate_seed_f(Il2CppObject* list, double seed,
                                           Il2CppObject* func, int32_t kind);
-// floatfix: the WIDE-element seed entries -- the same-cell-width kernels for
-// a List<double> / List<long> snapshot (the base seed_d/seed_i8 kernels read
-// INT32 elements; a wide-cell snapshot + its `d(d,d)`/`l(l,l)` lambda needs
-// FoldDD/FoldI8I8). The float-acc-over-double-list entry rides FoldFD's
-// elemSize-adaptive element read.
-double  il2cpp_linq_list_aggregate_seed_d_d(Il2CppObject* list, double seed,
-                                            Il2CppObject* func, int32_t kind);
+// The (ELEMENT family, ACCUMULATOR family) seed matrix. The entry name is
+// seed_<acc>_<elem>: every entry reads the snapshot at the LIST element kind's
+// real width and folds through the accumulator family's own lambda ABI.
+//   elem: i4 (int32-slot, incl. the 1/2-byte narrow cells), i8, f (4-byte
+//         float cells), d (8-byte double cells), ref, dec (16-byte decimal);
+//   acc:  i4, i8, f (float return / double parameters), d, dec (result slot).
+// int32 accumulator
+int32_t il2cpp_linq_list_aggregate_seed_i4_i4(Il2CppObject* list, int32_t seed,
+                                              Il2CppObject* func, int32_t kind);
+int32_t il2cpp_linq_list_aggregate_seed_i4_i8(Il2CppObject* list, int32_t seed,
+                                              Il2CppObject* func, int32_t kind);
+int32_t il2cpp_linq_list_aggregate_seed_i4_f(Il2CppObject* list, int32_t seed,
+                                             Il2CppObject* func, int32_t kind);
+int32_t il2cpp_linq_list_aggregate_seed_i4_d(Il2CppObject* list, int32_t seed,
+                                             Il2CppObject* func, int32_t kind);
+int32_t il2cpp_linq_list_aggregate_seed_i4_ref(Il2CppObject* list, int32_t seed,
+                                               Il2CppObject* func, int32_t kind);
+int32_t il2cpp_linq_list_aggregate_seed_i4_dec(Il2CppObject* list, int32_t seed,
+                                               Il2CppObject* func, int32_t kind);
+// int64 accumulator
+int64_t il2cpp_linq_list_aggregate_seed_i8_i4(Il2CppObject* list, int64_t seed,
+                                              Il2CppObject* func, int32_t kind);
 int64_t il2cpp_linq_list_aggregate_seed_i8_i8(Il2CppObject* list, int64_t seed,
                                               Il2CppObject* func, int32_t kind);
+int64_t il2cpp_linq_list_aggregate_seed_i8_f(Il2CppObject* list, int64_t seed,
+                                             Il2CppObject* func, int32_t kind);
+int64_t il2cpp_linq_list_aggregate_seed_i8_d(Il2CppObject* list, int64_t seed,
+                                             Il2CppObject* func, int32_t kind);
+int64_t il2cpp_linq_list_aggregate_seed_i8_ref(Il2CppObject* list, int64_t seed,
+                                               Il2CppObject* func, int32_t kind);
+int64_t il2cpp_linq_list_aggregate_seed_i8_dec(Il2CppObject* list, int64_t seed,
+                                               Il2CppObject* func, int32_t kind);
+// float accumulator (the seed rides the double F stack)
+float   il2cpp_linq_list_aggregate_seed_f_i4(Il2CppObject* list, double seed,
+                                             Il2CppObject* func, int32_t kind);
+float   il2cpp_linq_list_aggregate_seed_f_i8(Il2CppObject* list, double seed,
+                                             Il2CppObject* func, int32_t kind);
+float   il2cpp_linq_list_aggregate_seed_f_f(Il2CppObject* list, double seed,
+                                            Il2CppObject* func, int32_t kind);
 float   il2cpp_linq_list_aggregate_seed_f_d(Il2CppObject* list, double seed,
                                             Il2CppObject* func, int32_t kind);
+float   il2cpp_linq_list_aggregate_seed_f_ref(Il2CppObject* list, double seed,
+                                              Il2CppObject* func, int32_t kind);
+float   il2cpp_linq_list_aggregate_seed_f_dec(Il2CppObject* list, double seed,
+                                              Il2CppObject* func, int32_t kind);
+// double accumulator
+double  il2cpp_linq_list_aggregate_seed_d_i4(Il2CppObject* list, double seed,
+                                             Il2CppObject* func, int32_t kind);
+double  il2cpp_linq_list_aggregate_seed_d_i8(Il2CppObject* list, double seed,
+                                             Il2CppObject* func, int32_t kind);
+double  il2cpp_linq_list_aggregate_seed_d_f(Il2CppObject* list, double seed,
+                                            Il2CppObject* func, int32_t kind);
+double  il2cpp_linq_list_aggregate_seed_d_d(Il2CppObject* list, double seed,
+                                            Il2CppObject* func, int32_t kind);
+double  il2cpp_linq_list_aggregate_seed_d_ref(Il2CppObject* list, double seed,
+                                              Il2CppObject* func, int32_t kind);
+double  il2cpp_linq_list_aggregate_seed_d_dec(Il2CppObject* list, double seed,
+                                              Il2CppObject* func, int32_t kind);
+// decimal accumulator (the 16-byte result slot is the FIRST parameter)
+void    il2cpp_linq_list_aggregate_seed_dec_i4(runtime::Il2CppDecimal* result,
+                                               Il2CppObject* list, const runtime::Il2CppDecimal* seed,
+                                               Il2CppObject* func, int32_t kind);
+void    il2cpp_linq_list_aggregate_seed_dec_i8(runtime::Il2CppDecimal* result,
+                                               Il2CppObject* list, const runtime::Il2CppDecimal* seed,
+                                               Il2CppObject* func, int32_t kind);
+void    il2cpp_linq_list_aggregate_seed_dec_f(runtime::Il2CppDecimal* result,
+                                              Il2CppObject* list, const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, int32_t kind);
+void    il2cpp_linq_list_aggregate_seed_dec_d(runtime::Il2CppDecimal* result,
+                                              Il2CppObject* list, const runtime::Il2CppDecimal* seed,
+                                              Il2CppObject* func, int32_t kind);
+void    il2cpp_linq_list_aggregate_seed_dec_ref(runtime::Il2CppDecimal* result,
+                                                Il2CppObject* list, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, int32_t kind);
+void    il2cpp_linq_list_aggregate_seed_dec_dec(runtime::Il2CppDecimal* result,
+                                                Il2CppObject* list, const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, int32_t kind);
+// reference accumulator
+Il2CppObject* il2cpp_linq_list_aggregate_seed_ref_i4(Il2CppObject* list, Il2CppObject* seed,
+                                                     Il2CppObject* func, int32_t kind);
+Il2CppObject* il2cpp_linq_list_aggregate_seed_ref_i8(Il2CppObject* list, Il2CppObject* seed,
+                                                     Il2CppObject* func, int32_t kind);
+Il2CppObject* il2cpp_linq_list_aggregate_seed_ref_f(Il2CppObject* list, Il2CppObject* seed,
+                                                    Il2CppObject* func, int32_t kind);
+Il2CppObject* il2cpp_linq_list_aggregate_seed_ref_d(Il2CppObject* list, Il2CppObject* seed,
+                                                    Il2CppObject* func, int32_t kind);
+Il2CppObject* il2cpp_linq_list_aggregate_seed_ref_ref(Il2CppObject* list, Il2CppObject* seed,
+                                                      Il2CppObject* func, int32_t kind);
+Il2CppObject* il2cpp_linq_list_aggregate_seed_ref_dec(Il2CppObject* list, Il2CppObject* seed,
+                                                      Il2CppObject* func, int32_t kind);
+
+// Aggregate(seed, func) over a NON-decimal VALUE-TYPE ARRAY source
+// (DateTime / TimeSpan / Guid) with an int32/int64/float/double accumulator.
+// The cells are read at their real width (8 / 8 / 16 bytes) and the lambda is
+// called with the value struct BY VALUE. Defined in linq_list.cpp (the
+// value-cell readers are exported by linq_family.h).
+int32_t il2cpp_linq_aggregate_seed_dt_i4(Il2CppArray* src, int32_t seed, Il2CppObject* func);
+int64_t il2cpp_linq_aggregate_seed_dt_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func);
+float   il2cpp_linq_aggregate_seed_dt_f(Il2CppArray* src, float seed, Il2CppObject* func);
+double  il2cpp_linq_aggregate_seed_dt_d(Il2CppArray* src, double seed, Il2CppObject* func);
+int32_t il2cpp_linq_aggregate_seed_ts_i4(Il2CppArray* src, int32_t seed, Il2CppObject* func);
+int64_t il2cpp_linq_aggregate_seed_ts_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func);
+float   il2cpp_linq_aggregate_seed_ts_f(Il2CppArray* src, float seed, Il2CppObject* func);
+double  il2cpp_linq_aggregate_seed_ts_d(Il2CppArray* src, double seed, Il2CppObject* func);
+int32_t il2cpp_linq_aggregate_seed_guid_i4(Il2CppArray* src, int32_t seed, Il2CppObject* func);
+int64_t il2cpp_linq_aggregate_seed_guid_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func);
+float   il2cpp_linq_aggregate_seed_guid_f(Il2CppArray* src, float seed, Il2CppObject* func);
+double  il2cpp_linq_aggregate_seed_guid_d(Il2CppArray* src, double seed, Il2CppObject* func);
 
 // GroupBy over the list (snapshot + the array grouping kernel; int32 lists).
 Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,

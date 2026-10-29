@@ -1587,3 +1587,117 @@ the wide element-source OrderBy surface was wired (RED→GREEN, measured).
   - the calli result-slot fold classifies a float return as the double
     slot (`StackFold.cs` ResultKind `0x0C or 0x0D => "d"`) -- likely the
     house widened-carrier convention, unverified by any probe.
+
+## 17. impl-linqagg: the List<T> Aggregate SEED (element family, accumulator family) matrix + the value-source accumulator families
+
+floatfix (7b0ee161) split the list seed fold for the DIAGONAL pairs only
+(K4+d `seed_d_d`, K2+i8 `seed_i8_i8`, K4+f `seed_f_d`, K3+f `seed_f`). Every
+NON-DIAGONAL pair still bound the int32-element base kernels
+(`seed_i4/seed_i8/seed_d/seed_f`), whose element reader is fixed at int32:
+
+- `List<long>` + int32 accumulator read the LOW 32 bits of each 8-byte cell
+  and called the lambda through an int32 element slot (measured: the baseline
+  probe aborts with 0xC0000005 on the first fold -- the `int(int,int64)` leaf
+  is called as `int64(*)(int64,int32)`);
+- `List<float>` + double accumulator paired TWO 4-byte float cells as one
+  double (a silent wrong value + an OOB tail read);
+- `List<float>` + float accumulator read the float BITS as int32;
+- `List<double>` + int32/int64 accumulator read the low 32 bits;
+- `List<byte>/List<short>` (1/2-byte cells) were read as int32;
+- `List<string>` + a numeric accumulator read a POINTER's low 32 bits;
+- `List<decimal>` (16-byte cells) fell into the reference path;
+- a decimal/ref ACCUMULATOR was cast to int32 at the call site (a generated-C++
+  compile error).
+
+### 17.1 Fixed (impl-linqagg)
+
+`linq_list.cpp` now has one entry per (element family, accumulator family)
+pair, named `il2cpp_linq_list_aggregate_seed_<acc>_<elem>`:
+
+  acc  = i4 | i8 | f | d | dec | ref
+  elem = i4 (int32-slot, incl. the 1/2-byte narrow/uint kinds, read through
+         `ReadI4(kind)`) | i8 | f (4-byte float cells) | d (8-byte double
+         cells) | ref | dec (16-byte decimal cells)
+
+Each entry snapshots at the LIST kind, reads the element at the REAL cell
+width, and calls the accumulator family's own leaf ABI (narrow/integral
+element -> int32 slot; int64 -> int64; float/double -> widened double;
+reference -> Il2CppObject*; decimal -> the 16-byte value struct; float
+accumulator -> float return with DOUBLE parameters -- the FAccDFn convention;
+decimal accumulator -> the 16-byte value return / result slot; reference
+accumulator -> the accumulator local is a GC root). `MethodMap.Linq.cs` now
+dispatches `seed_<accFam>_<elemFam>`; a decimal ELEMENT list uses the
+`il2cpp_list_obj_to_array_dec` snapshot (kind literal 12).
+
+Value-source accumulators (A cluster): `DateTime` / `TimeSpan` / `Guid`
+ARRAY sources with an int32/int64/float/double accumulator were routed to the
+int32-element base kernels too (4-byte reads out of 8/16-byte cells + an
+int32 element slot against a BY-VALUE struct parameter). They now use
+`il2cpp_linq_aggregate_seed_{dt,ts,guid}_{i4,i8,f,d}` (declared in
+linq_list.h, defined in linq_list.cpp; the cell readers are exported by
+linq_family.h). The decimal accumulator family was already wired by
+impl-aggvt.
+
+e2e (mingw, oracle sha == runtime sha):
+- `probe-linqagg2` (42 records: int/long/float/double/byte/short/string
+  elements x int/long/float/double/decimal/string accumulators + empty
+  sources + a chained decimal ToList fold) RED at baseline: runtime exit
+  0xC0000005, 0 records; GREEN sha eb49da63...
+- `probe-aggvt2` (14 records: dt/ts/guid x i4/i8/f/d + empty) RED at
+  baseline: exit 0xC0000005, 0 records; GREEN sha 12a416bb...
+- regressions unchanged (exact task SHAs): probe-floatagg 3a01e028,
+  loud-linq-listagg 48e3fbff, linqorder2 6a72ece6, list-orderkey-float
+  60cc1818, zmatrix 24ba1e99.
+- Unit: 3902/3902 (baseline 3899 + 3 new mapping assertions); the two
+  pre-existing list-seed assertions that encoded the old bare entry names
+  (`seed_i4` / `seed_f`) were updated to the two-family names.
+
+### 17.2 Registered, NOT fixed in this seat (with e2e evidence)
+
+1. **`List<T>.Aggregate(seed, func, resultSelector)`** -- the list arm has no
+   result-projection matrix (`_rs_*`) and used to emit the 3-argument entry
+   while the IL pushed 4 (a stack desync). It is now a transpile-time LOUD
+   (`MethodMap.Linq.cs`, Aggregate count==4). The array surface has the
+   `_rs_*` entries; the list surface needs one entry per (accumulator, TResult)
+   pair.
+2. **`List<decimal>` element receiver** -- a `List<decimal>` LOCAL is not
+   tracked as a List (the stack-kind vocabulary has no decimal tag), so
+   `ldec.Aggregate(...)` falls into the ARRAY Aggregate arm with a List object
+   reinterpreted as `Il2CppArray*` (a wrong value / access violation). Only a
+   CHAINED `decimal[].ToList().Aggregate(0m, ...)` keeps the tracked
+   `List`1_System.Decimal` receiver and reaches the list domain (probed as
+   `dec_chain_dec`). Needs the type tracker to carry the decimal element tag.
+3. **GroupBy key families** (A cluster) -- evidence (transpile log):
+   `GroupBy<int32,TimeSpan>` -> "a value-type (System.TimeSpan) key has no
+   runtime key carrier"; `GroupBy<int64,DateTime>` -> "the stage-1 runtime
+   LINQ surface is int32 (0x08) element-family". DateTime/Guid keys over the
+   int32/reference/decimal/DateTime source families ARE already wired
+   (KeyKindForNamed 9/10); the missing pieces are the TimeSpan key kind and
+   the non-int32 element-source GroupBy surface. The key carrier / grouping
+   kernel lives in linq_map.cpp (outside this seat's write scope).
+4. **`DefaultIfEmpty(source, defaultValue)`** (non-decimal) -- the mapping
+   answered the 1-argument entry and DROPPED the default (a wrong empty-source
+   value / stack desync). It is now a transpile-time LOUD for the int32,
+   reference, wide/narrow, list and family arms. The per-element-family
+   default-value ABI + kernel lives in linq_family.cpp (outside this seat's
+   write scope); the decimal 2-arg form is already wired
+   (`il2cpp_linq_default_if_empty_dec`).
+5. **Zip over a DateTimeOffset source** (A cluster) -- evidence:
+   `Enumerable.Zip<valuetype,valuetype,...> not wired: an element family with
+   no cell ABI`. The Zip side descriptor has no 16-byte DateTimeOffset code
+   (IL2CPP_LINQ_CELL_DTOFFSET exists in linq_family.h but no zip side maps to
+   it). A new side code + result family is needed.
+6. **Array numeric NON-DIAGONAL Aggregate** (same defect class, ARRAY domain,
+   out of this seat's List mandate): `long[].Aggregate(0, ...)`,
+   `double[].Aggregate(0L, ...)`, `float[].Aggregate(0.0, ...)` still bind
+   seed_i4/seed_i8/seed_d (int32 element reads). The new list entries are not
+   array entries; the array arm needs its own (element, accumulator) dispatch.
+7. **A by-value VALUE-STRUCT List element** (`List<DateTime>` /
+   `List<TimeSpan>` / `List<Guid>` / a user struct) -- no list element storage
+   kind exists, so the Aggregate arm rejects it (LOUD) instead of passing a
+   reference slot where the lambda takes the struct by value.
+8. **A reference / user-struct ACCUMULATOR over a value-type array source**
+   (`DateTime[].Aggregate("", (a,x) => ...)`, a user-struct source with a
+   numeric accumulator) -- still routes to the int32 reader (a silent wrong
+   value / ABI mismatch). Not in the A-cluster list; registered for the next
+   pass.
