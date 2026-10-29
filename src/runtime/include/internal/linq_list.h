@@ -174,6 +174,24 @@ Il2CppArray* il2cpp_linq_list_reverse(Il2CppObject* list, int32_t kind);
 // array holding the family default).
 Il2CppArray* il2cpp_linq_list_default_if_empty(Il2CppObject* list, int32_t kind);
 
+// DefaultIfEmpty(source, defaultValue) over the list (net48 Enumerable.cs:1010):
+// the source when non-empty, else a one-element array holding `value` at the
+// element family's REAL cell width. The value rides the element family's own
+// parameter slot (int32 for the narrow/int32 cells, int64 for int64, double for
+// float/double, the reference slot for a reference element, and the 16-byte
+// value for decimal).
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_i4(Il2CppObject* list, int32_t value,
+                                                      int32_t kind);
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_i8(Il2CppObject* list, int64_t value,
+                                                      int32_t kind);
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_d(Il2CppObject* list, double value,
+                                                     int32_t kind);
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_ref(Il2CppObject* list, Il2CppObject* value,
+                                                       int32_t kind);
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_dec(Il2CppObject* list,
+                                                       runtime::Il2CppDecimal value,
+                                                       int32_t kind);
+
 //------------------------------------------------------------------------------
 // Slices / concatenation (family-agnostic: element copies, no comparison).
 //------------------------------------------------------------------------------
@@ -431,6 +449,75 @@ int32_t il2cpp_linq_aggregate_seed_guid_i4(Il2CppArray* src, int32_t seed, Il2Cp
 int64_t il2cpp_linq_aggregate_seed_guid_i8(Il2CppArray* src, int64_t seed, Il2CppObject* func);
 float   il2cpp_linq_aggregate_seed_guid_f(Il2CppArray* src, float seed, Il2CppObject* func);
 double  il2cpp_linq_aggregate_seed_guid_d(Il2CppArray* src, double seed, Il2CppObject* func);
+
+// DefaultIfEmpty(source, defaultValue) over an ARRAY source of any element
+// family (net48 Enumerable.cs:1010). The source is returned as-is when it is
+// non-empty; otherwise a one-element array is allocated at the family's REAL
+// cell width and `value` is written into it. `cell` is the IL2CPP_LINQ_CELL_*
+// code of the source element (linq_family.h); the value crosses in the family's
+// own parameter slot (int32 / int64 / double for float+double / reference).
+// Defined in linq_list.cpp next to the other ARRAY value-family kernels so the
+// generated code needs no extra header.
+Il2CppArray* il2cpp_linq_default_if_empty_family_i4(Il2CppArray* src, int32_t value,
+                                                    int32_t cell);
+Il2CppArray* il2cpp_linq_default_if_empty_family_i8(Il2CppArray* src, int64_t value,
+                                                    int32_t cell);
+Il2CppArray* il2cpp_linq_default_if_empty_family_d(Il2CppArray* src, double value,
+                                                   int32_t cell);
+Il2CppArray* il2cpp_linq_default_if_empty_family_ref(Il2CppArray* src, Il2CppObject* value,
+                                                     int32_t cell);
+
+//------------------------------------------------------------------------------
+// Aggregate(seed, func, resultSelector) over a List<T> (net48
+// Enumerable.Aggregate<TSource,TAccumulate,TResult> -- Enumerable.cs:1411).
+//
+// The fold is the (accumulator, element) seed matrix above; the result selector
+// then runs ONCE on the final accumulator. Its ABI depends ONLY on the
+// ACCUMULATOR family (it takes the accumulator) and the RESULT family decides
+// the carrier, so the entry set is the 6x6 fold matrix crossed with a 6-way
+// projection: 6 accumulator families x 6 element families x 6 result families
+// = 216 entries, all generated from the declaration macros below (the seed type
+// is the accumulator family's; the return is the RESULT family's).
+//
+// The entry name is il2cpp_linq_list_aggregate_seed_<acc>_<elem>_rs_<res>.
+//------------------------------------------------------------------------------
+#define IL2CPP_DECL_LST_AGG_RS(ACC, ELEM, SEEDTYPE)                                      \
+    int32_t il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_i4(                       \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                            \
+        Il2CppObject* resSel, int32_t kind);                                              \
+    int64_t il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_i8(                       \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                            \
+        Il2CppObject* resSel, int32_t kind);                                              \
+    double il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_f(                         \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                            \
+        Il2CppObject* resSel, int32_t kind);                                              \
+    double il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_d(                         \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                            \
+        Il2CppObject* resSel, int32_t kind);                                              \
+    Il2CppObject* il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_ref(                \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                            \
+        Il2CppObject* resSel, int32_t kind);                                              \
+    void il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_dec(                         \
+        runtime::Il2CppDecimal* result, Il2CppObject* list, SEEDTYPE seed,                \
+        Il2CppObject* func, Il2CppObject* resSel, int32_t kind);
+
+#define IL2CPP_DECL_LST_AGG_RS_ROW(ACC, SEEDTYPE)                                        \
+    IL2CPP_DECL_LST_AGG_RS(ACC, i4, SEEDTYPE)                                            \
+    IL2CPP_DECL_LST_AGG_RS(ACC, i8, SEEDTYPE)                                            \
+    IL2CPP_DECL_LST_AGG_RS(ACC, f, SEEDTYPE)                                             \
+    IL2CPP_DECL_LST_AGG_RS(ACC, d, SEEDTYPE)                                             \
+    IL2CPP_DECL_LST_AGG_RS(ACC, ref, SEEDTYPE)                                           \
+    IL2CPP_DECL_LST_AGG_RS(ACC, dec, SEEDTYPE)
+
+IL2CPP_DECL_LST_AGG_RS_ROW(i4, int32_t)
+IL2CPP_DECL_LST_AGG_RS_ROW(i8, int64_t)
+IL2CPP_DECL_LST_AGG_RS_ROW(f, double)
+IL2CPP_DECL_LST_AGG_RS_ROW(d, double)
+IL2CPP_DECL_LST_AGG_RS_ROW(dec, const runtime::Il2CppDecimal*)
+IL2CPP_DECL_LST_AGG_RS_ROW(ref, Il2CppObject*)
+
+#undef IL2CPP_DECL_LST_AGG_RS
+#undef IL2CPP_DECL_LST_AGG_RS_ROW
 
 // GroupBy over the list (snapshot + the array grouping kernel; int32 lists).
 Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,

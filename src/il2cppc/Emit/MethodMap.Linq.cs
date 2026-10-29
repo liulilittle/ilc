@@ -1738,15 +1738,12 @@ public static partial class MethodRefResolver
                         OneArg, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { "15" });
                 case "DefaultIfEmpty":
-                    // The 2-argument form (source, defaultValue) needs a
-                    // per-element-family default-value ABI (the default crosses
-                    // in the element slot / value slot) and its own kernel. The
-                    // old mapping answered the 1-argument entry here, dropping
-                    // the default (a stack desync / a wrong empty-source value).
-                    // Registered in docs/audit/b5-gaps.md.
-                    throw new NotSupportedException(
-                        "Enumerable.DefaultIfEmpty(source, defaultValue) over a reference-element " +
-                        "source is not wired (only the source-only form is; see docs/audit/b5-gaps.md)");
+                    // DefaultIfEmpty(source, defaultValue) over a reference-
+                    // element source: non-empty -> the source as-is; empty ->
+                    // a one-element array holding `value` (the reference slot).
+                    return I("il2cpp::il2cpp_linq_default_if_empty_family_ref", 2, true, true, false,
+                        new[] { "a", "" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
                 case "LongCount" when count < 2:
                     return I("il2cpp::il2cpp_linq_long_count_family", 1, true, false, false,
                         OneArg, resultKind: "l", appendLiterals: new[] { "15" });
@@ -3060,12 +3057,12 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_default_if_empty_i4", 1, true, true, false,
                     OneArg, returnTypeName: "System.Int32[]");
             case "DefaultIfEmpty":
-                // The 2-argument form needs a per-element-family default-value
-                // ABI; the old mapping answered the 1-argument entry and dropped
-                // the default. Registered in docs/audit/b5-gaps.md.
-                throw new NotSupportedException(
-                    "Enumerable.DefaultIfEmpty(source, defaultValue) over an int32 source is not " +
-                    "wired (only the source-only form is; see docs/audit/b5-gaps.md)");
+                // DefaultIfEmpty(source, defaultValue): non-empty -> the source
+                // as-is; empty -> a one-element array holding `value` at the
+                // int32 cell width (net48 Enumerable.cs:1010).
+                return I("il2cpp::il2cpp_linq_default_if_empty_family_i4", 2, true, true, false,
+                    new[] { "a", "i" }, returnTypeName: "System.Int32[]",
+                    appendLiterals: new[] { "7" });
             default:
                 return null;
         }
@@ -4265,12 +4262,46 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_list_default_if_empty", 1, true, true, false,
                     L1, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "DefaultIfEmpty":
-                // The 2-argument form needs a per-element-family default-value
-                // ABI; the old mapping answered the 1-argument entry and dropped
-                // the default. Registered in docs/audit/b5-gaps.md.
-                throw new NotSupportedException(
-                    "Enumerable.DefaultIfEmpty(source, defaultValue) over a List is not wired " +
-                    "(only the source-only form is; see docs/audit/b5-gaps.md)");
+            {
+                // DefaultIfEmpty(source, defaultValue) over a List<T>: the source
+                // when non-empty, else a one-element array holding `value` at the
+                // LIST element kind's REAL cell width (net48 Enumerable.cs:1010).
+                // The value rides the element family's own parameter slot. A
+                // List<decimal> element has no distinct LIST kind byte of its own
+                // (0x11 is shared by every value type), so the generic-argument
+                // NAME table decides decimal vs reference -- the same rule the
+                // Aggregate arm above uses.
+                bool elemDec = genArgNames is { Length: >= 1 } en
+                    && en[0] is "System.Decimal" or "V:System.Decimal";
+                string kEff = elemDec ? "12" : K;
+                string fam = elemDec ? "dec" : K switch
+                {
+                    "0" or "5" or "6" or "7" or "8" or "9" or "10" or "11" => "i4",
+                    "1" => "ref",
+                    "2" => "i8",
+                    "3" or "4" => "d",
+                    "12" => "dec",
+                    _ => "",
+                };
+                if (fam.Length == 0) return null;
+                string entry = fam switch
+                {
+                    "i8" => "il2cpp::il2cpp_linq_list_default_if_empty_val_i8",
+                    "d" => "il2cpp::il2cpp_linq_list_default_if_empty_val_d",
+                    "ref" => "il2cpp::il2cpp_linq_list_default_if_empty_val_ref",
+                    "dec" => "il2cpp::il2cpp_linq_list_default_if_empty_val_dec",
+                    _ => "il2cpp::il2cpp_linq_list_default_if_empty_val_i4",
+                };
+                string[] casts = fam switch
+                {
+                    "i8" => new[] { "", "l" },
+                    "d" => new[] { "", "d" },
+                    "ref" or "dec" => new[] { "", "" },
+                    _ => new[] { "", "i" },
+                };
+                return I(entry, 2, true, true, false, casts,
+                    returnTypeName: elemTracked, appendLiterals: new[] { kEff });
+            }
             case "Take":
                 return I("il2cpp::il2cpp_linq_list_take", 2, true, true, false,
                     new[] { "", "i" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
@@ -4452,20 +4483,6 @@ public static partial class MethodRefResolver
                 }
                 if (count >= 3)
                 {
-                    if (count == 4)
-                    {
-                        // The 4-parameter form (seed, func, resultSelector) needs
-                        // its own result-projection matrix (one entry per
-                        // (accumulator, TResult) pair). The ARRAY surface has it
-                        // (cppBase + _rs_<res>); the LIST surface does not yet,
-                        // so the call must be rejected instead of emitting the
-                        // 3-parameter entry and leaving the selector on the IL
-                        // stack (a stack desync). Registered in b5-gaps.md.
-                        throw new NotSupportedException(
-                            "Enumerable.Aggregate(source, seed, func, resultSelector) over a List is " +
-                            "not wired: the list seed-fold matrix covers the 3-parameter form only " +
-                            "(the array surface has the _rs projection entries; see docs/audit/b5-gaps.md)");
-                    }
                     byte accByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
                     // The 0x11 byte covers EVERY value type: only a real
                     // System.Decimal has a list cell/storage kind.
@@ -4514,6 +4531,51 @@ public static partial class MethodRefResolver
                             "supported accumulator family over a List (the list seed matrix covers " +
                             "int32/int64/float/double/decimal/reference accumulators; see " +
                             "docs/audit/b5-gaps.md)");
+                    // The 4-parameter form (seed, func, resultSelector): the
+                    // fold is the SAME (accumulator, element) entry as the
+                    // 3-parameter form; the result selector runs ONCE on the
+                    // final accumulator. The runtime ships the full 6x6x6
+                    // matrix (il2cpp_linq_list_aggregate_seed_<acc>_<elem>_rs_
+                    // <res>), so EVERY (TAccumulate, TResult) pair the fold
+                    // matrix supports is statically emittable -- no LOUD.
+                    if (count == 4)
+                    {
+                        byte resByte = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
+                        bool resDec = resByte == 0x11 && genArgNames is { Length: >= 3 } rn
+                            && rn[2] is "System.Decimal" or "V:System.Decimal";
+                        string resFam = resDec ? "dec" : resByte switch
+                        {
+                            0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+                            0x0A or 0x0B => "i8",
+                            0x0C => "f",
+                            0x0D => "d",
+                            _ when IsRefFamilyByte(resByte) => "ref",
+                            _ => "",
+                        };
+                        if (resFam.Length == 0)
+                            throw new NotSupportedException(
+                                "LOUD whitelist (no runtime descriptor for the TResult struct): " +
+                                "Enumerable.Aggregate TResult " +
+                                $"{GenericArgTypeName(resByte)} over a List is not a supported result " +
+                                "family -- the runtime projects the accumulator to int32/int64/float/" +
+                                "double/decimal/reference only (the ARRAY surface has the same limit) " +
+                                "[Reference Source System.Core/System/Linq/Enumerable.cs:1411]");
+                        string[] rsCasts = accFam switch
+                        {
+                            "dec" => new[] { "", "dec", "", "" },
+                            "ref" => new[] { "", "", "", "" },
+                            "i4" => new[] { "", "i", "", "" },
+                            "i8" => new[] { "", "l", "", "" },
+                            _ => new[] { "", "d", "", "" },
+                        };
+                        bool resRef = resFam == "ref";
+                        return I($"il2cpp::il2cpp_linq_list_aggregate_seed_{accFam}_{elemFam}_rs_{resFam}",
+                            4, true, resRef, false, rsCasts,
+                            resultKind: resFam == "dec" ? "dec"
+                                : resFam == "i8" ? "l"
+                                : resFam is "f" or "d" ? "d" : null,
+                            appendLiterals: new[] { elemDec ? "12" : K });
+                    }
                     // The float seed rides the double F stack; the decimal seed
                     // crosses as a const value-slot pointer (the T3 result-slot
                     // contract, ResultKind "dec").
@@ -4664,12 +4726,24 @@ public static partial class MethodRefResolver
                     OneArg, returnTypeName: elemTracked,
                     appendLiterals: new[] { cellCode });
             case "DefaultIfEmpty":
-                // The 2-argument form needs a per-element-family default-value
-                // ABI; the old mapping answered the 1-argument entry and dropped
-                // the default. Registered in docs/audit/b5-gaps.md.
-                throw new NotSupportedException(
-                    "Enumerable.DefaultIfEmpty(source, defaultValue) over a value-element source " +
-                    "is not wired (only the source-only form is; see docs/audit/b5-gaps.md)");
+                // DefaultIfEmpty(source, defaultValue) over a wide/narrow value
+                // source: non-empty -> the source as-is; empty -> a one-element
+                // array holding `value` at the family's REAL cell width. The
+                // value crosses in the family's own parameter slot (int32 for
+                // the narrow cells, int64 for int64, double for float/double).
+                if (cellCode == null) return null;
+                return srcFam switch
+                {
+                    "i8" => I("il2cpp::il2cpp_linq_default_if_empty_family_i8", 2, true, true, false,
+                        new[] { "a", "l" }, returnTypeName: elemTracked,
+                        appendLiterals: new[] { cellCode }),
+                    "f" or "d" => I("il2cpp::il2cpp_linq_default_if_empty_family_d", 2, true, true, false,
+                        new[] { "a", "d" }, returnTypeName: elemTracked,
+                        appendLiterals: new[] { cellCode }),
+                    _ => I("il2cpp::il2cpp_linq_default_if_empty_family_i4", 2, true, true, false,
+                        new[] { "a", "i" }, returnTypeName: elemTracked,
+                        appendLiterals: new[] { cellCode }),
+                };
             case "LongCount" when count < 2:
                 // LongCount() -> the element count as int64 (net48).
                 if (cellCode == null) return null;

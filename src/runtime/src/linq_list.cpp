@@ -2243,6 +2243,126 @@ Il2CppArray* il2cpp_linq_list_default_if_empty(Il2CppObject* list, int32_t kind)
 }
 
 //------------------------------------------------------------------------------
+// DefaultIfEmpty(source, defaultValue) -- the value form.
+//
+// net48 Enumerable.DefaultIfEmpty<TSource>(source, defaultValue) returns the
+// source unchanged when it has elements, otherwise a ONE-element sequence
+// holding the caller's defaultValue (Enumerable.cs:1010). The list snapshot is
+// exact storage, so the default is written at the element family's REAL width
+// (the same widths ReadI4/ReadI8/ReadD/ReadRef read) -- never a fixed 4-byte
+// store into an 8/16-byte cell.
+//------------------------------------------------------------------------------
+namespace {
+
+void WriteI4At(char* p, int32_t kind, int32_t v)
+{
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_SBYTE:  *reinterpret_cast<int8_t*>(p) = static_cast<int8_t>(v); return;
+        case IL2CPP_LIST_KIND_BYTE:   *reinterpret_cast<uint8_t*>(p) = static_cast<uint8_t>(v); return;
+        case IL2CPP_LIST_KIND_BOOL:   *reinterpret_cast<uint8_t*>(p) = v != 0 ? 1 : 0; return;
+        case IL2CPP_LIST_KIND_SHORT:  *reinterpret_cast<int16_t*>(p) = static_cast<int16_t>(v); return;
+        case IL2CPP_LIST_KIND_USHORT: *reinterpret_cast<uint16_t*>(p) = static_cast<uint16_t>(v); return;
+        case IL2CPP_LIST_KIND_CHAR:   *reinterpret_cast<char16_t*>(p) = static_cast<char16_t>(v); return;
+        case IL2CPP_LIST_KIND_UINT:   *reinterpret_cast<uint32_t*>(p) = static_cast<uint32_t>(v); return;
+        default:                      *reinterpret_cast<int32_t*>(p) = v; return;
+    }
+}
+
+// float/double share the widened F-stack parameter; a real 4-byte float cell
+// (IL2CPP_LIST_KIND_F) stores the R4 value, a double cell the R8 value.
+void WriteDAt(char* p, int32_t kind, double v)
+{
+    if (kind == IL2CPP_LIST_KIND_F)
+    {
+        *reinterpret_cast<float*>(p) = static_cast<float>(v);
+        return;
+    }
+    *reinterpret_cast<double*>(p) = v;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_i4(Il2CppObject* list, int32_t value,
+                                                      int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length != 0) return snap;
+    Il2CppArray* out = AllocElemArray(snap, kind, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    WriteI4At(il2cpp_array_get_elem_ptr(out, 0), kind, value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_i8(Il2CppObject* list, int64_t value,
+                                                      int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length != 0) return snap;
+    Il2CppArray* out = AllocElemArray(snap, kind, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, 0)) = value;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_d(Il2CppObject* list, double value,
+                                                     int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length != 0) return snap;
+    Il2CppArray* out = AllocElemArray(snap, kind, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    WriteDAt(il2cpp_array_get_elem_ptr(out, 0), kind, value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_ref(Il2CppObject* list, Il2CppObject* value,
+                                                       int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    roots.Add(reinterpret_cast<void**>(&value));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length != 0) return snap;
+    Il2CppArray* out = AllocElemArray(snap, kind, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    char* dst = il2cpp_array_get_elem_ptr(out, 0);
+    il2cpp_write_barrier(reinterpret_cast<void**>(dst), value);
+    *reinterpret_cast<Il2CppObject**>(dst) = value;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_dec(Il2CppObject* list,
+                                                       runtime::Il2CppDecimal value,
+                                                       int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length != 0) return snap;
+    Il2CppArray* out = AllocElemArray(snap, kind, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    std::memcpy(il2cpp_array_get_elem_ptr(out, 0), &value, sizeof(value));
+    return out;
+}
+
+//------------------------------------------------------------------------------
 // Take / Skip / TakeWhile / SkipWhile / Concat
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_list_take(Il2CppObject* list, int32_t count, int32_t kind)
@@ -3339,6 +3459,278 @@ VT_SEED_ENTRY(guid_d, double, double, Il2CppGuid,
               IL2CPP_LINQ_CELL_GUID, LinqCellReadGuid)
 
 #undef VT_SEED_ENTRY
+
+//------------------------------------------------------------------------------
+// DefaultIfEmpty(source, defaultValue) over an ARRAY source (net48
+// Enumerable.cs:1010). Non-empty source -> the source array itself; empty ->
+// a ONE-element array of the source's cell family holding `value`. The cell
+// code is the IL2CPP_LINQ_CELL_* of the source element; the store writes at
+// that cell's REAL width (1/2/4/8/16 bytes), never a fixed 4-byte store.
+//
+// These live in this translation unit (with their declarations in linq_list.h)
+// next to the ARRAY value-family aggregate kernels above: the generated code
+// already includes this header, so no extra include is needed.
+//------------------------------------------------------------------------------
+namespace {
+
+void CellStoreI4(char* p, int32_t cell, int32_t v)
+{
+    switch (cell)
+    {
+        case IL2CPP_LINQ_CELL_SBYTE:  *reinterpret_cast<int8_t*>(p) = static_cast<int8_t>(v); return;
+        case IL2CPP_LINQ_CELL_BYTE:   *reinterpret_cast<uint8_t*>(p) = static_cast<uint8_t>(v); return;
+        case IL2CPP_LINQ_CELL_BOOL:   *reinterpret_cast<uint8_t*>(p) = v != 0 ? 1 : 0; return;
+        case IL2CPP_LINQ_CELL_SHORT:  *reinterpret_cast<int16_t*>(p) = static_cast<int16_t>(v); return;
+        case IL2CPP_LINQ_CELL_USHORT: *reinterpret_cast<uint16_t*>(p) = static_cast<uint16_t>(v); return;
+        case IL2CPP_LINQ_CELL_CHAR:   *reinterpret_cast<char16_t*>(p) = static_cast<char16_t>(v); return;
+        case IL2CPP_LINQ_CELL_UINT:   *reinterpret_cast<uint32_t*>(p) = static_cast<uint32_t>(v); return;
+        default:                      *reinterpret_cast<int32_t*>(p) = v; return;
+    }
+}
+
+void CellStoreD(char* p, int32_t cell, double v)
+{
+    if (cell == IL2CPP_LINQ_CELL_F)
+    {
+        *reinterpret_cast<float*>(p) = static_cast<float>(v);
+        return;
+    }
+    if (cell == IL2CPP_LINQ_CELL_D)
+    {
+        *reinterpret_cast<double*>(p) = v;
+        return;
+    }
+    CellStoreI4(p, cell, static_cast<int32_t>(v));
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_default_if_empty_family_i4(Il2CppArray* src, int32_t value,
+                                                    int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (src->length != 0) return src;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = LinqNewArray(cell, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    CellStoreI4(LinqCellPtr(out, 0), cell, value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_default_if_empty_family_i8(Il2CppArray* src, int64_t value,
+                                                    int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (src->length != 0) return src;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = LinqNewArray(cell, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    *reinterpret_cast<int64_t*>(LinqCellPtr(out, 0)) = value;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_default_if_empty_family_d(Il2CppArray* src, double value,
+                                                   int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (src->length != 0) return src;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = LinqNewArray(cell, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    CellStoreD(LinqCellPtr(out, 0), cell, value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_default_if_empty_family_ref(Il2CppArray* src, Il2CppObject* value,
+                                                     int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (src->length != 0) return src;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&value));
+    Il2CppArray* out = LinqNewArray(cell, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    char* dst = LinqCellPtr(out, 0);
+    il2cpp_write_barrier(reinterpret_cast<void**>(dst), value);
+    *reinterpret_cast<Il2CppObject**>(dst) = value;
+    return out;
+}
+
+//------------------------------------------------------------------------------
+// Aggregate(seed, func, resultSelector) over a List<T> (see linq_list.h).
+//
+// Each entry runs the SAME (accumulator, element) seed fold as the 3-parameter
+// form and then applies the result selector ONCE to the final accumulator. The
+// selector's ABI follows the ACCUMULATOR family (the value it receives) and the
+// RESULT family decides the return carrier, so the body is generated from two
+// macros -- one per accumulator storage shape -- and the 6-way projection.
+//------------------------------------------------------------------------------
+namespace {
+
+template <typename Res, typename Acc>
+Res LstAggProject(Il2CppDelegate* d, Acc acc)
+{
+    typedef Res (*LeafFn)(Acc);
+    typedef Res (*ThisFn)(Il2CppObject*, Acc);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, acc)
+        : reinterpret_cast<LeafFn>(d->methodPtr)(acc);
+}
+
+} // namespace
+
+#define LST_AGG_NO_ROOT
+
+// VALUE accumulator (int32 / int64 / float / double / reference): the fold is
+// the 3-parameter entry (the same name minus the _rs_<res> suffix).
+#define LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, RESTYPE, RES, PROJEXPR)    \
+    RESTYPE il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_##RES(                    \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                            \
+        Il2CppObject* resSel, int32_t kind)                                               \
+    {                                                                                     \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");                   \
+        RootScope roots;                                                                  \
+        roots.Add(reinterpret_cast<void**>(&rd));                                         \
+        auto acc = il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM(list, seed, func, kind); \
+        ROOTACC                                                                           \
+        return PROJEXPR;                                                                  \
+    }
+
+// VALUE accumulator with a DECIMAL result (the 16-byte result rides the
+// explicit T3 result slot as the FIRST parameter).
+#define LST_AGG_RS_ENTRY_DECRES(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL)                    \
+    void il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_dec(                        \
+        runtime::Il2CppDecimal* result, Il2CppObject* list, SEEDTYPE seed,               \
+        Il2CppObject* func, Il2CppObject* resSel, int32_t kind)                          \
+    {                                                                                    \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");                  \
+        RootScope roots;                                                                 \
+        roots.Add(reinterpret_cast<void**>(&rd));                                        \
+        auto acc = il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM(list, seed, func, kind); \
+        ROOTACC                                                                          \
+        const runtime::Il2CppDecimal r = LstAggProject<runtime::Il2CppDecimal>(rd, ACCVAL); \
+        std::memcpy(result, &r, sizeof(r));                                              \
+    }
+
+#define LST_AGG_RS6(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL)                                \
+    LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, int32_t, i4,                  \
+        LstAggProject<int32_t>(rd, ACCVAL))                                              \
+    LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, int64_t, i8,                  \
+        LstAggProject<int64_t>(rd, ACCVAL))                                              \
+    LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, double, f,                    \
+        static_cast<double>(LstAggProject<float>(rd, ACCVAL)))                           \
+    LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, double, d,                    \
+        LstAggProject<double>(rd, ACCVAL))                                               \
+    LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, Il2CppObject*, ref,           \
+        LstAggProject<Il2CppObject*>(rd, ACCVAL))                                        \
+    LST_AGG_RS_ENTRY_DECRES(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL)
+
+// DECIMAL accumulator: the fold writes the 16-byte accumulator into a local
+// slot (the T3 result-slot contract of the 3-parameter entry), then the
+// selector projects it.
+#define LST_AGG_RS_DEC_ENTRY(ELEM, RES, RESTYPE, RETBODY)                                \
+    RESTYPE il2cpp_linq_list_aggregate_seed_dec_##ELEM##_rs_##RES(                       \
+        Il2CppObject* list, const runtime::Il2CppDecimal* seed, Il2CppObject* func,      \
+        Il2CppObject* resSel, int32_t kind)                                              \
+    {                                                                                    \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");                  \
+        RootScope roots;                                                                 \
+        roots.Add(reinterpret_cast<void**>(&rd));                                        \
+        runtime::Il2CppDecimal acc;                                                      \
+        il2cpp_linq_list_aggregate_seed_dec_##ELEM(&acc, list, seed, func, kind);        \
+        RETBODY                                                                          \
+    }
+
+#define LST_AGG_RS_DEC_ENTRY_DEC(ELEM)                                                   \
+    void il2cpp_linq_list_aggregate_seed_dec_##ELEM##_rs_dec(                            \
+        runtime::Il2CppDecimal* result, Il2CppObject* list,                              \
+        const runtime::Il2CppDecimal* seed, Il2CppObject* func,                          \
+        Il2CppObject* resSel, int32_t kind)                                              \
+    {                                                                                    \
+        Il2CppDelegate* rd = RequireCallback(resSel, "resultSelector");                  \
+        RootScope roots;                                                                 \
+        roots.Add(reinterpret_cast<void**>(&rd));                                        \
+        runtime::Il2CppDecimal acc;                                                      \
+        il2cpp_linq_list_aggregate_seed_dec_##ELEM(&acc, list, seed, func, kind);        \
+        const runtime::Il2CppDecimal r = LstAggProject<runtime::Il2CppDecimal>(rd, acc); \
+        std::memcpy(result, &r, sizeof(r));                                              \
+    }
+
+#define LST_AGG_RS_DEC6(ELEM)                                                            \
+    LST_AGG_RS_DEC_ENTRY(ELEM, i4, int32_t, return LstAggProject<int32_t>(rd, acc);)     \
+    LST_AGG_RS_DEC_ENTRY(ELEM, i8, int64_t, return LstAggProject<int64_t>(rd, acc);)     \
+    LST_AGG_RS_DEC_ENTRY(ELEM, f, double,                                                \
+        return static_cast<double>(LstAggProject<float>(rd, acc));)                      \
+    LST_AGG_RS_DEC_ENTRY(ELEM, d, double, return LstAggProject<double>(rd, acc);)        \
+    LST_AGG_RS_DEC_ENTRY(ELEM, ref, Il2CppObject*,                                       \
+        return LstAggProject<Il2CppObject*>(rd, acc);)                                   \
+    LST_AGG_RS_DEC_ENTRY_DEC(ELEM)
+
+// int32 accumulator
+LST_AGG_RS6(i4, i4, int32_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i4, i8, int32_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i4, f, int32_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i4, d, int32_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i4, ref, int32_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i4, dec, int32_t, LST_AGG_NO_ROOT, acc)
+
+// int64 accumulator
+LST_AGG_RS6(i8, i4, int64_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i8, i8, int64_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i8, f, int64_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i8, d, int64_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i8, ref, int64_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i8, dec, int64_t, LST_AGG_NO_ROOT, acc)
+
+// float accumulator (the accumulator rides the widened double F stack)
+LST_AGG_RS6(f, i4, double, LST_AGG_NO_ROOT, static_cast<double>(acc))
+LST_AGG_RS6(f, i8, double, LST_AGG_NO_ROOT, static_cast<double>(acc))
+LST_AGG_RS6(f, f, double, LST_AGG_NO_ROOT, static_cast<double>(acc))
+LST_AGG_RS6(f, d, double, LST_AGG_NO_ROOT, static_cast<double>(acc))
+LST_AGG_RS6(f, ref, double, LST_AGG_NO_ROOT, static_cast<double>(acc))
+LST_AGG_RS6(f, dec, double, LST_AGG_NO_ROOT, static_cast<double>(acc))
+
+// double accumulator
+LST_AGG_RS6(d, i4, double, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(d, i8, double, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(d, f, double, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(d, d, double, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(d, ref, double, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(d, dec, double, LST_AGG_NO_ROOT, acc)
+
+// reference accumulator (rooted across the selector call)
+LST_AGG_RS6(ref, i4, Il2CppObject*, \
+    RootScope accRoot; accRoot.Add(reinterpret_cast<void**>(&acc));, acc)
+LST_AGG_RS6(ref, i8, Il2CppObject*, \
+    RootScope accRoot; accRoot.Add(reinterpret_cast<void**>(&acc));, acc)
+LST_AGG_RS6(ref, f, Il2CppObject*, \
+    RootScope accRoot; accRoot.Add(reinterpret_cast<void**>(&acc));, acc)
+LST_AGG_RS6(ref, d, Il2CppObject*, \
+    RootScope accRoot; accRoot.Add(reinterpret_cast<void**>(&acc));, acc)
+LST_AGG_RS6(ref, ref, Il2CppObject*, \
+    RootScope accRoot; accRoot.Add(reinterpret_cast<void**>(&acc));, acc)
+LST_AGG_RS6(ref, dec, Il2CppObject*, \
+    RootScope accRoot; accRoot.Add(reinterpret_cast<void**>(&acc));, acc)
+
+// decimal accumulator
+LST_AGG_RS_DEC6(i4)
+LST_AGG_RS_DEC6(i8)
+LST_AGG_RS_DEC6(f)
+LST_AGG_RS_DEC6(d)
+LST_AGG_RS_DEC6(ref)
+LST_AGG_RS_DEC6(dec)
+
+#undef LST_AGG_RS_ENTRY
+#undef LST_AGG_RS_ENTRY_DECRES
+#undef LST_AGG_RS6
+#undef LST_AGG_RS_DEC_ENTRY
+#undef LST_AGG_RS_DEC_ENTRY_DEC
+#undef LST_AGG_RS_DEC6
+#undef LST_AGG_NO_ROOT
 
 Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
                                              Il2CppObject* keySel, Il2CppObject* elemSel,
