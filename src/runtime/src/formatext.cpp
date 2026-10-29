@@ -116,6 +116,104 @@ void GetDoubleDigits(double value, DoubleDigits& out, int digits)
     out.exp10 = std::atoi(p + 1); // "e+XX"/"e-XX"
 }
 
+// tiebreak: TRUE when the magnitude of 'value' is EXACTLY a half-way tie at
+// 'digits' significant decimal digits, i.e. its exact decimal expansion has
+// digits+1 significant digits and the last one is 5 (value = (10X+5) *
+// 10^(exp10 - digits + 1)). This is the only place where net48's half AWAY
+// FROM ZERO rule and the CRT's "%.*e" half to EVEN rule disagree.
+//
+// The test is exact integer arithmetic -- no floating point comparison:
+// value = M * 2^n with M the 53-bit significand. With k = digits - 1 - exp10,
+// the tie digit is exactly 5 iff 2*value*10^k is an ODD integer, i.e.
+//     M * 2^(n + 1 + k) * 5^k
+// is odd and integral. Writing M = M' * 2^t (M' odd) that is
+//     t + n + 1 + k == 0        (the 2-adic part is exactly one)
+//     k >= 0  OR  5^(-k) divides M'   (the 5-adic part is integral)
+// The caller passes the magnitude (sign is irrelevant to the tie) and an
+// exp10 taken from a WIDE conversion; the test self-validates an off-by-one
+// exponent (it then fails), and a tie value has at most digits+1 <= 10
+// significant digits, so the wide conversion reports its exponent exactly.
+bool IsDigitTie(double magnitude, int exp10, int digits)
+{
+    if (!(magnitude > 0.0) || !std::isfinite(magnitude))
+    {
+        return false;
+    }
+    int e2 = 0;
+    const double frac = std::frexp(magnitude, &e2); // magnitude = frac * 2^e2
+    uint64_t mant = static_cast<uint64_t>(std::ldexp(frac, 53)); // 53-bit
+    const int n = e2 - 53;                                       // = mant * 2^n
+    int twos = 0;
+    while ((mant & 1ULL) == 0ULL)
+    {
+        mant >>= 1;
+        ++twos;
+    }
+    const int k = digits - 1 - exp10;
+    if (twos + n + 1 + k != 0)
+    {
+        return false; // fractional, or an even multiple of the half unit
+    }
+    if (k >= 0)
+    {
+        return true; // 5^k is integral; the 2-adic part is exactly one
+    }
+    uint64_t p5 = 1ULL;
+    for (int i = 0; i < -k; ++i)
+    {
+        if (p5 > mant / 5ULL)
+        {
+            return false; // 5^(-k) exceeds the significand -> not integral
+        }
+        p5 *= 5ULL;
+    }
+    return (mant % p5) == 0ULL;
+}
+
+// The FLOAT face digit base (singlefmt/tiebreak): GetDoubleDigits, except that
+// an EXACT tie at the base width rounds half AWAY FROM ZERO (net48) instead of
+// half to EVEN (the CRT). Only ties differ, so every non-tie conversion stays
+// byte-identical. A tie value has exactly digits+1 significant digits, so the
+// digits+1-wide conversion is exact -- no CRT rounding is involved -- and the
+// away-from-zero increment is then done on the digit string.
+void GetFloatBaseDigits(double value, DoubleDigits& out, int digits)
+{
+    char wide[48];
+    std::snprintf(wide, sizeof wide, "%.*e", kWideDigits - 1, value);
+    const int exp10 = std::atoi(std::strchr(wide, 'e') + 1);
+    if (!IsDigitTie(std::fabs(value), exp10, digits))
+    {
+        GetDoubleDigits(value, out, digits);
+        return;
+    }
+    char tmp[48];
+    std::snprintf(tmp, sizeof tmp, "%.*e", digits, value); // exact at digits+1
+    out.neg = (tmp[0] == '-');
+    const char* p = tmp + (out.neg ? 1 : 0);
+    out.d[0] = *p++;
+    ++p; // skip '.'
+    for (int i = 1; i <= digits; ++i)
+    {
+        out.d[i] = *p++;
+    }
+    out.exp10 = std::atoi(std::strchr(p, 'e') + 1);
+    int i = digits - 1;
+    while (i >= 0 && out.d[i] == '9')
+    {
+        out.d[i] = '0';
+        --i;
+    }
+    if (i < 0)
+    {
+        out.d[0] = '1'; // 999...5 -> 1000...: the base rolls to the next decade
+        ++out.exp10;
+    }
+    else
+    {
+        ++out.d[i];
+    }
+}
+
 bool IsSpecial(double value)
 {
     return std::isnan(value) || std::isinf(value);
@@ -289,11 +387,20 @@ int IncrementDigits(char* d, int len)
 // The sign is omitted when the rounded magnitude is zero (-0.0 -> "0.00",
 // net48-verified); the '.' is omitted when fracDigits == 0 (N0/F0 layout).
 // Rounding is half AWAY FROM ZERO on the 'baseDigits' significant-digit base
-// (kBaseDigits for the double engine, 7/9 for the float engine).
-int FormatFixed(double value, int fracDigits, char* out, int baseDigits)
+// (kBaseDigits for the double engine, 7/9 for the float engine). 'floatBase'
+// selects the FLOAT face's tie handling (GetFloatBaseDigits) -- the double
+// face keeps the plain CRT base.
+int FormatFixed(double value, int fracDigits, char* out, int baseDigits, bool floatBase = false)
 {
     DoubleDigits dg;
-    GetDoubleDigits(value, dg, baseDigits);
+    if (floatBase)
+    {
+        GetFloatBaseDigits(value, dg, baseDigits);
+    }
+    else
+    {
+        GetDoubleDigits(value, dg, baseDigits);
+    }
 
     // Integer part: d[k] sits at 10^(exp10 - k); the digits with
     // exp10 - k >= 0 are d[0..exp10], in order ("1234..."). A negative
@@ -358,16 +465,18 @@ int FormatFixed(double value, int fracDigits, char* out, int baseDigits)
 }
 
 // FormatFixed on a finite value (the caller handled the specials).
-int FormatFinite(double value, int fracDigits, char* out, int baseDigits)
+int FormatFinite(double value, int fracDigits, char* out, int baseDigits,
+                 bool floatBase = false)
 {
-    return FormatFixed(value, fracDigits, out, baseDigits);
+    return FormatFixed(value, fracDigits, out, baseDigits, floatBase);
 }
 
 // FormatFinite with ',' inserted every 3 digits in the integer part (N/P).
-int FormatGroupedFinite(double value, int fracDigits, char* out, int baseDigits)
+int FormatGroupedFinite(double value, int fracDigits, char* out, int baseDigits,
+                        bool floatBase = false)
 {
     char tmp[kMaxBuffer];
-    const int n = FormatFinite(value, fracDigits, tmp, baseDigits);
+    const int n = FormatFinite(value, fracDigits, tmp, baseDigits, floatBase);
     int o = 0;
     int i = 0;
     if (tmp[0] == '-')
@@ -433,11 +542,20 @@ int EmitSci(char* out, bool neg, char lead, const char* frac, int fracDigits, in
 
 // Format a finite double in scientific notation (E format). 'exp' is capped
 // at 3 digits by the double range (|exp| <= 324). Rounding is half AWAY
-// FROM ZERO on the 'baseDigits' significant-digit base.
-int FormatSciFinite(double value, int fracDigits, char* out, char expChar, int baseDigits)
+// FROM ZERO on the 'baseDigits' significant-digit base ('floatBase' selects
+// the float face's tie handling, as in FormatFixed).
+int FormatSciFinite(double value, int fracDigits, char* out, char expChar, int baseDigits,
+                    bool floatBase = false)
 {
     DoubleDigits dg;
-    GetDoubleDigits(value, dg, baseDigits);
+    if (floatBase)
+    {
+        GetFloatBaseDigits(value, dg, baseDigits);
+    }
+    else
+    {
+        GetDoubleDigits(value, dg, baseDigits);
+    }
 
     // Mantissa fraction: d[1..fracDigits]; entry fracDigits holds the
     // dropped digit (mantissa position fracDigits + 1), zero beyond the
@@ -2109,23 +2227,34 @@ Il2CppObject* FormatSingleR(double value)
 {
     const float f = static_cast<float>(value);
     // net48 R of a zero magnitude drops the sign (oracle: -0.0f "R"/"r" ->
-    // "0"); the %.7g/%.9g ladder would print "-0".
+    // "0"); the G7/G9 ladder would print "-0".
     if (f == 0.0f)
     {
         return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8("0"));
     }
-    char buf[64];
+    char buf[kMaxBuffer];
     // net48 R (two tiers): G7 first; parse the digits back and compare the
     // FLOAT bits -- a mismatch falls back to G9 (nine digits always
     // round-trip an IEEE float). Oracle: 0.1f -> "0.1", 0.66666668653f ->
     // "0.6666667", 0.33333334327f -> "0.333333343", 1.00000011921f ->
     // "1.00000012".
-    std::snprintf(buf, sizeof(buf), "%.7g", static_cast<double>(f));
-    if (std::strtof(buf, nullptr) != f)
-        std::snprintf(buf, sizeof(buf), "%.9g", static_cast<double>(f));
-    for (char* q = buf; *q != 0; ++q)
+    // tiebreak: both tiers run the FLOAT digit base, so an exact tie rounds
+    // away from zero here too -- the CRT's half-to-even G7/G9 text differs on
+    // 12345645f (G7 "1.234564E+07") and on the base-9 ties (1234567.625f
+    // G9 "1234567.62"; oracle "1234567.63").
     {
-        if (*q == 0x65) { *q = 0x45; break; } // net48 prints the exponent E uppercase
+        DoubleDigits dg;
+        GetFloatBaseDigits(static_cast<double>(f), dg, kFloatBaseDigits);
+        int len = FormatGeneralFromDigits(dg.d, kFloatBaseDigits, dg.exp10, dg.neg,
+                                          7, 'E', buf);
+        buf[len] = '\0';
+    }
+    if (std::strtof(buf, nullptr) != f)
+    {
+        DoubleDigits dg;
+        GetFloatBaseDigits(static_cast<double>(f), dg, 9);
+        int len = FormatGeneralFromDigits(dg.d, 9, dg.exp10, dg.neg, 9, 'E', buf);
+        buf[len] = '\0';
     }
     return reinterpret_cast<Il2CppObject*>(il2cpp_string_new_from_utf8(buf));
 }
@@ -2185,7 +2314,7 @@ Il2CppObject* icall_format_float_custom(double value, Il2CppObject* format,
             if (cs.scientific)
             {
                 DoubleDigits dg;
-                GetDoubleDigits(value, dg, kFloatBaseDigits);
+                GetFloatBaseDigits(value, dg, kFloatBaseDigits);
                 std::string sciDigits(dg.d, kFloatBaseDigits);
                 char16_t sciOut[kMaxBuffer + 16];
                 const int len = EmitSciCustomFormat(sciDigits, dg.exp10 + 1,
@@ -2206,7 +2335,7 @@ Il2CppObject* icall_format_float_custom(double value, Il2CppObject* format,
                 scaled /= f;
             }
             char fixedBuf[kMaxBuffer];
-            const int fn = FormatFixed(scaled, cs.fracPh, fixedBuf, kFloatBaseDigits);
+            const int fn = FormatFixed(scaled, cs.fracPh, fixedBuf, kFloatBaseDigits, true);
             fixedBuf[fn] = '\0'; // FormatFixed does NOT NUL-terminate
             const bool neg = (fixedBuf[0] == '-');
             const int start = neg ? 1 : 0;
@@ -2237,31 +2366,31 @@ Il2CppObject* icall_format_float_custom(double value, Il2CppObject* format,
             const int baseDigits = FloatBaseDigits('G', precision);
             const int sigDigits = (precision < 1) ? 7 : precision;
             DoubleDigits dg;
-            GetDoubleDigits(value, dg, baseDigits);
+            GetFloatBaseDigits(value, dg, baseDigits);
             len = FormatGeneralFromDigits(dg.d, baseDigits, dg.exp10, dg.neg,
                                           sigDigits, expChar, buf);
             break;
         }
         case 'F':
             len = FormatFinite(value, precision < 0 ? 2 : precision, buf,
-                               FloatBaseDigits('F', precision));
+                               FloatBaseDigits('F', precision), true);
             break;
         case 'N':
             len = FormatGroupedFinite(value, precision < 0 ? 2 : precision, buf,
-                                      FloatBaseDigits('N', precision));
+                                      FloatBaseDigits('N', precision), true);
             break;
         case 'E':
         {
             const int prec = (precision < 0) ? 6 : precision;
             len = FormatSciFinite(value, prec, buf, expChar,
-                                  FloatBaseDigits('E', prec));
+                                  FloatBaseDigits('E', prec), true);
             break;
         }
         case 'C':
         {
             char tail[kMaxBuffer];
             const int t = FormatGroupedFinite(value, precision < 0 ? 2 : precision, tail,
-                                              kFloatBaseDigits);
+                                              kFloatBaseDigits, true);
             return inv ? MakeCurrencyStringInvariant(tail, t) : MakeCurrencyString(tail, t);
         }
         case 'P':
@@ -2270,7 +2399,7 @@ Il2CppObject* icall_format_float_custom(double value, Il2CppObject* format,
             // multiply the double engine's oracle-verified P path uses; the
             // product then rounds at the 7-digit float base).
             len = FormatGroupedFinite(value * 100.0, precision < 0 ? 2 : precision, buf,
-                                      kFloatBaseDigits);
+                                      kFloatBaseDigits, true);
             if (inv) buf[len++] = ' '; // invariant "n %" (space before '%')
             buf[len++] = '%'; // zh-CN "n%" layout (no space)
             break;

@@ -145,6 +145,15 @@ il2cpp::Il2CppString* FmtD(double v, const char* fmt)
         il2cpp::runtime::icall_format_double_custom(v, MakeFormat(fmt), nullptr));
 }
 
+// singlefmt/tiebreak: the FLOAT face (Single.ToString(format)) -- the value
+// rides the exact double widening, as in the generated call sites.
+il2cpp::Il2CppString* FmtF(float v, const char* fmt)
+{
+    return reinterpret_cast<il2cpp::Il2CppString*>(
+        il2cpp::runtime::icall_format_float_custom(static_cast<double>(v),
+                                                   MakeFormat(fmt), nullptr));
+}
+
 void ExpectFmtI32(int32_t v, const char* fmt, const char* expected, const char* what)
 {
     Expect(StringIs(FmtI32(v, fmt), expected), what);
@@ -158,6 +167,11 @@ void ExpectFmtI64(int64_t v, const char* fmt, const char* expected, const char* 
 void ExpectFmtD(double v, const char* fmt, const char* expected, const char* what)
 {
     Expect(StringIs(FmtD(v, fmt), expected), what);
+}
+
+void ExpectFmtF(float v, const char* fmt, const char* expected, const char* what)
+{
+    Expect(StringIs(FmtF(v, fmt), expected), what);
 }
 
 // True when the format call throws a FormatException (chain prefix match).
@@ -681,6 +695,84 @@ int main()
             Expect(StringIsWide(reinterpret_cast<il2cpp::Il2CppString*>(s), u"\u00A412.50"),
                    "composite double C with invariant provider");
         }
+    }
+
+    // --- 10. singlefmt/tiebreak: the FLOAT digit base rounds half AWAY FROM
+    // ZERO on an exact decimal tie (net48), while the CRT "%.*e" conversion
+    // rounds half to EVEN. A tie is a value whose exact decimal expansion has
+    // exactly (base + 1) significant digits ending in 5, so the two rules only
+    // disagree when the kept last digit is EVEN. Every expected string below is
+    // the net48 oracle capture (tests/cases/probe-tiebreak, InvariantCulture;
+    // C renders the zh-CN symbol here because the test passes a null provider).
+    {
+        // exp10 = 7: eight-digit integers.
+        ExpectFmtF(12345645.0f, "G7", "1.234565E+07", "float 12345645 G7 tie rounds away");
+        ExpectFmtF(12345645.0f, "G", "1.234565E+07", "float 12345645 G tie rounds away");
+        ExpectFmtF(12345645.0f, "G6", "1.23457E+07", "float 12345645 G6 rounds from the base");
+        ExpectFmtF(12345645.0f, "G8", "12345645", "float 12345645 G8 (base 9) exact");
+        ExpectFmtF(12345645.0f, "F2", "12345650.00", "float 12345645 F2 tie rounds away");
+        ExpectFmtF(12345645.0f, "F10", "12345650.0000000000", "float 12345645 F10 tie rounds away");
+        ExpectFmtF(12345645.0f, "E6", "1.234565E+007", "float 12345645 E6 tie rounds away");
+        ExpectFmtF(12345645.0f, "E9", "1.234564500E+007", "float 12345645 E9 (base 9) exact");
+        ExpectFmtF(12345645.0f, "N2", "12,345,650.00", "float 12345645 N2 tie rounds away");
+        ExpectFmtF(12345645.0f, "P2", "1,234,565,000.00%", "float 12345645 P2 tie rounds away");
+        ExpectFmtF(12345645.0f, "R", "12345645", "float 12345645 R round-trips");
+        ExpectFmtF(12345645.0f, "0.0000000000", "12345650.0000000000",
+                   "float 12345645 custom fixed tie rounds away");
+        ExpectFmtF(12345645.0f, "0.00000000E+00", "1.23456500E+07",
+                   "float 12345645 custom scientific tie rounds away");
+        Expect(StringIsWide(FmtF(12345645.0f, "C2"), u"\u00A512,345,650.00"),
+               "float 12345645 C2 tie rounds away");
+        ExpectFmtF(-12345645.0f, "G7", "-1.234565E+07", "float -12345645 G7 tie rounds away");
+        ExpectFmtF(-12345645.0f, "F2", "-12345650.00", "float -12345645 F2 tie rounds away");
+        ExpectFmtF(-12345645.0f, "N2", "-12,345,650.00", "float -12345645 N2 tie rounds away");
+        Expect(StringIsWide(FmtF(-12345645.0f, "C2"), u"\u00A5-12,345,650.00"),
+               "float -12345645 C2 tie rounds away (zh-CN sign after the symbol)");
+        // Odd-prefix controls: the CRT already rounds these UP -- the fix must
+        // not carry a second time.
+        ExpectFmtF(12345655.0f, "G7", "1.234566E+07", "float 12345655 (odd prefix) one digit up");
+        ExpectFmtF(16777215.0f, "G7", "1.677722E+07", "float 16777215 (2^24-1 tie) one digit up");
+
+        // exp10 = 6: X.5 in the millions (the tie sits on the integer part).
+        ExpectFmtF(6000000.5f, "G7", "6000001", "float 6000000.5 G7 tie rounds away");
+        ExpectFmtF(6000000.5f, "F2", "6000001.00", "float 6000000.5 F2 rounds from the tie-up base");
+        ExpectFmtF(5999999.5f, "G7", "6000000", "float 5999999.5 (odd prefix) one digit up");
+        // G6 rounds from the 7-digit base (net48 double-rounds the same way):
+        // 1234564.5 -> base 1234565 -> G6 -> 1.23457E+06 (NOT the direct 1.23456).
+        ExpectFmtF(1234564.5f, "G7", "1234565", "float 1234564.5 G7 tie rounds away");
+        ExpectFmtF(1234564.5f, "G6", "1.23457E+06", "float 1234564.5 G6 rounds from the base");
+        ExpectFmtF(1234564.5f, "R", "1234564.5", "float 1234564.5 R round-trips");
+
+        // exp10 = 5 .. -4: the tie walks down the fraction.
+        ExpectFmtF(600000.25f, "G7", "600000.3", "float 600000.25 G7 tie rounds away");
+        ExpectFmtF(600000.25f, "F2", "600000.30", "float 600000.25 F2 tie rounds away");
+        ExpectFmtF(-600000.25f, "G7", "-600000.3", "float -600000.25 G7 tie rounds away");
+        ExpectFmtF(6.0078125f, "G7", "6.007813", "float 6.0078125 G7 tie rounds away");
+        ExpectFmtF(6.0078125f, "F10", "6.0078130000", "float 6.0078125 F10 tie rounds away");
+        ExpectFmtF(6.0078125f, "R", "6.0078125", "float 6.0078125 R round-trips");
+        // The smallest tie (exp10 = -4, 8 significant digits).
+        ExpectFmtF(0.00048828125f, "G7", "0.0004882813",
+                   "float 0.00048828125 G7 tie rounds away");
+        ExpectFmtF(0.00048828125f, "G8", "0.00048828125", "float 0.00048828125 G8 exact");
+        ExpectFmtF(0.00048828125f, "F2", "0.00", "float 0.00048828125 F2 underflows to 0");
+        ExpectFmtF(0.00048828125f, "E6", "4.882813E-004",
+                   "float 0.00048828125 E6 tie rounds away");
+        ExpectFmtF(0.00048828125f, "R", "0.00048828125", "float 0.00048828125 R round-trips");
+        ExpectFmtF(0.00048828125f, "0.0000000000", "0.0004882813",
+                   "float 0.00048828125 custom fixed tie rounds away");
+
+        // base 9 (E precision > 6 / G precision > 7): the NINTH digit ties.
+        ExpectFmtF(1234567.625f, "G9", "1234567.63", "float 1234567.625 G9 (base 9) tie rounds away");
+        ExpectFmtF(1234567.625f, "G7", "1234568", "float 1234567.625 G7 rounds from the base");
+        ExpectFmtF(1234567.625f, "E7", "1.2345676E+006", "float 1234567.625 E7 rounds from base 9");
+        ExpectFmtF(1234567.625f, "E8", "1.23456763E+006", "float 1234567.625 E8 (base 9) tie rounds away");
+        ExpectFmtF(1234567.625f, "R", "1234567.63", "float 1234567.625 R uses the base-9 tie");
+
+        // The double face must stay byte-identical (no float tie rule there).
+        ExpectFmtD(12345645.0, "G15", "12345645", "double 12345645 G15 unchanged");
+        ExpectFmtD(2.675, "F2", "2.68", "double 2.675 F2 unchanged");
+        ExpectFmtD(123456789012345.5, "G15", "123456789012346",
+                   "double 123456789012345.5 G15 unchanged");
     }
 
     // --- Report ---

@@ -18,6 +18,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_format.h"
+#include "il2cpp_format_ext.h"
 #include "il2cpp_exception_ext.h"
 
 #include <cerrno>
@@ -403,33 +404,22 @@ Il2CppString* icall_int32_to_string_hex(int32_t value)
 // icall_double_to_string -- net48 "G15" approximation (see FormatDoubleG15).
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
-// icall_single_to_string -- net48 Single.ToString(): shortest round-trip
-// decimal for the FLOAT value (not the widened double). The receiver slot
-// holds the exact double widening of the float, so the target is (float)value.
+// icall_single_to_string -- net48 Single.ToString(): the FLOAT "G7" text for
+// the FLOAT value (not the widened double). The receiver slot holds the exact
+// double widening of the float, so the target is (float)value.
+//
+// tiebreak: the text comes from the shared FLOAT digit-base engine
+// (icall_format_float_custom with a null format == "G"), whose base rounds
+// half AWAY FROM ZERO like net48. The previous snprintf("%.7g") ride used the
+// CRT's half-to-EVEN conversion and printed an exact 8-digit tie one digit
+// low (oracle: 12345645f -> "1.234565E+07", CRT "1.234564E+07"). The special
+// spellings (NaN / U+221E) and the -0.0f sign drop are the engine's too.
 //------------------------------------------------------------------------------
 Il2CppString* icall_single_to_string(double value)
 {
-    if (value != value) return il2cpp_string_new_from_utf8("NaN");
-    if (value > 3.4028234663852886e38)
-        return il2cpp_string_new_from_utf8("\xE2\x88\x9E"); // U+221E
-    if (value < -3.4028234663852886e38)
-        return il2cpp_string_new_from_utf8("-\xE2\x88\x9E");
     const float f = static_cast<float>(value);
-    // net48 Single default format is G7: seven significant digits (the
-    // shortest-round-trip variant would print 0.33333334 for 1f/3f). A zero
-    // magnitude drops the sign (-0.0f -> "0") -- snprintf("%.7g") would print
-    // "-0" (probe-miscfmt A0001 oracle: net48 "0").
-    if (f == 0.0f)
-    {
-        return il2cpp_string_new_from_utf8("0");
-    }
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "%.7g", static_cast<double>(f));
-    for (char* q = buf; *q != 0; ++q)
-    {
-        if (*q == 0x65) { *q = 0x45; break; }
-    }
-    return il2cpp_string_new_from_utf8(buf);
+    return reinterpret_cast<Il2CppString*>(
+        il2cpp::runtime::icall_format_float_custom(static_cast<double>(f), nullptr, nullptr));
 }
 
 Il2CppString* icall_double_to_string(double value)

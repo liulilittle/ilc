@@ -269,6 +269,30 @@ int main()
                "single positive infinity formats as the culture symbol U+221E");
     }
 
+    // --- 5c. Single.ToString() exact decimal TIES (tiebreak) ---
+    // net48 rounds the float digit base half AWAY FROM ZERO; the CRT %.7g
+    // converter rounds half to EVEN, so a value that is exactly D.5 at the
+    // seventh significant digit printed one digit LOW. Oracle: probe-tiebreak
+    // (net48 host capture 2026-10-29, InvariantCulture).
+    Expect(StringIs(icall_single_to_string(static_cast<double>(12345645.0f)),
+                    "1.234565E+07"),
+           "single 12345645 (exact 7-digit tie, even prefix) rounds away from zero");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(-12345645.0f)),
+                    "-1.234565E+07"),
+           "single -12345645 tie rounds away from zero (negative)");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(6000000.5f)), "6000001"),
+           "single 6000000.5 (exp10 = 6 tie) rounds away from zero");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(0.00048828125f)),
+                    "0.0004882813"),
+           "single 0.00048828125 (smallest tie, exp10 = -4) rounds away from zero");
+    // Odd-prefix controls: the CRT already rounds these UP, so the fix must
+    // not carry twice.
+    Expect(StringIs(icall_single_to_string(static_cast<double>(12345655.0f)),
+                    "1.234566E+07"),
+           "single 12345655 (odd prefix) stays one digit up");
+    Expect(StringIs(icall_single_to_string(static_cast<double>(5999999.5f)), "6000000"),
+           "single 5999999.5 (odd prefix, exp10 = 6) stays one digit up");
+
     // --- 6. int32 hex ---
     Expect(StringIs(icall_int32_to_string_hex(0), "0"), "hex 0 formats as \"0\"");
     Expect(StringIs(icall_int32_to_string_hex(1), "1"), "hex 1 formats as \"1\" (no padding)");
