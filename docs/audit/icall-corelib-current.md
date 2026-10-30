@@ -944,10 +944,7 @@ InternalCall/QCall 的 C# 声明，只能从 s_QCall[] 表反推：
 
 ## 6. 下一步建议（P0/P1 优先队列）
 
-1. **GC FCall 面（P0，10 条）**：`_CollectionCount` / `GetGenerationInternal` /
-   `SuppressFinalizeInternal` / `GetMemoryLoad` / `_GetTotalPauseDuration` /
-   `GetTotalAllocatedBytesApproximate` / `_RegisterForFullGCNotification` /
-   `_CancelFullGCNotification` / `GetGenerationInternal` / `_CollectionCount`。
+1. **GC FCall 面（P0，8 条）**：`GetGenerationInternal` / `GetMemoryLoad` / `GetTotalAllocatedBytesApproximate` / `SuppressFinalizeInternal` / `_CancelFullGCNotification` / `_CollectionCount` / `_GetTotalPauseDuration` / `_RegisterForFullGCNotification`。
    ILC 已有 `CollectionCount` / `SuppressFinalize` / `GetTotalAllocatedBytes` /
    `RegisterForFullGCNotification` / `CancelFullGCNotification` 的**别名**分支
    （`MethodMap.GC.cs:96/56/62/102/107`），把 netcore 的 `_`/`Internal` 名字加进
@@ -963,8 +960,7 @@ InternalCall/QCall 的 C# 声明，只能从 s_QCall[] 表反推：
 4. **Thread FCall（P0，3 条）**：`InternalFinalize`/`CatchAtSafePoint`/
    `CurrentThreadIsFinalizerThread` —— 后者在 netcore 子集里被 `System.Threading.Thread`
    直接声明为 InternalCall，是**用户可见 Thread 语义**的一部分。
-5. **QCall P0 段（48 条）**：集中在 `System.Threading.Thread`(18) / `System.GC`(16) /
-   `System.Runtime.CompilerServices.RuntimeHelpers`(11) / `System.Delegate`(7)，
+5. **QCall P0 段（60 条）**：集中在 `System.Threading.Thread`(18) / `System.GC`(16) / `System.Runtime.CompilerServices.RuntimeHelpers`(12) / `System.Delegate`(7)，
    多数其实是 ILC 已有 net48 同名 icall 的**入口名不同**（如 `GCInterface_Collect` vs
    现有 `icall_gc_collect`），建议按 owner 成批接，而不是逐条接。
 6. `half-wired` 的 2 条：`Math.ModF`（需 tuple/out 发射支持）与

@@ -1284,10 +1284,11 @@ def write_report(path, data, f_rows, q_rows, ref_root):
     w("")
     w("## 6. 下一步建议（P0/P1 优先队列）")
     w("")
-    w("1. **GC FCall 面（P0，10 条）**：`_CollectionCount` / `GetGenerationInternal` /")
-    w("   `SuppressFinalizeInternal` / `GetMemoryLoad` / `_GetTotalPauseDuration` /")
-    w("   `GetTotalAllocatedBytesApproximate` / `_RegisterForFullGCNotification` /")
-    w("   `_CancelFullGCNotification` / `GetGenerationInternal` / `_CollectionCount`。")
+    gc_gaps = [r for r in f_rows
+               if r["owner"] == "System.GC" and r["status"] in gap_statuses]
+    w(f"1. **GC FCall 面（P0，{len(gc_gaps)} 条）**："
+      + " / ".join("`" + r["name"] + "`" for r in
+                   sorted(gc_gaps, key=lambda x: x["name"])) + "。")
     w("   ILC 已有 `CollectionCount` / `SuppressFinalize` / `GetTotalAllocatedBytes` /")
     w("   `RegisterForFullGCNotification` / `CancelFullGCNotification` 的**别名**分支")
     w("   （`MethodMap.GC.cs:96/56/62/102/107`），把 netcore 的 `_`/`Internal` 名字加进")
@@ -1303,8 +1304,13 @@ def write_report(path, data, f_rows, q_rows, ref_root):
     w("4. **Thread FCall（P0，3 条）**：`InternalFinalize`/`CatchAtSafePoint`/")
     w("   `CurrentThreadIsFinalizerThread` —— 后者在 netcore 子集里被 `System.Threading.Thread`")
     w("   直接声明为 InternalCall，是**用户可见 Thread 语义**的一部分。")
-    w("5. **QCall P0 段（48 条）**：集中在 `System.Threading.Thread`(18) / `System.GC`(16) /")
-    w("   `System.Runtime.CompilerServices.RuntimeHelpers`(11) / `System.Delegate`(7)，")
+    p0q_owner = {}
+    for r in q_rows:
+        if r["tier"] == "P0" and r["status"] in gap_statuses:
+            p0q_owner[r["decl_owner"]] = p0q_owner.get(r["decl_owner"], 0) + 1
+    top_owners = sorted(p0q_owner.items(), key=lambda kv: -kv[1])[:4]
+    w(f"5. **QCall P0 段（{p0_q} 条）**：集中在 "
+      + " / ".join(f"`{md(o)}`({n})" for o, n in top_owners) + "，")
     w("   多数其实是 ILC 已有 net48 同名 icall 的**入口名不同**（如 `GCInterface_Collect` vs")
     w("   现有 `icall_gc_collect`），建议按 owner 成批接，而不是逐条接。")
     w("6. `half-wired` 的 2 条：`Math.ModF`（需 tuple/out 发射支持）与")
