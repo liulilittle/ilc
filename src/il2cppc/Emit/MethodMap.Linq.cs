@@ -2883,18 +2883,43 @@ public static partial class MethodRefResolver
                         }
                     }
                     // impl-linq2 (A): a DECIMAL source with a NON-decimal
-                    // accumulator has no fold (the old mapping silently routed
-                    // it through the ref/int32 folds -- a wild read of the
-                    // 16-byte cells). It must be a transpile-time LOUD.
+                    // accumulator. The old mapping silently routed it through
+                    // the ref/int32 folds (a wild read of the 16-byte cells).
+                    //
+                    // impl-loudvalstruct (A): the runtime DOES have a static
+                    // kernel for both receiver shapes --
+                    //   * List<decimal>: the full list seed + result-selector
+                    //     matrix (il2cpp_linq_list_aggregate_seed_<acc>_dec
+                    //     [_rs_<res>], linq_list.cpp LST_AGG_SEED_ENTRY(i4_dec,..)
+                    //     /i8_dec/d_dec + LST_AGG_RS6(...,dec));
+                    //   * decimal[]: the ARRAY CELL MATRIX
+                    //     (il2cpp_linq_aggregate_seed_cell_<acc>), whose reader
+                    //     (CellAggNext) has an IL2CPP_LINQ_CELL_DECIMAL arm, so
+                    //     the 16-byte cell is read at its REAL width and the
+                    //     accumulator's own leaf ABI is called. The OLD gate was
+                    //     correct only for the pre-cell-matrix kernels.
+                    //
+                    // The throw therefore survives only where the runtime really
+                    // has no decimal-element array fold: count == 4 (the array
+                    // cell matrix ships no _rs_<res> entries), and only for a
+                    // source PROVEN to be an array (the tracked name ends in
+                    // "[]" -- the shape the post-pop re-resolve passes). A
+                    // hint-less first pass carries the LAMBDA in arg0Type, so it
+                    // binds the array cell matrix and the re-resolve
+                    // (StackFold.cs:4870-4878) replaces it: List -> the list
+                    // entry, decimal[] -> this LOUD.
                     if (IsLinqDecimalSource(genArgs, receiverType, arg0Type)
                         && IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type)
-                        && acc.Length > 0)
+                        && acc.Length > 0
+                        && count == 4
+                        && (receiverType ?? arg0Type) is { } srcName0
+                        && srcName0.EndsWith("[]", StringComparison.Ordinal))
                     {
                         throw new NotSupportedException(
-                            "Enumerable.Aggregate over a System.Decimal source with a non-decimal " +
-                            $"accumulator ({GenericArgTypeName(accByte)}) is not wired: the runtime folds " +
-                            "decimal x decimal and the int32 source reader only; no decimal-element fold " +
-                            "exists for the other accumulator families (see docs/audit/b5-gaps.md)");
+                            "Enumerable.Aggregate over a System.Decimal[] source with a non-decimal " +
+                            $"accumulator ({GenericArgTypeName(accByte)}) and a result selector is not " +
+                            "wired: the array surface has no decimal-element result-selector kernel " +
+                            "(the LIST surface has the full matrix) (see docs/audit/b5-gaps.md)");
                     }
                     if (acc.Length == 0 && accByte == 0x11 && IsDecimalGenArg(genArgNames, 1))
                     {
@@ -3011,7 +3036,18 @@ public static partial class MethodRefResolver
                                 // float widened, or int32). A NARROW (1/2-byte)
                                 // source needs the cell reader -- the base
                                 // int32 read over-reads the cell.
-                                if (srcFamCell == "narrow")
+                                //
+                                // impl-loudvalstruct (A): a 0x11 VALUETYPE source
+                                // (System.Decimal / DateTime / TimeSpan / Guid)
+                                // folds into "ref" in LinqSourceFamily, so the
+                                // refsrc entry would read an 8-byte reference slot
+                                // out of a 16-byte decimal cell (a wild pointer
+                                // dereference in the lambda). The CELL MATRIX
+                                // (seed_cell_ref) reads the element at its REAL
+                                // width with the leaf's own by-value ABI -- the
+                                // same entry the narrow families use.
+                                if (srcFamCell == "narrow"
+                                    || (cell is not null and not "15"))
                                 {
                                     if (cell == null)
                                         throw new NotSupportedException(

@@ -2498,15 +2498,65 @@ public class MethodMapTestsLinq
         Assert.Contains("value-struct fold ABI", ex.Message);
     }
 
+    // impl-loudvalstruct (A): the DECIMAL-source / NON-decimal-accumulator gate
+    // is now TWO-SIDED.
+    //
+    //  * A List<decimal> receiver is fully wired: the runtime ships the list
+    //    seed matrix (il2cpp_linq_list_aggregate_seed_<acc>_dec) AND its
+    //    result-selector matrix (_rs_<res>), so neither arity may be rejected.
+    //  * A decimal[] receiver is served by the ARRAY CELL MATRIX for the
+    //    3-parameter form (seed_cell_<acc> reads the 16-byte cell at its REAL
+    //    width through CellAggNext's IL2CPP_LINQ_CELL_DECIMAL arm); only the
+    //    4-parameter form has no array kernel and stays LOUD.
+    //  * A HINT-LESS pass (the aggregate's arguments leave the source BELOW the
+    //    stack top, so the hinted type is the LAMBDA) must NOT throw: it binds
+    //    the array entry and StackFold's post-pop re-resolve dispatches the List
+    //    domain. Without this deferral the List<decimal> shapes never reached
+    //    the list surface (audit-fix3-d2a/d2c/d2e were the red evidence).
     [Fact]
-    public void Resolve_AggregateDecimalSource_NonDecimalAccumulator_ThrowsLoud()
+    public void Resolve_AggregateDecimalArraySource_NonDecimalAccumulator_Seed_MapsToCellMatrix()
     {
-        // A decimal source with a non-decimal accumulator has no fold: the old
-        // mapping silently routed it through the ref/int32 fold kernels (a
-        // wild read of the 16-byte cells). It must be a transpile-time LOUD.
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeAggregateSeed(0x11, 0x0A), receiverType: "System.Decimal[]");
+
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_cell_i8", resolved.CppName);
+        Assert.Equal(new[] { "a", "l", "" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "11" }, resolved.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_AggregateDecimalArraySource_NonDecimalAccumulator_ResultSelector_ThrowsLoud()
+    {
+        // The array surface has no decimal-element result-selector kernel.
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMethodSpec(SynthesizeAggregateDecRs(0x11, 0x0A, 0x0A)));
+            ResolveMethodSpecWithReceiver(SynthesizeAggregateDecRs(0x11, 0x0A, 0x0A),
+                receiverType: "System.Decimal[]"));
         Assert.Contains("non-decimal accumulator", ex.Message);
+        Assert.Contains("result selector", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_AggregateDecimalSource_HintlessPass_DefersInsteadOfThrowing()
+    {
+        // No source hint: the binding must exist (the re-resolve replaces it),
+        // and it must be the ARRAY entry -- never a silent decimal-cell read.
+        var resolved = ResolveMethodSpec(SynthesizeAggregateSeed(0x11, 0x0A));
+        Assert.Equal("il2cpp::il2cpp_linq_aggregate_seed_cell_i8", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_AggregateDecimalListSource_NonDecimalAccumulator_MapsToListMatrix()
+    {
+        var seed = ResolveMethodSpecWithReceiver(
+            SynthesizeAggregateSeed(0x11, 0x0A),
+            receiverType: "System.Collections.Generic.List`1_System.Decimal");
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_i8_dec", seed.CppName);
+        Assert.Equal(new[] { "", "l", "" }, seed.ParamTypeNames);
+
+        var withSel = ResolveMethodSpecWithReceiver(
+            SynthesizeAggregateDecRs(0x11, 0x0A, 0x0A),
+            receiverType: "System.Collections.Generic.List`1_System.Decimal");
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_i8_dec_rs_i8", withSel.CppName);
     }
 
     //--------------------------------------------------------------------------
@@ -4523,7 +4573,15 @@ public class MethodMapTestsLinq
     //   row 2: ...IEnumerable`1            (coded 0x09)
     //   row 3: System.Func`3               (coded 0x0D)
     //   row 4: System.Decimal              (coded 0x11)
-    private static MemoryStream SynthesizeAggregateDecSeed()
+    private static MemoryStream SynthesizeAggregateDecSeed() =>
+        SynthesizeAggregateSeed(0x11, 0x11);
+
+    // The parameterized 3-parameter form: Aggregate<TSource,TAccumulate>(
+    // IEnumerable<TSource>, TAccumulate, Func<TAcc,TSource,TAcc>). A 0x11 slot
+    // is written as the NAMED System.Decimal VALUETYPE TypeRef (the name table
+    // is what tells decimal from the other 0x11 value types); every other byte
+    // rides the raw leaf encoding.
+    private static MemoryStream SynthesizeAggregateSeed(byte tSrc, byte tAcc)
     {
         var mdb = new MetadataBuilder();
         mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
@@ -4543,7 +4601,7 @@ public class MethodMapTestsLinq
         sig.WriteByte(0x03);
         sig.WriteByte(0x13); sig.WriteByte(0x01);                       // return TAccumulate (VAR 1)
         sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
-        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   IEnumerable<decimal>
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                       //   IEnumerable<TSource>
         sig.WriteByte(0x13); sig.WriteByte(0x01);                       // TAccumulate (VAR 1)
         sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x03);
         sig.WriteByte(0x13); sig.WriteByte(0x01);                       //   Func<TAcc, TSrc, TAcc>
@@ -4554,8 +4612,8 @@ public class MethodMapTestsLinq
         var spec = new BlobBuilder();
         spec.WriteByte(0x0A);
         spec.WriteCompressedInteger(2);
-        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TSource = System.Decimal
-        spec.WriteByte(0x11); spec.WriteCompressedInteger(decCoded);   // TAccumulate = System.Decimal
+        WriteSpecArg(spec, tSrc, decCoded);                             // TSource
+        WriteSpecArg(spec, tAcc, decCoded);                             // TAccumulate
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }
