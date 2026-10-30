@@ -265,6 +265,13 @@ Il2CppGuid LinqCellReadGuid(Il2CppArray* arr, int32_t index)
     return g;
 }
 
+runtime::Il2CppDateTimeOffset LinqCellReadDto(Il2CppArray* arr, int32_t index)
+{
+    runtime::Il2CppDateTimeOffset v;
+    std::memcpy(&v, LinqCellPtr(arr, index), sizeof(v));
+    return v;
+}
+
 void LinqCellDefault(char* dst, int32_t cell)
 {
     if (cell == IL2CPP_LINQ_CELL_REF)
@@ -398,6 +405,13 @@ bool LinqCellEqualsTs(Il2CppArray* a, int32_t ia, runtime::Il2CppTimeSpan value)
 bool LinqCellEqualsGuid(Il2CppArray* a, int32_t ia, Il2CppGuid value)
 {
     return std::memcmp(LinqCellPtr(a, ia), value.b, sizeof(value.b)) == 0;
+}
+
+bool LinqCellEqualsDto(Il2CppArray* a, int32_t ia, runtime::Il2CppDateTimeOffset value)
+{
+    runtime::Il2CppDateTimeOffset x;
+    std::memcpy(&x, LinqCellPtr(a, ia), sizeof(x));
+    return runtime::icall_dtoffset_equals(x, value);
 }
 
 //------------------------------------------------------------------------------
@@ -753,6 +767,17 @@ bool il2cpp_linq_contains_family_guid(Il2CppArray* src, Il2CppGuid value)
     return false;
 }
 
+bool il2cpp_linq_contains_family_dtoffset(Il2CppArray* src,
+                                          runtime::Il2CppDateTimeOffset value)
+{
+    LinqRequireCell(src, IL2CPP_LINQ_CELL_DTOFFSET);
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (LinqCellEqualsDto(src, i, value)) return true;
+    }
+    return false;
+}
+
 //------------------------------------------------------------------------------
 // ElementAt / Single / SingleOrDefault (per result ABI).
 //
@@ -856,6 +881,14 @@ Il2CppGuid il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t arg, int32_t 
     CHECK(src);                                                                  \
     if (EMPTY_RET && src->length == 0) { Il2CppGuid g; std::memset(g.b, 0, sizeof(g.b)); return g; } \
     return LinqCellReadGuid(src, INDEXCODE);                                     \
+}                                                                                \
+runtime::Il2CppDateTimeOffset il2cpp_linq_##NAME##_fam_dtoffset(Il2CppArray* src, int32_t arg, \
+                                                                int32_t cell)    \
+{                                                                                \
+    LinqRequireCell(src, cell);                                                  \
+    CHECK(src);                                                                  \
+    if (EMPTY_RET && src->length == 0) return runtime::Il2CppDateTimeOffset{0, 0}; \
+    return LinqCellReadDto(src, INDEXCODE);                                      \
 }
 
 // ElementAt has no empty-sequence special case: an index into an empty array
@@ -921,6 +954,13 @@ Il2CppGuid il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t cell)       \
     CHECK(src);                                                                \
     if (EMPTY_RET && src->length == 0) { Il2CppGuid g; std::memset(g.b, 0, sizeof(g.b)); return g; } \
     return LinqCellReadGuid(src, 0);                                           \
+}                                                                              \
+runtime::Il2CppDateTimeOffset il2cpp_linq_##NAME##_fam_dtoffset(Il2CppArray* src, int32_t cell) \
+{                                                                              \
+    LinqRequireCell(src, cell);                                                \
+    CHECK(src);                                                                \
+    if (EMPTY_RET && src->length == 0) return runtime::Il2CppDateTimeOffset{0, 0}; \
+    return LinqCellReadDto(src, 0);                                            \
 }
 
 // Single: exactly one element (empty and >1 both throw).

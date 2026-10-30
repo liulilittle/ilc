@@ -396,6 +396,156 @@ Il2CppDelegate* RequireCallback(Il2CppObject* cb, const char* paramName)
     return reinterpret_cast<Il2CppDelegate*>(cb);
 }
 
+//------------------------------------------------------------------------------
+// impl-listvtops: the BY-VALUE value-struct element readers and delegate ABIs.
+//
+// A List<DateTime/TimeSpan/Guid/DateTimeOffset> snapshot is an array of the
+// family's own cell (8 / 8 / 16 / 16 bytes); the generated predicate /
+// selector / accumulator leaf takes the struct BY VALUE. Reading such a cell
+// through ReadI4 (4 bytes) or ReadRef (8-byte pointer slot) is a silent wrong
+// value, and calling the leaf through the int32/reference ABI is undefined
+// behaviour -- hence the dedicated invokers below.
+//------------------------------------------------------------------------------
+typedef bool (*PredDtFn)(runtime::Il2CppDateTime);
+typedef bool (*PredDtThisFn)(Il2CppObject*, runtime::Il2CppDateTime);
+typedef bool (*PredDtIdxFn)(runtime::Il2CppDateTime, int32_t);
+typedef bool (*PredDtIdxThisFn)(Il2CppObject*, runtime::Il2CppDateTime, int32_t);
+typedef bool (*PredTsFn)(runtime::Il2CppTimeSpan);
+typedef bool (*PredTsThisFn)(Il2CppObject*, runtime::Il2CppTimeSpan);
+typedef bool (*PredTsIdxFn)(runtime::Il2CppTimeSpan, int32_t);
+typedef bool (*PredTsIdxThisFn)(Il2CppObject*, runtime::Il2CppTimeSpan, int32_t);
+typedef bool (*PredGuidFn)(Il2CppGuid);
+typedef bool (*PredGuidThisFn)(Il2CppObject*, Il2CppGuid);
+typedef bool (*PredGuidIdxFn)(Il2CppGuid, int32_t);
+typedef bool (*PredGuidIdxThisFn)(Il2CppObject*, Il2CppGuid, int32_t);
+typedef bool (*PredDtoFn)(runtime::Il2CppDateTimeOffset);
+typedef bool (*PredDtoThisFn)(Il2CppObject*, runtime::Il2CppDateTimeOffset);
+typedef bool (*PredDtoIdxFn)(runtime::Il2CppDateTimeOffset, int32_t);
+typedef bool (*PredDtoIdxThisFn)(Il2CppObject*, runtime::Il2CppDateTimeOffset, int32_t);
+
+runtime::Il2CppDateTime ReadDt(Il2CppArray* arr, int32_t i)
+{
+    return runtime::il2cpp_datetime_from_array_bits(
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(arr, i)));
+}
+
+runtime::Il2CppTimeSpan ReadTs(Il2CppArray* arr, int32_t i)
+{
+    return runtime::Il2CppTimeSpan(*reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(arr, i)));
+}
+
+Il2CppGuid ReadGuid(Il2CppArray* arr, int32_t i)
+{
+    Il2CppGuid g;
+    std::memcpy(g.b, il2cpp_array_get_elem_ptr(arr, i), sizeof(g.b));
+    return g;
+}
+
+runtime::Il2CppDateTimeOffset ReadDto(Il2CppArray* arr, int32_t i)
+{
+    runtime::Il2CppDateTimeOffset v;
+    std::memcpy(&v, il2cpp_array_get_elem_ptr(arr, i), sizeof(v));
+    return v;
+}
+
+// impl-listvtops: net48 EqualityComparer<T>.Default for the by-value value
+// structs. DateTime/TimeSpan compare the TICK count only (net48
+// DateTime.Equals ignores Kind; the struct also carries padding, so a raw
+// memcmp would compare uninitialised bytes); Guid compares the 16-byte
+// payload; DateTimeOffset compares the UTC INSTANT (the offsets may differ).
+bool DtEq(const runtime::Il2CppDateTime& a, const runtime::Il2CppDateTime& b)
+{
+    return a.ticks == b.ticks;
+}
+
+bool TsEq(const runtime::Il2CppTimeSpan& a, const runtime::Il2CppTimeSpan& b)
+{
+    return a.ticks == b.ticks;
+}
+
+bool GuidEq(const Il2CppGuid& a, const Il2CppGuid& b)
+{
+    return std::memcmp(a.b, b.b, sizeof(a.b)) == 0;
+}
+
+bool DtoEq(const runtime::Il2CppDateTimeOffset& a, const runtime::Il2CppDateTimeOffset& b)
+{
+    return runtime::icall_dtoffset_equals(a, b);
+}
+
+// impl-listvtops: ONE fold step for a BY-VALUE VALUE-STRUCT element family
+// (List<DateTime/TimeSpan/Guid/DateTimeOffset>): the snapshot cell is read at
+// its real width and the accumulator's lambda is called through its own
+// (accumulator, struct-by-value) ABI. ParamT is the accumulator's PARAMETER
+// slot type (double for the float accumulator, whose value rides the F stack).
+template <typename AccT, typename ParamT, typename VtT>
+AccT LstAggStepVt(Il2CppDelegate* d, AccT acc, Il2CppArray* snap, int32_t i,
+                  VtT (*read)(Il2CppArray*, int32_t))
+{
+    typedef AccT (*Fn)(ParamT, VtT);
+    typedef AccT (*ThisFn)(Il2CppObject*, ParamT, VtT);
+    const VtT v = read(snap, i);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, static_cast<ParamT>(acc), v)
+        : reinterpret_cast<Fn>(d->methodPtr)(static_cast<ParamT>(acc), v);
+}
+
+bool InvokePredDt(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDtThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<PredDtFn>(d->methodPtr)(v);
+}
+
+bool InvokePredDtIdx(Il2CppDelegate* d, const runtime::Il2CppDateTime& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDtIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredDtIdxFn>(d->methodPtr)(v, index);
+}
+
+bool InvokePredTs(Il2CppDelegate* d, const runtime::Il2CppTimeSpan& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredTsThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<PredTsFn>(d->methodPtr)(v);
+}
+
+bool InvokePredTsIdx(Il2CppDelegate* d, const runtime::Il2CppTimeSpan& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredTsIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredTsIdxFn>(d->methodPtr)(v, index);
+}
+
+bool InvokePredGuid(Il2CppDelegate* d, const Il2CppGuid& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredGuidThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<PredGuidFn>(d->methodPtr)(v);
+}
+
+bool InvokePredGuidIdx(Il2CppDelegate* d, const Il2CppGuid& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredGuidIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredGuidIdxFn>(d->methodPtr)(v, index);
+}
+
+bool InvokePredDto(Il2CppDelegate* d, const runtime::Il2CppDateTimeOffset& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDtoThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<PredDtoFn>(d->methodPtr)(v);
+}
+
+bool InvokePredDtoIdx(Il2CppDelegate* d, const runtime::Il2CppDateTimeOffset& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDtoIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredDtoIdxFn>(d->methodPtr)(v, index);
+}
+
 // Family predicate dispatch on the LIST element kind.
 bool PredicateOn(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kind)
 {
@@ -405,6 +555,13 @@ bool PredicateOn(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kind)
         case IL2CPP_LIST_KIND_I8:  return InvokePredI8(d, ReadI8(snap, i));
         case IL2CPP_LIST_KIND_F:
         case IL2CPP_LIST_KIND_D:   return InvokePredD(d, ReadD(snap, i));
+        // impl-listvtops: the by-value value-struct families (the generated
+        // predicate leaf takes Il2CppDateTime / Il2CppTimeSpan / Il2CppGuid /
+        // Il2CppDateTimeOffset BY VALUE).
+        case IL2CPP_LIST_KIND_DT:        return InvokePredDt(d, ReadDt(snap, i));
+        case IL2CPP_LIST_KIND_TS:        return InvokePredTs(d, ReadTs(snap, i));
+        case IL2CPP_LIST_KIND_GUID:      return InvokePredGuid(d, ReadGuid(snap, i));
+        case IL2CPP_LIST_KIND_DTOFFSET:  return InvokePredDto(d, ReadDto(snap, i));
         default:                   return InvokePredI4(d, ReadI4(snap, i, kind));
     }
 }
@@ -420,6 +577,10 @@ bool PredicateOnIdx(Il2CppDelegate* d, Il2CppArray* snap, int32_t i, int32_t kin
         case IL2CPP_LIST_KIND_I8:  return InvokePredI8Idx(d, ReadI8(snap, i), i);
         case IL2CPP_LIST_KIND_F:
         case IL2CPP_LIST_KIND_D:   return InvokePredDIdx(d, ReadD(snap, i), i);
+        case IL2CPP_LIST_KIND_DT:        return InvokePredDtIdx(d, ReadDt(snap, i), i);
+        case IL2CPP_LIST_KIND_TS:        return InvokePredTsIdx(d, ReadTs(snap, i), i);
+        case IL2CPP_LIST_KIND_GUID:      return InvokePredGuidIdx(d, ReadGuid(snap, i), i);
+        case IL2CPP_LIST_KIND_DTOFFSET:  return InvokePredDtoIdx(d, ReadDto(snap, i), i);
         default:                   return InvokePredI4Idx(d, ReadI4(snap, i, kind), i);
     }
 }
@@ -437,6 +598,19 @@ bool ElemEquals(Il2CppArray* a, int32_t i, Il2CppArray* b, int32_t j, int32_t ki
         case IL2CPP_LIST_KIND_F:
         case IL2CPP_LIST_KIND_D:
             return ReadD(a, i) == ReadD(b, j);
+        // impl-listvtops: the by-value value-struct families. DateTime /
+        // TimeSpan compare by ticks (net48 DateTime.Equals ignores Kind),
+        // Guid by its 16-byte payload and DateTimeOffset by the UTC instant
+        // (net48 DateTimeOffset.Equals -- the offsets may differ).
+        case IL2CPP_LIST_KIND_DT:
+            return ReadDt(a, i).ticks == ReadDt(b, j).ticks;
+        case IL2CPP_LIST_KIND_TS:
+            return ReadTs(a, i).ticks == ReadTs(b, j).ticks;
+        case IL2CPP_LIST_KIND_GUID:
+            return std::memcmp(il2cpp_array_get_elem_ptr(a, i),
+                               il2cpp_array_get_elem_ptr(b, j), 16) == 0;
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            return runtime::icall_dtoffset_equals(ReadDto(a, i), ReadDto(b, j));
         default:
             return ReadI4(a, i, kind) == ReadI4(b, j, kind);
     }
@@ -486,6 +660,40 @@ Il2CppObject* il2cpp_linq_list_to_list(Il2CppObject* list, int32_t kind)
     // references (the listobj storage is the shared reference carrier).
     Il2CppObject* out = il2cpp_list_obj_create_with_capacity(snap->length);
     roots.Add(reinterpret_cast<void**>(&out));
+    // impl-listvtops: a VALUE-CELL family must be re-BOXED through its own
+    // family add -- the reference loop below would read the first 8 bytes of a
+    // value cell as a GC pointer (a wild reference / crash). Before this seat
+    // List<value>.ToList() was a transpile-time LOUD, so the shape is new.
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_DEC:
+            for (int32_t i = 0; i < snap->length; ++i)
+            {
+                il2cpp_list_obj_add_dec(
+                    out, reinterpret_cast<const runtime::Il2CppDecimal*>(
+                             il2cpp_array_get_elem_ptr(snap, i)));
+            }
+            return out;
+        case IL2CPP_LIST_KIND_DT:
+            for (int32_t i = 0; i < snap->length; ++i) il2cpp_list_obj_add_dt(out, ReadDt(snap, i));
+            return out;
+        case IL2CPP_LIST_KIND_TS:
+            for (int32_t i = 0; i < snap->length; ++i) il2cpp_list_obj_add_ts(out, ReadTs(snap, i));
+            return out;
+        case IL2CPP_LIST_KIND_GUID:
+            for (int32_t i = 0; i < snap->length; ++i)
+            {
+                const Il2CppGuid g = ReadGuid(snap, i);
+                il2cpp_list_obj_add_guid(out, g.b);
+            }
+            return out;
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_dtoffset(out, ReadDto(snap, i));
+            return out;
+        default:
+            break;
+    }
     for (int32_t i = 0; i < snap->length; ++i)
     {
         il2cpp_list_obj_add(out, ReadRef(snap, i));
@@ -2312,6 +2520,177 @@ bool il2cpp_linq_list_contains_ref(Il2CppObject* list, Il2CppObject* value, int3
 }
 
 //------------------------------------------------------------------------------
+// impl-listvtops: the BY-VALUE VALUE-STRUCT list accessor surface
+// (List<DateTime> / List<TimeSpan> / List<Guid> / List<DateTimeOffset>).
+//
+// Every entry snapshots the list at the family's own kind (13..16), reads the
+// cell at its real width and returns / accepts the struct BY VALUE -- the
+// generated leaf's ABI. The predicate forms route through PredicateOn /
+// PredicateOnIdx, which dispatch the four kinds to the by-value invokers.
+//------------------------------------------------------------------------------
+#define LST_DEF_VT_ACCESSORS(FAM, TYPE, READ, EQ)                                        \
+    TYPE il2cpp_linq_list_first_##FAM(Il2CppObject* list, int32_t kind)                  \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        if (snap->length == 0)                                                           \
+            il2cpp_throw_invalid_operation_exception("Sequence contains no elements");   \
+        return READ(snap, 0);                                                            \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_first_or_default_##FAM(Il2CppObject* list, int32_t kind)       \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        return snap->length != 0 ? READ(snap, 0) : TYPE();                               \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_last_##FAM(Il2CppObject* list, int32_t kind)                   \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        if (snap->length == 0)                                                           \
+            il2cpp_throw_invalid_operation_exception("Sequence contains no elements");   \
+        return READ(snap, snap->length - 1);                                             \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_last_or_default_##FAM(Il2CppObject* list, int32_t kind)        \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        return snap->length != 0 ? READ(snap, snap->length - 1) : TYPE();                \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_single_##FAM(Il2CppObject* list, int32_t kind)                 \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        if (snap->length == 0)                                                           \
+            il2cpp_throw_invalid_operation_exception("Sequence contains no elements");   \
+        if (snap->length > 1)                                                            \
+            il2cpp_throw_invalid_operation_exception(                                    \
+                "Sequence contains more than one element");                              \
+        return READ(snap, 0);                                                            \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_single_or_default_##FAM(Il2CppObject* list, int32_t kind)      \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        if (snap->length > 1)                                                            \
+            il2cpp_throw_invalid_operation_exception(                                    \
+                "Sequence contains more than one element");                              \
+        return snap->length == 1 ? READ(snap, 0) : TYPE();                               \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_element_at_##FAM(Il2CppObject* list, int32_t index,            \
+                                           int32_t kind)                                 \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        if (index < 0 || index >= snap->length)                                          \
+            il2cpp_throw_argument_out_of_range_exception("index",                        \
+                "Index was out of range. Must be non-negative and less than the size "   \
+                "of the collection.");                                                   \
+        return READ(snap, index);                                                        \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_element_at_or_default_##FAM(Il2CppObject* list, int32_t index, \
+                                                      int32_t kind)                      \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        if (index < 0 || index >= snap->length) return TYPE();                           \
+        return READ(snap, index);                                                        \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_first_pred_##FAM(Il2CppObject* list, Il2CppObject* pred,       \
+                                           int32_t kind)                                 \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppDelegate* d = RequireCallback(pred, "predicate");                          \
+        RootScope roots;                                                                 \
+        roots.Add(reinterpret_cast<void**>(&list));                                      \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        roots.Add(reinterpret_cast<void**>(&snap));                                      \
+        const int32_t i = FirstMatchIndex(d, snap, kind);                                \
+        if (i < 0)                                                                       \
+            il2cpp_throw_invalid_operation_exception(                                    \
+                "Sequence contains no matching element");                                \
+        return READ(snap, i);                                                            \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_first_or_default_pred_##FAM(Il2CppObject* list,                \
+                                                      Il2CppObject* pred, int32_t kind)  \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppDelegate* d = RequireCallback(pred, "predicate");                          \
+        RootScope roots;                                                                 \
+        roots.Add(reinterpret_cast<void**>(&list));                                      \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        roots.Add(reinterpret_cast<void**>(&snap));                                      \
+        const int32_t i = FirstMatchIndex(d, snap, kind);                                \
+        return i < 0 ? TYPE() : READ(snap, i);                                           \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_last_pred_##FAM(Il2CppObject* list, Il2CppObject* pred,        \
+                                          int32_t kind)                                  \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppDelegate* d = RequireCallback(pred, "predicate");                          \
+        RootScope roots;                                                                 \
+        roots.Add(reinterpret_cast<void**>(&list));                                      \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        roots.Add(reinterpret_cast<void**>(&snap));                                      \
+        int32_t found = -1;                                                              \
+        for (int32_t i = 0; i < snap->length; ++i)                                       \
+            if (PredicateOn(d, snap, i, kind)) found = i;                                \
+        if (found < 0)                                                                   \
+            il2cpp_throw_invalid_operation_exception(                                    \
+                "Sequence contains no matching element");                                \
+        return READ(snap, found);                                                        \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_last_or_default_pred_##FAM(Il2CppObject* list,                 \
+                                                     Il2CppObject* pred, int32_t kind)   \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppDelegate* d = RequireCallback(pred, "predicate");                          \
+        RootScope roots;                                                                 \
+        roots.Add(reinterpret_cast<void**>(&list));                                      \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        roots.Add(reinterpret_cast<void**>(&snap));                                      \
+        int32_t found = -1;                                                              \
+        for (int32_t i = 0; i < snap->length; ++i)                                       \
+            if (PredicateOn(d, snap, i, kind)) found = i;                                \
+        return found < 0 ? TYPE() : READ(snap, found);                                   \
+    }                                                                                    \
+    bool il2cpp_linq_list_contains_##FAM(Il2CppObject* list, TYPE value, int32_t kind)   \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        for (int32_t i = 0; i < snap->length; ++i)                                       \
+        {                                                                                \
+            const TYPE x = READ(snap, i);                                                \
+            if (EQ(x, value)) return true;                                               \
+        }                                                                                \
+        return false;                                                                    \
+    }                                                                                    \
+    TYPE il2cpp_linq_list_aggregate_##FAM(Il2CppObject* list, Il2CppObject* func,        \
+                                          int32_t kind)                                  \
+    {                                                                                    \
+        RequireList(list);                                                               \
+        Il2CppDelegate* d = RequireCallback(func, "func");                               \
+        RootScope roots;                                                                 \
+        roots.Add(reinterpret_cast<void**>(&list));                                      \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                      \
+        roots.Add(reinterpret_cast<void**>(&snap));                                      \
+        if (snap->length == 0)                                                           \
+            il2cpp_throw_invalid_operation_exception(                                    \
+                "Sequence contains no elements");                                        \
+        TYPE acc = READ(snap, 0);                                                        \
+        for (int32_t i = 1; i < snap->length; ++i)                                       \
+            acc = LstAggStepVt<TYPE, TYPE, TYPE>(d, acc, snap, i, READ);                 \
+        return acc;                                                                      \
+    }
+
+LST_DEF_VT_ACCESSORS(dt, runtime::Il2CppDateTime, ReadDt, DtEq)
+LST_DEF_VT_ACCESSORS(ts, runtime::Il2CppTimeSpan, ReadTs, TsEq)
+LST_DEF_VT_ACCESSORS(guid, Il2CppGuid, ReadGuid, GuidEq)
+LST_DEF_VT_ACCESSORS(dtoffset, runtime::Il2CppDateTimeOffset, ReadDto, DtoEq)
+
+#undef LST_DEF_VT_ACCESSORS
+
+//------------------------------------------------------------------------------
 // Reverse / DefaultIfEmpty
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_list_reverse(Il2CppObject* list, int32_t kind)
@@ -2601,6 +2980,42 @@ Il2CppArray* il2cpp_linq_list_skip_while(Il2CppObject* list, Il2CppObject* pred,
     return out;
 }
 
+// The INDEX overloads of TakeWhile / SkipWhile (impl-listvtops): the predicate
+// receives the element AND its zero-based SOURCE index. The loop is the same
+// as the 1-arg forms, only PredicateOnIdx is used.
+Il2CppArray* il2cpp_linq_list_take_while_idx(Il2CppObject* list, Il2CppObject* pred, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    int32_t w = 0;
+    while (w < snap->length && PredicateOnIdx(d, snap, w, kind)) ++w;
+    Il2CppArray* out = AllocElemArray(snap, kind, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i) CopyElem(out, i, snap, i);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_skip_while_idx(Il2CppObject* list, Il2CppObject* pred, int32_t kind)
+{
+    RequireList(list);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    int32_t start = 0;
+    while (start < snap->length && PredicateOnIdx(d, snap, start, kind)) ++start;
+    const int32_t n = snap->length - start;
+    Il2CppArray* out = AllocElemArray(snap, kind, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < n; ++i) CopyElem(out, i, snap, start + i);
+    return out;
+}
+
 Il2CppArray* il2cpp_linq_list_concat(Il2CppObject* list, Il2CppObject* second, int32_t kind)
 {
     RequireList(list);
@@ -2827,6 +3242,92 @@ bool il2cpp_linq_list_sequence_equal(Il2CppObject* list, Il2CppObject* second, i
         if (!ElemEquals(a, i, b, i, kind)) return false;
     }
     return true;
+}
+
+//------------------------------------------------------------------------------
+// Union / Intersect over a List receiver (impl-listvtops).
+//
+// net48 Union = first's elements then second's, deduplicated by first
+// appearance; Intersect = the elements of first that are also in second,
+// first-appearance order, DEDUPLICATED. Both compare at the LIST kind's real
+// cell width through ElemEquals, so the by-value value-struct kinds (13..16)
+// are exact. The second operand may be an array or another list.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_list_union(Il2CppObject* list, Il2CppObject* second, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    Il2CppArray* b = reinterpret_cast<Il2CppArray*>(second);
+    if (b != nullptr && (b->obj.klass == nullptr || b->obj.klass->name == nullptr ||
+                         b->obj.klass->name[0] != '['))
+    {
+        roots.Add(reinterpret_cast<void**>(&b));
+        b = SnapshotOf(second, kind);
+    }
+    const int32_t bn = b != nullptr ? b->length : 0;
+    Il2CppArray* out = AllocElemArray(a, kind, a->length + bn);
+    roots.Add(reinterpret_cast<void**>(&out));
+    int32_t w = 0;
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        bool seen = false;
+        for (int32_t j = 0; j < w && !seen; ++j) seen = ElemEquals(a, i, out, j, kind);
+        if (seen) continue;
+        CopyElem(out, w, a, i);
+        ++w;
+    }
+    for (int32_t i = 0; i < bn; ++i)
+    {
+        bool seen = false;
+        for (int32_t j = 0; j < w && !seen; ++j) seen = ElemEquals(b, i, out, j, kind);
+        if (seen) continue;
+        CopyElem(out, w, b, i);
+        ++w;
+    }
+    if (w == out->length) return out;
+    Il2CppArray* exact = AllocElemArray(a, kind, w);
+    roots.Add(reinterpret_cast<void**>(&exact));
+    for (int32_t i = 0; i < w; ++i) CopyElem(exact, i, out, i);
+    return exact;
+}
+
+Il2CppArray* il2cpp_linq_list_intersect(Il2CppObject* list, Il2CppObject* second, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    Il2CppArray* b = reinterpret_cast<Il2CppArray*>(second);
+    if (b != nullptr && (b->obj.klass == nullptr || b->obj.klass->name == nullptr ||
+                         b->obj.klass->name[0] != '['))
+    {
+        roots.Add(reinterpret_cast<void**>(&b));
+        b = SnapshotOf(second, kind);
+    }
+    Il2CppArray* out = AllocElemArray(a, kind, a->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    int32_t w = 0;
+    for (int32_t i = 0; i < a->length; ++i)
+    {
+        bool inSecond = false;
+        for (int32_t j = 0; b != nullptr && j < b->length && !inSecond; ++j)
+            inSecond = ElemEquals(a, i, b, j, kind);
+        if (!inSecond) continue;
+        bool already = false;
+        for (int32_t j = 0; j < w && !already; ++j) already = ElemEquals(a, i, out, j, kind);
+        if (already) continue;
+        CopyElem(out, w, a, i);
+        ++w;
+    }
+    if (w == out->length) return out;
+    Il2CppArray* exact = AllocElemArray(a, kind, w);
+    roots.Add(reinterpret_cast<void**>(&exact));
+    for (int32_t i = 0; i < w; ++i) CopyElem(exact, i, out, i);
+    return exact;
 }
 
 //------------------------------------------------------------------------------
@@ -3158,6 +3659,18 @@ static int32_t LstAggStepI4(Il2CppDelegate* d, int32_t acc, Il2CppArray* snap,
 {
     switch (kind)
     {
+        // impl-listvtops: the by-value value-struct element families.
+        case IL2CPP_LIST_KIND_DT:
+            return LstAggStepVt<int32_t, int32_t, runtime::Il2CppDateTime>(
+                d, acc, snap, i, ReadDt);
+        case IL2CPP_LIST_KIND_TS:
+            return LstAggStepVt<int32_t, int32_t, runtime::Il2CppTimeSpan>(
+                d, acc, snap, i, ReadTs);
+        case IL2CPP_LIST_KIND_GUID:
+            return LstAggStepVt<int32_t, int32_t, Il2CppGuid>(d, acc, snap, i, ReadGuid);
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            return LstAggStepVt<int32_t, int32_t, runtime::Il2CppDateTimeOffset>(
+                d, acc, snap, i, ReadDto);
         case IL2CPP_LIST_KIND_I8:
         {
             const int64_t v = ReadI8(snap, i);
@@ -3202,6 +3715,17 @@ static int64_t LstAggStepI8(Il2CppDelegate* d, int64_t acc, Il2CppArray* snap,
 {
     switch (kind)
     {
+        case IL2CPP_LIST_KIND_DT:
+            return LstAggStepVt<int64_t, int64_t, runtime::Il2CppDateTime>(
+                d, acc, snap, i, ReadDt);
+        case IL2CPP_LIST_KIND_TS:
+            return LstAggStepVt<int64_t, int64_t, runtime::Il2CppTimeSpan>(
+                d, acc, snap, i, ReadTs);
+        case IL2CPP_LIST_KIND_GUID:
+            return LstAggStepVt<int64_t, int64_t, Il2CppGuid>(d, acc, snap, i, ReadGuid);
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            return LstAggStepVt<int64_t, int64_t, runtime::Il2CppDateTimeOffset>(
+                d, acc, snap, i, ReadDto);
         case IL2CPP_LIST_KIND_I8:
         {
             const int64_t v = ReadI8(snap, i);
@@ -3246,6 +3770,15 @@ static float LstAggStepF(Il2CppDelegate* d, float acc, Il2CppArray* snap,
 {
     switch (kind)
     {
+        case IL2CPP_LIST_KIND_DT:
+            return LstAggStepVt<float, double, runtime::Il2CppDateTime>(d, acc, snap, i, ReadDt);
+        case IL2CPP_LIST_KIND_TS:
+            return LstAggStepVt<float, double, runtime::Il2CppTimeSpan>(d, acc, snap, i, ReadTs);
+        case IL2CPP_LIST_KIND_GUID:
+            return LstAggStepVt<float, double, Il2CppGuid>(d, acc, snap, i, ReadGuid);
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            return LstAggStepVt<float, double, runtime::Il2CppDateTimeOffset>(
+                d, acc, snap, i, ReadDto);
         case IL2CPP_LIST_KIND_I8:
         {
             const int64_t v = ReadI8(snap, i);
@@ -3290,6 +3823,15 @@ static double LstAggStepD(Il2CppDelegate* d, double acc, Il2CppArray* snap,
 {
     switch (kind)
     {
+        case IL2CPP_LIST_KIND_DT:
+            return LstAggStepVt<double, double, runtime::Il2CppDateTime>(d, acc, snap, i, ReadDt);
+        case IL2CPP_LIST_KIND_TS:
+            return LstAggStepVt<double, double, runtime::Il2CppTimeSpan>(d, acc, snap, i, ReadTs);
+        case IL2CPP_LIST_KIND_GUID:
+            return LstAggStepVt<double, double, Il2CppGuid>(d, acc, snap, i, ReadGuid);
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            return LstAggStepVt<double, double, runtime::Il2CppDateTimeOffset>(
+                d, acc, snap, i, ReadDto);
         case IL2CPP_LIST_KIND_I8:
         {
             const int64_t v = ReadI8(snap, i);
@@ -3334,6 +3876,18 @@ static runtime::Il2CppDecimal LstAggStepDec(Il2CppDelegate* d, runtime::Il2CppDe
 {
     switch (kind)
     {
+        case IL2CPP_LIST_KIND_DT:
+            return LstAggStepVt<runtime::Il2CppDecimal, runtime::Il2CppDecimal,
+                runtime::Il2CppDateTime>(d, acc, snap, i, ReadDt);
+        case IL2CPP_LIST_KIND_TS:
+            return LstAggStepVt<runtime::Il2CppDecimal, runtime::Il2CppDecimal,
+                runtime::Il2CppTimeSpan>(d, acc, snap, i, ReadTs);
+        case IL2CPP_LIST_KIND_GUID:
+            return LstAggStepVt<runtime::Il2CppDecimal, runtime::Il2CppDecimal, Il2CppGuid>(
+                d, acc, snap, i, ReadGuid);
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            return LstAggStepVt<runtime::Il2CppDecimal, runtime::Il2CppDecimal,
+                runtime::Il2CppDateTimeOffset>(d, acc, snap, i, ReadDto);
         case IL2CPP_LIST_KIND_I8:
         {
             const int64_t v = ReadI8(snap, i);
@@ -3378,6 +3932,18 @@ static Il2CppObject* LstAggStepRef(Il2CppDelegate* d, Il2CppObject* acc, Il2CppA
 {
     switch (kind)
     {
+        case IL2CPP_LIST_KIND_DT:
+            return LstAggStepVt<Il2CppObject*, Il2CppObject*, runtime::Il2CppDateTime>(
+                d, acc, snap, i, ReadDt);
+        case IL2CPP_LIST_KIND_TS:
+            return LstAggStepVt<Il2CppObject*, Il2CppObject*, runtime::Il2CppTimeSpan>(
+                d, acc, snap, i, ReadTs);
+        case IL2CPP_LIST_KIND_GUID:
+            return LstAggStepVt<Il2CppObject*, Il2CppObject*, Il2CppGuid>(
+                d, acc, snap, i, ReadGuid);
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            return LstAggStepVt<Il2CppObject*, Il2CppObject*, runtime::Il2CppDateTimeOffset>(
+                d, acc, snap, i, ReadDto);
         case IL2CPP_LIST_KIND_I8:
         {
             const int64_t v = ReadI8(snap, i);
@@ -3540,6 +4106,18 @@ LST_AGG_SEED_ENTRY_REF(ref_f, LstAggStepRef)
 LST_AGG_SEED_ENTRY_REF(ref_d, LstAggStepRef)
 LST_AGG_SEED_ENTRY_REF(ref_ref, LstAggStepRef)
 LST_AGG_SEED_ENTRY_REF(ref_dec, LstAggStepRef)
+
+// impl-listvtops: the BY-VALUE VALUE-STRUCT ELEMENT family (`_val`). The
+// element family rides the runtime `kind` (13..16), so ONE entry per
+// ACCUMULATOR family serves all four -- the step functions dispatch on kind
+// and read the cell at its real width / call the leaf with the struct BY
+// VALUE.
+LST_AGG_SEED_ENTRY(i4_val, int32_t, LstAggStepI4)
+LST_AGG_SEED_ENTRY(i8_val, int64_t, LstAggStepI8)
+LST_AGG_SEED_ENTRY_F(f_val, LstAggStepF)
+LST_AGG_SEED_ENTRY(d_val, double, LstAggStepD)
+LST_AGG_SEED_ENTRY_DEC(dec_val, LstAggStepDec)
+LST_AGG_SEED_ENTRY_REF(ref_val, LstAggStepRef)
 
 #undef LST_AGG_SEED_ENTRY
 #undef LST_AGG_SEED_ENTRY_F
@@ -3978,6 +4556,18 @@ LST_AGG_RS_DEC6(f)
 LST_AGG_RS_DEC6(d)
 LST_AGG_RS_DEC6(ref)
 LST_AGG_RS_DEC6(dec)
+
+// impl-listvtops: the BY-VALUE VALUE-STRUCT ELEMENT family (`val`) x every
+// accumulator family, x the 10-way result projection. The element family rides
+// the runtime `kind`, so this is one row per ACCUMULATOR family instead of the
+// 4-element-per-accumulator expansion the fixed-width families need.
+LST_AGG_RS6(i4, val, int32_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(i8, val, int64_t, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(f, val, double, LST_AGG_NO_ROOT, static_cast<double>(acc))
+LST_AGG_RS6(d, val, double, LST_AGG_NO_ROOT, acc)
+LST_AGG_RS6(ref, val, Il2CppObject*, \
+    RootScope accRoot; accRoot.Add(reinterpret_cast<void**>(&acc));, acc)
+LST_AGG_RS_DEC6(val)
 
 #undef LST_AGG_RS_ENTRY
 #undef LST_AGG_RS_ENTRY_DECRES

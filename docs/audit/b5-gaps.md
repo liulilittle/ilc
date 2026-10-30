@@ -1972,16 +1972,60 @@ aggregate surfaces need a struct-typed delegate ABI per operator.
 - Unit 3964/3964 (baseline 3946 + 18 new resolver assertions). C0: il2cppc
   Debug build 0 errors.
 
-### 21.4 Still open after this seat
+### 21.4 The by-value value-struct List surface -- CLOSED by impl-listvtops
+
+The item below was open after impl-loudvalstruct (D) and is now wired:
 
 - `List<DateTime>` / `List<TimeSpan>` / `List<Guid>` / `List<DateTimeOffset>`
-  with the element-returning (First/Last/ElementAt/Single/Contains), predicate
-  (Where/All/TakeWhile/SkipWhile/Count(pred)/Any(pred)), set
-  (Take/Skip/Reverse/Concat/Distinct/Except/Union/Intersect) and Aggregate
-  operators -- each needs a struct-typed delegate ABI (the array surface has
-  them: `il2cpp_linq_where_dt`, `il2cpp_linq_first_dt`, ...). The list entries
-  are thin snapshot wrappers over those kernels, so the remaining work is
-  mechanical but broad; it stays a transpile-time LOUD until then.
+  (IL2CPP_LIST_KIND_DT/TS/GUID/DTOFFSET 13..16) with the element-returning
+  (First/FirstOrDefault/Last/LastOrDefault/Single/SingleOrDefault/ElementAt/
+  Contains and their predicate forms), predicate (Where/All/Any(pred)/
+  Count(pred)/TakeWhile/SkipWhile and the index overloads), set/range
+  (Take/Skip/Reverse/Concat/Distinct/Except/Union/Intersect/SequenceEqual/
+  DefaultIfEmpty), ToList and Aggregate (seed / seed+resultSelector)
+  operators.
+
+The runtime shape: the list snapshot already unboxes the boxed element into
+the family OWN cell, so the kind-generic list kernels (element copies +
+PredicateOn/PredicateOnIdx, both extended with the four by-value invokers)
+serve the predicate and set operators, and the new per-family entries
+(`il2cpp_linq_list_<op>_dt/_ts/_guid/_dtoffset`, plus the `_val` row of the
+Aggregate matrix) serve the element-returning operators. No operator reads an
+i4 slot out of an 8/16-byte cell.
+
+Two collateral defects found while wiring the matrix:
+
+- The ARRAY value-family dispatch had no `"16"` (DateTimeOffset) arm, so a
+  `DateTimeOffset[]` source bound the GUID kernels (a 16-byte cell of the
+  wrong family; the element-returning entries produced an `Il2CppGuid` into an
+  `Il2CppDateTimeOffset` slot -- a compile failure). The dispatch now answers
+  `dtoffset` and the runtime ships
+  `where/take_while/skip_while(+idx)/all/count_pred/any_pred/first[_or_default]/last[_or_default]`
+  plus `element_at_fam_dtoffset` / `single[_or_default]_fam_dtoffset` /
+  `contains_family_dtoffset` for that family.
+- `il2cpp_linq_list_to_list` re-boxed every non-int32 element through the
+  REFERENCE add (the first 8 bytes of a value cell read as a GC pointer). The
+  value-cell kinds now box through their own family add, and the transpiler
+  tracks the result as the element List instantiation instead of the int32
+  pseudo-type.
+
+Still a transpile-time LOUD for these element kinds (a self-describing message
+naming the family, registered here):
+
+- `Select` / `OrderBy` / `OrderByDescending` / `ThenBy` / `ThenByDescending` /
+  `GroupBy` / `Zip` -- need a struct-typed SELECTOR / key-selector ABI; the
+  ARRAY surface has none either (only the DateTimeOffset RESULT form of
+  Select).
+- `Sum` / `Min` / `Max` / `Average` -- net48 has no numeric aggregate over
+  these types.
+- `Single(predicate)` / `SingleOrDefault(predicate)` -- no by-value predicate
+  element kernel yet (the source-only forms are wired).
+- `ElementAtOrDefault` -- not mapped for ANY element family (pre-existing
+  shared gap, not specific to these kinds).
+
+Pre-existing, out of this seat (numeric list families, unchanged):
+`List<long/double/float/narrow>.ToList()` still re-boxes through the reference
+add; that path was already live before this seat.
 
 ## 22. impl-loudvalstruct (D follow-up): the SOURCE-ONLY aggregates over a List<decimal>
 

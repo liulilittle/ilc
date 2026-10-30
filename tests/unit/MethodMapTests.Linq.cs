@@ -5463,6 +5463,467 @@ public class MethodMapTestsLinq
         return Serialize(mdb);
     }
 
+    //==========================================================================
+    // impl-listvtops: the BY-VALUE VALUE-STRUCT List operator surface
+    // (List<DateTime> / List<TimeSpan> / List<Guid> / List<DateTimeOffset>,
+    // IL2CPP_LIST_KIND_DT/TS/GUID/DTOFFSET 13..16).
+    //
+    // Before this seat every operator except Count/Any/LongCount/ToArray/
+    // DefaultIfEmpty was a transpile-time LOUD ("...has a cell ABI for
+    // Count/Any/LongCount/ToArray/DefaultIfEmpty only"). The runtime now ships
+    //   * kind-generic list kernels (snapshot + PredicateOn at the real cell
+    //     width) for the set / range / predicate operators, and
+    //   * per-family by-value entries for the element-returning operators and
+    //     the Aggregate fold.
+    // Each test asserts the ROUTING (kind -> CppName) plus the by-value result
+    // carrier, so a regression to an int32/ref entry is caught here instead of
+    // surfacing as a silent wrong value in the generated C++.
+    //==========================================================================
+    [Theory]
+    // name, value type, expected entry suffix, by-value result kind
+    [InlineData("First", "DateTime", "dt", "dt")]
+    [InlineData("FirstOrDefault", "DateTime", "dt", "dt")]
+    [InlineData("Last", "DateTime", "dt", "dt")]
+    [InlineData("LastOrDefault", "DateTime", "dt", "dt")]
+    [InlineData("Single", "DateTime", "dt", "dt")]
+    [InlineData("SingleOrDefault", "DateTime", "dt", "dt")]
+    [InlineData("First", "TimeSpan", "ts", "ts")]
+    [InlineData("Last", "TimeSpan", "ts", "ts")]
+    [InlineData("Single", "TimeSpan", "ts", "ts")]
+    [InlineData("First", "Guid", "guid", "guidv")]
+    [InlineData("Last", "Guid", "guid", "guidv")]
+    [InlineData("Single", "Guid", "guid", "guidv")]
+    [InlineData("First", "DateTimeOffset", "dtoffset", "dto")]
+    [InlineData("Last", "DateTimeOffset", "dtoffset", "dto")]
+    [InlineData("Single", "DateTimeOffset", "dtoffset", "dto")]
+    public void Resolve_ListValueStruct_SourceOnlyElementOperator_MapsToFamilyEntry(
+        string name, string typeName, string fam, string resultKind)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("source"),
+                "System", typeName),
+            ListReceiverOf(typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_" + OpSuffix(name) + "_" + fam, resolved.CppName);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
+        Assert.False(resolved.ReturnsRef);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal("System." + typeName, resolved.ReturnTypeName);
+        Assert.Equal(new[] { ListKindOf(typeName) }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData("DateTime", "dt", "dt")]
+    [InlineData("TimeSpan", "ts", "ts")]
+    [InlineData("Guid", "guid", "guidv")]
+    [InlineData("DateTimeOffset", "dtoffset", "dto")]
+    public void Resolve_ListValueStruct_ElementAt_MapsToFamilyEntry(
+        string typeName, string fam, string resultKind)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("ElementAt", ValueTypeSourceSignature("range"),
+                "System", typeName),
+            ListReceiverOf(typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_element_at_" + fam, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(new[] { ListKindOf(typeName) }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData("DateTime", "dt", "dt")]
+    [InlineData("TimeSpan", "ts", "ts")]
+    [InlineData("Guid", "guid", "guidv")]
+    [InlineData("DateTimeOffset", "dtoffset", "dto")]
+    public void Resolve_ListValueStruct_ElementAtOrDefault_MapsToFamilyEntry(
+        string typeName, string fam, string resultKind)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("ElementAtOrDefault",
+                ValueTypeSourceSignature("range"), "System", typeName),
+            ListReceiverOf(typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_element_at_or_default_" + fam, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "", "i" }, resolved.ParamTypeNames);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(new[] { ListKindOf(typeName) }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData("DateTime", "dt")]
+    [InlineData("TimeSpan", "ts")]
+    [InlineData("Guid", "guid")]
+    [InlineData("DateTimeOffset", "dtoffset")]
+    public void Resolve_ListValueStruct_Contains_MapsToFamilyEntry(string typeName, string fam)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("Contains", ValueTypeSourceSignature("contains"),
+                "System", typeName),
+            ListReceiverOf(typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_contains_" + fam, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        // The value crosses in the family's OWN by-value slot (never "i"/"l"/"d").
+        Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+    }
+
+    [Theory]
+    [InlineData("DateTime", "dt", "dt")]
+    [InlineData("TimeSpan", "ts", "ts")]
+    [InlineData("Guid", "guid", "guidv")]
+    [InlineData("DateTimeOffset", "dtoffset", "dto")]
+    public void Resolve_ListValueStruct_PredicateElementOperator_MapsToFamilyEntry(
+        string typeName, string fam, string resultKind)
+    {
+        foreach (var name in new[] { "First", "FirstOrDefault", "Last", "LastOrDefault" })
+        {
+            var resolved = ResolveMethodSpecWithReceiver(
+                SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("predicate"),
+                    "System", typeName),
+                ListReceiverOf(typeName));
+
+            Assert.Equal("il2cpp::il2cpp_linq_list_" + OpSuffix(name) + "_pred_" + fam,
+                resolved.CppName);
+            Assert.Equal(2, resolved.ParamCount);
+            Assert.Equal(new[] { "", "" }, resolved.ParamTypeNames);
+            Assert.Equal(resultKind, resolved.ResultKind);
+        }
+    }
+
+    // The kind-generic list kernels (snapshot + PredicateOn / element copies)
+    // serve the predicate and set operators at the LIST element kind.
+    [Theory]
+    [InlineData("Where", "il2cpp::il2cpp_linq_list_where", 2)]
+    [InlineData("All", "il2cpp::il2cpp_linq_list_all_pred", 2)]
+    [InlineData("Any", "il2cpp::il2cpp_linq_list_any_pred", 2)]
+    [InlineData("Count", "il2cpp::il2cpp_linq_list_count_pred", 2)]
+    [InlineData("TakeWhile", "il2cpp::il2cpp_linq_list_take_while", 2)]
+    [InlineData("SkipWhile", "il2cpp::il2cpp_linq_list_skip_while", 2)]
+    public void Resolve_ListValueStruct_PredicateOperator_MapsToKindGenericListEntry(
+        string name, string expected, int arity)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("predicate"),
+                "System", "DateTime"),
+            ListReceiverOf("DateTime"));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(arity, resolved.ParamCount);
+        Assert.Equal(new[] { "13" }, resolved.AppendLiterals);
+    }
+
+    // The INDEX overloads must not bind the 1-arg predicate ABI (a
+    // Func<T,int,bool> called through bool(*)(T) reads the index from an
+    // undefined register).
+    [Theory]
+    [InlineData("Where", "il2cpp::il2cpp_linq_list_where_idx")]
+    [InlineData("TakeWhile", "il2cpp::il2cpp_linq_list_take_while_idx")]
+    [InlineData("SkipWhile", "il2cpp::il2cpp_linq_list_skip_while_idx")]
+    public void Resolve_ListValueStruct_IndexPredicateOperator_MapsToIndexEntry(
+        string name, string expected)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("predicate_idx"),
+                "System", "DateTimeOffset"),
+            ListReceiverOf("DateTimeOffset"));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "16" }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData("Take", "il2cpp::il2cpp_linq_list_take")]
+    [InlineData("Skip", "il2cpp::il2cpp_linq_list_skip")]
+    [InlineData("Reverse", "il2cpp::il2cpp_linq_list_reverse")]
+    [InlineData("Distinct", "il2cpp::il2cpp_linq_list_distinct")]
+    public void Resolve_ListValueStruct_RangeOperator_MapsToKindGenericListEntry(
+        string name, string expected)
+    {
+        bool range = name is "Take" or "Skip";
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource(name,
+                ValueTypeSourceSignature(range ? "range" : "source"), "System", "Guid"),
+            ListReceiverOf("Guid"));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(new[] { "15" }, resolved.AppendLiterals);
+        Assert.Equal("System.Guid[]", resolved.ReturnTypeName);
+    }
+
+    [Theory]
+    [InlineData("Concat", "il2cpp::il2cpp_linq_list_concat")]
+    [InlineData("Except", "il2cpp::il2cpp_linq_list_except")]
+    [InlineData("Union", "il2cpp::il2cpp_linq_list_union")]
+    [InlineData("Intersect", "il2cpp::il2cpp_linq_list_intersect")]
+    public void Resolve_ListValueStruct_SetOperator_MapsToKindGenericListEntry(
+        string name, string expected)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("same"),
+                "System", "TimeSpan"),
+            ListReceiverOf("TimeSpan"));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(new[] { "14" }, resolved.AppendLiterals);
+        Assert.Equal("System.TimeSpan[]", resolved.ReturnTypeName);
+    }
+
+    // Aggregate: the element family rides the runtime `kind`, so the entry is
+    // the `val` row of the (accumulator, element) matrix.
+    [Theory]
+    [InlineData(0x08, "il2cpp::il2cpp_linq_list_aggregate_seed_i4_val", "i", null)]
+    [InlineData(0x0A, "il2cpp::il2cpp_linq_list_aggregate_seed_i8_val", "l", "l")]
+    [InlineData(0x0D, "il2cpp::il2cpp_linq_list_aggregate_seed_d_val", "d", "d")]
+    public void Resolve_ListValueStruct_AggregateSeed_MapsToValEntry(
+        byte accByte, string expected, string seedCast, string? resultKind)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSourceTwoArgs("Aggregate",
+                new byte[] { 0x10, 0x02, 0x03, 0x13, 0x01,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x13, 0x01,
+                    0x15, 0x12, 0x0B, 0x03, 0x13, 0x01, 0x13, 0x00, 0x13, 0x01 },
+                accByte, "System", "DateTime"),
+            ListReceiverOf("DateTime"));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal(3, resolved.ParamCount);
+        Assert.Equal(new[] { "", seedCast, "" }, resolved.ParamTypeNames);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal(new[] { "13" }, resolved.AppendLiterals);
+    }
+
+    [Theory]
+    [InlineData("DateTime", "13", "dt", "dt")]
+    [InlineData("TimeSpan", "14", "ts", "ts")]
+    [InlineData("Guid", "15", "guid", "guidv")]
+    [InlineData("DateTimeOffset", "16", "dtoffset", "dto")]
+    public void Resolve_ListValueStruct_AggregateNoSeed_MapsToFamilyEntry(
+        string typeName, string kind, string fam, string resultKind)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("Aggregate",
+                new byte[] { 0x10, 0x01, 0x02, 0x13, 0x00,
+                    0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                    0x15, 0x12, 0x0B, 0x03, 0x13, 0x00, 0x13, 0x00, 0x13, 0x00 },
+                "System", typeName),
+            ListReceiverOf(typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_" + fam, resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal(resultKind, resolved.ResultKind);
+        Assert.Equal("System." + typeName, resolved.ReturnTypeName);
+        // The entry carries NO appended kind literal: the element family is
+        // implied by the per-family name (unlike the `val` row, where `kind`
+        // rides the runtime argument).
+        Assert.Equal(kind, ListKindOf(typeName));
+        Assert.True(resolved.AppendLiterals is null || resolved.AppendLiterals.Length == 0);
+    }
+
+    // The operators that genuinely need a struct-typed SELECTOR / key ABI stay
+    // a self-describing transpile-time LOUD (never a silent int32 read).
+    [Theory]
+    [InlineData("Select", 0x02)]
+    [InlineData("OrderBy", 0x02)]
+    [InlineData("Sum", 0x02)]
+    [InlineData("Average", 0x02)]
+    public void Resolve_ListValueStruct_UnsupportedOperator_StaysLoud(string name, byte second)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMethodSpecWithReceiver(
+                SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("predicate"),
+                    "System", "DateTime"),
+                ListReceiverOf("DateTime")));
+        Assert.Contains("is not wired", ex.Message);
+        Assert.Contains("List<System.DateTime>", ex.Message);
+        Assert.Contains("b5-gaps", ex.Message);
+        _ = second;
+    }
+
+    // A USER struct still has no list cell ABI: LinqListKind answers the
+    // reference tag, so it never reaches the by-value surface.
+    [Fact]
+    public void Resolve_ListUserStruct_First_DoesNotBindTheValueFamilyEntries()
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("First", ValueTypeSourceSignature("source"),
+                "Cases", "MyStruct"),
+            ListReceiverOf("Cases.MyStruct"));
+
+        Assert.DoesNotContain("_dt", resolved.CppName);
+        Assert.DoesNotContain("_ts", resolved.CppName);
+        Assert.DoesNotContain("_guid", resolved.CppName);
+        Assert.DoesNotContain("_dtoffset", resolved.CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // impl-listvtops: the ARRAY DateTimeOffset family. The 16-byte cell had NO
+    // arm in the value-family dispatch, so every operator fell through to the
+    // GUID kernels (a 16-byte cell of the wrong family).
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("Where", "il2cpp::il2cpp_linq_where_dtoffset")]
+    [InlineData("All", "il2cpp::il2cpp_linq_all_dtoffset")]
+    [InlineData("Count", "il2cpp::il2cpp_linq_count_pred_dtoffset")]
+    [InlineData("Any", "il2cpp::il2cpp_linq_any_pred_dtoffset")]
+    [InlineData("TakeWhile", "il2cpp::il2cpp_linq_take_while_dtoffset")]
+    [InlineData("SkipWhile", "il2cpp::il2cpp_linq_skip_while_dtoffset")]
+    public void Resolve_ArrayDateTimeOffset_PredicateOperator_MapsToDtoffsetEntry(
+        string name, string expected)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+            ValueTypeSourceSignature("predicate"), "System", "DateTimeOffset"));
+
+        Assert.Equal(expected, resolved.CppName);
+    }
+
+    [Theory]
+    [InlineData("First", "il2cpp::il2cpp_linq_first_dtoffset")]
+    [InlineData("FirstOrDefault", "il2cpp::il2cpp_linq_first_or_default_dtoffset")]
+    [InlineData("Last", "il2cpp::il2cpp_linq_last_dtoffset")]
+    [InlineData("LastOrDefault", "il2cpp::il2cpp_linq_last_or_default_dtoffset")]
+    public void Resolve_ArrayDateTimeOffset_ElementOperator_MapsToDtoffsetEntry(
+        string name, string expected)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource(name,
+            ValueTypeSourceSignature("source"), "System", "DateTimeOffset"));
+
+        Assert.Equal(expected, resolved.CppName);
+        Assert.Equal("dto", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ArrayDateTimeOffset_ElementAt_MapsToDtoffsetEntry()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueTypeSource("ElementAt",
+            ValueTypeSourceSignature("range"), "System", "DateTimeOffset"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_element_at_fam_dtoffset", resolved.CppName);
+        Assert.Equal("16", resolved.AppendLiterals![0]);
+        Assert.Equal("dto", resolved.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ArrayDateTimeOffset_Contains_MapsToDtoffsetEntry()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGenericValueSource("Contains",
+            ValueTypeSourceSignature("contains"), "System", "DateTimeOffset"));
+
+        Assert.Equal("il2cpp::il2cpp_linq_contains_family_dtoffset", resolved.CppName);
+    }
+
+    // ToList over a by-value value-struct list must keep its OWN List
+    // instantiation as the tracked result name: the unsuffixed "List`1"
+    // pseudo-type is the int32 domain, so a downstream l.Count / l[0] would
+    // route to the listi4 entries (a 4-byte read of an 8/16-byte cell).
+    [Theory]
+    [InlineData("DateTime", "13")]
+    [InlineData("TimeSpan", "14")]
+    [InlineData("Guid", "15")]
+    [InlineData("DateTimeOffset", "16")]
+    public void Resolve_ListValueStruct_ToList_KeepsTheElementListName(
+        string typeName, string kind)
+    {
+        var resolved = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("ToList", ValueTypeSourceSignature("source"),
+                "System", typeName),
+            ListReceiverOf(typeName));
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_to_list", resolved.CppName);
+        Assert.Equal("System.Collections.Generic.List`1_System." + typeName,
+            resolved.ReturnTypeName);
+        Assert.Equal(new[] { kind }, resolved.AppendLiterals);
+    }
+
+    // The List receiver name of a by-value value struct (the AOT expansion
+    // suffix form MethodMap.List's tracked names use).
+    private static string ListReceiverOf(string typeName) =>
+        "System.Collections.Generic.List`1_System." + typeName;
+
+    private static string ListKindOf(string typeName) => typeName switch
+    {
+        "DateTime" => "13",
+        "TimeSpan" => "14",
+        "Guid" => "15",
+        "DateTimeOffset" => "16",
+        _ => throw new ArgumentOutOfRangeException(nameof(typeName), typeName, "unknown family"),
+    };
+
+    private static string OpSuffix(string name) => name switch
+    {
+        "First" => "first",
+        "FirstOrDefault" => "first_or_default",
+        "Last" => "last",
+        "LastOrDefault" => "last_or_default",
+        "Single" => "single",
+        "SingleOrDefault" => "single_or_default",
+        _ => throw new ArgumentOutOfRangeException(nameof(name), name, "unknown operator"),
+    };
+
+    // VALUE-TYPE SOURCE helper with a NAMED TAccumulate byte: TSource is a
+    // named VALUETYPE TypeRef (row 4) and the SECOND generic argument is the
+    // raw accumulator byte (the shape a List<DateTime>.Aggregate(seed, func)
+    // MethodSpec carries).
+    private static MemoryStream SynthesizeGenericValueTypeSourceTwoArgs(string methodName,
+        byte[] memberRefSignature, byte accByte, string ns, string typeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`3"));
+        var srcRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(memberRefSignature));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger((MetadataTokens.GetRowNumber(srcRef) << 2) | 1);
+        spec.WriteByte(accByte);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // VALUE-SOURCE helper with a NAMED VALUETYPE generic argument at position
+    // `index` (the ARRAY Contains / Select shapes whose TSource is a struct).
+    private static MemoryStream SynthesizeGenericValueSource(string methodName,
+        byte[] memberRefSignature, string ns, string typeName)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var enumerableRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Linq"),
+            mdb.GetOrAddString("Enumerable"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System.Collections.Generic"),
+            mdb.GetOrAddString("IEnumerable`1"));
+        mdb.AddTypeReference(asmRef, mdb.GetOrAddString("System"), mdb.GetOrAddString("Func`2"));
+        var srcRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(typeName));
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString(methodName),
+            mdb.GetOrAddBlob(memberRefSignature));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(2);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger((MetadataTokens.GetRowNumber(srcRef) << 2) | 1);
+        spec.WriteByte(0x02);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
     private static MemoryStream Serialize(MetadataBuilder mdb)
     {
         var root = new MetadataRootBuilder(mdb, "v4.0.30319");

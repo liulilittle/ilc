@@ -94,6 +94,10 @@ runtime::Il2CppDecimal  LinqCellReadDec(Il2CppArray* arr, int32_t index);
 runtime::Il2CppDateTime LinqCellReadDt(Il2CppArray* arr, int32_t index);
 runtime::Il2CppTimeSpan LinqCellReadTs(Il2CppArray* arr, int32_t index);
 Il2CppGuid              LinqCellReadGuid(Il2CppArray* arr, int32_t index);
+// impl-listvtops: the 16-byte System.DateTimeOffset cell (delta 2). The ARRAY
+// surface had no reader at all, so a DateTimeOffset[] source dispatched its
+// operators into the Guid kernels (a 16-byte cell of the WRONG family).
+runtime::Il2CppDateTimeOffset LinqCellReadDto(Il2CppArray* arr, int32_t index);
 
 // The family default (default(T)) into `dst` (cell-width bytes).
 void LinqCellDefault(char* dst, int32_t cell);
@@ -117,6 +121,9 @@ bool LinqCellEqualsDec(Il2CppArray* a, int32_t ia, runtime::Il2CppDecimal value)
 bool LinqCellEqualsDt(Il2CppArray* a, int32_t ia, runtime::Il2CppDateTime value);
 bool LinqCellEqualsTs(Il2CppArray* a, int32_t ia, runtime::Il2CppTimeSpan value);
 bool LinqCellEqualsGuid(Il2CppArray* a, int32_t ia, Il2CppGuid value);
+// impl-listvtops: the DateTimeOffset value form (equality compares the UTC
+// instant -- net48 DateTimeOffset.Equals).
+bool LinqCellEqualsDto(Il2CppArray* a, int32_t ia, runtime::Il2CppDateTimeOffset value);
 
 // Validate that `arr` is a one-dimensional array whose element width matches
 // the cell (a mis-dispatched call must never read a narrower cell as a wider
@@ -158,6 +165,9 @@ bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal va
 bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
 bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);
 bool il2cpp_linq_contains_family_guid(Il2CppArray* src, Il2CppGuid value);
+// impl-listvtops: the System.DateTimeOffset value form (16-byte cell).
+bool il2cpp_linq_contains_family_dtoffset(Il2CppArray* src,
+                                          runtime::Il2CppDateTimeOffset value);
 
 // ElementAt / Single / SingleOrDefault per RESULT ABI. Each family's entry
 // validates the cell it was dispatched for and reads one element at its real
@@ -170,7 +180,9 @@ Il2CppObject*           il2cpp_linq_##NAME##_fam_ref(Il2CppArray* src, int32_t a
 runtime::Il2CppDecimal  il2cpp_linq_##NAME##_fam_dec(Il2CppArray* src, int32_t arg, int32_t cell);  \
 runtime::Il2CppDateTime il2cpp_linq_##NAME##_fam_dt(Il2CppArray* src, int32_t arg, int32_t cell);   \
 runtime::Il2CppTimeSpan il2cpp_linq_##NAME##_fam_ts(Il2CppArray* src, int32_t arg, int32_t cell);   \
-Il2CppGuid              il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t arg, int32_t cell);
+Il2CppGuid              il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t arg, int32_t cell);  \
+runtime::Il2CppDateTimeOffset il2cpp_linq_##NAME##_fam_dtoffset(Il2CppArray* src, int32_t arg,      \
+                                                               int32_t cell);
 
 // ElementAt(source, index): index out of range -> ArgumentOutOfRangeException.
 IL2CPP_LINQ_DECL_ELEM_ENTRIES(element_at)
@@ -187,7 +199,8 @@ Il2CppObject*           il2cpp_linq_##NAME##_fam_ref(Il2CppArray* src, int32_t c
 runtime::Il2CppDecimal  il2cpp_linq_##NAME##_fam_dec(Il2CppArray* src, int32_t cell);  \
 runtime::Il2CppDateTime il2cpp_linq_##NAME##_fam_dt(Il2CppArray* src, int32_t cell);   \
 runtime::Il2CppTimeSpan il2cpp_linq_##NAME##_fam_ts(Il2CppArray* src, int32_t cell);   \
-Il2CppGuid              il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t cell);
+Il2CppGuid              il2cpp_linq_##NAME##_fam_guid(Il2CppArray* src, int32_t cell); \
+runtime::Il2CppDateTimeOffset il2cpp_linq_##NAME##_fam_dtoffset(Il2CppArray* src, int32_t cell);
 
 // Single: the source must hold exactly one element (Single throws
 // InvalidOperationException otherwise; SingleOrDefault throws for more than

@@ -54,7 +54,9 @@
 #include "decimal.h"     // P0LINQ1 (D2): the 16-byte System.Decimal value slot
 #include "guid.h"        // BATCH4: the 16-byte System.Guid key carrier
 #include "il2cpp_time.h" // BATCH4: the System.DateTime key carrier
-#include "il2cpp_dtoffset.h" // impl-groupbykey: the System.DateTimeOffset key carrier
+// impl-groupbykey (the System.DateTimeOffset KEY carrier) and impl-listvtops
+// (the System.DateTimeOffset ARRAY family) both need this header.
+#include "il2cpp_dtoffset.h"
 
 #include <cstdint>
 
@@ -1178,6 +1180,25 @@ Il2CppGuid    il2cpp_linq_first_guid(Il2CppArray* src);
 Il2CppGuid    il2cpp_linq_first_or_default_guid(Il2CppArray* src);
 Il2CppGuid    il2cpp_linq_last_guid(Il2CppArray* src);
 Il2CppGuid    il2cpp_linq_last_or_default_guid(Il2CppArray* src);
+
+// impl-listvtops: the System.DateTimeOffset ARRAY predicate family (delta 2).
+// The 16-byte DateTimeOffset cell had NO array entries, so a DateTimeOffset[]
+// source dispatched every one of these operators into the Guid kernels -- a
+// 16-byte cell of the WRONG family (the cell guard then threw, or the value
+// was read as a Guid). Same shapes as the dt/ts/guid families above.
+Il2CppArray*  il2cpp_linq_where_dtoffset(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_where_idx_dtoffset(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_take_while_dtoffset(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_take_while_idx_dtoffset(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_skip_while_dtoffset(Il2CppArray* src, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_skip_while_idx_dtoffset(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_all_dtoffset(Il2CppArray* src, Il2CppObject* pred);
+int32_t       il2cpp_linq_count_pred_dtoffset(Il2CppArray* src, Il2CppObject* pred);
+bool          il2cpp_linq_any_pred_dtoffset(Il2CppArray* src, Il2CppObject* pred);
+runtime::Il2CppDateTimeOffset il2cpp_linq_first_dtoffset(Il2CppArray* src);
+runtime::Il2CppDateTimeOffset il2cpp_linq_first_or_default_dtoffset(Il2CppArray* src);
+runtime::Il2CppDateTimeOffset il2cpp_linq_last_dtoffset(Il2CppArray* src);
+runtime::Il2CppDateTimeOffset il2cpp_linq_last_or_default_dtoffset(Il2CppArray* src);
 
 // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each entry
 // snapshots the bucket's decimal cells and reuses the DECIMAL-SOURCE kernel

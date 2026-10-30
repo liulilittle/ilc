@@ -2362,6 +2362,13 @@ typedef bool (*PredGuidFn)(Il2CppGuid);
 typedef bool (*PredGuidThisFn)(Il2CppObject*, Il2CppGuid);
 typedef bool (*PredGuidIdxFn)(Il2CppGuid, int32_t);
 typedef bool (*PredGuidIdxThisFn)(Il2CppObject*, Il2CppGuid, int32_t);
+// impl-listvtops: the 16-byte System.DateTimeOffset predicate family (the
+// ARRAY surface had no entry at all, so a DateTimeOffset[] source dispatched
+// its predicates into the Guid kernels -- a 16-byte cell of the WRONG family).
+typedef bool (*PredDtoFn)(runtime::Il2CppDateTimeOffset);
+typedef bool (*PredDtoThisFn)(Il2CppObject*, runtime::Il2CppDateTimeOffset);
+typedef bool (*PredDtoIdxFn)(runtime::Il2CppDateTimeOffset, int32_t);
+typedef bool (*PredDtoIdxThisFn)(Il2CppObject*, runtime::Il2CppDateTimeOffset, int32_t);
 
 bool InvokePredDt(Il2CppDelegate* d, const runtime::Il2CppDateTime& v)
 {
@@ -2398,6 +2405,18 @@ bool InvokePredGuidIdx(Il2CppDelegate* d, const Il2CppGuid& v, int32_t index)
     return d->target != nullptr
         ? reinterpret_cast<PredGuidIdxThisFn>(d->methodPtr)(d->target, v, index)
         : reinterpret_cast<PredGuidIdxFn>(d->methodPtr)(v, index);
+}
+bool InvokePredDto(Il2CppDelegate* d, const runtime::Il2CppDateTimeOffset& v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDtoThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<PredDtoFn>(d->methodPtr)(v);
+}
+bool InvokePredDtoIdx(Il2CppDelegate* d, const runtime::Il2CppDateTimeOffset& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDtoIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredDtoIdxFn>(d->methodPtr)(v, index);
 }
 
 // net48 Where: one predicate invocation per element, first-appearance order.
@@ -2748,6 +2767,11 @@ IL2CPP_LINQ_DEF_VT_PRED_ENTRIES(ts, IL2CPP_LINQ_CELL_TIMESPAN, runtime::Il2CppTi
     LinqCellReadTs, InvokePredTs, InvokePredTsIdx)
 IL2CPP_LINQ_DEF_VT_PRED_ENTRIES(guid, IL2CPP_LINQ_CELL_GUID, Il2CppGuid,
     LinqCellReadGuid, InvokePredGuid, InvokePredGuidIdx)
+// impl-listvtops: the System.DateTimeOffset ARRAY predicate family (the
+// counterpart of the List<DateTimeOffset> surface; without it a DateTimeOffset[]
+// source bound the Guid kernels and tripped LinqRequireCell at runtime).
+IL2CPP_LINQ_DEF_VT_PRED_ENTRIES(dtoffset, IL2CPP_LINQ_CELL_DTOFFSET,
+    runtime::Il2CppDateTimeOffset, LinqCellReadDto, InvokePredDto, InvokePredDtoIdx)
 
 #undef IL2CPP_LINQ_DEF_VT_PRED_ENTRIES
 

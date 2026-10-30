@@ -1105,13 +1105,34 @@ public static partial class MethodRefResolver
             string? valCell = LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type);
             if (valCell is { } vc)
             {
-                // The kernel suffix (dt / ts / guid) and the by-value result
-                // kind of the element-returning entries. "guidv" is the
+                // The kernel suffix (dt / ts / guid / dtoffset) and the by-value
+                // result kind of the element-returning entries. "guidv" is the
                 // BY-VALUE Guid return (the plain "guid" kind is the Guid
                 // icall out-buffer ABI -- guid.h writes through a byte
-                // pointer, while the family kernels RETURN the value).
-                string vcFam = vc == "12" ? "dt" : vc == "13" ? "ts" : "guid";
-                string vcResult = vcFam == "guid" ? "guidv" : vcFam;
+                // pointer, while the family kernels RETURN the value);
+                // "dto" is the by-value DateTimeOffset carrier.
+                //
+                // impl-listvtops: the "16" (DateTimeOffset) cell had NO arm,
+                // so it fell through to the GUID kernels -- a 16-byte cell of
+                // the WRONG family (the runtime cell guard then threw, and the
+                // element-returning entries produced an Il2CppGuid into an
+                // Il2CppDateTimeOffset slot: a compile failure).
+                string vcFam = vc switch
+                {
+                    "12" => "dt",
+                    "13" => "ts",
+                    "14" => "guid",
+                    "16" => "dtoffset",
+                    _ => "guid",
+                };
+                string vcResult = vc switch
+                {
+                    "14" => "guidv",
+                    "16" => "dto",
+                    "12" => "dt",
+                    "13" => "ts",
+                    _ => vcFam,
+                };
                 string valArrayType = LinqArrayTypeNameExact(genArgs![0], genArgNames, 0);
                 // impl-linq-vtpred: the SOURCE PREDICATE family over the
                 // by-value struct families. The generated predicate leaf takes
@@ -3031,6 +3052,21 @@ public static partial class MethodRefResolver
                         // REAL width and calls the accumulator's own leaf ABI.
                         string srcFamCell = LinqSourceFamily(genArgs, receiverType, arg0Type);
                         string? cell = LinqArrayCellCode(genArgs, genArgNames, receiverType, arg0Type);
+                        // impl-listvtops: an Aggregate's SOURCE sits BELOW the
+                        // seed / lambda on the IL stack, so the hint-less first
+                        // pass sees the lambda in arg0Type and cannot tell a
+                        // List<DateTime/TimeSpan/Guid/DateTimeOffset> from a
+                        // value-struct ARRAY. A 0x11 element that is not a
+                        // decimal has no ARRAY cell code, so the matrix below
+                        // would throw and abort the whole method fold before
+                        // StackFold's post-pop re-resolve can rebind the List
+                        // domain (the same deferral the decimal-source arm
+                        // already relies on). Answer the int32-element base
+                        // entry here -- the shape a List<int> aggregate binds
+                        // in this pass -- and let the re-resolve replace it.
+                        // A source PROVEN to be an array keeps the LOUD.
+                        if (LinqVtAggDeferral(acc, genArgs, genArgNames, receiverType, arg0Type) is { } vtDefer)
+                            return vtDefer;
                         switch (acc)
                         {
                             case "i4":
@@ -3148,6 +3184,14 @@ public static partial class MethodRefResolver
                     // 32 bits of every cell -- a SILENT wrong value.
                     string srcFamCell4 = LinqSourceFamily(genArgs, receiverType, arg0Type);
                     string? cell4 = LinqArrayCellCode(genArgs, genArgNames, receiverType, arg0Type);
+                    // impl-listvtops: the same hint-less deferral the 3-argument
+                    // arm needs (see LinqVtAggDeferral): without it a
+                    // List<DateTime/...> Aggregate(seed, func, sel) aborts the
+                    // method fold at the ARRAY cell gate before the post-pop
+                    // re-resolve can rebind the list `val` entry.
+                    if (LinqVtAggDeferral(acc, genArgs, genArgNames, receiverType, arg0Type,
+                        resSuffix, resRef) is { } vtDefer4)
+                        return vtDefer4;
                     string cppBase;
                     string[]? cell4Literals = null;
                     switch (acc)
@@ -4185,6 +4229,49 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
+    // impl-listvtops: the Aggregate DEFERRAL for a hint-less pass over a
+    // 0x11 (non-decimal) source. An Aggregate's source sits BELOW the seed /
+    // lambda on the IL stack, so the pre-pop pass sees the lambda in arg0Type
+    // and cannot tell a List<DateTime/TimeSpan/Guid/DateTimeOffset> from a
+    // value-struct ARRAY. Without this the ARRAY cell matrix throws (a 0x11
+    // element has no ARRAY cell code) and the whole method fold is aborted
+    // before StackFold's post-pop re-resolve can rebind the List domain.
+    // Answering the int32-element base entry (the shape a List<int> aggregate
+    // binds in this pass) keeps the fold alive; the re-resolve replaces it
+    // with the list `val` entry (or, for a proven array, the LOUD stands).
+    private static ResolvedMethod? LinqVtAggDeferral(string acc, byte[]? genArgs,
+        string[]? genArgNames, string? receiverType, string? arg0Type,
+        string resSuffix = "", bool resRef = false)
+    {
+        if (genArgs is not { Length: >= 1 } || genArgs[0] != 0x11) return null;
+        if (IsDecimalGenArg(genArgNames, 0)) return null;
+        if (IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type)) return null;
+        if ((receiverType ?? arg0Type) is { } proven
+            && proven.EndsWith("[]", StringComparison.Ordinal)) return null;
+        string seedCast = acc switch
+        {
+            "i4" => "i",
+            "i8" => "l",
+            "f" => "d",
+            "d" => "d",
+            _ => "",
+        };
+        string baseName = acc switch
+        {
+            "i4" => "il2cpp::il2cpp_linq_aggregate_seed",
+            "i8" => "il2cpp::il2cpp_linq_aggregate_seed_i8",
+            "f" => "il2cpp::il2cpp_linq_aggregate_seed_f",
+            "d" => "il2cpp::il2cpp_linq_aggregate_seed_d",
+            _ => "il2cpp::il2cpp_linq_aggregate_seed_ref",
+        };
+        bool rs = resSuffix.Length != 0;
+        return I(baseName + resSuffix, rs ? 4 : 3, true, acc == "ref" || resRef, false,
+            rs ? new[] { "a", seedCast, "", "" } : new[] { "a", seedCast, "" },
+            resultKind: acc == "ref" ? null
+                : acc == "i8" ? "l"
+                : acc is "f" or "d" ? "d" : null);
+    }
+
     // impl-arrayagg: the IL2CPP_LINQ_CELL_* literal of an ARRAY source's
     // element family -- the trailing literal of the cell-matrix seed entries.
     // Null when the source is a value struct (the dedicated dt/ts/guid entries
@@ -4462,38 +4549,214 @@ public static partial class MethodRefResolver
             ? LinqArrayTypeNameExact(genArgs[0], genArgNames, 0).TrimEnd('[', ']')
             : (srcFam == "ref" ? "System.Object" : "System.Int32");
 
-        // impl-loudvalstruct (D): the by-value VALUE-STRUCT list element kinds
-        // (13..16) only carry a real cell ABI for the operators wired below.
-        // EVERY other operator over these kinds must stay a self-describing
-        // transpile-time LOUD: LinqListAbiSuffix answers "i4" for an unknown
-        // kind, so an unguarded arm would read a 4-byte slice out of an
-        // 8/16-byte cell (a silent wrong value) or pass a boxed pointer where
-        // the lambda takes the struct by value.
-        if (K is "13" or "14" or "15" or "16")
+        // impl-listvtops: the by-value VALUE-STRUCT list element kinds
+        // (13..16). Before this seat EVERY operator except Count/Any/
+        // LongCount/ToArray/DefaultIfEmpty was a transpile-time LOUD, because
+        // LinqListAbiSuffix answers "i4" for an unknown kind and an unguarded
+        // arm would read a 4-byte slice out of an 8/16-byte cell (a silent
+        // wrong value) and call the lambda through a foreign ABI.
+        //
+        // The runtime now carries the by-value surface:
+        //   * kind-generic list kernels (element copies + PredicateOn /
+        //     PredicateOnIdx) serve Take/Skip/Reverse/Concat/Distinct/Except/
+        //     Union/Intersect/SequenceEqual/Where/All/Count(pred)/Any(pred)/
+        //     TakeWhile/SkipWhile(+idx)/DefaultIfEmpty/ToArray/ToList;
+        //   * per-family entries (il2cpp_linq_list_<op>_dt/_ts/_guid/
+        //     _dtoffset) serve First/Last/Single/ElementAt/Contains and their
+        //     predicate forms, plus Aggregate (element family `val`).
+        // A USER struct never reaches this block (LinqListKind answers null, so
+        // the kind is the reference tag "1"), so only the operators with NO
+        // by-value delegate ABI at all (Select / OrderBy / ThenBy / GroupBy /
+        // Zip and the numeric aggregates) stay LOUD -- with a message that
+        // names the real reason.
+        bool vtElem = K is "13" or "14" or "15" or "16";
+        string vtFam = K switch
         {
-            bool wired = name switch
+            "13" => "dt",
+            "14" => "ts",
+            "15" => "guid",
+            _ => "dtoffset",
+        };
+        // The BY-VALUE result kind (the CodeGenerator carrier): DateTime and
+        // TimeSpan use their own name, Guid rides "guidv" (the by-value return;
+        // the plain "guid" kind is the out-buffer icall ABI) and
+        // DateTimeOffset rides "dto".
+        string vtResult = vtFam switch
+        {
+            "guid" => "guidv",
+            "dtoffset" => "dto",
+            _ => vtFam,
+        };
+        if (vtElem)
+        {
+            bool unsupported = name switch
             {
-                "Count" => count < 2,
-                "Any" => count < 2,
-                "LongCount" => count < 2,
-                "ToArray" => true,
-                "DefaultIfEmpty" => true,
+                // A selector / key-selector / grouping over a by-value struct
+                // element needs a struct-typed delegate ABI per operator; the
+                // ARRAY surface has none either (only the DateTimeOffset
+                // result form of Select), so these stay LOUD.
+                "Select" or "OrderBy" or "OrderByDescending" or "ThenBy"
+                    or "ThenByDescending" or "GroupBy" or "Zip" => true,
+                // net48 has no numeric Sum/Min/Max/Average over these types.
+                "Sum" or "Min" or "Max" or "Average" => true,
+                // The predicate forms of Single have no by-value kernel.
+                "Single" or "SingleOrDefault" => count >= 2,
                 _ => false,
             };
-            if (!wired)
+            if (unsupported)
             {
-                string famName = K switch
-                {
-                    "13" => "System.DateTime",
-                    "14" => "System.TimeSpan",
-                    "15" => "System.Guid",
-                    _ => "System.DateTimeOffset",
-                };
                 throw new NotSupportedException(
-                    $"Enumerable.{name} over a List<{famName}> is not wired: a by-value value-struct " +
-                    "list element has a cell ABI for Count/Any/LongCount/ToArray/DefaultIfEmpty only " +
-                    "(the element-returning, predicate, set and aggregate surfaces need a " +
-                    "struct-typed delegate ABI per operator) (see docs/audit/b5-gaps.md)");
+                    $"Enumerable.{name} over a List<{LinqStructNameOf(genArgs is { Length: >= 1 } ? genArgNames?[0] : null)}> " +
+                    "is not wired: this operator needs a struct-typed delegate / key-selector ABI " +
+                    "that the runtime does not ship for a by-value value-struct list element " +
+                    "(the wired surface is the element-returning, predicate, set and Aggregate " +
+                    "operators -- see docs/audit/b5-gaps.md)");
+            }
+        }
+
+        // impl-listvtops: the per-family BY-VALUE entries. The result kind is
+        // the family's own carrier and the tracked result type is the exact
+        // element name, so a downstream operator keeps resolving.
+        if (vtElem)
+        {
+            string vtOp;
+            switch (name)
+            {
+                case "First" when count < 2: vtOp = "first"; break;
+                case "FirstOrDefault" when count < 2: vtOp = "first_or_default"; break;
+                case "Last" when count < 2: vtOp = "last"; break;
+                case "LastOrDefault" when count < 2: vtOp = "last_or_default"; break;
+                case "Single" when count < 2: vtOp = "single"; break;
+                case "SingleOrDefault" when count < 2: vtOp = "single_or_default"; break;
+                case "First" when count >= 2: vtOp = "first_pred"; break;
+                case "FirstOrDefault" when count >= 2: vtOp = "first_or_default_pred"; break;
+                case "Last" when count >= 2: vtOp = "last_pred"; break;
+                case "LastOrDefault" when count >= 2: vtOp = "last_or_default_pred"; break;
+                default: vtOp = ""; break;
+            }
+            if (vtOp.Length != 0)
+            {
+                bool predForm = count >= 2;
+                return I($"il2cpp::il2cpp_linq_list_{vtOp}_{vtFam}", predForm ? 2 : 1,
+                    true, false, false, predForm ? L2 : L1,
+                    resultKind: vtResult,
+                    returnTypeName: elemScalar,
+                    appendLiterals: new[] { K });
+            }
+            if (name == "ElementAt")
+                return I($"il2cpp::il2cpp_linq_list_element_at_{vtFam}", 2, true, false, false,
+                    new[] { "", "i" }, resultKind: vtResult,
+                    returnTypeName: elemScalar, appendLiterals: new[] { K });
+            if (name == "ElementAtOrDefault")
+                // net48: an out-of-range index answers default(T) instead of
+                // throwing (the only difference from ElementAt).
+                return I($"il2cpp::il2cpp_linq_list_element_at_or_default_{vtFam}", 2, true,
+                    false, false, new[] { "", "i" }, resultKind: vtResult,
+                    returnTypeName: elemScalar, appendLiterals: new[] { K });
+            if (name == "Contains")
+                // The value crosses in the family's own by-value parameter slot.
+                return I($"il2cpp::il2cpp_linq_list_contains_{vtFam}", 2, true, false, false,
+                    new[] { "", "" }, appendLiterals: new[] { K });
+            if (name is "TakeWhile" or "SkipWhile"
+                && LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+            {
+                // The INDEX overload: the predicate receives the element AND its
+                // zero-based source index (the 1-arg list entries would call a
+                // Func<TSource,int,bool> through the wrong ABI).
+                string idxOp = name == "TakeWhile" ? "take_while_idx" : "skip_while_idx";
+                return I($"il2cpp::il2cpp_linq_list_{idxOp}", 2, true, true, false,
+                    L2, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            }
+            if (name == "Aggregate")
+            {
+                if (count == 2)
+                {
+                    // Aggregate(func) over a List<T>: TAccumulate is TSource, so
+                    // the accumulator is the element struct itself.
+                    return I($"il2cpp::il2cpp_linq_list_aggregate_{vtFam}", 2, true, false, false,
+                        L2, resultKind: vtResult, returnTypeName: elemScalar);
+                }
+                if (count >= 3)
+                {
+                    byte accByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                    bool accDec = accByte == 0x11 && genArgNames is { Length: >= 2 } an
+                        && an[1] is "System.Decimal" or "V:System.Decimal";
+                    string accFam = accDec ? "dec" : accByte switch
+                    {
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+                        0x0A or 0x0B => "i8",
+                        0x0C => "f",
+                        0x0D => "d",
+                        _ when IsRefFamilyByte(accByte) => "ref",
+                        _ => "",
+                    };
+                    if (accFam.Length == 0)
+                        throw new NotSupportedException(
+                            $"Enumerable.Aggregate TAccumulate '{GenericArgTypeName(accByte)}' is not a " +
+                            "supported accumulator family over a List (the list seed matrix covers " +
+                            "int32/int64/float/double/decimal/reference accumulators; a value-struct " +
+                            "accumulator has no list fold entry yet -- see docs/audit/b5-gaps.md)");
+                    if (count == 4)
+                    {
+                        byte resByte = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
+                        bool resDec = resByte == 0x11 && genArgNames is { Length: >= 3 } rn
+                            && rn[2] is "System.Decimal" or "V:System.Decimal";
+                        string? resStruct = resByte == 0x11
+                            ? LinqStructResultSuffix(genArgNames, 2) : null;
+                        string resFam = resDec ? "dec" : resStruct ?? resByte switch
+                        {
+                            0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+                            0x0A or 0x0B => "i8",
+                            0x0C => "f",
+                            0x0D => "d",
+                            _ when IsRefFamilyByte(resByte) => "ref",
+                            _ => "",
+                        };
+                        if (resFam.Length == 0)
+                            throw new NotSupportedException(
+                                "Enumerable.Aggregate TResult " +
+                                $"{GenericArgTypeName(resByte)} over a List is not a supported result " +
+                                "family (the runtime projects to int32/int64/float/double/decimal/" +
+                                "reference and the System.DateTime/System.TimeSpan/System.Guid/" +
+                                "System.DateTimeOffset value structs only) [Reference Source " +
+                                "System.Core/System/Linq/Enumerable.cs:1411]");
+                        string[] rsCasts = accFam switch
+                        {
+                            "dec" => new[] { "", "dec", "", "" },
+                            "ref" => new[] { "", "", "", "" },
+                            "i4" => new[] { "", "i", "", "" },
+                            "i8" => new[] { "", "l", "", "" },
+                            _ => new[] { "", "d", "", "" },
+                        };
+                        return I($"il2cpp::il2cpp_linq_list_aggregate_seed_{accFam}_val_rs_{resFam}",
+                            4, true, resFam == "ref", false, rsCasts,
+                            resultKind: resFam == "dec" ? "dec"
+                                : resFam == "i8" ? "l"
+                                : resFam is "f" or "d" ? "d"
+                                : resFam is "dt" ? "dt"
+                                : resFam is "ts" ? "ts"
+                                : resFam is "guid" ? "guidv"
+                                : resFam is "dtoffset" ? "dto" : null,
+                            appendLiterals: new[] { K },
+                            returnTypeName: resStruct == null ? null : LinqArrayTypeNameExact(
+                                resByte, genArgNames, 2).TrimEnd('[', ']'));
+                    }
+                    string[] casts = accFam switch
+                    {
+                        "dec" => new[] { "", "dec", "" },
+                        "ref" => new[] { "", "", "" },
+                        "i4" => new[] { "", "i", "" },
+                        "i8" => new[] { "", "l", "" },
+                        _ => new[] { "", "d", "" },
+                    };
+                    return I($"il2cpp::il2cpp_linq_list_aggregate_seed_{accFam}_val",
+                        3, true, accFam == "ref", false, casts,
+                        resultKind: accFam == "dec" ? "dec"
+                            : accFam == "i8" ? "l"
+                            : accFam is "f" or "d" ? "d" : null,
+                        appendLiterals: new[] { K });
+                }
+                return null;
             }
         }
 
@@ -4595,8 +4858,15 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_list_to_array", 1, true, true, false,
                     L1, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "ToList":
+                // impl-listvtops: a by-value VALUE-STRUCT element list must be
+                // tracked as its OWN List instantiation -- the unsuffixed
+                // "List`1" pseudo-type is the int32 domain, so a downstream
+                // l.Count / l[0] on a List<DateTime> would route to the listi4
+                // entries (a 4-byte read of an 8/16-byte cell).
                 return I("il2cpp::il2cpp_linq_list_to_list", 1, true, true, false,
-                    L1, returnTypeName: "System.Collections.Generic.List`1", appendLiterals: new[] { K });
+                    L1, returnTypeName: vtElem
+                        ? "System.Collections.Generic.List`1_" + LinqStructNameOf(genArgNames?[0])
+                        : "System.Collections.Generic.List`1", appendLiterals: new[] { K });
             case "LongCount":
                 return I("il2cpp::il2cpp_linq_list_long_count", 1, true, false, false,
                     L1, resultKind: "l");
@@ -4705,6 +4975,16 @@ public static partial class MethodRefResolver
                     L1, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "Except":
                 return I("il2cpp::il2cpp_linq_list_except", 2, true, true, false,
+                    new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "Union":
+                // impl-listvtops: Union over a List receiver had NO list entry
+                // at all, so it fell through to the ARRAY kernels with a List
+                // object cast (the D-2 defect class). The list kernel is
+                // kind-generic (ElemEquals at the kind's real cell width).
+                return I("il2cpp::il2cpp_linq_list_union", 2, true, true, false,
+                    new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "Intersect":
+                return I("il2cpp::il2cpp_linq_list_intersect", 2, true, true, false,
                     new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "Zip":
             {

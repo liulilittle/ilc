@@ -211,6 +211,12 @@ Il2CppArray* il2cpp_linq_list_take(Il2CppObject* list, int32_t count, int32_t ki
 Il2CppArray* il2cpp_linq_list_skip(Il2CppObject* list, int32_t count, int32_t kind);
 Il2CppArray* il2cpp_linq_list_take_while(Il2CppObject* list, Il2CppObject* pred, int32_t kind);
 Il2CppArray* il2cpp_linq_list_skip_while(Il2CppObject* list, Il2CppObject* pred, int32_t kind);
+// The INDEX overloads (net48 TakeWhile(source, Func<TSource,int,bool>) /
+// SkipWhile(...)): the predicate receives the element AND its zero-based
+// SOURCE index. impl-listvtops added them for the by-value value-struct list
+// families; the kind-generic loop also serves every other list kind.
+Il2CppArray* il2cpp_linq_list_take_while_idx(Il2CppObject* list, Il2CppObject* pred, int32_t kind);
+Il2CppArray* il2cpp_linq_list_skip_while_idx(Il2CppObject* list, Il2CppObject* pred, int32_t kind);
 Il2CppArray* il2cpp_linq_list_concat(Il2CppObject* list, Il2CppObject* second, int32_t kind);
 
 //------------------------------------------------------------------------------
@@ -219,6 +225,12 @@ Il2CppArray* il2cpp_linq_list_concat(Il2CppObject* list, Il2CppObject* second, i
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_list_distinct(Il2CppObject* list, int32_t kind);
 Il2CppArray* il2cpp_linq_list_except(Il2CppObject* list, Il2CppObject* second, int32_t kind);
+// impl-listvtops: Union / Intersect over a List receiver (the list domain had
+// no entries for them at all). Both normalize the second operand (a List is
+// snapshotted at the same element kind) and compare at the kind's real cell
+// width (ElemEquals), so the by-value value-struct kinds (13..16) are exact.
+Il2CppArray* il2cpp_linq_list_union(Il2CppObject* list, Il2CppObject* second, int32_t kind);
+Il2CppArray* il2cpp_linq_list_intersect(Il2CppObject* list, Il2CppObject* second, int32_t kind);
 // Zip: `kind` is the RECEIVER list's element kind and `secondKind` the SECOND
 // source's own element kind (IL2CPP_LIST_KIND_*) -- the two may DIFFER
 // (List<double>.Zip(int[])), so the runtime must not read the second source
@@ -521,6 +533,128 @@ Il2CppArray* il2cpp_linq_list_default_if_empty_val_guid(Il2CppObject* list, Il2C
                                                         int32_t kind);
 Il2CppArray* il2cpp_linq_list_default_if_empty_val_dtoffset(
     Il2CppObject* list, runtime::Il2CppDateTimeOffset value, int32_t kind);
+
+//------------------------------------------------------------------------------
+// impl-listvtops: the BY-VALUE VALUE-STRUCT list operator surface
+// (List<System.DateTime> / List<System.TimeSpan> / List<System.Guid> /
+// List<System.DateTimeOffset>, IL2CPP_LIST_KIND_DT/TS/GUID/DTOFFSET 13..16).
+//
+// The list storage BOXES the element, and the list snapshot unboxes it into
+// the family's OWN cell (8 / 8 / 16 / 16 bytes). The generated predicate /
+// selector / accumulator leaf takes the value struct BY VALUE, so every entry
+// below reads the snapshot cell at its real width and invokes the delegate
+// through that exact signature -- the int32/i8/double/reference list entries
+// would read a 4-byte slice out of an 8/16-byte cell AND call the leaf through
+// a foreign ABI (a silent wrong value / a stack-corrupting call).
+//
+// The predicate operators (Where/All/Count(pred)/Any(pred)/TakeWhile/
+// SkipWhile and the *Pred element accessors) ride the existing kind-generic
+// list entries: PredicateOn / PredicateOnIdx dispatch the four kinds to the
+// by-value invokers.
+//
+// The entry suffix is the ELEMENT family, exactly like the array surface:
+//   _dt  System.DateTime      (Il2CppDateTime)
+//   _ts  System.TimeSpan      (Il2CppTimeSpan)
+//   _guid System.Guid         (Il2CppGuid, returned BY VALUE)
+//   _dtoffset System.DateTimeOffset (Il2CppDateTimeOffset, BY VALUE)
+//------------------------------------------------------------------------------
+#define IL2CPP_DECL_LST_VT_ACCESSORS(FAM, TYPE)                                          \
+    TYPE il2cpp_linq_list_first_##FAM(Il2CppObject* list, int32_t kind);                 \
+    TYPE il2cpp_linq_list_first_or_default_##FAM(Il2CppObject* list, int32_t kind);      \
+    TYPE il2cpp_linq_list_last_##FAM(Il2CppObject* list, int32_t kind);                  \
+    TYPE il2cpp_linq_list_last_or_default_##FAM(Il2CppObject* list, int32_t kind);       \
+    TYPE il2cpp_linq_list_single_##FAM(Il2CppObject* list, int32_t kind);                \
+    TYPE il2cpp_linq_list_single_or_default_##FAM(Il2CppObject* list, int32_t kind);     \
+    TYPE il2cpp_linq_list_element_at_##FAM(Il2CppObject* list, int32_t index,            \
+                                           int32_t kind);                                \
+    TYPE il2cpp_linq_list_element_at_or_default_##FAM(Il2CppObject* list, int32_t index, \
+                                                      int32_t kind);                     \
+    TYPE il2cpp_linq_list_first_pred_##FAM(Il2CppObject* list, Il2CppObject* pred,       \
+                                           int32_t kind);                                \
+    TYPE il2cpp_linq_list_first_or_default_pred_##FAM(Il2CppObject* list,                \
+                                                      Il2CppObject* pred, int32_t kind); \
+    TYPE il2cpp_linq_list_last_pred_##FAM(Il2CppObject* list, Il2CppObject* pred,        \
+                                          int32_t kind);                                 \
+    TYPE il2cpp_linq_list_last_or_default_pred_##FAM(Il2CppObject* list,                 \
+                                                     Il2CppObject* pred, int32_t kind);  \
+    bool il2cpp_linq_list_contains_##FAM(Il2CppObject* list, TYPE value, int32_t kind);  \
+    TYPE il2cpp_linq_list_aggregate_##FAM(Il2CppObject* list, Il2CppObject* func,        \
+                                          int32_t kind);
+
+IL2CPP_DECL_LST_VT_ACCESSORS(dt, runtime::Il2CppDateTime)
+IL2CPP_DECL_LST_VT_ACCESSORS(ts, runtime::Il2CppTimeSpan)
+IL2CPP_DECL_LST_VT_ACCESSORS(guid, Il2CppGuid)
+IL2CPP_DECL_LST_VT_ACCESSORS(dtoffset, runtime::Il2CppDateTimeOffset)
+
+#undef IL2CPP_DECL_LST_VT_ACCESSORS
+
+//------------------------------------------------------------------------------
+// Aggregate(seed, func) / Aggregate(seed, func, resultSelector) over a List of
+// a BY-VALUE VALUE-STRUCT element family. The element family rides the `kind`
+// argument (the snapshot cell is 8 / 8 / 16 / 16 bytes), so ONE entry per
+// ACCUMULATOR family serves all four element families -- the `_val` tag is the
+// element-family-generic counterpart of the per-family i4/i8/f/d/ref/dec
+// element entries above. The accumulator keeps its OWN family and its own leaf
+// ABI; the result selector runs ONCE on the final accumulator and its RESULT
+// carrier follows the entry suffix, exactly like the 6x6x10 matrix above.
+//------------------------------------------------------------------------------
+int32_t il2cpp_linq_list_aggregate_seed_i4_val(Il2CppObject* list, int32_t seed,
+                                               Il2CppObject* func, int32_t kind);
+int64_t il2cpp_linq_list_aggregate_seed_i8_val(Il2CppObject* list, int64_t seed,
+                                               Il2CppObject* func, int32_t kind);
+float   il2cpp_linq_list_aggregate_seed_f_val(Il2CppObject* list, double seed,
+                                              Il2CppObject* func, int32_t kind);
+double  il2cpp_linq_list_aggregate_seed_d_val(Il2CppObject* list, double seed,
+                                              Il2CppObject* func, int32_t kind);
+void    il2cpp_linq_list_aggregate_seed_dec_val(runtime::Il2CppDecimal* result,
+                                                Il2CppObject* list,
+                                                const runtime::Il2CppDecimal* seed,
+                                                Il2CppObject* func, int32_t kind);
+Il2CppObject* il2cpp_linq_list_aggregate_seed_ref_val(Il2CppObject* list,
+                                                      Il2CppObject* seed,
+                                                      Il2CppObject* func, int32_t kind);
+
+#define IL2CPP_DECL_LST_AGG_VAL_RS(ACC, ELEM, SEEDTYPE)                                  \
+    int32_t il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_i4(                      \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                           \
+        Il2CppObject* resSel, int32_t kind);                                             \
+    int64_t il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_i8(                      \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                           \
+        Il2CppObject* resSel, int32_t kind);                                             \
+    double il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_f(                        \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                           \
+        Il2CppObject* resSel, int32_t kind);                                             \
+    double il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_d(                        \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                           \
+        Il2CppObject* resSel, int32_t kind);                                             \
+    Il2CppObject* il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_ref(               \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                           \
+        Il2CppObject* resSel, int32_t kind);                                             \
+    void il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_dec(                        \
+        runtime::Il2CppDecimal* result, Il2CppObject* list, SEEDTYPE seed,               \
+        Il2CppObject* func, Il2CppObject* resSel, int32_t kind);                         \
+    runtime::Il2CppDateTime il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_dt(      \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                           \
+        Il2CppObject* resSel, int32_t kind);                                             \
+    runtime::Il2CppTimeSpan il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_ts(      \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                           \
+        Il2CppObject* resSel, int32_t kind);                                             \
+    Il2CppGuid il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_guid(                 \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                           \
+        Il2CppObject* resSel, int32_t kind);                                             \
+    runtime::Il2CppDateTimeOffset                                                       \
+        il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_dtoffset(                    \
+            Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                       \
+            Il2CppObject* resSel, int32_t kind);
+
+IL2CPP_DECL_LST_AGG_VAL_RS(i4, val, int32_t)
+IL2CPP_DECL_LST_AGG_VAL_RS(i8, val, int64_t)
+IL2CPP_DECL_LST_AGG_VAL_RS(f, val, double)
+IL2CPP_DECL_LST_AGG_VAL_RS(d, val, double)
+IL2CPP_DECL_LST_AGG_VAL_RS(dec, val, const runtime::Il2CppDecimal*)
+IL2CPP_DECL_LST_AGG_VAL_RS(ref, val, Il2CppObject*)
+
+#undef IL2CPP_DECL_LST_AGG_VAL_RS
 
 //------------------------------------------------------------------------------
 // Aggregate(seed, func, resultSelector) over a List<T> (net48
