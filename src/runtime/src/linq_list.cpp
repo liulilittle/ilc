@@ -264,6 +264,31 @@ typedef double (*SelDDFn)(double);
 typedef double (*SelDDThisFn)(Il2CppObject*, double);
 typedef float (*SelDFFn)(double);
 typedef float (*SelDFThisFn)(Il2CppObject*, double);
+// The REFERENCE-result leaves for the WIDE source families (i8 / float+double).
+// Without them a wide-source Select with a reference result had to fall back to
+// the int32-source ABI (impl-listselnum).
+typedef Il2CppObject* (*SelI8RefFn)(int64_t);
+typedef Il2CppObject* (*SelI8RefThisFn)(Il2CppObject*, int64_t);
+typedef Il2CppObject* (*SelDRefFn)(double);
+typedef Il2CppObject* (*SelDRefThisFn)(Il2CppObject*, double);
+// The REFERENCE-SOURCE leaves with a VALUE result (the element is
+// Il2CppObject*, the result rides the value slot).
+typedef int32_t (*SelRefI4Fn)(Il2CppObject*);
+typedef int32_t (*SelRefI4ThisFn)(Il2CppObject*, Il2CppObject*);
+typedef int64_t (*SelRefI8Fn)(Il2CppObject*);
+typedef int64_t (*SelRefI8ThisFn)(Il2CppObject*, Il2CppObject*);
+typedef float (*SelRefFFn)(Il2CppObject*);
+typedef float (*SelRefFThisFn)(Il2CppObject*, Il2CppObject*);
+typedef double (*SelRefDFn)(Il2CppObject*);
+typedef double (*SelRefDThisFn)(Il2CppObject*, Il2CppObject*);
+typedef int32_t (*SelRefI4IdxFn)(Il2CppObject*, int32_t);
+typedef int32_t (*SelRefI4IdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+typedef int64_t (*SelRefI8IdxFn)(Il2CppObject*, int32_t);
+typedef int64_t (*SelRefI8IdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+typedef float (*SelRefFIdxFn)(Il2CppObject*, int32_t);
+typedef float (*SelRefFIdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
+typedef double (*SelRefDIdxFn)(Il2CppObject*, int32_t);
+typedef double (*SelRefDIdxThisFn)(Il2CppObject*, Il2CppObject*, int32_t);
 
 // Index-predicate ABI (net48 Func<TSource,int,bool>): the predicate receives
 // the element AND its zero-based source index.
@@ -1783,24 +1808,65 @@ Il2CppArray* il2cpp_linq_list_select(Il2CppObject* list, Il2CppObject* sel,
     {
         if (kind == IL2CPP_LIST_KIND_REF)
         {
-            Il2CppObject* r = d->target != nullptr
-                ? reinterpret_cast<SelRefRefThisFn>(d->methodPtr)(d->target, ReadRef(snap, i))
-                : reinterpret_cast<SelRefRefFn>(d->methodPtr)(ReadRef(snap, i));
-            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
-            il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
-            *slot = r;
+            // The element crosses as Il2CppObject*; the RESULT family decides the
+            // leaf's return slot (impl-listselnum F2). Before this the leaf was
+            // ALWAYS called through the reference-result ABI and its pointer was
+            // stored into whatever cell the resKind asked for (an int32/float/
+            // double cell) -- a silent wrong value for every value result.
+            const Il2CppObject* e = ReadRef(snap, i);
+            switch (resKind)
+            {
+                case 2:
+                    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelRefI8ThisFn>(d->methodPtr)(d->target, const_cast<Il2CppObject*>(e))
+                            : reinterpret_cast<SelRefI8Fn>(d->methodPtr)(const_cast<Il2CppObject*>(e));
+                    break;
+                case 3:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                        d->target != nullptr
+                            ? reinterpret_cast<SelRefFThisFn>(d->methodPtr)(d->target, const_cast<Il2CppObject*>(e))
+                            : reinterpret_cast<SelRefFFn>(d->methodPtr)(const_cast<Il2CppObject*>(e)));
+                    break;
+                case 4:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelRefDThisFn>(d->methodPtr)(d->target, const_cast<Il2CppObject*>(e))
+                            : reinterpret_cast<SelRefDFn>(d->methodPtr)(const_cast<Il2CppObject*>(e));
+                    break;
+                case 0:
+                    // resKind 0 (int32 result): the value-result leaf.
+                    *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelRefI4ThisFn>(d->methodPtr)(d->target, const_cast<Il2CppObject*>(e))
+                            : reinterpret_cast<SelRefI4Fn>(d->methodPtr)(const_cast<Il2CppObject*>(e));
+                    break;
+                default:
+                {
+                    Il2CppObject* r = d->target != nullptr
+                        ? reinterpret_cast<SelRefRefThisFn>(d->methodPtr)(d->target, const_cast<Il2CppObject*>(e))
+                        : reinterpret_cast<SelRefRefFn>(d->methodPtr)(const_cast<Il2CppObject*>(e));
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                        il2cpp_array_get_elem_ptr(out, i));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                    *slot = r;
+                    break;
+                }
+            }
             continue;
         }
         if (kind == IL2CPP_LIST_KIND_I8)
         {
-            const int32_t v = static_cast<int32_t>(ReadI8(snap, i));
+            // The element keeps its REAL int64 width into the selector leaf
+            // (impl-listselnum F1: this used to be static_cast<int32_t>(...)).
+            const int64_t v = ReadI8(snap, i);
             switch (resKind)
             {
                 case 1:
                 {
                     Il2CppObject* r = d->target != nullptr
-                        ? reinterpret_cast<SelI4RefThisFn>(d->methodPtr)(d->target, v)
-                        : reinterpret_cast<SelI4RefFn>(d->methodPtr)(v);
+                        ? reinterpret_cast<SelI8RefThisFn>(d->methodPtr)(d->target, v)
+                        : reinterpret_cast<SelI8RefFn>(d->methodPtr)(v);
                     Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
                     il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
                     *slot = r;
@@ -1809,26 +1875,26 @@ Il2CppArray* il2cpp_linq_list_select(Il2CppObject* list, Il2CppObject* sel,
                 case 2:
                     *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
                         d->target != nullptr
-                            ? reinterpret_cast<SelI4I8ThisFn>(d->methodPtr)(d->target, v)
-                            : reinterpret_cast<SelI4I8Fn>(d->methodPtr)(v);
+                            ? reinterpret_cast<SelI8I8ThisFn>(d->methodPtr)(d->target, v)
+                            : reinterpret_cast<SelI8I8Fn>(d->methodPtr)(v);
                     break;
                 case 3:
                     *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
                         d->target != nullptr
-                            ? reinterpret_cast<SelI4FThisFn>(d->methodPtr)(d->target, v)
-                            : reinterpret_cast<SelI4FFn>(d->methodPtr)(v));
+                            ? reinterpret_cast<SelI8FThisFn>(d->methodPtr)(d->target, v)
+                            : reinterpret_cast<SelI8FFn>(d->methodPtr)(v));
                     break;
                 case 4:
                     *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
                         d->target != nullptr
-                            ? reinterpret_cast<SelI4DThisFn>(d->methodPtr)(d->target, v)
-                            : reinterpret_cast<SelI4DFn>(d->methodPtr)(v);
+                            ? reinterpret_cast<SelI8DThisFn>(d->methodPtr)(d->target, v)
+                            : reinterpret_cast<SelI8DFn>(d->methodPtr)(v);
                     break;
                 default:
                     *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
                         d->target != nullptr
-                            ? reinterpret_cast<SelI4I4ThisFn>(d->methodPtr)(d->target, v)
-                            : reinterpret_cast<SelI4I4Fn>(d->methodPtr)(v);
+                            ? reinterpret_cast<SelI8I4ThisFn>(d->methodPtr)(d->target, v)
+                            : reinterpret_cast<SelI8I4Fn>(d->methodPtr)(v);
                     break;
             }
             continue;
@@ -1837,14 +1903,16 @@ Il2CppArray* il2cpp_linq_list_select(Il2CppObject* list, Il2CppObject* sel,
         {
             // The double/float selector ABI takes the element as double; the
             // F-stack carrier means a double selector leaf has the same shape.
-            const int32_t v = static_cast<int32_t>(ReadD(snap, i));
+            // The element keeps its REAL value (impl-listselnum F1: this used to
+            // be static_cast<int32_t>(...)).
+            const double v = ReadD(snap, i);
             switch (resKind)
             {
                 case 1:
                 {
                     Il2CppObject* r = d->target != nullptr
-                        ? reinterpret_cast<SelI4RefThisFn>(d->methodPtr)(d->target, v)
-                        : reinterpret_cast<SelI4RefFn>(d->methodPtr)(v);
+                        ? reinterpret_cast<SelDRefThisFn>(d->methodPtr)(d->target, v)
+                        : reinterpret_cast<SelDRefFn>(d->methodPtr)(v);
                     Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
                     il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
                     *slot = r;
@@ -1853,26 +1921,26 @@ Il2CppArray* il2cpp_linq_list_select(Il2CppObject* list, Il2CppObject* sel,
                 case 2:
                     *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
                         d->target != nullptr
-                            ? reinterpret_cast<SelI4I8ThisFn>(d->methodPtr)(d->target, v)
-                            : reinterpret_cast<SelI4I8Fn>(d->methodPtr)(v);
+                            ? reinterpret_cast<SelDI8ThisFn>(d->methodPtr)(d->target, v)
+                            : reinterpret_cast<SelDI8Fn>(d->methodPtr)(v);
                     break;
                 case 3:
                     *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
                         d->target != nullptr
-                            ? reinterpret_cast<SelI4FThisFn>(d->methodPtr)(d->target, v)
-                            : reinterpret_cast<SelI4FFn>(d->methodPtr)(v));
+                            ? reinterpret_cast<SelDFThisFn>(d->methodPtr)(d->target, v)
+                            : reinterpret_cast<SelDFFn>(d->methodPtr)(v));
                     break;
                 case 4:
                     *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
                         d->target != nullptr
-                            ? reinterpret_cast<SelI4DThisFn>(d->methodPtr)(d->target, v)
-                            : reinterpret_cast<SelI4DFn>(d->methodPtr)(v);
+                            ? reinterpret_cast<SelDDThisFn>(d->methodPtr)(d->target, v)
+                            : reinterpret_cast<SelDDFn>(d->methodPtr)(v);
                     break;
                 default:
                     *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
                         d->target != nullptr
-                            ? reinterpret_cast<SelI4I4ThisFn>(d->methodPtr)(d->target, v)
-                            : reinterpret_cast<SelI4I4Fn>(d->methodPtr)(v);
+                            ? reinterpret_cast<SelDI4ThisFn>(d->methodPtr)(d->target, v)
+                            : reinterpret_cast<SelDI4Fn>(d->methodPtr)(v);
                     break;
             }
             continue;
@@ -1975,12 +2043,48 @@ Il2CppArray* il2cpp_linq_list_select_idx(Il2CppObject* list, Il2CppObject* sel,
     {
         if (kind == IL2CPP_LIST_KIND_REF)
         {
-            Il2CppObject* r = d->target != nullptr
-                ? reinterpret_cast<SelRefIdxRefThisFn>(d->methodPtr)(d->target, ReadRef(snap, i), i)
-                : reinterpret_cast<SelRefIdxRefFn>(d->methodPtr)(ReadRef(snap, i), i);
-            Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
-            il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
-            *slot = r;
+            // impl-listselnum F2: the RESULT family decides the leaf's return
+            // slot (the old code always used the reference-result ABI and wrote
+            // the returned pointer into a value cell).
+            Il2CppObject* e = ReadRef(snap, i);
+            switch (resKind)
+            {
+                case 2:
+                    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelRefI8IdxThisFn>(d->methodPtr)(d->target, e, i)
+                            : reinterpret_cast<SelRefI8IdxFn>(d->methodPtr)(e, i);
+                    break;
+                case 3:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                        d->target != nullptr
+                            ? reinterpret_cast<SelRefFIdxThisFn>(d->methodPtr)(d->target, e, i)
+                            : reinterpret_cast<SelRefFIdxFn>(d->methodPtr)(e, i));
+                    break;
+                case 4:
+                    *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelRefDIdxThisFn>(d->methodPtr)(d->target, e, i)
+                            : reinterpret_cast<SelRefDIdxFn>(d->methodPtr)(e, i);
+                    break;
+                case 0:
+                    *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                        d->target != nullptr
+                            ? reinterpret_cast<SelRefI4IdxThisFn>(d->methodPtr)(d->target, e, i)
+                            : reinterpret_cast<SelRefI4IdxFn>(d->methodPtr)(e, i);
+                    break;
+                default:
+                {
+                    Il2CppObject* r = d->target != nullptr
+                        ? reinterpret_cast<SelRefIdxRefThisFn>(d->methodPtr)(d->target, e, i)
+                        : reinterpret_cast<SelRefIdxRefFn>(d->methodPtr)(e, i);
+                    Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                        il2cpp_array_get_elem_ptr(out, i));
+                    il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                    *slot = r;
+                    break;
+                }
+            }
             continue;
         }
         if (kind == IL2CPP_LIST_KIND_I8)
@@ -2140,14 +2244,51 @@ Il2CppArray* il2cpp_linq_list_select_tuple(Il2CppObject* list, Il2CppObject* sel
     Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, snap->length);
     roots.Add(reinterpret_cast<void**>(&out));
 
-    typedef int64_t (*SelI4TupleFn)(int32_t);
-    typedef int64_t (*SelI4TupleThisFn)(Il2CppObject*, int32_t);
+    // impl-listselnum F3: the SOURCE family decides the element slot the tuple
+    // selector receives. The tuple result itself always rides the integer
+    // return register (<= 8 bytes), but the ELEMENT used to be read as int32 for
+    // every source family (an i8 cell lost its upper half, a float/double cell
+    // was reinterpreted, a reference cell was truncated to its low address
+    // bits) -- a silent wrong tuple payload.
+    typedef int64_t (*SelTupleI4Fn)(int32_t);
+    typedef int64_t (*SelTupleI4ThisFn)(Il2CppObject*, int32_t);
+    typedef int64_t (*SelTupleI8Fn)(int64_t);
+    typedef int64_t (*SelTupleI8ThisFn)(Il2CppObject*, int64_t);
+    typedef int64_t (*SelTupleDFn)(double);
+    typedef int64_t (*SelTupleDThisFn)(Il2CppObject*, double);
+    typedef int64_t (*SelTupleRefFn)(Il2CppObject*);
+    typedef int64_t (*SelTupleRefThisFn)(Il2CppObject*, Il2CppObject*);
     for (int32_t i = 0; i < snap->length; ++i)
     {
-        const int32_t v = ReadI4(snap, i, kind);
-        const int64_t bits = d->target != nullptr
-            ? reinterpret_cast<SelI4TupleThisFn>(d->methodPtr)(d->target, v)
-            : reinterpret_cast<SelI4TupleFn>(d->methodPtr)(v);
+        int64_t bits;
+        if (kind == IL2CPP_LIST_KIND_I8)
+        {
+            const int64_t v = ReadI8(snap, i);
+            bits = d->target != nullptr
+                ? reinterpret_cast<SelTupleI8ThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelTupleI8Fn>(d->methodPtr)(v);
+        }
+        else if (kind == IL2CPP_LIST_KIND_F || kind == IL2CPP_LIST_KIND_D)
+        {
+            const double v = ReadD(snap, i);
+            bits = d->target != nullptr
+                ? reinterpret_cast<SelTupleDThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelTupleDFn>(d->methodPtr)(v);
+        }
+        else if (kind == IL2CPP_LIST_KIND_REF)
+        {
+            Il2CppObject* v = ReadRef(snap, i);
+            bits = d->target != nullptr
+                ? reinterpret_cast<SelTupleRefThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelTupleRefFn>(d->methodPtr)(v);
+        }
+        else
+        {
+            const int32_t v = ReadI4(snap, i, kind);
+            bits = d->target != nullptr
+                ? reinterpret_cast<SelTupleI4ThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<SelTupleI4Fn>(d->methodPtr)(v);
+        }
         Il2CppObject* box = runtime::il2cpp_tuple_box(&bits, kinds);
         if (box != nullptr)
         {
@@ -4632,11 +4773,55 @@ LST_AGG_RS_DEC6(val)
 Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
                                              Il2CppObject* keySel, Il2CppObject* elemSel,
                                              Il2CppObject* cmp, Il2CppObject* resSel,
-                                             int32_t elemKind, int32_t rsKind)
+                                             int32_t elemKind, int32_t rsKind,
+                                             int32_t kind, int32_t keyKind)
 {
     RequireList(list);
-    return il2cpp_linq_group_by_full(SnapshotOf(list, IL2CPP_LIST_KIND_I4), keySel,
-                                     elemSel, cmp, resSel, elemKind, rsKind);
+    // impl-listselnum F4: the snapshot MUST follow the receiver's element
+    // family. The old body hard-coded IL2CPP_LIST_KIND_I4, so every non-int32
+    // List source was read as int32 (an int64 cell lost its upper half, a
+    // float/double cell was reinterpreted and a reference cell was truncated
+    // to the low 32 bits of a pointer).
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    // The array grouping kernel needs the SOURCE family as well: the array
+    // image alone cannot tell an int64/double/narrow cell apart, and a
+    // reference snapshot answers isRefElem on its own.
+    int32_t srcKind = 0;
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_I8:   srcKind = 5; break; // int64/uint64 cells
+        case IL2CPP_LIST_KIND_F:    srcKind = 8; break; // real 4-byte float cells
+        case IL2CPP_LIST_KIND_D:    srcKind = 6; break; // 8-byte double cells
+        case IL2CPP_LIST_KIND_DEC:  srcKind = 2; break; // 16-byte decimal cells
+        case IL2CPP_LIST_KIND_DT:   srcKind = 3; break; // DateTime cells
+        case IL2CPP_LIST_KIND_GUID: srcKind = 4; break; // Guid cells
+        case IL2CPP_LIST_KIND_SBYTE:
+        case IL2CPP_LIST_KIND_BYTE:
+        case IL2CPP_LIST_KIND_BOOL:
+        case IL2CPP_LIST_KIND_SHORT:
+        case IL2CPP_LIST_KIND_USHORT:
+        case IL2CPP_LIST_KIND_CHAR:
+        case IL2CPP_LIST_KIND_UINT:
+            // The narrow families widen into the int32 key slot; the kernel
+            // needs the exact cell code to read them at their real width.
+            srcKind = 7;
+            break;
+        default: srcKind = 0; break; // int32 / reference
+    }
+    int32_t srcCell = 0;
+    switch (kind)
+    {
+        case IL2CPP_LIST_KIND_SBYTE:  srcCell = 0; break;
+        case IL2CPP_LIST_KIND_BYTE:   srcCell = 1; break;
+        case IL2CPP_LIST_KIND_BOOL:   srcCell = 2; break;
+        case IL2CPP_LIST_KIND_SHORT:  srcCell = 3; break;
+        case IL2CPP_LIST_KIND_USHORT: srcCell = 4; break;
+        case IL2CPP_LIST_KIND_CHAR:   srcCell = 5; break;
+        case IL2CPP_LIST_KIND_UINT:   srcCell = 6; break;
+        default: srcCell = 7; break;
+    }
+    return il2cpp_linq_group_by_full_key_cell(snap, keySel, elemSel, cmp, resSel,
+                                              elemKind, rsKind, keyKind, srcKind, srcCell);
 }
 
 } // namespace il2cpp

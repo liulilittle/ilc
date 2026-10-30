@@ -5509,9 +5509,81 @@ public static partial class MethodRefResolver
                         },
                         argOrder: new[] { 0, 1, fElemArg, fCmpArg, fResArg });
                 }
-                return I("il2cpp::il2cpp_linq_list_group_by_full", count, true, true, false,
-                    new[] { "", "", "", "", "" },
-                    returnTypeName: "System.Linq.IGroupingResult");
+                // impl-listselnum F4: the list entry MUST know the receiver's
+                // element family -- its old body snapshotted EVERY list as
+                // IL2CPP_LIST_KIND_I4, so a List<long>/List<double>/List<string>
+                // source reached the int32 grouping kernel (the key selector got
+                // a truncated element: a silent wrong grouping). The element and
+                // result families, the TKey carrier and the list kind itself now
+                // ride as trailing literals.
+                {
+                    var gbListParams = LinqEncodedParamTypes(md, sigHandle);
+                    int lElemArg = -1, lCmpArg = -1, lResArg = -1;
+                    for (int pi = 2; pi < gbListParams.Length; pi++)
+                    {
+                        var ldef = GenericDefNameOf(gbListParams[pi]);
+                        if (ldef == "System.Func`2") lElemArg = pi;
+                        else if (ldef == "System.Func`3") lResArg = pi;
+                        else if (ldef == "System.Collections.Generic.IEqualityComparer`1") lCmpArg = pi;
+                    }
+                    byte? lElemByte = lElemArg >= 0 && genArgs is { Length: >= 3 } ? genArgs[2] : null;
+                    byte? lResByte = lResArg >= 0 && genArgs is { Length: >= 3 }
+                        ? (genArgs.Length >= 4 ? genArgs[3] : genArgs[2])
+                        : null;
+                    // The element family: a reference element is "1"; a float
+                    // element is "7" (a real 4-byte cell, never the int32 family).
+                    string lEk = lElemByte is { } leb
+                        ? (leb switch
+                        {
+                            0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
+                            0x0A or 0x0B => "2",
+                            0x0D => "3",
+                            0x0C => "7",
+                            0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
+                            _ => "",
+                        })
+                        : "0";
+                    if (lEk.Length == 0)
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.GroupBy TElement '{GenericArgTypeName(lElemByte!.Value)}' " +
+                            "over a List source is not a supported element family");
+                    }
+                    string lRk = lResByte is { } lrb
+                        ? (lrb switch
+                        {
+                            0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                            0x0A or 0x0B => "3",
+                            0x0D => "4",
+                            0x0C => "5",
+                            _ => "2",
+                        })
+                        : "0";
+                    int lKeyKind = genArgs is { Length: >= 2 }
+                        ? KeyKindForNamed(genArgs[1], genArgNames, 1) : -1;
+                    if (lKeyKind < 0)
+                    {
+                        string lKeyName = genArgNames is { Length: >= 2 } ? genArgNames[1] : "?";
+                        throw new NotSupportedException(
+                            $"Enumerable.GroupBy over a List source not wired: {DescribeRejectedKey(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0, lKeyName)} " +
+                            "has no runtime key carrier (see docs/audit/b5-gaps.md)");
+                    }
+                    var lArgOrder = new[] { 0, 1, lElemArg, lCmpArg, lResArg };
+                    var lRetType = lRk == "0"
+                        ? "System.Linq.IGroupingResult"
+                        : lRk == "1" ? "System.Int32[]"
+                        : lRk == "3" ? "System.Int64[]"
+                        : lRk is "4" or "5" ? "System.Double[]" : "System.Object[]";
+                    return I("il2cpp::il2cpp_linq_list_group_by_full", count, true, true, false,
+                        new[] { "", "", "", "", "" },
+                        returnTypeName: lRetType,
+                        appendLiterals: new[]
+                        {
+                            lEk, lRk, K,
+                            lKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        },
+                        argOrder: lArgOrder);
+                }
             default:
                 return null;
         }

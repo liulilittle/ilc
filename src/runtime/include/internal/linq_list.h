@@ -728,10 +728,15 @@ IL2CPP_DECL_LST_AGG_RS_ROW(ref, Il2CppObject*)
 #undef IL2CPP_DECL_LST_AGG_RS
 #undef IL2CPP_DECL_LST_AGG_RS_ROW
 
-// GroupBy over the list (snapshot + the array grouping kernel; int32 lists).
+// GroupBy over the list (snapshot + the array grouping kernel). `kind` is the
+// receiver's IL2CPP_LIST_KIND_* element family: the snapshot MUST be taken at
+// that family's real cell width (the pre-impl-listselnum body snapshotted every
+// list as IL2CPP_LIST_KIND_I4, so an int64/float/double/reference source was
+// read as int32). `keyKind` is the KeyKindFor code of TKey (0 = the int32 slot).
 Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
                                              Il2CppObject* keySel, Il2CppObject* elemSel,
                                              Il2CppObject* cmp, Il2CppObject* resSel,
-                                             int32_t elemKind, int32_t rsKind);
+                                             int32_t elemKind, int32_t rsKind,
+                                             int32_t kind, int32_t keyKind);
 
 } // namespace il2cpp
