@@ -24,6 +24,11 @@
 //         exposes both times once HasExited flips.
 //   [f.*] the untracked current process (GetCurrentProcess) keeps the direct
 //         PID-query behavior -- no regression.
+//   [g.*] Kill folds the tracked slot (its handle is closed on that path too),
+//         so both times must come from the Kill-fold cache: net48 still reads
+//         them from the retained handle before an explicit WaitForExit. The
+//         exit CODE is only reduced to non-zero (net48 Kill terminates with
+//         -1, the runtime with 1 -- a documented deviation, not diffable).
 //------------------------------------------------------------------------------
 using System;
 using System.Diagnostics;
@@ -89,6 +94,34 @@ namespace Cases
             Process self = Process.GetCurrentProcess();
             Console.WriteLine("[f.self.start>0]=" + (self.StartTime.Ticks > 0));
             Console.WriteLine("[f.self.ws>0]=" + (self.WorkingSet64 > 0));
+
+            // Kill folds the tracked slot (the handle is closed there), so the
+            // times must be cached on that path too. net48 probe: after Kill
+            // and before an explicit WaitForExit both getters already return
+            // real values (the retained handle is still valid) -- so the
+            // runtime must answer from its Kill-fold cache, not throw.
+            Process pk = Process.Start("ping.exe", "-n 30 127.0.0.1");
+            pk.Kill();
+            int spins = 0;
+            while (!pk.HasExited && spins < 300)
+            {
+                Thread.Sleep(10);
+                spins++;
+            }
+            long killStart = pk.StartTime.Ticks;
+            long killExit = pk.ExitTime.Ticks;
+            Console.WriteLine("[g.kill.hasExited]=" + pk.HasExited);
+            Console.WriteLine("[g.kill.start>0]=" + (killStart > 0));
+            // The defect signature is a ZERO tick count (0001-01-01). net48
+            // answers a Kill-terminated process with the unset exit FILETIME
+            // (1601-01-01 local, still > 0 ticks), so only the zero/non-zero
+            // predicate is diffable -- the ordering is NOT: net48's value is
+            // earlier than StartTime, the runtime keeps the real exit time.
+            Console.WriteLine("[g.kill.exit>0]=" + (killExit > 0));
+            pk.WaitForExit();
+            Console.WriteLine("[g.kill.waitexit.ok]=" + (pk.ExitCode != 0));
+            Console.WriteLine("[g.kill.start.stable]=" + (pk.StartTime.Ticks == killStart));
+            Console.WriteLine("[g.kill.exit.stable]=" + (pk.ExitTime.Ticks == killExit));
         }
     }
 }
