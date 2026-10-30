@@ -226,6 +226,28 @@ public class MethodMapTestsLinqAggRs
         Assert.True(r.ReturnsRef);
     }
 
+    // impl-loudvalstruct (B): the 2-argument DefaultIfEmpty over a BY-VALUE
+    // value-struct ARRAY source. The runtime ships one entry per struct family
+    // (dt / ts / guid / dtoffset), each taking the default in the struct's own
+    // by-value ABI and writing the fresh cell at its REAL width -- a DateTime
+    // cell holds the packed ticks+kind image, never a raw struct copy.
+    [Theory]
+    [InlineData("System.DateTime", "il2cpp::il2cpp_linq_default_if_empty_family_dt", "12")]
+    [InlineData("System.TimeSpan", "il2cpp::il2cpp_linq_default_if_empty_family_ts", "13")]
+    [InlineData("System.Guid", "il2cpp::il2cpp_linq_default_if_empty_family_guid", "14")]
+    [InlineData("System.DateTimeOffset", "il2cpp::il2cpp_linq_default_if_empty_family_dtoffset", "16")]
+    public void Resolve_DefaultIfEmpty2_ValueStructArray(string typeName, string cpp, string cell)
+    {
+        var r = Resolve(SynthesizeDie2Named(typeName), null);
+
+        Assert.Equal(cpp, r.CppName);
+        Assert.Equal(2, r.ParamCount);
+        Assert.Equal(new[] { "a", "" }, r.ParamTypeNames);
+        Assert.Equal(new[] { cell }, r.AppendLiterals);
+        Assert.Equal(typeName + "[]", r.ReturnTypeName);
+        Assert.True(r.ReturnsRef);
+    }
+
     //--------------------------------------------------------------------------
     // Helpers
     //--------------------------------------------------------------------------
@@ -291,6 +313,36 @@ public class MethodMapTestsLinqAggRs
         spec.WriteByte(0x0A);
         spec.WriteCompressedInteger(1);
         WriteSpecArg(spec, tSrc, decSrc, decCoded);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // DefaultIfEmpty<TSource>(IEnumerable<TSource>, TSource) with TSource a NAMED
+    // value struct (System.DateTime / System.TimeSpan / System.Guid /
+    // System.DateTimeOffset). The 0x11 byte is shared by every value type, so the
+    // decoded full name is what tells the struct families apart.
+    private static MemoryStream SynthesizeDie2Named(string typeName)
+    {
+        var (mdb, enumerableRef, _) = NewMetadata();
+        var vtRef = mdb.AddTypeReference(mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+                new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle)),
+            mdb.GetOrAddString("System"), mdb.GetOrAddString(typeName["System.".Length..]));
+        var vtCoded = (MetadataTokens.GetRowNumber(vtRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x01);
+        sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                        // return TSource
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                        //   IEnumerable<TSource>
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                        // TSource defaultValue
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("DefaultIfEmpty"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(1);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger(vtCoded);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

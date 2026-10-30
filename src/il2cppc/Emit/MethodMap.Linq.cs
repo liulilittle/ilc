@@ -1189,11 +1189,34 @@ public static partial class MethodRefResolver
                 if (name == "Intersect")
                     return I("il2cpp::il2cpp_linq_intersect_family", 2, true, true, false,
                         new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
-                // The source-only form (the 2-argument DefaultIfEmpty(source,
-                // defaultValue) has no family entry and stays LOUD).
+                // The source-only form (DefaultIfEmpty(source)) answers the
+                // family default cell; the 2-argument form carries the caller's
+                // value BY VALUE through its own struct ABI (impl-loudvalstruct
+                // B: the runtime ships the four by-value entries and writes the
+                // cell at its real width -- a DateTime cell holds the packed
+                // ticks+kind image, never a raw struct copy).
                 if (name == "DefaultIfEmpty" && count < 2)
                     return I("il2cpp::il2cpp_linq_default_if_empty_family", 1, true, true, false,
                         OneArg, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                if (name == "DefaultIfEmpty")
+                {
+                    string defEntry = vc switch
+                    {
+                        "12" => "il2cpp::il2cpp_linq_default_if_empty_family_dt",
+                        "13" => "il2cpp::il2cpp_linq_default_if_empty_family_ts",
+                        "14" => "il2cpp::il2cpp_linq_default_if_empty_family_guid",
+                        "16" => "il2cpp::il2cpp_linq_default_if_empty_family_dtoffset",
+                        _ => "",
+                    };
+                    if (defEntry.Length == 0)
+                        throw new NotSupportedException(
+                            $"Enumerable.DefaultIfEmpty<{ValueTypeSourceName(genArgs, genArgNames, receiverType, arg0Type)}> " +
+                            "with a default value is not wired: the by-value value-struct surface covers " +
+                            "System.DateTime / System.TimeSpan / System.Guid / System.DateTimeOffset " +
+                            "(a user struct has no cell ABI -- see docs/audit/b5-gaps.md)");
+                    return I(defEntry, 2, true, true, false, new[] { "a", "" },
+                        returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                }
                 if (name == "LongCount" && count < 2)
                     return I("il2cpp::il2cpp_linq_long_count_family", 1, true, false, false,
                         OneArg, resultKind: "l", appendLiterals: new[] { vc });
@@ -4002,6 +4025,12 @@ public static partial class MethodRefResolver
         return LinqArrayTypeNameExact(b);
     }
 
+    // A decoded generic-argument name without the "V:" value-type prefix, for a
+    // LOUD message (the raw encoding is "V:System.DateTime").
+    private static string LinqStructNameOf(string? name) =>
+        name is { Length: > 2 } && name.StartsWith("V:", StringComparison.Ordinal)
+            ? name[2..] : name ?? "?";
+
     // The List<T> element-kind literal (linq_list.h IL2CPP_LIST_KIND_*) of an
     // element TYPE BYTE, or null when the byte is not a value family (a
     // reference element has no cell ABI of its own). This is the ONLY mapping
@@ -4407,6 +4436,27 @@ public static partial class MethodRefResolver
                 // (0x11 is shared by every value type), so the generic-argument
                 // NAME table decides decimal vs reference -- the same rule the
                 // Aggregate arm above uses.
+                //
+                // impl-loudvalstruct (B): a NON-decimal value-struct element
+                // (List<DateTime> / List<TimeSpan> / List<Guid>) has NO list
+                // storage kind -- it falls into the reference tag and the value
+                // would cross into an Il2CppObject* slot ("cannot convert
+                // Il2CppDateTime to Il2CppObject*", MEASURED on audit-fix3-d2b).
+                // The list value-struct element surface is defect D of this seat
+                // (IL2CPP_LIST_KIND_* 13/14/15 + a list snapshot per struct), so
+                // this shape stays a transpile-time LOUD until it lands.
+                if (genArgNames is { Length: >= 1 } lstEn && genArgs is { Length: >= 1 }
+                    && genArgs[0] == 0x11
+                    && lstEn[0] is not ("System.Decimal" or "V:System.Decimal"))
+                {
+                    throw new NotSupportedException(
+                        $"Enumerable.DefaultIfEmpty<{LinqStructNameOf(lstEn[0])}> over a List<" +
+                        $"{LinqStructNameOf(lstEn[0])}> is not wired: a by-value value-struct list " +
+                        "element has no list storage kind yet (only System.Decimal has one -- " +
+                        "IL2CPP_LIST_KIND_DEC). The ARRAY surface is wired " +
+                        "(il2cpp_linq_default_if_empty_family_dt/_ts/_guid/_dtoffset) " +
+                        "(see docs/audit/b5-gaps.md)");
+                }
                 bool elemDec = genArgNames is { Length: >= 1 } en
                     && en[0] is "System.Decimal" or "V:System.Decimal";
                 string kEff = elemDec ? "12" : K;

@@ -1,4 +1,4 @@
-# B5 fix -- residual gaps (registered, NOT silent)
+﻿# B5 fix -- residual gaps (registered, NOT silent)
 
 Scope of this batch: D-1 (non-i4 `Any(pred)`/`Count(pred)`/`All`/`Where`/
 `Select`/`First`/`Last` for every element family), D-2 (`List<T>` carrier
@@ -520,443 +520,443 @@ Per-site table (batch-8 implemented sites marked `WIRED`):
 
 | file:line | member | condition | judgment |
 |---|---|---|---|
-| MethodMap.Array.cs:86 | Sort | 泛型参数数/arity 不属 net48 重载 | not-analyzable |
-| MethodMap.Array.cs:196 | Sort | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:222 | Sort | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Array.cs:269 | BinarySearch | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Array.cs:290 | IndexOf | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Array.cs:309 | LastIndexOf | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Array.cs:345 | Empty | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:348 | Empty | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Array.cs:381 | Reverse | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:423 | Copy | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Array.cs:433 | ConstrainedCopy | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Array.cs:471 | FindIndex | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:500 | Find | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:524 | FindLast | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:545 | FindLastIndex | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:566 | ForEach | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:590 | FindAll | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:610 | Exists | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:629 | TrueForAll | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:643 | ConvertAll | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:672 | Resize | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Array.cs:730 | GetValue | arity/重载形状未接线 | analyzable |
-| MethodMap.Array.cs:742 | SetValue | arity/重载形状未接线 | analyzable |
-| MethodMap.ArrayList.cs:51 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.ArraySort.cs:62 | Sort | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.ArraySort.cs:77 | Sort | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.ArraySort.cs:146 | IndexOf | arity/重载形状未接线 | analyzable |
-| MethodMap.ArraySort.cs:173 | LastIndexOf | arity/重载形状未接线 | analyzable |
-| MethodMap.ArraySort.cs:222 | BinarySearch | arity/重载形状未接线 | analyzable |
-| MethodMap.Attribute.cs:174 | IsDefined | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Attribute.cs:180 | (动态块/兜底) | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Base64.cs:32 | ToBase64String | arity/重载形状未接线 | analyzable (WIRED batch 8) |
-| MethodMap.Base64.cs:40 | FromBase64String | 运行时缺 helper（实现缺口） | not-analyzable |
-| MethodMap.Base64.cs:44 | FromBase64CharArray | 运行时缺 helper（实现缺口） | analyzable (WIRED batch 8) |
-| MethodMap.BigInteger.cs:173 | CompareTo | 缺运行时 box 类/描述符（未物化 BCL 值类型） | not-analyzable |
-| MethodMap.BigInteger.cs:179 | Equals | 缺运行时 box 类/描述符（未物化 BCL 值类型） | not-analyzable |
-| MethodMap.BinaryIO.cs:78 | Write | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.BinaryIO.cs:88 | Write | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.BinaryIO.cs:94 | Write | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.BinaryIO.cs:101 | Write | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.BinaryIO.cs:109 | Write | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.BinaryIO.cs:115 | Write | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.BinaryIO.cs:122 | Write | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.BinaryIO.cs:142 | Write | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BinaryIO.cs:143 | Write | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BinaryIO.cs:157 | Dispose | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BinaryIO.cs:165 | get_BaseStream | 运行时缺 icall（实现缺口，编译期信息完整） | analyzable |
-| MethodMap.BinaryIO.cs:209 | Dispose | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BinaryIO.cs:217 | get_BaseStream | 运行时缺 icall（实现缺口，编译期信息完整） | analyzable |
-| MethodMap.BitConverter.cs:85 | GetBytes | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BitConverter.cs:87 | GetBytes | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BitConverter.cs:101 | SingleToInt32Bits | 参数/元素族未接线 | not-analyzable |
-| MethodMap.BitConverter.cs:105 | Int32BitsToSingle | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BitConverter.cs:129 | ToString | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BitConverter.cs:134 | ToString | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BitConverter.cs:156 | (动态块/兜底) | arity/重载形状未接线 | not-analyzable |
-| MethodMap.BitConverter.cs:157 | (动态块/兜底) | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Buffer.cs:26 | BlockCopy | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Buffer.cs:32 | ByteLength | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Buffer.cs:42 | MemoryCopy | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Buffer.cs:57 | GetByte | 运行时缺 icall（实现缺口，编译期信息完整） | not-analyzable |
-| MethodMap.Buffer.cs:59 | SetByte | 运行时缺 icall（实现缺口，编译期信息完整） | analyzable |
-| MethodMap.Calendar.cs:96 | ToDateTime | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Console.cs:151 | Write | net48 无此重载/arity | not-analyzable |
-| MethodMap.Console.cs:289 | WriteLine | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Console.cs:310 | WriteLine | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Console.cs:356 | Dispose | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Console.cs:388 | Dispose | arity/重载形状未接线 | analyzable |
-| MethodMap.Console.cs:414 | Dispose | arity/重载形状未接线 | analyzable |
-| MethodMap.Console.cs:417 | Dispose | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Convert.cs:78 | ToInt32 | 参数/元素族未接线 | not-analyzable |
-| MethodMap.Convert.cs:90 | ToInt32 | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Convert.cs:127 | ToInt64 | 参数/元素族未接线 | not-analyzable |
-| MethodMap.Convert.cs:129 | ToInt64 | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Convert.cs:162 | ToDouble | 依赖运行时类型/未追踪实参（动态分派） | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:165 | ToDouble | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.Convert.cs:227 | ToString | arity/重载形状未接线 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:238 | ToString | arity/重载形状未接线 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:242 | ToBoolean | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Convert.cs:258 | ToBoolean | 形状未接线（编译期信息完整） | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:260 | ToBoolean | 依赖运行时类型/未追踪实参（动态分派） | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:261 | ToBoolean | 依赖运行时类型/未追踪实参（动态分派） | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:266 | ToBoolean | 依赖运行时类型/未追踪实参（动态分派） | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:270 | ToChar | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Convert.cs:283 | ToChar | 形状未接线（编译期信息完整） | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:285 | ToChar | 形状未接线（编译期信息完整） | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:286 | ToChar | 依赖运行时类型/未追踪实参（动态分派） | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:292 | ToChar | 依赖运行时类型/未追踪实参（动态分派） | analyzable (WIRED batch 8) |
-| MethodMap.ConvertExtra.cs:73 | ToUInt16 | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.ConvertExtra.cs:110 | ToUInt16 | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.ConvertExtra.cs:116 | ToUInt32 | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.ConvertExtra.cs:143 | ToUInt32 | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.ConvertExtra.cs:149 | ToUInt64 | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.ConvertExtra.cs:172 | ToUInt64 | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.ConvertExtra.cs:178 | ToSingle | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.ConvertExtra.cs:216 | ToSingle | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.ConvertExtra.cs:243 | ToDecimal | arity/重载形状未接线 | analyzable (WIRED batch 8) |
-| MethodMap.ConvertExtra.cs:266 | ToDecimal | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Crypto.cs:65 | Create | 依赖机器级 CryptoConfig/machine.config 配置 | not-analyzable |
-| MethodMap.Crypto.cs:69 | Create | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Crypto.cs:74 | Create | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Crypto.cs:112 | TransformBlock | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Crypto.cs:125 | TransformBlock | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Crypto.cs:133 | TransformFinalBlock | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Crypto.cs:142 | TransformFinalBlock | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Crypto.cs:201 | get_IV | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Crypto.cs:207 | get_IV | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Crypto.cs:222 | get_IV | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Crypto.cs:243 | CreateDecryptor | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Crypto.cs:265 | GetBytes | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Crypto.cs:272 | GetNonZeroBytes | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Crypto.cs:353 | (动态块/兜底) | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Crypto.cs:365 | (动态块/兜底) | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Crypto.cs:369 | ComputeHash | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Crypto.cs:392 | ComputeHash | arity/重载形状未接线 | not-analyzable |
-| MethodMap.Crypto.cs:394 | ComputeHash | arity/重载形状未接线 | not-analyzable |
-| MethodMap.CultureInfo.cs:60 | GetCultureInfo | 依赖文化相关排序（Comparer<string> 为 culture-aware） | analyzable |
-| MethodMap.CultureInfo.cs:76 | get_DisplayName | 依赖文化相关排序（Comparer<string> 为 culture-aware） | not-analyzable |
-| MethodMap.CustomAttributeExtensions.cs:47 | (动态块/兜底) | arity/重载形状未接线 | not-analyzable |
-| MethodMap.CustomAttributeExtensions.cs:62 | IsDefined | arity/重载形状未接线 | not-analyzable |
-| MethodMap.DateTime.cs:58 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.DateTime.cs:127 | Subtract | arity/重载形状未接线 | analyzable |
-| MethodMap.DateTime.cs:182 | ToString | arity/重载形状未接线 | analyzable |
-| MethodMap.DateTime.cs:183 | ToString | arity/重载形状未接线 | not-analyzable |
-| MethodMap.DateTimeExtra.cs:68 | ToUniversalTime | 运行时缺 icall（实现缺口，编译期信息完整） | analyzable |
-| MethodMap.Debug.cs:65 | Assert | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Debug.cs:71 | WriteLine | 参数/元素族未接线 | not-analyzable |
-| MethodMap.Debug.cs:72 | WriteLine | 参数/元素族未接线 | analyzable |
-| MethodMap.Debug.cs:77 | Fail | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Debug.cs:87 | Write | 参数/元素族未接线 | analyzable |
-| MethodMap.Debug.cs:91 | WriteLine | 参数/元素族未接线 | analyzable |
-| MethodMap.Debugger.cs:55 | Log | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Decimal.cs:200 | CompareTo | 缺运行时 box 类/描述符（未物化 BCL 值类型） | not-analyzable |
-| MethodMap.Decimal.cs:207 | Equals | 缺运行时 box 类/描述符（未物化 BCL 值类型） | not-analyzable |
-| MethodMap.Delegate.cs:54 | RemoveAll | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Delegate.cs:92 | CreateDelegate | arity/重载形状未接线 | not-analyzable |
-| MethodMap.DependentHandle.cs:92 | nFree | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Dictionary.cs:102 | (动态块/兜底) | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.Dtoffset.cs:114 | CompareTo | 缺运行时 box 类/描述符（未物化 BCL 值类型） | not-analyzable |
-| MethodMap.Dtoffset.cs:121 | Equals | 缺运行时 box 类/描述符（未物化 BCL 值类型） | not-analyzable |
-| MethodMap.Encoding.cs:139 | GetBytes | arity/重载形状未接线 | analyzable |
-| MethodMap.Encoding.cs:155 | GetByteCount | arity/重载形状未接线 | analyzable |
-| MethodMap.Encoding.cs:168 | GetCharCount | arity/重载形状未接线 | analyzable |
-| MethodMap.Encoding.cs:181 | GetString | arity/重载形状未接线 | analyzable |
-| MethodMap.Encoding.cs:201 | GetChars | arity/重载形状未接线 | analyzable |
-| MethodMap.Encoding.cs:233 | (动态块/兜底) | arity/重载形状未接线 | analyzable |
-| MethodMap.Enum.cs:250 | Parse | 缺运行时 box 类/描述符（未物化 BCL 值类型） | analyzable |
-| MethodMap.Enum.cs:276 | TryParse | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | analyzable |
-| MethodMap.Enum.cs:279 | TryParse | 泛型实参族未接线（兜底臂：元素/键/结果族不在已接线集合） | not-analyzable |
-| MethodMap.Enum.cs:311 | ToString | arity/重载形状未接线 | analyzable |
-| MethodMap.Enum.cs:528 | (动态块/兜底) | 枚举注册容量超限（kMaxRegisteredEnums） | not-analyzable |
-| MethodMap.EnvironmentExtra.cs:93 | get_StackTrace | 运行时无匹配 icall | not-analyzable |
-| MethodMap.Exception.cs:146 | get_Message | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Format.cs:69 | (动态块/兜底) | 依赖文化相关排序（Comparer<string> 为 culture-aware） | not-analyzable |
-| MethodMap.GC.cs:38 | Collect | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.GCHandle.cs:51 | Alloc | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.GCHandle.cs:76 | ToIntPtr | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.GCHandle.cs:83 | FromIntPtr | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.GCHandle.cs:97 | op_Inequality | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Guid.cs:63 | ToString | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Guid.cs:115 | Equals | 缺运行时 box 类/描述符（未物化 BCL 值类型） | not-analyzable |
-| MethodMap.Guid.cs:129 | CompareTo | 缺运行时 box 类/描述符（未物化 BCL 值类型） | not-analyzable |
-| MethodMap.Guid.cs:133 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Hash.cs:59 | ComputeHash | arity/重载形状未接线 | analyzable |
-| MethodMap.Hash.cs:71 | ComputeHash | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.HashSet.cs:400 | (动态块/兜底) | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.IntPtr.cs:91 | CompareTo | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.IO.cs:57 | Copy | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.IO.cs:61 | Move | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.IO.cs:98 | Delete | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.IO.cs:119 | GetFiles | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.IO.cs:130 | GetDirectories | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.IO.cs:156 | Combine | arity/重载形状未接线 | analyzable |
-| MethodMap.IO.cs:187 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Legacy.cs:40 | System.Runtime.Remoting.Channels.ChannelServices | 域排除（遗留/COM/Remoting 域） | not-analyzable |
-| MethodMap.Legacy.cs:184 | nUnload | 域排除（遗留/COM/Remoting 域） | not-analyzable |
-| MethodMap.Legacy.cs:203 | GetType | 域排除（遗留/COM/Remoting 域） | not-analyzable |
-| MethodMap.Legacy.cs:212 | System.Runtime.Remoting.ObjectHandle | 域排除（遗留/COM/Remoting 域） | not-analyzable |
-| MethodMap.Legacy.cs:215 | System.ArgIterator | 域排除（遗留/COM/Remoting 域） | not-analyzable |
-| MethodMap.Legacy.cs:222 | System.Threading.ReaderWriterLock | 域排除（遗留/COM/Remoting 域） | not-analyzable |
-| MethodMap.Linq.cs:147 | (动态块/兜底) | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:202 | (动态块/兜底) | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:208 | (动态块/兜底) | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:216 | (动态块/兜底) | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:282 | f | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:354 | f | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:475 | FirstOrDefault | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:481 | FirstOrDefault | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:517 | FirstOrDefault | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:527 | FirstOrDefault | 无法分类（缺 TypeDef/载体） | analyzable |
-| MethodMap.Linq.cs:536 | FirstOrDefault | arity/重载形状未接线 | analyzable |
-| MethodMap.Linq.cs:599 | Select | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:616 | Select | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:679 | OrderByDescending | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:684 | OrderByDescending | 依赖文化相关排序（Comparer<string> 为 culture-aware） | not-analyzable |
-| MethodMap.Linq.cs:690 | OrderByDescending | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:770 | GroupBy | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:827 | GroupBy | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:955 | System.TimeSpan | 参数/元素族未接线 | analyzable |
-| MethodMap.Linq.cs:964 | System.TimeSpan | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:1080 | Select | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:1094 | Select | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:1108 | Select | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:1224 | OrderBy | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:1242 | OrderByDescending | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:1277 | ThenByDescending | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:1338 | GroupBy | 无法分类（缺 TypeDef/载体） | analyzable |
-| MethodMap.Linq.cs:1395 | GroupBy | 参数/元素族未接线 | analyzable |
-| MethodMap.Linq.cs:1470 | Zip | 参数/元素族未接线 | analyzable |
-| MethodMap.Linq.cs:1479 | Zip | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:1589 | Aggregate | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:1857 | (动态块/兜底) | 依赖文化相关排序（Comparer<string> 为 culture-aware） | not-analyzable |
-| MethodMap.Linq.cs:1893 | (动态块/兜底) | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:2340 | Where | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:2349 | Select | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:2472 | Zip | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:2478 | Zip | 参数/元素族未接线 | analyzable |
-| MethodMap.Linq.cs:2506 | OrderByDescending | 参数/元素族未接线 | analyzable |
-| MethodMap.Linq.cs:2512 | OrderByDescending | 依赖文化相关排序（Comparer<string> 为 culture-aware） | not-analyzable |
-| MethodMap.Linq.cs:2519 | OrderByDescending | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:2555 | Sum | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:2770 | OrderByDescending | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:2783 | OrderByDescending | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Linq.cs:2852 | Zip | 参数/元素族未接线 | analyzable |
-| MethodMap.Linq.cs:2861 | Zip | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.List.cs:172 | (动态块/兜底) | 依赖运行时类型/未追踪实参（动态分派） | analyzable |
-| MethodMap.List.cs:202 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.Marshal.cs:86 | (动态块/兜底) | 域排除（遗留/COM/Remoting 域） | not-analyzable |
-| MethodMap.Marshal.cs:255 | SizeOf | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Marshal.cs:258 | SizeOf | 缺运行时 box 类/描述符（未物化 BCL 值类型） | not-analyzable |
-| MethodMap.Marshal.cs:259 | SizeOf | arity/重载形状未接线 | analyzable |
-| MethodMap.Marshal.cs:280 | OffsetOf | arity/重载形状未接线 | analyzable |
-| MethodMap.Marshal.cs:282 | OffsetOf | arity/重载形状未接线 | analyzable |
-| MethodMap.Marshal.cs:307 | PtrToStructure | 依赖运行时类型/未追踪实参（动态分派） | analyzable |
-| MethodMap.Marshal.cs:309 | PtrToStructure | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.Math.cs:128 | Round | arity/重载形状未接线 | analyzable |
-| MethodMap.MathExtra.cs:142 | SinCos | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.MathExtra.cs:153 | SplitFractionDouble | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.MathExtra.cs:167 | BigMul | arity/重载形状未接线 | analyzable |
-| MethodMap.Module.cs:52 | get_Module | arity/重载形状未接线 | analyzable |
-| MethodMap.Net.cs:92 | System.Net.WebClient | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Net.cs:124 | ToString | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Object.cs:340 | System.Reflection.MemberInfo | arity/重载形状未接线 | analyzable |
-| MethodMap.Object.cs:363 | System.Reflection.MemberInfo | arity/重载形状未接线 | analyzable |
-| MethodMap.Process.cs:98 | Start | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Process.cs:107 | WaitForExit | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Process.cs:196 | .ctor | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.ProcessInfo.cs:46 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Queue.cs:61 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.RandomExtra.cs:26 | Sample | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Reflect.cs:90 | GetValue | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:112 | SetValue | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:125 | GetGetMethod | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:131 | GetSetMethod | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:159 | Invoke | 依赖文化相关排序（Comparer<string> 为 culture-aware） | not-analyzable |
-| MethodMap.Reflect.cs:161 | Invoke | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:179 | AddEventHandler | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:186 | RemoveEventHandler | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:200 | MakeGenericMethod | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:215 | GetParameters | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:337 | CreateInstance | net48 无此重载/arity | not-analyzable |
-| MethodMap.Reflect.cs:339 | CreateInstance | 依赖文化相关排序（Comparer<string> 为 culture-aware） | analyzable |
-| MethodMap.Reflect.cs:369 | GetType | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:396 | get_Name | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:401 | get_ParameterType | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:406 | get_Position | arity/重载形状未接线 | analyzable |
-| MethodMap.Reflect.cs:412 | IsOut | arity/重载形状未接线 | analyzable |
-| MethodMap.ReflectHandle.cs:45 | (动态块/兜底) | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.ReflectHandle.cs:78 | GetRuntimeType | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.ReflectHandle.cs:83 | GetRuntimeType | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.ReflectionExtensions.cs:36 | GetTypeCode | arity/重载形状未接线 | analyzable |
-| MethodMap.ReflectionExtensions.cs:72 | (动态块/兜底) | arity/重载形状未接线 | analyzable |
-| MethodMap.ReflectionExtensions.cs:81 | (动态块/兜底) | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Regex.cs:76 | Replace | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Regex.cs:99 | (动态块/兜底) | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Regex.cs:104 | (动态块/兜底) | arity/重载形状未接线 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:50 | GetHashCode | arity/重载形状未接线 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:57 | Equals | arity/重载形状未接线 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:64 | GetObjectValue | arity/重载形状未接线 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:67 | PrepareDelegate | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:69 | PrepareContractedDelegate | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:71 | EnsureSufficientExecutionStack | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:73 | ProbeForSufficientStack | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:75 | ExecuteCodeWithGuaranteedCleanup | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:77 | _RunClassConstructor | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:79 | _RunModuleConstructor | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:86 | InitializeArray | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.SafeHandle.cs:45 | DangerousAddRef | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.SortedList.cs:73 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.SortedList.cs:118 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.SortedList.cs:220 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.Stack.cs:56 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:117 | WriteLine | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:126 | Dispose | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:155 | Seek | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:162 | SetLength | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:175 | Read | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:182 | Peek | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:217 | CopyTo | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:224 | ReadByte | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:241 | Write | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:249 | WriteByte | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:287 | System.IO.FileStream | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:319 | System.IO.MemoryStream | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:328 | System.IO.StreamReader | arity/重载形状未接线 | analyzable |
-| MethodMap.StreamIO.cs:357 | System.IO.StreamWriter | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:73 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:90 | IndexOf | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:113 | IndexOfAny | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:131 | LastIndexOfAny | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:155 | Replace | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:167 | ToUpperInvariant | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:175 | ToLowerInvariant | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:262 | PadRight | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:273 | Contains | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:281 | GetHashCode | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:297 | Normalize | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:305 | IsNormalized | 依赖文化相关排序（Comparer<string> 为 culture-aware） | analyzable |
-| MethodMap.String.cs:356 | CompareOrdinal | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:387 | Equals | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:397 | Equals | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:398 | Equals | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:403 | op_Equality | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:418 | op_Inequality | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:456 | Format | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:483 | Concat | 依赖运行时类型/未追踪实参（动态分派） | not-analyzable |
-| MethodMap.String.cs:508 | Concat | arity/重载形状未接线 | analyzable |
-| MethodMap.String.cs:605 | Join | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:31 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:46 | Append | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:55 | Append | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:89 | Append | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:111 | Insert | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:121 | Insert | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:132 | AppendLine | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:154 | AppendFormat | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:157 | AppendFormat | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:163 | AppendFormat | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:170 | AppendFormat | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:183 | Replace | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:185 | Replace | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:188 | Replace | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:195 | CopyTo | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:200 | EnsureCapacity | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:205 | Equals | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:319 | AppendFormatted | 缺运行时 box 类/描述符（未物化 BCL 值类型） | analyzable |
-| MethodMap.StringBuilder.cs:331 | AppendFormatted | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:342 | AppendFormatted | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:347 | AppendFormatted | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:367 | AppendFormatted | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:376 | AppendFormatted | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:406 | AppendFormatted | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:413 | AppendFormatted | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:429 | AppendFormatted | arity/重载形状未接线 | analyzable |
-| MethodMap.StringBuilder.cs:432 | AppendFormatted | arity/重载形状未接线 | analyzable |
-| MethodMap.StringIO.cs:65 | Read | arity/重载形状未接线 | analyzable |
-| MethodMap.StringIO.cs:92 | Write | arity/重载形状未接线 | analyzable |
-| MethodMap.StringIO.cs:99 | WriteLine | arity/重载形状未接线 | analyzable |
-| MethodMap.StringIO.cs:124 | Dispose | arity/重载形状未接线 | analyzable |
-| MethodMap.StringIO.cs:126 | Dispose | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.StringIO.cs:142 | Write | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.StringIO.cs:148 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Task.cs:114 | (动态块/兜底) | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Thread.cs:148 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.TimeExt2.cs:59 | Parse | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeExt2.cs:85 | ParseExact | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeExt2.cs:101 | TryParseExact | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeSpan.cs:34 | .ctor | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeZone.cs:123 | GetUtcOffset | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeZone.cs:160 | ToLocalTime | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeZone.cs:165 | ToUniversalTime | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeZone.cs:174 | IsDaylightSavingTime | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeZone.cs:182 | IsInvalidTime | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeZone.cs:195 | FindSystemTimeZoneById | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeZone.cs:204 | ConvertTimeFromUtc | arity/重载形状未接线 | analyzable |
-| MethodMap.TimeZone.cs:223 | GetDaylightChanges | 运行时无 per-zone 注册表 | not-analyzable |
-| MethodMap.Type.cs:90 | GetTypeCode | 缺运行时 box 类/描述符（未物化 BCL 值类型） | analyzable |
-| MethodMap.Type.cs:116 | Equals | 依赖运行时类型/未追踪实参（动态分派） | analyzable |
-| MethodMap.Type.cs:163 | GetProperty | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:186 | GetMethod | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:194 | GetField | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:214 | GetMethods | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:222 | GetFields | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:230 | GetProperties | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:238 | GetConstructors | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:251 | GetConstructor | net48 无此重载/arity | not-analyzable |
-| MethodMap.Type.cs:252 | GetConstructor | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:257 | GetInterfaces | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:272 | GetInterface | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:285 | GetNestedTypes | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:305 | GetNestedType | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:323 | GetMembers | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:345 | GetMember | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:357 | MakeGenericType | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:372 | GetEvents | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:382 | GetEvent | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:397 | op_Equality | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:488 | GetArrayRank | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:510 | MakeArrayType | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:516 | MakeByRefType | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:522 | MakePointerType | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:541 | GetEnumNames | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:551 | GetEnumValues | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:559 | GetEnumName | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:568 | GetEnumUnderlyingType | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:599 | get_IsGenericTypeDefinition | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Type.cs:622 | GetGenericArguments | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:627 | GetGenericTypeDefinition | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:638 | GetTypeFromProgID | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:643 | GetTypeFromCLSID | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:659 | InvokeMember | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:707 | get_AssemblyQualifiedName | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:713 | get_Assembly | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:752 | GetName | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:762 | GetType | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:769 | GetTypes | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:775 | get_FullName | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:781 | GetExecutingAssembly | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:787 | GetEntryAssembly | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:808 | get_Name | arity/重载形状未接线 | analyzable |
-| MethodMap.Type.cs:814 | get_FullName | arity/重载形状未接线 | analyzable |
-| MethodMap.UIntPtr.cs:70 | CompareTo | 形状未接线（编译期信息完整） | not-analyzable |
-| MethodMap.Uri.cs:69 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Uri.cs:105 | ToString | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.ValueType.cs:497 | GetHashCode | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.ValueType.cs:535 | GetHashCode | 无法分类（缺 TypeDef/载体） | analyzable |
-| MethodMap.ValueType.cs:541 | GetHashCode | 无法分类（缺 TypeDef/载体） | not-analyzable |
-| MethodMap.Version.cs:52 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Version.cs:109 | GetHashCode | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.WeakReference.cs:44 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.WeakReference.cs:74 | Finalize | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Xml.cs:69 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Xml.cs:146 | get_InnerXml | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Xml.cs:190 | .ctor | 形状未接线（编译期信息完整） | analyzable |
-| MethodMap.Xml.cs:216 | Create | 依赖运行时类型/未追踪实参（动态分派） | analyzable |
-| MethodMap.Xml.cs:224 | Create | 依赖运行时类型/未追踪实参（动态分派） | analyzable |
-| MethodMap.Xml.cs:269 | Close | 形状未接线（编译期信息完整） | analyzable |
+| MethodMap.Array.cs:86 | Sort | 娉涘瀷鍙傛暟鏁?arity 涓嶅睘 net48 閲嶈浇 | not-analyzable |
+| MethodMap.Array.cs:196 | Sort | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:222 | Sort | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Array.cs:269 | BinarySearch | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Array.cs:290 | IndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Array.cs:309 | LastIndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Array.cs:345 | Empty | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:348 | Empty | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Array.cs:381 | Reverse | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:423 | Copy | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Array.cs:433 | ConstrainedCopy | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Array.cs:471 | FindIndex | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:500 | Find | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:524 | FindLast | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:545 | FindLastIndex | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:566 | ForEach | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:590 | FindAll | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:610 | Exists | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:629 | TrueForAll | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:643 | ConvertAll | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:672 | Resize | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Array.cs:730 | GetValue | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Array.cs:742 | SetValue | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.ArrayList.cs:51 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.ArraySort.cs:62 | Sort | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.ArraySort.cs:77 | Sort | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.ArraySort.cs:146 | IndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.ArraySort.cs:173 | LastIndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.ArraySort.cs:222 | BinarySearch | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Attribute.cs:174 | IsDefined | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Attribute.cs:180 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Base64.cs:32 | ToBase64String | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable (WIRED batch 8) |
+| MethodMap.Base64.cs:40 | FromBase64String | 杩愯鏃剁己 helper锛堝疄鐜扮己鍙ｏ級 | not-analyzable |
+| MethodMap.Base64.cs:44 | FromBase64CharArray | 杩愯鏃剁己 helper锛堝疄鐜扮己鍙ｏ級 | analyzable (WIRED batch 8) |
+| MethodMap.BigInteger.cs:173 | CompareTo | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
+| MethodMap.BigInteger.cs:179 | Equals | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
+| MethodMap.BinaryIO.cs:78 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.BinaryIO.cs:88 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.BinaryIO.cs:94 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.BinaryIO.cs:101 | Write | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.BinaryIO.cs:109 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.BinaryIO.cs:115 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.BinaryIO.cs:122 | Write | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.BinaryIO.cs:142 | Write | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BinaryIO.cs:143 | Write | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BinaryIO.cs:157 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BinaryIO.cs:165 | get_BaseStream | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.BinaryIO.cs:209 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BinaryIO.cs:217 | get_BaseStream | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.BitConverter.cs:85 | GetBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BitConverter.cs:87 | GetBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BitConverter.cs:101 | SingleToInt32Bits | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | not-analyzable |
+| MethodMap.BitConverter.cs:105 | Int32BitsToSingle | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BitConverter.cs:129 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BitConverter.cs:134 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BitConverter.cs:156 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.BitConverter.cs:157 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Buffer.cs:26 | BlockCopy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Buffer.cs:32 | ByteLength | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Buffer.cs:42 | MemoryCopy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Buffer.cs:57 | GetByte | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Buffer.cs:59 | SetByte | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Calendar.cs:96 | ToDateTime | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Console.cs:151 | Write | net48 鏃犳閲嶈浇/arity | not-analyzable |
+| MethodMap.Console.cs:289 | WriteLine | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Console.cs:310 | WriteLine | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Console.cs:356 | Dispose | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Console.cs:388 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Console.cs:414 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Console.cs:417 | Dispose | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Convert.cs:78 | ToInt32 | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | not-analyzable |
+| MethodMap.Convert.cs:90 | ToInt32 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Convert.cs:127 | ToInt64 | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | not-analyzable |
+| MethodMap.Convert.cs:129 | ToInt64 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Convert.cs:162 | ToDouble | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:165 | ToDouble | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.Convert.cs:227 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:238 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:242 | ToBoolean | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Convert.cs:258 | ToBoolean | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:260 | ToBoolean | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:261 | ToBoolean | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:266 | ToBoolean | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:270 | ToChar | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Convert.cs:283 | ToChar | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:285 | ToChar | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:286 | ToChar | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:292 | ToChar | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
+| MethodMap.ConvertExtra.cs:73 | ToUInt16 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.ConvertExtra.cs:110 | ToUInt16 | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.ConvertExtra.cs:116 | ToUInt32 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.ConvertExtra.cs:143 | ToUInt32 | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.ConvertExtra.cs:149 | ToUInt64 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.ConvertExtra.cs:172 | ToUInt64 | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.ConvertExtra.cs:178 | ToSingle | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.ConvertExtra.cs:216 | ToSingle | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.ConvertExtra.cs:243 | ToDecimal | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable (WIRED batch 8) |
+| MethodMap.ConvertExtra.cs:266 | ToDecimal | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Crypto.cs:65 | Create | 渚濊禆鏈哄櫒绾?CryptoConfig/machine.config 閰嶇疆 | not-analyzable |
+| MethodMap.Crypto.cs:69 | Create | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Crypto.cs:74 | Create | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Crypto.cs:112 | TransformBlock | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Crypto.cs:125 | TransformBlock | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Crypto.cs:133 | TransformFinalBlock | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Crypto.cs:142 | TransformFinalBlock | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Crypto.cs:201 | get_IV | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Crypto.cs:207 | get_IV | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Crypto.cs:222 | get_IV | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Crypto.cs:243 | CreateDecryptor | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Crypto.cs:265 | GetBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Crypto.cs:272 | GetNonZeroBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Crypto.cs:353 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Crypto.cs:365 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Crypto.cs:369 | ComputeHash | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Crypto.cs:392 | ComputeHash | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.Crypto.cs:394 | ComputeHash | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.CultureInfo.cs:60 | GetCultureInfo | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| analyzable |
+| MethodMap.CultureInfo.cs:76 | get_DisplayName | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
+| MethodMap.CustomAttributeExtensions.cs:47 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.CustomAttributeExtensions.cs:62 | IsDefined | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.DateTime.cs:58 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.DateTime.cs:127 | Subtract | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.DateTime.cs:182 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.DateTime.cs:183 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.DateTimeExtra.cs:68 | ToUniversalTime | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Debug.cs:65 | Assert | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Debug.cs:71 | WriteLine | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | not-analyzable |
+| MethodMap.Debug.cs:72 | WriteLine | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
+| MethodMap.Debug.cs:77 | Fail | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Debug.cs:87 | Write | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
+| MethodMap.Debug.cs:91 | WriteLine | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
+| MethodMap.Debugger.cs:55 | Log | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Decimal.cs:200 | CompareTo | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
+| MethodMap.Decimal.cs:207 | Equals | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
+| MethodMap.Delegate.cs:54 | RemoveAll | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Delegate.cs:92 | CreateDelegate | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.DependentHandle.cs:92 | nFree | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Dictionary.cs:102 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.Dtoffset.cs:114 | CompareTo | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
+| MethodMap.Dtoffset.cs:121 | Equals | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
+| MethodMap.Encoding.cs:139 | GetBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Encoding.cs:155 | GetByteCount | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Encoding.cs:168 | GetCharCount | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Encoding.cs:181 | GetString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Encoding.cs:201 | GetChars | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Encoding.cs:233 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Enum.cs:250 | Parse | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | analyzable |
+| MethodMap.Enum.cs:276 | TryParse | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
+| MethodMap.Enum.cs:279 | TryParse | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| not-analyzable |
+| MethodMap.Enum.cs:311 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Enum.cs:528 | (鍔ㄦ€佸潡/鍏滃簳) | 鏋氫妇娉ㄥ唽瀹归噺瓒呴檺锛坘MaxRegisteredEnums锛?| not-analyzable |
+| MethodMap.EnvironmentExtra.cs:93 | get_StackTrace | 杩愯鏃舵棤鍖归厤 icall | not-analyzable |
+| MethodMap.Exception.cs:146 | get_Message | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Format.cs:69 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
+| MethodMap.GC.cs:38 | Collect | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.GCHandle.cs:51 | Alloc | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.GCHandle.cs:76 | ToIntPtr | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.GCHandle.cs:83 | FromIntPtr | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.GCHandle.cs:97 | op_Inequality | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Guid.cs:63 | ToString | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Guid.cs:115 | Equals | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
+| MethodMap.Guid.cs:129 | CompareTo | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
+| MethodMap.Guid.cs:133 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Hash.cs:59 | ComputeHash | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Hash.cs:71 | ComputeHash | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.HashSet.cs:400 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.IntPtr.cs:91 | CompareTo | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.IO.cs:57 | Copy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.IO.cs:61 | Move | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.IO.cs:98 | Delete | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.IO.cs:119 | GetFiles | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.IO.cs:130 | GetDirectories | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.IO.cs:156 | Combine | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.IO.cs:187 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Legacy.cs:40 | System.Runtime.Remoting.Channels.ChannelServices | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
+| MethodMap.Legacy.cs:184 | nUnload | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
+| MethodMap.Legacy.cs:203 | GetType | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
+| MethodMap.Legacy.cs:212 | System.Runtime.Remoting.ObjectHandle | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
+| MethodMap.Legacy.cs:215 | System.ArgIterator | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
+| MethodMap.Legacy.cs:222 | System.Threading.ReaderWriterLock | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
+| MethodMap.Linq.cs:147 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:202 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:208 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:216 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:282 | f | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:354 | f | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:475 | FirstOrDefault | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:481 | FirstOrDefault | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:517 | FirstOrDefault | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:527 | FirstOrDefault | 鏃犳硶鍒嗙被锛堢己 TypeDef/杞戒綋锛?| analyzable |
+| MethodMap.Linq.cs:536 | FirstOrDefault | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Linq.cs:599 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:616 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:679 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:684 | OrderByDescending | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
+| MethodMap.Linq.cs:690 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:770 | GroupBy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:827 | GroupBy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:955 | System.TimeSpan | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
+| MethodMap.Linq.cs:964 | System.TimeSpan | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:1080 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:1094 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:1108 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:1224 | OrderBy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:1242 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:1277 | ThenByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:1338 | GroupBy | 鏃犳硶鍒嗙被锛堢己 TypeDef/杞戒綋锛?| analyzable |
+| MethodMap.Linq.cs:1395 | GroupBy | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
+| MethodMap.Linq.cs:1470 | Zip | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
+| MethodMap.Linq.cs:1479 | Zip | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:1589 | Aggregate | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:1857 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
+| MethodMap.Linq.cs:1893 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:2340 | Where | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:2349 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:2472 | Zip | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:2478 | Zip | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
+| MethodMap.Linq.cs:2506 | OrderByDescending | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
+| MethodMap.Linq.cs:2512 | OrderByDescending | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
+| MethodMap.Linq.cs:2519 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:2555 | Sum | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:2770 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:2783 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Linq.cs:2852 | Zip | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
+| MethodMap.Linq.cs:2861 | Zip | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.List.cs:172 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
+| MethodMap.List.cs:202 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Marshal.cs:86 | (鍔ㄦ€佸潡/鍏滃簳) | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
+| MethodMap.Marshal.cs:255 | SizeOf | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Marshal.cs:258 | SizeOf | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
+| MethodMap.Marshal.cs:259 | SizeOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Marshal.cs:280 | OffsetOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Marshal.cs:282 | OffsetOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Marshal.cs:307 | PtrToStructure | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
+| MethodMap.Marshal.cs:309 | PtrToStructure | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.Math.cs:128 | Round | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.MathExtra.cs:142 | SinCos | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.MathExtra.cs:153 | SplitFractionDouble | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.MathExtra.cs:167 | BigMul | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Module.cs:52 | get_Module | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Net.cs:92 | System.Net.WebClient | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Net.cs:124 | ToString | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Object.cs:340 | System.Reflection.MemberInfo | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Object.cs:363 | System.Reflection.MemberInfo | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Process.cs:98 | Start | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Process.cs:107 | WaitForExit | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Process.cs:196 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.ProcessInfo.cs:46 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Queue.cs:61 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.RandomExtra.cs:26 | Sample | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Reflect.cs:90 | GetValue | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:112 | SetValue | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:125 | GetGetMethod | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:131 | GetSetMethod | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:159 | Invoke | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
+| MethodMap.Reflect.cs:161 | Invoke | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:179 | AddEventHandler | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:186 | RemoveEventHandler | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:200 | MakeGenericMethod | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:215 | GetParameters | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:337 | CreateInstance | net48 鏃犳閲嶈浇/arity | not-analyzable |
+| MethodMap.Reflect.cs:339 | CreateInstance | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| analyzable |
+| MethodMap.Reflect.cs:369 | GetType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:396 | get_Name | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:401 | get_ParameterType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:406 | get_Position | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Reflect.cs:412 | IsOut | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.ReflectHandle.cs:45 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.ReflectHandle.cs:78 | GetRuntimeType | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.ReflectHandle.cs:83 | GetRuntimeType | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.ReflectionExtensions.cs:36 | GetTypeCode | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.ReflectionExtensions.cs:72 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.ReflectionExtensions.cs:81 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Regex.cs:76 | Replace | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Regex.cs:99 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Regex.cs:104 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:50 | GetHashCode | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:57 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:64 | GetObjectValue | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:67 | PrepareDelegate | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.RuntimeHelpers.cs:69 | PrepareContractedDelegate | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.RuntimeHelpers.cs:71 | EnsureSufficientExecutionStack | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.RuntimeHelpers.cs:73 | ProbeForSufficientStack | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.RuntimeHelpers.cs:75 | ExecuteCodeWithGuaranteedCleanup | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.RuntimeHelpers.cs:77 | _RunClassConstructor | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.RuntimeHelpers.cs:79 | _RunModuleConstructor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.RuntimeHelpers.cs:86 | InitializeArray | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.SafeHandle.cs:45 | DangerousAddRef | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.SortedList.cs:73 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.SortedList.cs:118 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.SortedList.cs:220 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Stack.cs:56 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:117 | WriteLine | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:126 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:155 | Seek | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:162 | SetLength | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:175 | Read | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:182 | Peek | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:217 | CopyTo | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:224 | ReadByte | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:241 | Write | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:249 | WriteByte | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:287 | System.IO.FileStream | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:319 | System.IO.MemoryStream | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:328 | System.IO.StreamReader | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StreamIO.cs:357 | System.IO.StreamWriter | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:73 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:90 | IndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:113 | IndexOfAny | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:131 | LastIndexOfAny | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:155 | Replace | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:167 | ToUpperInvariant | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:175 | ToLowerInvariant | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:262 | PadRight | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:273 | Contains | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:281 | GetHashCode | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:297 | Normalize | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:305 | IsNormalized | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| analyzable |
+| MethodMap.String.cs:356 | CompareOrdinal | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:387 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:397 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:398 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:403 | op_Equality | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:418 | op_Inequality | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:456 | Format | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:483 | Concat | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
+| MethodMap.String.cs:508 | Concat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.String.cs:605 | Join | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:31 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:46 | Append | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:55 | Append | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:89 | Append | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:111 | Insert | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:121 | Insert | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:132 | AppendLine | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:154 | AppendFormat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:157 | AppendFormat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:163 | AppendFormat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:170 | AppendFormat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:183 | Replace | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:185 | Replace | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:188 | Replace | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:195 | CopyTo | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:200 | EnsureCapacity | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:205 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:319 | AppendFormatted | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | analyzable |
+| MethodMap.StringBuilder.cs:331 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:342 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:347 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:367 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:376 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:406 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:413 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:429 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringBuilder.cs:432 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringIO.cs:65 | Read | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringIO.cs:92 | Write | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringIO.cs:99 | WriteLine | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringIO.cs:124 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.StringIO.cs:126 | Dispose | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.StringIO.cs:142 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.StringIO.cs:148 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Task.cs:114 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Thread.cs:148 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.TimeExt2.cs:59 | Parse | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeExt2.cs:85 | ParseExact | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeExt2.cs:101 | TryParseExact | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeSpan.cs:34 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeZone.cs:123 | GetUtcOffset | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeZone.cs:160 | ToLocalTime | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeZone.cs:165 | ToUniversalTime | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeZone.cs:174 | IsDaylightSavingTime | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeZone.cs:182 | IsInvalidTime | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeZone.cs:195 | FindSystemTimeZoneById | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeZone.cs:204 | ConvertTimeFromUtc | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.TimeZone.cs:223 | GetDaylightChanges | 杩愯鏃舵棤 per-zone 娉ㄥ唽琛?| not-analyzable |
+| MethodMap.Type.cs:90 | GetTypeCode | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | analyzable |
+| MethodMap.Type.cs:116 | Equals | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
+| MethodMap.Type.cs:163 | GetProperty | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:186 | GetMethod | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:194 | GetField | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:214 | GetMethods | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:222 | GetFields | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:230 | GetProperties | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:238 | GetConstructors | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:251 | GetConstructor | net48 鏃犳閲嶈浇/arity | not-analyzable |
+| MethodMap.Type.cs:252 | GetConstructor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:257 | GetInterfaces | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:272 | GetInterface | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:285 | GetNestedTypes | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:305 | GetNestedType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:323 | GetMembers | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:345 | GetMember | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:357 | MakeGenericType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:372 | GetEvents | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:382 | GetEvent | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:397 | op_Equality | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:488 | GetArrayRank | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:510 | MakeArrayType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:516 | MakeByRefType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:522 | MakePointerType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:541 | GetEnumNames | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:551 | GetEnumValues | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:559 | GetEnumName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:568 | GetEnumUnderlyingType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:599 | get_IsGenericTypeDefinition | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Type.cs:622 | GetGenericArguments | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:627 | GetGenericTypeDefinition | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:638 | GetTypeFromProgID | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:643 | GetTypeFromCLSID | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:659 | InvokeMember | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:707 | get_AssemblyQualifiedName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:713 | get_Assembly | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:752 | GetName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:762 | GetType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:769 | GetTypes | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:775 | get_FullName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:781 | GetExecutingAssembly | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:787 | GetEntryAssembly | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:808 | get_Name | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.Type.cs:814 | get_FullName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
+| MethodMap.UIntPtr.cs:70 | CompareTo | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
+| MethodMap.Uri.cs:69 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Uri.cs:105 | ToString | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.ValueType.cs:497 | GetHashCode | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.ValueType.cs:535 | GetHashCode | 鏃犳硶鍒嗙被锛堢己 TypeDef/杞戒綋锛?| analyzable |
+| MethodMap.ValueType.cs:541 | GetHashCode | 鏃犳硶鍒嗙被锛堢己 TypeDef/杞戒綋锛?| not-analyzable |
+| MethodMap.Version.cs:52 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Version.cs:109 | GetHashCode | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.WeakReference.cs:44 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.WeakReference.cs:74 | Finalize | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Xml.cs:69 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Xml.cs:146 | get_InnerXml | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Xml.cs:190 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Xml.cs:216 | Create | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
+| MethodMap.Xml.cs:224 | Create | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
+| MethodMap.Xml.cs:269 | Close | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
 
 Totals: analyzable=303, not-analyzable=134
 
@@ -1528,8 +1528,8 @@ silent path hides there.
 
 ### 14.1 FIXED (impl-orderfam): the three float-through-double residuals + the wide element-source OrderBy surface
 
-The three §14 residuals each got their own float reader and entry, and
-the wide element-source OrderBy surface was wired (RED→GREEN, measured).
+The three 搂14 residuals each got their own float reader and entry, and
+the wide element-source OrderBy surface was wired (RED鈫扜REEN, measured).
 
 - (a) DEC fused composite: `LinqKeyFamilyCode` now carries 6=float
   (the pre-existing 0..5 codes keep their meaning: 3=decimal,
@@ -1783,3 +1783,77 @@ closure capture).
   accumulator -- no cell ABI; stays LOUD.
 - A reference accumulator over a NON-narrow non-int32 ARRAY family keeps the
   pre-existing per-source-family ref entries (unchanged here).
+
+## 19. impl-loudvalstruct: the BY-VALUE VALUE-STRUCT DefaultIfEmpty(source, value) forms
+
+Closes section 17.2 item 4 for the System.DateTime / System.TimeSpan /
+System.Guid / System.DateTimeOffset ARRAY families (the int32, reference,
+wide/narrow and List families were closed by impl-aggrs; the DECIMAL array
+form has its own entry since impl-linq2).
+
+### 19.1 The defect (measured)
+
+`Enumerable.DefaultIfEmpty<TSource>(source, defaultValue)` was a transpile-time
+LOUD for every value-struct array source, even though the runtime already
+carried the cell writers for all four families (`LinqCellReadDt/Ts/Guid`,
+`LinqCellDefault`, `LinqNewArray`):
+
+```
+warning: method fold failed -> skipped (Cases.AuditD2b::Main:
+  System.Linq.Enumerable::DefaultIfEmpty: Enumerable.DefaultIfEmpty<valuetype>
+  not wired: the stage-1 runtime LINQ surface is int32 (0x08) element-family
+  for this operator ...)
+warning: 1 method(s) were not transpiled (see --stub-report)
+```
+
+RED evidence: `audit-fix3-d2b` (DateTime[] + Guid[]), `audit-fix3-d2h`
+(DateTime[] / TimeSpan[] / Guid[] with empty, single and multi-element
+sources). Both had runtime exit 1 with 0 bytes of output against a 297/163-byte
+net48 oracle.
+
+### 19.2 Fixed
+
+Four new runtime entries in `linq_list.cpp` (declared in `linq_list.h`,
+include-guarded for `guid.h` / `il2cpp_time.h` / `il2cpp_dtoffset.h`):
+
+```
+il2cpp_linq_default_if_empty_family_dt (Il2CppArray*, Il2CppDateTime, int32_t cell)
+il2cpp_linq_default_if_empty_family_ts (Il2CppArray*, Il2CppTimeSpan, int32_t cell)
+il2cpp_linq_default_if_empty_family_guid (Il2CppArray*, Il2CppGuid, int32_t cell)
+il2cpp_linq_default_if_empty_family_dtoffset (Il2CppArray*, Il2CppDateTimeOffset, int32_t cell)
+```
+
+The default crosses in the struct's own by-value ABI (the same convention the
+`contains_family_*` value entries and the element accessors use). The cell is
+written at its REAL width -- and DateTime specifically through
+`il2cpp_datetime_to_array_bits`, because the array image packs `kind` into the
+top two bits of the 64-bit cell while the runtime struct keeps it in its own
+member (a plain `memcpy` of the struct would store the wrong image).
+
+`MethodMap.Linq.cs` binds the four entries in the value-family dispatch block
+(`DefaultIfEmpty` with arity 2) and keeps a self-describing LOUD for a user
+struct (no cell ABI).
+
+### 19.3 e2e
+
+- `audit-fix3-d2b` GREEN: oracle sha == runtime sha = `16508381`.
+- `audit-fix3-d2h` (self-authored) GREEN: oracle sha == runtime sha = `c3b071ff`.
+- `audit-fix3-d2d` (narrow families + non-diagonal aggregate triples) GREEN:
+  `935b78eb`, 16 records.
+- Regressions byte-identical: probe-aggrs `fdac4fff`, probe-linqagg2
+  `eb49da63`, probe-arrayagg `875acf6e`, probe-floatelem `9245caa6`,
+  probe-aggvt2 `12a416bb`, zmatrix `24ba1e99`.
+- Unit 3953/3953 (baseline 3946 + 7 new resolver assertions). C0: il2cppc
+  Debug build 0 errors, 0 warnings.
+
+### 19.4 Still open after this seat (registered)
+
+- A by-value value-struct LIST element (`List<DateTime>` / `List<TimeSpan>` /
+  `List<Guid>`) with DefaultIfEmpty(value) -- there is no LIST storage kind for
+  these families (only `IL2CPP_LIST_KIND_DEC`). The transpiler now rejects the
+  shape up front instead of emitting an uncompilable call (MEASURED before the
+  gate: `cannot convert Il2CppDateTime to Il2CppObject*` in an
+  `il2cpp_linq_list_default_if_empty_val_ref` slot). Locked by
+  `loud-linq-die-listvt` + scripts/loud-gate.ps1. Defect D of this seat.
+- The same list value-struct element gap blocks the OTHER list operators over
+  these families (Aggregate / Where / Select / ...). Same root cause.

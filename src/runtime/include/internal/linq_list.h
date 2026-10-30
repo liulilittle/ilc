@@ -31,6 +31,9 @@
 #include "il2cpp_array.h"
 #include "il2cpp_object.h"
 #include "decimal.h"      // runtime::Il2CppDecimal (the decimal-projection aggregates)
+#include "guid.h"         // Il2CppGuid (the by-value value-struct DefaultIfEmpty forms)
+#include "il2cpp_dtoffset.h" // runtime::Il2CppDateTimeOffset
+#include "il2cpp_time.h"  // runtime::Il2CppDateTime / Il2CppTimeSpan
 
 #include <cstdint>
 
@@ -466,6 +469,21 @@ Il2CppArray* il2cpp_linq_default_if_empty_family_d(Il2CppArray* src, double valu
                                                    int32_t cell);
 Il2CppArray* il2cpp_linq_default_if_empty_family_ref(Il2CppArray* src, Il2CppObject* value,
                                                      int32_t cell);
+// impl-loudvalstruct (B): the BY-VALUE VALUE-STRUCT forms (System.DateTime /
+// System.TimeSpan / System.Guid / System.DateTimeOffset). The default crosses in
+// the struct's own by-value ABI and is written into the cell at its real width
+// (DateTime: the 62-bit ticks + 2-bit kind ARRAY image; TimeSpan: the ticks;
+// Guid: the 16-byte payload; DateTimeOffset: the 16-byte instant+offset).
+Il2CppArray* il2cpp_linq_default_if_empty_family_dt(Il2CppArray* src,
+                                                    runtime::Il2CppDateTime value,
+                                                    int32_t cell);
+Il2CppArray* il2cpp_linq_default_if_empty_family_ts(Il2CppArray* src,
+                                                    runtime::Il2CppTimeSpan value,
+                                                    int32_t cell);
+Il2CppArray* il2cpp_linq_default_if_empty_family_guid(Il2CppArray* src, Il2CppGuid value,
+                                                      int32_t cell);
+Il2CppArray* il2cpp_linq_default_if_empty_family_dtoffset(
+    Il2CppArray* src, runtime::Il2CppDateTimeOffset value, int32_t cell);
 
 //------------------------------------------------------------------------------
 // Aggregate(seed, func, resultSelector) over a List<T> (net48

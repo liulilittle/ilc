@@ -3561,6 +3561,76 @@ Il2CppArray* il2cpp_linq_default_if_empty_family_ref(Il2CppArray* src, Il2CppObj
 }
 
 //------------------------------------------------------------------------------
+// DefaultIfEmpty(source, defaultValue) -- the BY-VALUE VALUE-STRUCT forms.
+//
+// The default crosses in its own value-struct ABI (Il2CppDateTime /
+// Il2CppTimeSpan / Il2CppGuid / Il2CppDateTimeOffset -- the same by-value
+// convention the Contains family and the element accessors use) and is written
+// into the fresh one-element array at the cell's REAL width:
+//   DateTime       8-byte cell = the 62-bit ticks + 2-bit kind ARRAY image
+//   TimeSpan       8-byte cell = the raw ticks
+//   Guid          16-byte cell = the 16-byte payload
+//   DateTimeOffset 16-byte cell = (utcTicks, offsetMinutes)
+// A plain memcpy of the runtime struct is WRONG for DateTime: the struct keeps
+// `kind` in its own member while the array image packs it into the top two
+// bits (il2cpp_time.h), so the cell is written through the bit conversion.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_default_if_empty_family_dt(Il2CppArray* src,
+                                                    runtime::Il2CppDateTime value,
+                                                    int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (src->length != 0) return src;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = LinqNewArray(cell, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    *reinterpret_cast<int64_t*>(LinqCellPtr(out, 0)) =
+        runtime::il2cpp_datetime_to_array_bits(value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_default_if_empty_family_ts(Il2CppArray* src,
+                                                    runtime::Il2CppTimeSpan value,
+                                                    int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (src->length != 0) return src;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = LinqNewArray(cell, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    *reinterpret_cast<int64_t*>(LinqCellPtr(out, 0)) = value.ticks;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_default_if_empty_family_guid(Il2CppArray* src, Il2CppGuid value,
+                                                      int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (src->length != 0) return src;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = LinqNewArray(cell, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    std::memcpy(LinqCellPtr(out, 0), value.b, sizeof(value.b));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_default_if_empty_family_dtoffset(
+    Il2CppArray* src, runtime::Il2CppDateTimeOffset value, int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (src->length != 0) return src;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = LinqNewArray(cell, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    std::memcpy(LinqCellPtr(out, 0), &value, sizeof(value));
+    return out;
+}
+
+//------------------------------------------------------------------------------
 // Aggregate(seed, func, resultSelector) over a List<T> (see linq_list.h).
 //
 // Each entry runs the SAME (accumulator, element) seed fold as the 3-parameter
