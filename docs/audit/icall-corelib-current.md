@@ -878,6 +878,37 @@ ILC 不是 Redhawk：`Rh*`/`Rhp*` 是 NativeAOT/Redhawk 的运行时 ABI，本�
 | `GenericHandleWorker` | `reference/coreclr/src/coreclr/vm/qcallentrypoints.cpp:535` |
 | `IsInstanceOf_NoCacheLookup` | `reference/coreclr/src/coreclr/vm/qcallentrypoints.cpp:537` |
 
+### 4.5 别名候选（入口名只差 `_` / `Internal` / `Native` / `Slow` 后缀）
+
+这些 `missing` 行的托管名，在**同一 owner 的既有 case 表**里存在一个
+归一化后同名的分支 —— 即接线成本很低（同一 case 加别名）。
+表由脚本按 `strip(_)/strip(Internal|Native|Slow)` 归一化后比对得出，
+只是候选，仍需逐个核对签名/语义，**不是已接**。
+
+| EntryPoint | 托管名 | 既有分支 | 既有符号 |
+|---|---|---|---|
+| `AssemblyNative_GetEntryAssembly` | `GetEntryAssemblyNative` | `GetEntryAssembly` | fold / literal marker（非 icall，加别名只会变成 fold） |
+| `AssemblyNative_GetExecutingAssembly` | `GetExecutingAssemblyNative` | `GetExecutingAssembly` | fold / literal marker（非 icall，加别名只会变成 fold） |
+| `DebugDebugger_Break` | `BreakInternal` | `Break` | `il2cpp::runtime::il2cpp_debugger_break` |
+| `DebugDebugger_IsLoggingHelper` | `IsLoggingInternal` | `IsLogging` | `il2cpp::runtime::il2cpp_debugger_is_logging` |
+| `DebugDebugger_Log` | `LogInternal` | `Log` | `il2cpp::runtime::il2cpp_debugger_log` |
+| `Delegate_GetMulticastInvokeSlow` | `GetMulticastInvokeSlow` | `GetMulticastInvoke` | `il2cpp::runtime::icall_delegate_get_multicast_invoke` |
+| `GCInterface_AddMemoryPressure` | `_AddMemoryPressure` | `AddMemoryPressure` | `il2cpp::runtime::icall_gc_add_memory_pressure` |
+| `GCInterface_Collect` | `_Collect` | `Collect` | `il2cpp::runtime::icall_gc_collect` |
+| `GCInterface_RemoveMemoryPressure` | `_RemoveMemoryPressure` | `RemoveMemoryPressure` | `il2cpp::runtime::icall_gc_remove_memory_pressure` |
+| `GCInterface_WaitForPendingFinalizers` | `_WaitForPendingFinalizers` | `WaitForPendingFinalizers` | `il2cpp::runtime::icall_gc_finalize_trigger` |
+| `MarshalNative_GetDelegateForFunctionPointerInternal` | `GetDelegateForFunctionPointerInternal` | `GetDelegateForFunctionPointer` | `il2cpp::runtime::icall_delegate_from_fn_ptr` |
+| `MarshalNative_GetFunctionPointerForDelegateInternal` | `GetFunctionPointerForDelegateInternal` | `GetFunctionPointerForDelegate` | `il2cpp::runtime::icall_delegate_get_fn_ptr` |
+| `ObjectNative_GetHashCodeSlow` | `GetHashCodeSlow` | `GetHashCode` | `il2cpp::runtime::icall_object_get_hash_code` |
+| `ReflectionInvocation_RunClassConstructor` | `RunClassConstructor` | `_RunClassConstructor` | fold / literal marker（非 icall，加别名只会变成 fold） |
+| `ReflectionInvocation_RunModuleConstructor` | `RunModuleConstructor` | `_RunModuleConstructor` | fold / literal marker（非 icall，加别名只会变成 fold） |
+| `ThreadNative_SetApartmentState` | `SetApartmentState` | `SetApartmentStateNative` | `il2cpp::runtime::icall_threadobj_set_apartment_state_native` |
+| `ThreadNative_SpinWait` | `SpinWaitInternal` | `SpinWait` | `il2cpp::runtime::icall_threadobj_spin_wait` |
+| `ThreadNative_Start` | `StartInternal` | `Start` | `il2cpp::runtime::icall_threadobj_start` |
+| `ThreadNative_YieldThread` | `YieldInternal` | `Yield` | `il2cpp::runtime::icall_thread_yield` |
+
+合计 **19** 条。（FCall 段的同类候选见 §6 第 1–3 条。）
+
 ## 5. 与 reference 子集裁剪情况的说明
 
 **`reference/netcore/src/libraries/` 只有 4 个项目**：
@@ -964,8 +995,7 @@ InternalCall/QCall 的 C# 声明，只能从 s_QCall[] 表反推：
    `CurrentThreadIsFinalizerThread` —— 后者在 netcore 子集里被 `System.Threading.Thread`
    直接声明为 InternalCall，是**用户可见 Thread 语义**的一部分。
 5. **QCall P0 段（60 条）**：集中在 `System.Threading.Thread`(18) / `System.GC`(16) / `System.Runtime.CompilerServices.RuntimeHelpers`(12) / `System.Delegate`(7)，
-   多数其实是 ILC 已有 net48 同名 icall 的**入口名不同**（如 `GCInterface_Collect` vs
-   现有 `icall_gc_collect`），建议按 owner 成批接，而不是逐条接。
+   建议按 owner 成批接，而不是逐条接；先做 §4.5 的 19 条别名候选（同一 case 加别名即可）。
 6. `half-wired` 的 2 条：`Math.ModF`（需 tuple/out 发射支持）与
    `Marshal.GetComInterfaceForObject`（现有 COM marker 路径）；属转译器能力缺口，
    应单独立项。

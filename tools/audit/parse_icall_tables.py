@@ -890,6 +890,46 @@ def tier_counts(rows, statuses):
     return out
 
 
+def norm_alias_name(name):
+    """Normalise a managed method name for alias detection.
+
+    CoreLib's FCall/QCall helpers commonly carry `Internal` / `Native` / `Slow`
+    suffixes (or a leading `_`) that the net48-shaped MethodMap arms omit. This
+    is only a CANDIDATE generator: every hit still needs a signature check.
+    """
+    n = name.strip("_")
+    for suffix in ("Internal", "Native", "Slow"):
+        if n.endswith(suffix) and len(n) > len(suffix):
+            n = n[: -len(suffix)]
+    return n.lower()
+
+
+def find_alias_candidates(rows, wiring):
+    """Return [(entry, decl_name, arm, symbols)] for missing rows whose name has
+    a normalised twin in the owner's existing case tables."""
+    out = []
+    for r in rows:
+        if r["status"] != "missing":
+            continue
+        disp = wiring["owner_dispatch"].get(r["decl_owner"])
+        if not disp:
+            continue
+        base = norm_alias_name(r["decl_name"])
+        for target in disp["targets"]:
+            cases = wiring["func_cases"].get(target) or {}
+            for arm, rec in cases.items():
+                if "::" in arm:
+                    continue
+                if norm_alias_name(arm) == base and arm != r["decl_name"]:
+                    out.append((r["entry"], r["decl_name"], arm, rec["symbols"]))
+                    break
+            else:
+                continue
+            break
+    out.sort(key=lambda x: x[0])
+    return out
+
+
 def evidence_cell(row):
     """Render the file:line (or "no wiring") evidence for one row."""
     ev = row.get("evidence") or {}
@@ -932,6 +972,7 @@ def md(s):
 
 
 def write_report(path, data, f_rows, q_rows, ref_root):
+    wiring = data["wiring"]
     fc = status_counts(f_rows)
     qc = status_counts(q_rows)
     ri_rows = data["rimports"]
@@ -1257,6 +1298,27 @@ def write_report(path, data, f_rows, q_rows, ref_root):
         w("（无）")
     w("")
 
+    w("### 4.5 别名候选（入口名只差 `_` / `Internal` / `Native` / `Slow` 后缀）")
+    w("")
+    w("这些 `missing` 行的托管名，在**同一 owner 的既有 case 表**里存在一个")
+    w("归一化后同名的分支 —— 即接线成本很低（同一 case 加别名）。")
+    w("表由脚本按 `strip(_)/strip(Internal|Native|Slow)` 归一化后比对得出，")
+    w("只是候选，仍需逐个核对签名/语义，**不是已接**。")
+    w("")
+    alias_candidates = find_alias_candidates(q_rows, wiring)
+    if alias_candidates:
+        w("| EntryPoint | 托管名 | 既有分支 | 既有符号 |")
+        w("|---|---|---|---|")
+        for entry, decl_name, arm, syms in alias_candidates:
+            cell = (", ".join("`" + s + "`" for s in syms)
+                    if syms else "fold / literal marker（非 icall，加别名只会变成 fold）")
+            w(f"| `{md(entry)}` | `{md(decl_name)}` | `{md(arm)}` | {md(cell)} |")
+    else:
+        w("（无）")
+    w("")
+    w(f"合计 **{len(alias_candidates)}** 条。（FCall 段的同类候选见 §6 第 1–3 条。）")
+    w("")
+
     w("## 5. 与 reference 子集裁剪情况的说明")
     w("")
     w("**`reference/netcore/src/libraries/` 只有 4 个项目**：")
@@ -1330,8 +1392,8 @@ def write_report(path, data, f_rows, q_rows, ref_root):
     top_owners = sorted(p0q_owner.items(), key=lambda kv: -kv[1])[:4]
     w(f"5. **QCall P0 段（{p0_q} 条）**：集中在 "
       + " / ".join(f"`{md(o)}`({n})" for o, n in top_owners) + "，")
-    w("   多数其实是 ILC 已有 net48 同名 icall 的**入口名不同**（如 `GCInterface_Collect` vs")
-    w("   现有 `icall_gc_collect`），建议按 owner 成批接，而不是逐条接。")
+    w("   建议按 owner 成批接，而不是逐条接；先做 §4.5 的 "
+      f"{len(alias_candidates)} 条别名候选（同一 case 加别名即可）。")
     w("6. `half-wired` 的 2 条：`Math.ModF`（需 tuple/out 发射支持）与")
     w("   `Marshal.GetComInterfaceForObject`（现有 COM marker 路径）；属转译器能力缺口，")
     w("   应单独立项。")
