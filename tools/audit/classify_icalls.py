@@ -289,17 +289,30 @@ def shadow_verdict(k):
                        overload. User code taking that shape still falls
                        through, so the row must not be counted as fully covered.
     * None          -- no entry delivers anything; it is a real gap.
+
+    The third partial shape is the one `Interlocked._CompareExchange` needs:
+    the nearest entry is ITSELF undelivered (the generic
+    `CompareExchange(!!0&, !!0, !!0)` is unmapped), but the entry's public name
+    group still delivers the numeric overloads. `ref T` falls through while
+    `ref int` works -- that is a partial reduction, not a plain gap.
     """
     ents = nearest_entries(k)
     if not ents:
         return None
     clean = [e for e in ents if entry_clean(e)]
     delivered_any = [e for e in ents if entry_delivered(e)]
-    if not delivered_any:
-        return None
-    if clean and all(e in clean for e in ents):
-        return 'shadow'
-    return 'partialShadow'
+    if delivered_any:
+        if clean and all(e in clean for e in ents):
+            return 'shadow'
+        return 'partialShadow'
+    if any(group_has_delivered(e[0], e[1]) for e in ents):
+        return 'partialShadow'
+    return None
+
+
+def group_has_delivered(owner, name):
+    """Whether any public overload of (owner, name) is delivered."""
+    return any(group_row_delivered(row) for _, row in public_group.get(owner + '::' + name, ()))
 
 
 def shadow_entry(k):
@@ -320,14 +333,13 @@ def shadow_entry(k):
     ents = nearest_entries(k)
     if not ents:
         return None
-    # Prefer a fully-delivered entry; a `partialShadow` has none, so cite the
-    # delivered one that still exists -- that is the call the user emits and the
-    # reason the row is a reduction at all.
+    # Prefer a fully-delivered entry; a `partialShadow` may have none, so fall
+    # back to any delivered entry, then to the nearest entry itself (the
+    # `Interlocked._CompareExchange` shape: the entry is the UNMAPPED generic
+    # overload, and that is exactly what must be cited).
     clean = [e for e in ents if entry_clean(e)]
     delivered_any = [e for e in ents if entry_delivered(e)]
-    cand = clean or delivered_any
-    if not cand:
-        return None
+    cand = clean or delivered_any or list(ents)
     e = cand[0]
     return dict(entry=e[0] + '::' + e[1], entrySig=e[2], hops=dist[k],
                 via=[c[0] + '::' + c[1] for c in chain.get(k, ())])

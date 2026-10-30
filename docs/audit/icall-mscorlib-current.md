@@ -6,7 +6,7 @@
 ## 0. 结论摘要
 
 - net48 mscorlib InternalCall 总数：**908**（反射通道 908 / 元数据通道 908，逐条 join key 一致）
-- 判定分布（五类，部分影子单列）：已接 **194** + 半接 **30** + 缺 **596**（LOUD 拒绝 281 + 无接线 315）+ 影子 **74** + 部分影子 **14** = 194+30+596+74+14 = **908**，`assert sum == 908` 通过
+- 判定分布（五类，部分影子单列）：已接 **194** + 半接 **30** + 缺 **594**（LOUD 拒绝 281 + 无接线 313）+ 影子 **74** + 部分影子 **16** = 194+30+594+74+16 = **908**，`assert sum == 908` 通过
 - 可达性分级（仅统计非「已接」的 714 条）：P0 **42**、P1 **290**、P2 **98**、P3 **284**
 - public API 面（类型 public 且方法 public）共 **141** 条，其中已接 **99**、半接 12、LOUD 25、无接线 5
 - **「已接」不等于语义等价 net48**：30 条「半接」全部是运行时占位实现（30 条空体/恒值桩，见 §3.8），不是真实计算。
@@ -476,8 +476,8 @@
 | 164 | `System.Threading.HostExecutionContextManager` | `CaptureHostSecurityContext` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 165 | `System.Threading.HostExecutionContextManager` | `HostSecurityManagerPresent` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 166 | `System.Threading.HostExecutionContextManager` | `SetHostSecurityContext` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 167 | `System.Threading.Interlocked` | `_CompareExchange` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 168 | `System.Threading.Interlocked` | `_Exchange` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 167 | `System.Threading.Interlocked` | `_CompareExchange` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Interlocked::CompareExchange` 直接承接（1 跳） | `MethodMap.Interlocked.cs:101` |
+| 168 | `System.Threading.Interlocked` | `_Exchange` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Interlocked::Exchange` 直接承接（1 跳） | `MethodMap.Interlocked.cs:63` |
 | 169 | `System.Threading.Monitor` | `IsEnteredNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 170 | `System.Threading.Monitor` | `ObjWait` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Monitor::Wait` 直接承接（1 跳） | `MethodMap.Monitor.cs:98` |
 | 171 | `System.Threading.Monitor` | `ReliableEnterTimeout` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Monitor::TryEnter` 直接承接（1 跳） | `MethodMap.Monitor.cs:63` |
@@ -1008,7 +1008,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 
 ### 3.7 部分影子清单
 
-共 **14** 条。这些不是「无需接线」也不是「完全没接线」，而是**只覆盖了一部分调用形状**：同一最短距离上存在未接线的入口，或该入口有同名但未映射的重载，用户写那种形状仍会落到幽灵符号。
+共 **16** 条。这些不是「无需接线」也不是「完全没接线」，而是**只覆盖了一部分调用形状**：同一最短距离上存在未接线的入口，或该入口有同名但未映射的重载，用户写那种形状仍会落到幽灵符号。
 
 典型是 `System.Threading.Interlocked::_CompareExchange`：它的数值重载 `CompareExchange(int&,int,int)` 等都已接线，但泛型重载 `CompareExchange(!!0&, !!0, !!0)` 在探针里是 `unmapped` —— 用户写 `ref T` 就走幽灵符号。所以 `_CompareExchange` / `_Exchange` 只能算**部分承接**，不能计入完整影子。
 
@@ -1022,12 +1022,14 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 6 | `System.Runtime.InteropServices.Marshal` | `SizeOfHelper` | `System.Int32 (System.Type, System.Boolean)` | `System.Runtime.InteropServices.Marshal::SizeOf` | 1 | `MethodMap.Marshal.cs:241` |
 | 7 | `System.RuntimeType` | `GetTypeFromCLSIDImpl` | `System.Type (System.Guid, System.String, System.Boolean)` | `System.Type::GetTypeFromCLSID` | 1 | `MethodMap.Type.cs:787` |
 | 8 | `System.RuntimeType` | `GetTypeFromProgIDImpl` | `System.Type (System.String, System.String, System.Boolean)` | `System.Type::GetTypeFromProgID` | 1 | `MethodMap.Type.cs:782` |
-| 9 | `System.Threading.Monitor` | `ObjWait` | `System.Boolean (System.Boolean, System.Int32, System.Object)` | `System.Threading.Monitor::Wait` | 1 | `MethodMap.Monitor.cs:98` |
-| 10 | `System.Threading.Monitor` | `ReliableEnterTimeout` | `System.Void (System.Object, System.Int32, System.Boolean&)` | `System.Threading.Monitor::TryEnter` | 1 | `MethodMap.Monitor.cs:63` |
-| 11 | `System.Threading.Thread` | `JoinInternal` | `System.Boolean (System.Int32)` | `System.Threading.Thread::Join` | 1 | `MethodMap.Thread.cs:169` |
-| 12 | `System.Threading.Thread` | `nativeGetSafeCulture` | `System.Boolean (System.Threading.Thread, System.Int32, System.Boolean, System.Globalization.CultureInfo&)` | `System.Resources.ResourceManager::GetString` | 2 | `MethodMap.Resources.cs:110` |
-| 13 | `System.Threading.WaitHandle` | `WaitOneNative` | `System.Int32 (System.Runtime.InteropServices.SafeHandle, System.UInt32, System.Boolean, System.Boolean)` | `System.Threading.Thread::Sleep` | 2 | `MethodMap.Thread.cs:47` |
-| 14 | `System.TypedReference` | `InternalToObject` | `System.Object (System.Void*)` | `System.Array::GetValue` | 1 | `MethodMap.Array.cs:1129` |
+| 9 | `System.Threading.Interlocked` | `_CompareExchange` | `System.Void (System.TypedReference, System.TypedReference, System.Object)` | `System.Threading.Interlocked::CompareExchange` | 1 | `MethodMap.Interlocked.cs:101` |
+| 10 | `System.Threading.Interlocked` | `_Exchange` | `System.Void (System.TypedReference, System.TypedReference)` | `System.Threading.Interlocked::Exchange` | 1 | `MethodMap.Interlocked.cs:63` |
+| 11 | `System.Threading.Monitor` | `ObjWait` | `System.Boolean (System.Boolean, System.Int32, System.Object)` | `System.Threading.Monitor::Wait` | 1 | `MethodMap.Monitor.cs:98` |
+| 12 | `System.Threading.Monitor` | `ReliableEnterTimeout` | `System.Void (System.Object, System.Int32, System.Boolean&)` | `System.Threading.Monitor::TryEnter` | 1 | `MethodMap.Monitor.cs:63` |
+| 13 | `System.Threading.Thread` | `JoinInternal` | `System.Boolean (System.Int32)` | `System.Threading.Thread::Join` | 1 | `MethodMap.Thread.cs:169` |
+| 14 | `System.Threading.Thread` | `nativeGetSafeCulture` | `System.Boolean (System.Threading.Thread, System.Int32, System.Boolean, System.Globalization.CultureInfo&)` | `System.Resources.ResourceManager::GetString` | 2 | `MethodMap.Resources.cs:110` |
+| 15 | `System.Threading.WaitHandle` | `WaitOneNative` | `System.Int32 (System.Runtime.InteropServices.SafeHandle, System.UInt32, System.Boolean, System.Boolean)` | `System.Threading.Thread::Sleep` | 2 | `MethodMap.Thread.cs:47` |
+| 16 | `System.TypedReference` | `InternalToObject` | `System.Object (System.Void*)` | `System.Array::GetValue` | 1 | `MethodMap.Array.cs:1129` |
 
 ### 3.8 已接 ≠ 语义等价 net48（恒值桩）
 
@@ -1189,7 +1191,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 - `RuntimeHelpers.GetHashCode` / `Equals` / `GetObjectValue`：旧文档称可折叠 —— **成立**（`Equals`/`GetObjectValue` 走 `::refeq::` / `::identity::` 折叠标记，`GetHashCode` 走真实 icall）。
 
 **D. 旧文档 §7「内部 icall 764 个键由 public 包装承接」—— 口径被推翻**：
-严格按「icall 自身无接线、且最短 public 入口已接线且其重载组全部已接线」验证，只有 **74** 条成立（另有 14 条只部分成立），而不是按 owner 类型一概而论的 764。其余内部 icall 要么自身被接线，要么就是真缺口。
+严格按「icall 自身无接线、且最短 public 入口已接线且其重载组全部已接线」验证，只有 **74** 条成立（另有 16 条只部分成立），而不是按 owner 类型一概而论的 764。其余内部 icall 要么自身被接线，要么就是真缺口。
 
 ### 4.4 仍成立的旧结论（未被推翻）
 
@@ -1214,7 +1216,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 
 | 修订 | 旧值 | 新值 | 根因 |
 |---|---|---|---|
-| Q1 影子口径 | 影子 65（把 publicRoot 也塞进 public_faces，得 507 个假 public 面） | 影子 74 + 部分影子 14 | public face 必须只含真 public-face icall；影子必须标注跳数；泛型重载未映射的判部分影子 |
+| Q1 影子口径 | 影子 65（把 publicRoot 也塞进 public_faces，得 507 个假 public 面） | 影子 74 + 部分影子 16 | public face 必须只含真 public-face icall；影子必须标注跳数；泛型重载未映射的判部分影子 |
 | M1 恒值桩 | 已接 224 | 已接 194 / 半接 30 | 空体与 `return <常量>;` 也是桩，全表重扫出 30 条（远超点名的 4 条） |
 | M2 loud/half→shadow | LOUD 297 | LOUD 281 | 17 条 loud/half 的运行时分支实为死代码（depth-1 public 调用者全部检出真实实现） |
 | Q3 P2 降级 | P2 173 | P2 98 | 命名空间不得压过 `publicDistance == 1`；前缀匹配必须按类型全名 |
@@ -1339,7 +1341,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 2. **P0 里的 COM/remoting 保持 LOUD**：设计上就不支持，转译期失败远好于编译期幽灵符号。
 3. **恒值桩单独列一类**（§3.8）：它们不是「缺口」也不是「已接」，而是静默偏差。按 net48 byte-exact 的要求，`Debugger.IsAttached` / `GC.IsServerGC` / `Marshal.GetExceptionPointers` 这类必须给出真实语义（或至少让偏差可观测），不能永远返回常量。
 4. **P1 按属主成批推进**：同一 `MethodMap.*.cs` 域的分支集中加，避免反复触碰同一文件。
-5. **`缺（无接线）` 的 315 条里 P3 占 202 条**，多数是 CLR 内部（`System.StubHelpers.*`、`System.Reflection.MetadataImport`、`System.Signature`）或 legacy（`System.Mda`、`System.Variant`），不建议排期。
+5. **`缺（无接线）` 的 313 条里 P3 占 202 条**，多数是 CLR 内部（`System.StubHelpers.*`、`System.Reflection.MetadataImport`、`System.Signature`）或 legacy（`System.Mda`、`System.Variant`），不建议排期。
 
 ## 6. 红证（可执行复现）
 
@@ -1449,7 +1451,7 @@ warning: method fold failed -> skipped (Q2Probe::Main: System.Runtime.InteropSer
 warning: 1 method(s) were not transpiled (see --stub-report)
 ```
 
-**结论**：§3 的 315 条「无接线」不是「最晚才炸」的一类，而是**最早**就炸的一类 —— 要么在转译期被 LOUD 拦下（带接收者提示的形状），要么在 C++ 编译期以 `was not declared in this scope` 失败（无提示的形状，实测 rc=2、转译零 warning）。两种形态都不会跑到链接期，更不会静默产出可执行文件。
+**结论**：§3 的 313 条「无接线」不是「最晚才炸」的一类，而是**最早**就炸的一类 —— 要么在转译期被 LOUD 拦下（带接收者提示的形状），要么在 C++ 编译期以 `was not declared in this scope` 失败（无提示的形状，实测 rc=2、转译零 warning）。两种形态都不会跑到链接期，更不会静默产出可执行文件。
 
 ## 7. 复现方式
 
