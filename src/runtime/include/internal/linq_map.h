@@ -54,6 +54,7 @@
 #include "decimal.h"     // P0LINQ1 (D2): the 16-byte System.Decimal value slot
 #include "guid.h"        // BATCH4: the 16-byte System.Guid key carrier
 #include "il2cpp_time.h" // BATCH4: the System.DateTime key carrier
+#include "il2cpp_dtoffset.h" // impl-groupbykey: the System.DateTimeOffset key carrier
 
 #include <cstdint>
 
@@ -731,14 +732,31 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
 // vtsrc: `srcKind` names the SOURCE element family (the array image alone
 // cannot tell a Guid[] from a decimal[] -- both are 16-byte non-reference):
 //   0 int32 | 1 reference | 2 decimal | 3 DateTime | 4 Guid
+// impl-groupbykey adds the WIDE / NARROW source families:
+//   5 int64/uint64 | 6 double | 7 narrow (1/2/4-byte; the cell code rides
+//   il2cpp_linq_group_by_full_key_cell's trailing srcCell)
 // The TElement family code covers 0 int32 | 1 reference | 2 int64 | 3 double |
 // 4 decimal | 5 DateTime | 6 Guid.
+// The KEY family (KeyKindFor) covers 0..6 int32-slot, 7 int64/uint64, 8
+// System.Decimal, 9 System.DateTime, 10 System.Guid, 11 reference,
+// 12 System.TimeSpan, 13 System.DateTimeOffset, 14 user enum (int32 value__).
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keySel,
                                             Il2CppObject* elemSel, Il2CppObject* cmp,
                                             Il2CppObject* resSel, int32_t elemKind,
                                             int32_t rsKind, int32_t keyKind,
                                             int32_t srcKind = 0);
+
+// impl-groupbykey: the NARROW-source form of the entry above. srcKind 7 needs
+// the SOURCE CELL CODE (0 sbyte | 1 byte | 2 bool | 3 short | 4 ushort |
+// 5 char | 6 uint -- the transpiler's LinqNarrowCode) so the kernel reads the
+// element at its real width before widening it into the int32 selector slot.
+// Every other srcKind ignores srcCell.
+Il2CppObject* il2cpp_linq_group_by_full_key_cell(Il2CppArray* src, Il2CppObject* keySel,
+                                                 Il2CppObject* elemSel, Il2CppObject* cmp,
+                                                 Il2CppObject* resSel, int32_t elemKind,
+                                                 int32_t rsKind, int32_t keyKind,
+                                                 int32_t srcKind, int32_t srcCell);
 
 //------------------------------------------------------------------------------
 // p0grp -- GroupBy over a DECIMAL-element ARRAY source (int32-slot key).
@@ -1270,6 +1288,12 @@ void               il2cpp_linq_grouping_get_key_guid(Il2CppObject* grouping,
                                                      uint8_t bytes[16]);
 // p0grp: the REFERENCE-key accessor (System.String / class / object).
 Il2CppObject*      il2cpp_linq_grouping_get_key_ref(Il2CppObject* grouping);
+// impl-groupbykey: the System.TimeSpan (ticks) and System.DateTimeOffset
+// (UTC instant + offset) key accessors. Both return the value BY VALUE; a
+// translated user ENUM key keeps the plain int32 accessor
+// (il2cpp_linq_grouping_get_key), because the enum's only payload is value__.
+runtime::Il2CppTimeSpan     il2cpp_linq_grouping_get_key_ts(Il2CppObject* grouping);
+runtime::Il2CppDateTimeOffset il2cpp_linq_grouping_get_key_dto(Il2CppObject* grouping);
 
 // IEnumerable.GetEnumerator over the two grouping surfaces (nb9): the
 // result yields its buckets in first-appearance order (reference elements),

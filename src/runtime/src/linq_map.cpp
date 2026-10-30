@@ -902,6 +902,64 @@ Il2CppGuid InvokeSelRefGuidKey(Il2CppDelegate* d, Il2CppObject* o)
         : reinterpret_cast<SelRefGuidKeyFn>(d->methodPtr)(o);
 }
 
+//------------------------------------------------------------------------------
+// impl-groupbykey: the GENERIC (source element, key/element result) selector
+// invocation used by the GroupBy key/element dispatch. The generated leaf's
+// C++ signature is exactly Key (*)(Src) (static) or Key (*)(Il2CppObject*, Src)
+// (instance); declaring both Src and Key BY VALUE reproduces that ABI for every
+// family: the int32_t slot for the int32/narrow contract, the int64_t / double
+// registers for the wide families, Il2CppObject* for a reference and the
+// aggregate (hidden-pointer) convention for the 8/16-byte value structs
+// (Il2CppTimeSpan / Il2CppDateTime / Il2CppGuid / Il2CppDecimal /
+// Il2CppDateTimeOffset). This is what lets the bucketing kernel serve every
+// (source family, key family) pair without one hand-written ABI per pair.
+//------------------------------------------------------------------------------
+template <typename Src, typename Key>
+Key InvokeGroupKeySel(Il2CppDelegate* d, Src v)
+{
+    typedef Key (*Fn)(Src);
+    typedef Key (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+// A USER ENUM key. TypeEmitter emits a translated enum as
+//   struct E { Il2CppObject _obj; int32_t value__; };   // 16 bytes (instanceSize)
+// so a leaf returning an enum uses the 16-byte aggregate (hidden-pointer)
+// return convention and the VALUE lives at offset 8. Every translated enum has
+// exactly this image (no user inheritance, no other instance fields), so the
+// runtime can read the key without naming the enum's generated C++ type.
+struct Il2CppEnumKeyImage
+{
+    void* header;   // _obj (offset 0)
+    int32_t value;  // value__ (offset 8)
+    int32_t pad;    // tail padding (sizeof == 16, align 8)
+};
+
+template <typename Src>
+int32_t InvokeGroupEnumKeySel(Il2CppDelegate* d, Src v)
+{
+    typedef Il2CppEnumKeyImage (*Fn)(Src);
+    typedef Il2CppEnumKeyImage (*ThisFn)(Il2CppObject*, Src);
+    const Il2CppEnumKeyImage r = d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+    return r.value;
+}
+
+// The ELEMENT-selector face of the same generic invocation (the bucket storage
+// family decides the result type; the source family decides Src).
+template <typename Src, typename Elem>
+Elem InvokeGroupElemSel(Il2CppDelegate* d, Src v)
+{
+    typedef Elem (*Fn)(Src);
+    typedef Elem (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
 // The 2-arg int32 selector family (D-LINQZ-1 Zip, the Func<TSource,TSecond,
 // TResult> ABI): int32_t(*)(int32_t, int32_t) for a STATIC leaf;
 // int32_t(*)(Il2CppObject*, int32_t, int32_t) for an INSTANCE leaf (target in
@@ -5559,6 +5617,10 @@ bool ComparerKeyEqualsLong(Il2CppObject* cmp, int64_t key, int64_t existing)
     return reinterpret_cast<EqualsFn>(cmp->klass->vtable[slot])(cmp, key, existing);
 }
 
+// Materialize the 16-byte struct key (keyKind 8/9/10) from the bucket carrier.
+// (Declared here because the key-equality kernel below needs the decimal form.)
+runtime::Il2CppDecimal KeyCarrierToDecimal(int64_t lo, int64_t hi);
+
 bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
                     int64_t keyLo, int64_t keyHi, Il2CppObject* keyRef,
                     const Il2CppLinqGrouping* existing)
@@ -5579,19 +5641,92 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
                (existing->keyRef != nullptr && keyRef != nullptr &&
                 runtime::icall_object_equals(existing->keyRef, keyRef));
     }
-    if (keyKind >= 8)
+    if (keyKind == 8)
     {
-        // A 16-byte struct key: the default contract compares the raw carrier.
-        // A user comparer over a struct key is not wired (see the comment above).
+        // impl-groupbykey: System.Decimal keys compare by VALUE
+        // (EqualityComparer<decimal>.Default -> Decimal.Equals), so 1.0m,
+        // 1.00m and 1.000m are ONE net48 bucket. The raw 16-byte carrier
+        // differs in the scale word -- comparing it byte-wise (the pre-fix
+        // behavior) SPLIT net48's buckets (probe: 3 buckets instead of 2).
         if (cmp != nullptr)
         {
             il2cpp_throw_not_supported_exception(
-                "GroupBy with a user IEqualityComparer over a 16-byte struct key "
-                "(System.Decimal/System.DateTime/System.Guid): the struct Equals slot "
-                "is not wired; the default comparer (null) compares the raw 16-byte value.");
+                "GroupBy with a user IEqualityComparer over a System.Decimal key is "
+                "not wired; the default comparer (null) compares by decimal value.");
+            return false; // unreachable (the factory throws)
+        }
+        const runtime::Il2CppDecimal k = KeyCarrierToDecimal(keyLo, keyHi);
+        const runtime::Il2CppDecimal e = KeyCarrierToDecimal(existing->key, existing->keyHi);
+        return runtime::icall_decimal_equals(&k, &e);
+    }
+    if (keyKind == 9)
+    {
+        // impl-groupbykey: DateTime keys compare by TICKS only
+        // (DateTime.Equals ignores DateTimeKind -- probe: the same instant
+        // with Unspecified/Utc/Local kinds is ONE net48 bucket). The carrier
+        // still keeps the FIRST key's kind so get_Key reports it.
+        if (cmp != nullptr)
+        {
+            il2cpp_throw_not_supported_exception(
+                "GroupBy with a user IEqualityComparer over a System.DateTime key is "
+                "not wired; the default comparer (null) compares the ticks.");
+            return false; // unreachable (the factory throws)
+        }
+        return keyLo == existing->key;
+    }
+    if (keyKind == 10)
+    {
+        // System.Guid: field-wise value equality == the raw 16-byte image
+        // (Guid has no padding and no normalization).
+        if (cmp != nullptr)
+        {
+            il2cpp_throw_not_supported_exception(
+                "GroupBy with a user IEqualityComparer over a System.Guid key is "
+                "not wired; the default comparer (null) compares the raw 16-byte value.");
             return false; // unreachable (the factory throws)
         }
         return keyLo == existing->key && keyHi == existing->keyHi;
+    }
+    if (keyKind == 12)
+    {
+        // System.TimeSpan: value equality == the tick count.
+        if (cmp != nullptr)
+        {
+            il2cpp_throw_not_supported_exception(
+                "GroupBy with a user IEqualityComparer over a System.TimeSpan key is "
+                "not wired; the default comparer (null) compares the ticks.");
+            return false; // unreachable (the factory throws)
+        }
+        return keyLo == existing->key;
+    }
+    if (keyKind == 13)
+    {
+        // System.DateTimeOffset: net48 equality is the UTC INSTANT
+        // (DateTimeOffset.Equals/CompareTo ignore the offset -- probe: the same
+        // instant at +00:00/+02:00/+03:00 is ONE bucket). The carrier keeps the
+        // FIRST key's offset so get_Key reports it.
+        if (cmp != nullptr)
+        {
+            il2cpp_throw_not_supported_exception(
+                "GroupBy with a user IEqualityComparer over a System.DateTimeOffset key "
+                "is not wired; the default comparer (null) compares the UTC instant.");
+            return false; // unreachable (the factory throws)
+        }
+        return keyLo == existing->key;
+    }
+    if (keyKind == 14)
+    {
+        // impl-groupbykey: a USER ENUM key. The selector leaf returns the
+        // generated enum struct (a 16-byte aggregate) and the kernel keeps its
+        // int32 value__; EqualityComparer<E>.Default compares that value.
+        if (cmp != nullptr)
+        {
+            il2cpp_throw_not_supported_exception(
+                "GroupBy with a user IEqualityComparer over an enum key is not wired; "
+                "the default comparer (null) compares the underlying value.");
+            return false; // unreachable (the factory throws)
+        }
+        return static_cast<int32_t>(keyLo) == static_cast<int32_t>(existing->key);
     }
     if (keyKind == 7)
     {
@@ -5642,10 +5777,127 @@ int32_t NarrowKey(int32_t raw, int32_t keyKind)
     }
 }
 
+// impl-groupbykey: the SOURCE CELL reader for a narrow (1/2/4-byte) element
+// family. The narrow cells widen into the int32 delegate slot exactly like the
+// CLR's parameter rule, so the int32-source selector ABIs serve them unchanged.
+int32_t NarrowCellAt(Il2CppArray* src, int32_t index, int32_t cell)
+{
+    const void* p = il2cpp_array_get_elem_ptr(src, index);
+    switch (cell)
+    {
+        case 0: return static_cast<int32_t>(*reinterpret_cast<const int8_t*>(p));   // sbyte
+        case 1: return static_cast<int32_t>(*reinterpret_cast<const uint8_t*>(p));  // byte
+        case 2: return *reinterpret_cast<const uint8_t*>(p) != 0 ? 1 : 0;           // bool
+        case 3: return static_cast<int32_t>(*reinterpret_cast<const int16_t*>(p));  // short
+        case 4: return static_cast<int32_t>(*reinterpret_cast<const uint16_t*>(p)); // ushort
+        case 5: return static_cast<int32_t>(*reinterpret_cast<const uint16_t*>(p)); // char
+        case 6: return *reinterpret_cast<const int32_t*>(p);                        // uint (bit pattern)
+        default: return *reinterpret_cast<const int32_t*>(p);                       // int32
+    }
+}
+
+// impl-groupbykey: the KEY family of the GroupBy bucket carrier. Kept in
+// lockstep with MethodMap.Linq.cs KeyKindFor / KeyKindForNamed:
+//   0 int32 | 1 uint8 | 2 int8 | 3 uint16/char | 4 int16 | 5 uint32 | 6 bool
+//   7 int64/ulong | 8 System.Decimal | 9 System.DateTime | 10 System.Guid
+//   11 reference | 12 System.TimeSpan | 13 System.DateTimeOffset
+//   14 user ENUM (the int32 value__ carrier)
+//
+// The selector leaf is invoked through the GENERIC template (exact leaf ABI for
+// every source family) and the result is flattened into the 16-byte bucket
+// carrier (keyLo/keyHi) plus the reference slot.
+template <typename Src>
+void ComputeGroupKey(Il2CppDelegate* kd, Src v, int32_t keyKind,
+                     int64_t& keyLo, int64_t& keyHi, Il2CppObject*& keyRef)
+{
+    switch (keyKind)
+    {
+        case 7: // int64 / ulong
+            keyLo = InvokeGroupKeySel<Src, int64_t>(kd, v);
+            break;
+        case 8: // System.Decimal (16-byte raw carrier)
+        {
+            const runtime::Il2CppDecimal k = InvokeGroupKeySel<Src, runtime::Il2CppDecimal>(kd, v);
+            std::memcpy(&keyLo, &k, sizeof(keyLo));
+            std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+            break;
+        }
+        case 9: // System.DateTime (ticks + kind)
+        {
+            const runtime::Il2CppDateTime k = InvokeGroupKeySel<Src, runtime::Il2CppDateTime>(kd, v);
+            keyLo = k.ticks;
+            keyHi = k.kind;
+            break;
+        }
+        case 10: // System.Guid (16-byte raw carrier)
+        {
+            const Il2CppGuid k = InvokeGroupKeySel<Src, Il2CppGuid>(kd, v);
+            std::memcpy(&keyLo, &k, sizeof(keyLo));
+            std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
+            break;
+        }
+        case 11: // reference (System.String / class / object)
+            keyRef = InvokeGroupKeySel<Src, Il2CppObject*>(kd, v);
+            break;
+        case 12: // System.TimeSpan (int64 ticks)
+            keyLo = InvokeGroupKeySel<Src, runtime::Il2CppTimeSpan>(kd, v).ticks;
+            break;
+        case 13: // System.DateTimeOffset (utcTicks + offsetMinutes)
+        {
+            const runtime::Il2CppDateTimeOffset k =
+                InvokeGroupKeySel<Src, runtime::Il2CppDateTimeOffset>(kd, v);
+            keyLo = k.utcTicks;
+            keyHi = k.offsetMinutes;
+            break;
+        }
+        case 14: // user enum (the int32 value__)
+            keyLo = InvokeGroupEnumKeySel<Src>(kd, v);
+            break;
+        default: // 0..6: the int32-slot families, narrowed to the declared width
+            keyLo = NarrowKey(static_cast<int32_t>(InvokeGroupKeySel<Src, int32_t>(kd, v)),
+                              keyKind);
+            break;
+    }
+}
+
+// impl-groupbykey: the ELEMENT selector result of one source element, in the
+// bucket's storage family. Same generic invocation as ComputeGroupKey.
+template <typename Src>
+void ComputeGroupElem(Il2CppDelegate* ed, Src v, GroupElemKind kind, int32_t& elemI4,
+                      Il2CppObject*& elemRef, int64_t& elemI8, double& elemD,
+                      runtime::Il2CppDecimal& elemDec, runtime::Il2CppDateTime& elemDt,
+                      Il2CppGuid& elemGuid)
+{
+    switch (kind)
+    {
+        case GroupElemKind::Int32:
+            elemI4 = InvokeGroupElemSel<Src, int32_t>(ed, v);
+            break;
+        case GroupElemKind::Ref:
+            elemRef = InvokeGroupElemSel<Src, Il2CppObject*>(ed, v);
+            break;
+        case GroupElemKind::I8:
+            elemI8 = InvokeGroupElemSel<Src, int64_t>(ed, v);
+            break;
+        case GroupElemKind::D:
+            elemD = InvokeGroupElemSel<Src, double>(ed, v);
+            break;
+        case GroupElemKind::Decimal:
+            elemDec = InvokeGroupElemSel<Src, runtime::Il2CppDecimal>(ed, v);
+            break;
+        case GroupElemKind::DateTime:
+            elemDt = InvokeGroupElemSel<Src, runtime::Il2CppDateTime>(ed, v);
+            break;
+        case GroupElemKind::Guid:
+            elemGuid = InvokeGroupElemSel<Src, Il2CppGuid>(ed, v);
+            break;
+    }
+}
+
 // BuildGroups -- the shared bucketing pass (see the block comment).
 Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* elemSel,
                           GroupElemKind kind, Il2CppObject* cmp, int32_t keyKind = 0,
-                          int32_t srcKind = 0)
+                          int32_t srcKind = 0, int32_t srcCell = 0)
 {
     RequireArray(src);
     Il2CppDelegate* kd = RequireCallback(keySel, "keySelector");
@@ -5658,10 +5910,29 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     const bool decimalSource = !refSource && srcKind == 2;
     const bool dtSource = !refSource && srcKind == 3;
     const bool guidSource = !refSource && srcKind == 4;
+    // impl-groupbykey: the WIDE / NARROW source families. srcKind 5 is the
+    // int64/uint64 8-byte cell family, 6 the double 8-byte family and 7 the
+    // narrow (1/2/4-byte) integral family whose cell code rides srcCell.
+    const bool i8Source = !refSource && srcKind == 5;
+    const bool dSource = !refSource && srcKind == 6;
+    const bool narrowSource = !refSource && srcKind == 7;
     if (refSource) RequireRefFamily(src);
     else if (decimalSource) RequireDecimalFamily(src);
     else if (dtSource) RequireDateTimeFamily(src);
     else if (guidSource) RequireGuidFamily(src);
+    else if (i8Source) RequireI8Family(src);
+    else if (dSource) RequireDoubleFamily(src);
+    else if (narrowSource)
+    {
+        // A narrow cell must be narrower than (or equal to) the 4-byte int32
+        // slot the selector ABI widens into; a reference/wide cell is a caller
+        // contract violation, never a silent over-read.
+        if (src->elemSize > static_cast<int32_t>(sizeof(int32_t)))
+        {
+            il2cpp_throw_not_supported_exception(
+                "GroupBy: a narrow-element source must hold 1/2/4-byte cells.");
+        }
+    }
     else RequireInt32Family(src);
     if (elemSel == nullptr && cmp == nullptr)
     {
@@ -5707,7 +5978,15 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         // p0grp: a reference source element crosses as Il2CppObject*; a decimal
         // source element as the 16-byte value struct; an int32 source element as
         // the 4-byte cell value.
-        const int32_t v = (refSource || decimalSource || dtSource || guidSource) ? 0 : I4At(src, i);
+        const int32_t v = narrowSource ? NarrowCellAt(src, i, srcCell)
+            : ((refSource || decimalSource || dtSource || guidSource || i8Source || dSource)
+                ? 0 : I4At(src, i));
+        // impl-groupbykey: the wide source elements cross their selector leaf in
+        // the int64_t / double register slot.
+        const int64_t v8 = i8Source
+            ? *reinterpret_cast<const int64_t*>(il2cpp_array_get_elem_ptr(src, i)) : 0;
+        const double vd = dSource
+            ? *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(src, i)) : 0.0;
         const runtime::Il2CppDecimal dv = decimalSource ? *DecAt(src, i) : runtime::Il2CppDecimal();
         const runtime::Il2CppDateTime dts = dtSource
             ? runtime::Il2CppDateTime(*reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i)), 0)
@@ -5727,188 +6006,28 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         int64_t keyLo = 0;
         int64_t keyHi = 0;
         Il2CppObject* keyRef = nullptr;
+        // impl-groupbykey: ONE key-family dispatch for every source family. The
+        // generic template reproduces the selector leaf's ABI exactly (see
+        // InvokeGroupKeySel), so the bucket carrier is computed uniformly:
+        //   keyKind 0..6 int32-slot (narrowed) | 7 int64 | 8 System.Decimal |
+        //   9 System.DateTime | 10 System.Guid | 11 reference |
+        //   12 System.TimeSpan | 13 System.DateTimeOffset | 14 user ENUM.
+        // The callback may allocate -> collect, so every consumer re-derives its
+        // pointers from the rooted result (never caches a raw pointer).
         if (dtSource)
-        {
-            // The DateTime-source key selector takes the 8-byte DateTime BY
-            // VALUE (the InvokeSelDt* ABIs).
-            switch (keyKind)
-            {
-                case 7: keyLo = InvokeSelDtI8(kd, dts); break;
-                case 8:
-                {
-                    const runtime::Il2CppDecimal k = InvokeSelDtDecKey(kd, dts);
-                    std::memcpy(&keyLo, &k, sizeof(keyLo));
-                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                    break;
-                }
-                case 9:
-                {
-                    const runtime::Il2CppDateTime k = InvokeSelDtDtKey(kd, dts);
-                    keyLo = k.ticks;
-                    keyHi = k.kind;
-                    break;
-                }
-                case 10:
-                {
-                    const Il2CppGuid k = InvokeSelDtGuidKey(kd, dts);
-                    std::memcpy(&keyLo, &k, sizeof(keyLo));
-                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                    break;
-                }
-                case 11:
-                    keyRef = InvokeSelDtRef(kd, dts);
-                    break;
-                default:
-                    keyLo = NarrowKey(InvokeSelDtI4(kd, dts), keyKind);
-                    break;
-            }
-        }
+            ComputeGroupKey<runtime::Il2CppDateTime>(kd, dts, keyKind, keyLo, keyHi, keyRef);
         else if (guidSource)
-        {
-            // vtsrc: the Guid-source key selector takes the 16-byte Guid BY
-            // VALUE (the InvokeSelGuid* ABIs).
-            switch (keyKind)
-            {
-                case 7: keyLo = InvokeSelGuidI8(kd, gs); break;
-                case 8:
-                {
-                    const runtime::Il2CppDecimal k = InvokeSelGuidDecKey(kd, gs);
-                    std::memcpy(&keyLo, &k, sizeof(keyLo));
-                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                    break;
-                }
-                case 9:
-                {
-                    const runtime::Il2CppDateTime k = InvokeSelGuidDtKey(kd, gs);
-                    keyLo = k.ticks;
-                    keyHi = k.kind;
-                    break;
-                }
-                case 10:
-                {
-                    const Il2CppGuid k = InvokeSelGuidGuidKey(kd, gs);
-                    std::memcpy(&keyLo, &k, sizeof(keyLo));
-                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                    break;
-                }
-                case 11:
-                    keyRef = InvokeSelGuidRef(kd, gs);
-                    break;
-                default:
-                    keyLo = NarrowKey(InvokeSelGuidI4(kd, gs), keyKind);
-                    break;
-            }
-        }
+            ComputeGroupKey<Il2CppGuid>(kd, gs, keyKind, keyLo, keyHi, keyRef);
         else if (decimalSource)
-        {
-            // The decimal-source key selector takes the 16-byte decimal BY
-            // VALUE (the InvokeSelDec* ABIs).
-            switch (keyKind)
-            {
-                case 7: keyLo = InvokeSelDecI8(kd, dv); break;
-                case 8:
-                {
-                    const runtime::Il2CppDecimal k = InvokeSelDecDecKey(kd, dv);
-                    std::memcpy(&keyLo, &k, sizeof(keyLo));
-                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                    break;
-                }
-                case 9:
-                {
-                    const runtime::Il2CppDateTime k = InvokeSelDecDtKey(kd, dv);
-                    keyLo = k.ticks;
-                    keyHi = k.kind;
-                    break;
-                }
-                case 10:
-                {
-                    const Il2CppGuid k = InvokeSelDecGuidKey(kd, dv);
-                    std::memcpy(&keyLo, &k, sizeof(keyLo));
-                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                    break;
-                }
-                default:
-                    keyLo = NarrowKey(InvokeSelDecI4(kd, dv), keyKind);
-                    break;
-                case 11:
-                    // A REFERENCE key (System.String / class / object).
-                    keyRef = InvokeSelDecRef(kd, dv);
-                    break;
-            }
-        }
+            ComputeGroupKey<runtime::Il2CppDecimal>(kd, dv, keyKind, keyLo, keyHi, keyRef);
         else if (refSource)
-        {
-            // The reference-source key selector takes Il2CppObject* (the
-            // InvokeSelRef* ABIs).
-            switch (keyKind)
-            {
-                case 7: keyLo = InvokeSelRefI8(kd, srcElem); break;
-                case 8:
-                {
-                    const runtime::Il2CppDecimal k = InvokeSelRefDecKey(kd, srcElem);
-                    std::memcpy(&keyLo, &k, sizeof(keyLo));
-                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                    break;
-                }
-                case 9:
-                {
-                    const runtime::Il2CppDateTime k = InvokeSelRefDtKey(kd, srcElem);
-                    keyLo = k.ticks;
-                    keyHi = k.kind;
-                    break;
-                }
-                case 10:
-                {
-                    const Il2CppGuid k = InvokeSelRefGuidKey(kd, srcElem);
-                    std::memcpy(&keyLo, &k, sizeof(keyLo));
-                    std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                    break;
-                }
-                default:
-                    keyLo = NarrowKey(InvokeSelRefI4(kd, srcElem), keyKind);
-                    break;
-                case 11:
-                    keyRef = InvokeSelRefRef(kd, srcElem);
-                    break;
-            }
-        }
+            ComputeGroupKey<Il2CppObject*>(kd, srcElem, keyKind, keyLo, keyHi, keyRef);
+        else if (i8Source)
+            ComputeGroupKey<int64_t>(kd, v8, keyKind, keyLo, keyHi, keyRef);
+        else if (dSource)
+            ComputeGroupKey<double>(kd, vd, keyKind, keyLo, keyHi, keyRef);
         else
-        switch (keyKind)
-        {
-            case 7:
-                keyLo = InvokeSelI4I8(kd, v); // may allocate -> collect
-                break;
-            case 8:
-            {
-                const runtime::Il2CppDecimal k = InvokeSelI4DecKey(kd, v);
-                std::memcpy(&keyLo, &k, sizeof(keyLo));
-                std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                break;
-            }
-            case 9:
-            {
-                // Only the meaningful bytes (ticks + kind) are the key; the
-                // struct's trailing padding is NOT copied (it is uninitialized).
-                const runtime::Il2CppDateTime k = InvokeSelI4DtKey(kd, v);
-                keyLo = k.ticks;
-                keyHi = k.kind;
-                break;
-            }
-            case 10:
-            {
-                const Il2CppGuid k = InvokeSelI4GuidKey(kd, v);
-                std::memcpy(&keyLo, &k, sizeof(keyLo));
-                std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                break;
-            }
-            default:
-                // B4-1 (P0-04): narrow the selector result to the declared TKey width.
-                keyLo = NarrowKey(InvokeSelI4I4(kd, v), keyKind); // may allocate -> collect
-                break;
-            case 11:
-                keyRef = InvokeSelI4Ref(kd, v);
-                break;
-        }
+            ComputeGroupKey<int32_t>(kd, v, keyKind, keyLo, keyHi, keyRef);
 
         // The projected element (only for the element-selector overloads).
         // Boxed families are NOT boxed yet: the growth allocation below could
@@ -5922,76 +6041,29 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         Il2CppGuid elemGuid{};
         if (ed != nullptr)
         {
+            // impl-groupbykey: ONE element-family dispatch for every source
+            // family (the generic template reproduces the leaf ABI exactly).
             if (dtSource)
-            {
-                // The DateTime-source element selector takes the 8-byte
-                // DateTime BY VALUE (the InvokeSelDt* ABIs).
-                switch (kind)
-                {
-                    case GroupElemKind::Int32: elemI4 = InvokeSelDtI4(ed, dts); break;
-                    case GroupElemKind::Ref: elemRef = InvokeSelDtRef(ed, dts); break;
-                    case GroupElemKind::I8: elemI8 = InvokeSelDtI8(ed, dts); break;
-                    case GroupElemKind::D: elemD = InvokeSelDtD(ed, dts); break;
-                    case GroupElemKind::Decimal: elemDec = InvokeSelDtDecKey(ed, dts); break;
-                    case GroupElemKind::DateTime: elemDt = InvokeSelDtDtKey(ed, dts); break;
-                    case GroupElemKind::Guid: elemGuid = InvokeSelDtGuidKey(ed, dts); break;
-                }
-            }
+                ComputeGroupElem<runtime::Il2CppDateTime>(ed, dts, kind, elemI4, elemRef,
+                                                          elemI8, elemD, elemDec, elemDt, elemGuid);
             else if (guidSource)
-            {
-                // vtsrc: the Guid-source element selector takes the 16-byte Guid
-                // BY VALUE (the InvokeSelGuid* ABIs).
-                switch (kind)
-                {
-                    case GroupElemKind::Int32: elemI4 = InvokeSelGuidI4(ed, gs); break;
-                    case GroupElemKind::Ref: elemRef = InvokeSelGuidRef(ed, gs); break;
-                    case GroupElemKind::I8: elemI8 = InvokeSelGuidI8(ed, gs); break;
-                    case GroupElemKind::D: elemD = InvokeSelGuidD(ed, gs); break;
-                    case GroupElemKind::Decimal: elemDec = InvokeSelGuidDecKey(ed, gs); break;
-                    case GroupElemKind::DateTime: elemDt = InvokeSelGuidDtKey(ed, gs); break;
-                    case GroupElemKind::Guid: elemGuid = InvokeSelGuidGuidKey(ed, gs); break;
-                }
-            }
+                ComputeGroupElem<Il2CppGuid>(ed, gs, kind, elemI4, elemRef, elemI8, elemD,
+                                             elemDec, elemDt, elemGuid);
             else if (decimalSource)
-            {
-                // The decimal-source element selector takes the 16-byte decimal
-                // BY VALUE (the InvokeSelDec* ABIs).
-                switch (kind)
-                {
-                    case GroupElemKind::Int32: elemI4 = InvokeSelDecI4(ed, dv); break;
-                    case GroupElemKind::Ref: elemRef = InvokeSelDecRef(ed, dv); break;
-                    case GroupElemKind::I8: elemI8 = InvokeSelDecI8(ed, dv); break;
-                    case GroupElemKind::D: elemD = InvokeSelDecD(ed, dv); break;
-                    case GroupElemKind::Decimal: elemDec = InvokeSelDecDecKey(ed, dv); break;
-                    case GroupElemKind::DateTime: elemDt = InvokeSelDecDtElem(ed, dv); break;
-                    case GroupElemKind::Guid: elemGuid = InvokeSelDecGuidKey(ed, dv); break;
-                }
-            }
+                ComputeGroupElem<runtime::Il2CppDecimal>(ed, dv, kind, elemI4, elemRef, elemI8,
+                                                         elemD, elemDec, elemDt, elemGuid);
             else if (refSource)
-            {
-                // The reference-source element selector takes Il2CppObject*.
-                switch (kind)
-                {
-                    case GroupElemKind::Int32: elemI4 = InvokeSelRefI4(ed, srcElem); break;
-                    case GroupElemKind::Ref: elemRef = InvokeSelRefRef(ed, srcElem); break;
-                    case GroupElemKind::I8: elemI8 = InvokeSelRefI8(ed, srcElem); break;
-                    case GroupElemKind::D: elemD = InvokeSelRefD(ed, srcElem); break;
-                    case GroupElemKind::Decimal: elemDec = InvokeSelRefDecKey(ed, srcElem); break;
-                    case GroupElemKind::DateTime: elemDt = InvokeSelRefDtElem(ed, srcElem); break;
-                    case GroupElemKind::Guid: elemGuid = InvokeSelRefGuidKey(ed, srcElem); break;
-                }
-            }
+                ComputeGroupElem<Il2CppObject*>(ed, srcElem, kind, elemI4, elemRef, elemI8,
+                                                elemD, elemDec, elemDt, elemGuid);
+            else if (i8Source)
+                ComputeGroupElem<int64_t>(ed, v8, kind, elemI4, elemRef, elemI8, elemD,
+                                          elemDec, elemDt, elemGuid);
+            else if (dSource)
+                ComputeGroupElem<double>(ed, vd, kind, elemI4, elemRef, elemI8, elemD,
+                                         elemDec, elemDt, elemGuid);
             else
-            switch (kind)
-            {
-                case GroupElemKind::Int32: elemI4 = InvokeSelI4I4(ed, v); break;
-                case GroupElemKind::Ref: elemRef = InvokeSelI4Ref(ed, v); break;
-                case GroupElemKind::I8: elemI8 = InvokeSelI4I8(ed, v); break;
-                case GroupElemKind::D: elemD = InvokeSelI4D(ed, v); break;
-                case GroupElemKind::Decimal: elemDec = InvokeSelI4DecKey(ed, v); break;
-                case GroupElemKind::DateTime: elemDt = InvokeSelI4DtElem(ed, v); break;
-                case GroupElemKind::Guid: elemGuid = InvokeSelI4GuidKey(ed, v); break;
-            }
+                ComputeGroupElem<int32_t>(ed, v, kind, elemI4, elemRef, elemI8, elemD,
+                                          elemDec, elemDt, elemGuid);
         }
         else if (kind == GroupElemKind::Int32)
         {
@@ -6017,6 +6089,25 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
             // (ticks 0 -> 0001-01-01).
             elemDt = dts;
         }
+        else if (decimalSource && kind == GroupElemKind::Decimal)
+        {
+            // impl-groupbykey: the key-only DECIMAL-source overload -- the
+            // bucket element IS the 16-byte source decimal cell (the old
+            // derivation defaulted the element family to int32, so a
+            // GroupBy(source, key, comparer) bucket stored zeros).
+            elemDec = dv;
+        }
+        else if (i8Source && kind == GroupElemKind::I8)
+        {
+            // impl-groupbykey: the key-only int64/uint64-source overload.
+            elemI8 = v8;
+        }
+        else if (dSource && kind == GroupElemKind::D)
+        {
+            // impl-groupbykey: the key-only double-source overload.
+            elemD = vd;
+        }
+
 
         res = AsGroupingResult(result);
         const int32_t n = res->count;
@@ -6266,9 +6357,117 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, int
         const int64_t kHi = grp->keyHi;
         const int32_t kI4 = static_cast<int32_t>(kLo);
 
-        // The key slot the leaf receives: int32 (keyKind <= 6), int64 (7) or a
-        // 16-byte struct (8/9/10). Each branch uses the matching leaf ABI.
-        if (keyKind >= 8)
+        // The key slot the leaf receives: int32 (keyKind <= 6), int64 (7), a
+        // 16-byte struct (8/9/10), a REFERENCE (11), System.TimeSpan (12),
+        // System.DateTimeOffset (13) or a user ENUM (14). Each branch uses the
+        // matching leaf ABI.
+        if (keyKind == 11)
+        {
+            // p0grp: a REFERENCE key. The result selector's first parameter is
+            // the bucket key as an Il2CppObject* -- passing the int32 carrier
+            // here (the pre-fix fall-through) handed the leaf a garbage pointer.
+            if (refResult)
+            {
+                Il2CppObject* r = InvokeSelKeyGroupKeyTyped<Il2CppObject*, Il2CppObject*>(d, grp->keyRef, elemsObj);
+                Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+                il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                *slot = r;
+            }
+            else if (rsKind == 3)
+                *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<Il2CppObject*, int64_t>(d, grp->keyRef, elemsObj);
+            else if (rsKind == 4)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<Il2CppObject*, double>(d, grp->keyRef, elemsObj);
+            else if (rsKind == 5)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                    InvokeSelKeyGroupKeyTyped<Il2CppObject*, float>(d, grp->keyRef, elemsObj));
+            else
+                *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<Il2CppObject*, int32_t>(d, grp->keyRef, elemsObj);
+        }
+        else if (keyKind == 12)
+        {
+            // impl-groupbykey: System.TimeSpan key (the ticks carrier).
+            const runtime::Il2CppTimeSpan k(kLo);
+            if (refResult)
+            {
+                Il2CppObject* r = InvokeSelKeyGroupKeyTyped<runtime::Il2CppTimeSpan, Il2CppObject*>(d, k, elemsObj);
+                Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+                il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                *slot = r;
+            }
+            else if (rsKind == 3)
+                *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<runtime::Il2CppTimeSpan, int64_t>(d, k, elemsObj);
+            else if (rsKind == 4)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<runtime::Il2CppTimeSpan, double>(d, k, elemsObj);
+            else if (rsKind == 5)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                    InvokeSelKeyGroupKeyTyped<runtime::Il2CppTimeSpan, float>(d, k, elemsObj));
+            else
+                *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<runtime::Il2CppTimeSpan, int32_t>(d, k, elemsObj);
+        }
+        else if (keyKind == 13)
+        {
+            // impl-groupbykey: System.DateTimeOffset key (UTC instant + offset;
+            // the leaf takes the 16-byte struct by value).
+            runtime::Il2CppDateTimeOffset k;
+            k.utcTicks = kLo;
+            k.offsetMinutes = static_cast<int32_t>(kHi);
+            if (refResult)
+            {
+                Il2CppObject* r = InvokeSelKeyGroupKeyTyped<runtime::Il2CppDateTimeOffset, Il2CppObject*>(d, k, elemsObj);
+                Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+                il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                *slot = r;
+            }
+            else if (rsKind == 3)
+                *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<runtime::Il2CppDateTimeOffset, int64_t>(d, k, elemsObj);
+            else if (rsKind == 4)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<runtime::Il2CppDateTimeOffset, double>(d, k, elemsObj);
+            else if (rsKind == 5)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                    InvokeSelKeyGroupKeyTyped<runtime::Il2CppDateTimeOffset, float>(d, k, elemsObj));
+            else
+                *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<runtime::Il2CppDateTimeOffset, int32_t>(d, k, elemsObj);
+        }
+        else if (keyKind == 14)
+        {
+            // impl-groupbykey: a user ENUM key. The leaf takes the generated
+            // enum struct by value; Il2CppEnumKeyImage has the same 16-byte
+            // image (header + value__ + padding), so the register/aggregate
+            // ABI matches without naming the enum type.
+            Il2CppEnumKeyImage k;
+            k.header = nullptr;
+            k.value = static_cast<int32_t>(kLo);
+            k.pad = 0;
+            if (refResult)
+            {
+                Il2CppObject* r = InvokeSelKeyGroupKeyTyped<Il2CppEnumKeyImage, Il2CppObject*>(d, k, elemsObj);
+                Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+                il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                *slot = r;
+            }
+            else if (rsKind == 3)
+                *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<Il2CppEnumKeyImage, int64_t>(d, k, elemsObj);
+            else if (rsKind == 4)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<Il2CppEnumKeyImage, double>(d, k, elemsObj);
+            else if (rsKind == 5)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                    InvokeSelKeyGroupKeyTyped<Il2CppEnumKeyImage, float>(d, k, elemsObj));
+            else
+                *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<Il2CppEnumKeyImage, int32_t>(d, k, elemsObj);
+        }
+        else if (keyKind >= 8)
         {
             if (keyKind == 8)
             {
@@ -6410,6 +6609,20 @@ Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keyS
                                             int32_t rsKind, int32_t keyKind,
                                             int32_t srcKind)
 {
+    return il2cpp_linq_group_by_full_key_cell(src, keySel, elemSel, cmp, resSel, elemKind,
+                                              rsKind, keyKind, srcKind, /*srcCell=*/0);
+}
+
+// impl-groupbykey: the NARROW-source form. srcKind 7 (the 1/2/4-byte integral
+// families) needs the SOURCE CELL CODE -- the transpiler's LinqNarrowCode --
+// so the kernel reads sbyte/byte/bool/short/ushort/char/uint at its real width
+// before widening into the int32 selector slot.
+Il2CppObject* il2cpp_linq_group_by_full_key_cell(Il2CppArray* src, Il2CppObject* keySel,
+                                                 Il2CppObject* elemSel, Il2CppObject* cmp,
+                                                 Il2CppObject* resSel, int32_t elemKind,
+                                                 int32_t rsKind, int32_t keyKind,
+                                                 int32_t srcKind, int32_t srcCell)
+{
     if (cmp == nullptr)
     {
         // No comparer supplied: the default int32 equality (nullptr).
@@ -6424,8 +6637,14 @@ Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keyS
         // DateTime source, so every key-only bucket cell was a ZERO int32 (the
         // source element is read as the 16-byte runtime struct and the Int32
         // arm stored elemI4 = 0 -- a silent wrong bucket).
+        // impl-groupbykey: the DECIMAL (2) / int64 (5) / double (6) source
+        // families keep their own bucket family too; a narrow source (7) rides
+        // the int32 bucket because every 1/2/4-byte cell widens into that slot.
         elemKind = srcKind == 4 ? 6
             : srcKind == 3 ? 5
+            : srcKind == 2 ? 4
+            : srcKind == 5 ? 2
+            : srcKind == 6 ? 3
             : ((src->isRefElem != 0) ? 1 : 0);
     }
     GroupElemKind kind = GroupElemKind::Int32;
@@ -6441,7 +6660,7 @@ Il2CppObject* il2cpp_linq_group_by_full_key(Il2CppArray* src, Il2CppObject* keyS
         default:
             il2cpp_throw_not_supported_exception("GroupBy: unsupported TElement family code.");
     }
-    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp, keyKind, srcKind);
+    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp, keyKind, srcKind, srcCell);
     if (rsKind == 0)
     {
         return result;
@@ -6522,43 +6741,14 @@ Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySe
         // BATCH4: the key rides its real family carrier (int32 slot, int64, or a
         // 16-byte struct). The callback may allocate -> collect, so every
         // consumer re-derives its pointers from the rooted result.
+        // impl-groupbykey: the dispatch is the SHARED key-family kernel, so a
+        // decimal source accepts every key family (7 int64 / 8 decimal /
+        // 9 DateTime / 10 Guid / 11 reference / 12 TimeSpan / 13 DateTimeOffset
+        // / 14 user enum / 0..6 int32-slot) through the same leaf ABI.
         int64_t keyLo = 0;
         int64_t keyHi = 0;
         Il2CppObject* keyRef = nullptr;
-        switch (keyKind)
-        {
-            case 7:
-                keyLo = InvokeSelDecI8(kd, v); // may allocate -> collect
-                break;
-            case 8:
-            {
-                const runtime::Il2CppDecimal k = InvokeSelDecDecKey(kd, v);
-                std::memcpy(&keyLo, &k, sizeof(keyLo));
-                std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                break;
-            }
-            case 9:
-            {
-                const runtime::Il2CppDateTime k = InvokeSelDecDtKey(kd, v);
-                keyLo = k.ticks;
-                keyHi = k.kind;
-                break;
-            }
-            case 10:
-            {
-                const Il2CppGuid k = InvokeSelDecGuidKey(kd, v);
-                std::memcpy(&keyLo, &k, sizeof(keyLo));
-                std::memcpy(&keyHi, reinterpret_cast<const uint8_t*>(&k) + 8, sizeof(keyHi));
-                break;
-            }
-            case 11:
-                // A REFERENCE key (System.String / class / object).
-                keyRef = InvokeSelDecRef(kd, v);
-                break;
-            default:
-                keyLo = NarrowKey(InvokeSelDecI4(kd, v), keyKind); // may allocate -> collect
-                break;
-        }
+        ComputeGroupKey<runtime::Il2CppDecimal>(kd, v, keyKind, keyLo, keyHi, keyRef);
 
         res = AsGroupingResult(result);
         const int32_t n = res->count;
@@ -6719,6 +6909,27 @@ Il2CppObject* il2cpp_linq_grouping_get_key_ref(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
     return AsGrouping(grouping)->keyRef;
+}
+
+// impl-groupbykey: the System.TimeSpan key accessor (the bucket carrier is the
+// raw ticks count; TimeSpan equality is ticks-only, so no second word exists).
+runtime::Il2CppTimeSpan il2cpp_linq_grouping_get_key_ts(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return runtime::Il2CppTimeSpan(AsGrouping(grouping)->key);
+}
+
+// impl-groupbykey: the System.DateTimeOffset key accessor. The carrier keeps
+// the UTC instant in `key` (the equality slot) and the offset minutes in
+// `keyHi`; the value must be reconstructed with BOTH to round-trip.
+runtime::Il2CppDateTimeOffset il2cpp_linq_grouping_get_key_dto(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    const Il2CppLinqGrouping* grp = AsGrouping(grouping);
+    runtime::Il2CppDateTimeOffset v;
+    v.utcTicks = grp->key;
+    v.offsetMinutes = static_cast<int32_t>(grp->keyHi);
+    return v;
 }
 
 int32_t il2cpp_linq_grouping_get_count(Il2CppObject* grouping)

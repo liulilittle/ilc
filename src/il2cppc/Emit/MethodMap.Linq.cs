@@ -505,6 +505,12 @@ public static partial class MethodRefResolver
                     // p0grp: a REFERENCE key (System.String / class / object).
                     "_key_ref" => I("il2cpp::il2cpp_linq_grouping_get_key_ref", 0, true, true, true,
                         new[] { "" }),
+                    // impl-groupbykey: the TimeSpan (ticks) and DateTimeOffset
+                    // (UTC instant + offset) key carriers.
+                    "_key_ts" => I("il2cpp::il2cpp_linq_grouping_get_key_ts", 0, true, false, true,
+                        resultKind: "ts"),
+                    "_key_dto" => I("il2cpp::il2cpp_linq_grouping_get_key_dto", 0, true, false, true,
+                        resultKind: "dto"),
                     _ => I("il2cpp::il2cpp_linq_grouping_get_key", 0, true, false, true),
                 };
             }
@@ -1691,7 +1697,7 @@ public static partial class MethodRefResolver
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                         throw new NotSupportedException(
                             "Enumerable.OrderBy with a (element, index) key selector over a reference-element " +
-                            "source is not wired: LOUD whitelist ï¿?-- net48 has no (element, index) key " +
+                            "source is not wired: LOUD whitelist ï¿½?-- net48 has no (element, index) key " +
                             "selector overload. MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the " +
                             "net48 Reference Source System.Core/System/Linq/Enumerable.cs list only " +
                             "OrderBy<TSource,TKey>(IEnumerable<TSource>, Func<TSource,TKey>) and " +
@@ -3750,11 +3756,41 @@ public static partial class MethodRefResolver
             if (n is "System.Decimal" or "decimal") return 8;
             if (n is "System.DateTime" or "DateTime") return 9;
             if (n is "System.Guid" or "Guid") return 10;
+            // impl-groupbykey: the remaining wireable value-type key families.
+            //   System.TimeSpan       -> ticks carrier (12)
+            //   System.DateTimeOffset -> UTC instant + offset carrier (13)
+            //   a USER ENUM           -> its int32 value__ (14): the translated
+            //                            enum is a 16-byte struct with the value
+            //                            at offset 8, so the key selector's
+            //                            return is a 16-byte aggregate whose
+            //                            payload the runtime reads at that
+            //                            offset (Il2CppEnumKeyImage).
+            //   a BCL ENUM            -> the int32 slot (0): the translated
+            //                            value of a whitelisted BCL enum is a
+            //                            plain int32_t, not a struct.
+            // Anything else (a user STRUCT) still has no key carrier -> -1.
+            if (n is "System.TimeSpan" or "TimeSpan") return 12;
+            if (n is "System.DateTimeOffset" or "DateTimeOffset") return 13;
+            if (IsUserEnumTypeName(n)) return 14;
+            if (CodeGenerator.IsKnownBclEnumName(n)) return 0;
         }
         // p0grp: a REFERENCE key (System.String / class / object) rides the
         // bucket's keyRef slot (keyKind 11).
         if (IsRefFamilyByte(keyByte)) return 11;
         return KeyKindFor(keyByte);
+    }
+
+    // impl-groupbykey: is `name` a USER enum (a TypeDef of THIS session whose
+    // base is System.Enum)? The metadata is the authority (the same rule
+    // TypeEmitter's field-shape resolver uses), so an enum is never confused
+    // with an arbitrary user struct that shares the 0x11 byte.
+    private static bool IsUserEnumTypeName(string name)
+    {
+        if (name.StartsWith("V:", StringComparison.Ordinal)) name = name[2..];
+        if (name.IndexOf('.') < 0) return false;
+        if (TypeEmitter.SessionTypes is not { } knownTypes) return false;
+        var def = knownTypes.FirstOrDefault(t => t.MatchesFullName(name));
+        return def != null && def.BaseTypeName == "System.Enum";
     }
 
     // BATCH4: the grouping key-family marker carried in the tracked enumerator /
@@ -3770,6 +3806,12 @@ public static partial class MethodRefResolver
             "System.Guid" or "Guid" => "_key_guid",
             // p0grp: a REFERENCE key (System.String / class / object).
             "string" or "String" or "System.String" => "_key_ref",
+            // impl-groupbykey: the TimeSpan (ticks) and DateTimeOffset (UTC
+            // instant + offset) key carriers. A user-ENUM key keeps the DEFAULT
+            // int32 get_Key accessor (its payload is value__), so it needs no
+            // marker.
+            "System.TimeSpan" or "TimeSpan" => "_key_ts",
+            "System.DateTimeOffset" or "DateTimeOffset" => "_key_dto",
             _ => "",
         };
 
@@ -5169,7 +5211,7 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over an int64-element source with an (element, index) key selector " +
-                        "is not wired: LOUD whitelist ï¿?-- net48 has no (element, index) key selector overload. " +
+                        "is not wired: LOUD whitelist ï¿½?-- net48 has no (element, index) key selector overload. " +
                         "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
@@ -5224,7 +5266,7 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a double/float-element source with an (element, index) key selector " +
-                        "is not wired: LOUD whitelist ï¿?-- net48 has no (element, index) key selector overload. " +
+                        "is not wired: LOUD whitelist ï¿½?-- net48 has no (element, index) key selector overload. " +
                         "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
@@ -5385,6 +5427,112 @@ public static partial class MethodRefResolver
                     _ => I("il2cpp::il2cpp_linq_single_or_default_fam_i4", 1, true, false, false,
                         OneArg, appendLiterals: new[] { cellCode }),
                 };
+            }
+            case "GroupBy":
+            {
+                // impl-groupbykey: GroupBy over an int64 / double / narrow ARRAY
+                // source (b5-gaps 17.2 (3): "GroupBy<int64,DateTime>"). The
+                // runtime kernel reads the element at its REAL width (srcKind
+                // 5/6/7 + the narrow cell code) and buckets it through the
+                // SHARED key-family dispatch, so every key carrier the int32
+                // source supports is available here too.
+                if (srcFam == "f") return null; // float source: no bucket cell ABI (LOUD below)
+                if (genArgs is not { Length: >= 2 }) return null;
+                int wKeyKind = KeyKindForNamed(genArgs[1], genArgNames, 1);
+                if (wKeyKind < 0)
+                {
+                    string wElemArgType = GenericArgTypeName(genArgs[0]);
+                    string wKeyArgType = genArgNames is { Length: >= 2 } && genArgNames[1] != "?"
+                        ? genArgNames[1] : GenericArgTypeName(genArgs[1]);
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy<{wElemArgType},{wKeyArgType}> over a " +
+                        $"{elemScalar} source is not wired: the grouping surface buckets by a key " +
+                        "carrier of int32-slot (int/enum/bool/char/sbyte/byte/short/ushort/uint), " +
+                        "int64 (long/ulong) or 16-byte struct (System.Decimal/System.DateTime/" +
+                        "System.Guid/System.TimeSpan/System.DateTimeOffset); " +
+                        $"{DescribeRejectedKey(genArgs[1], wKeyArgType)} has no runtime key carrier " +
+                        "(see docs/audit/b5-gaps.md)");
+                }
+                var wParams = LinqEncodedParamTypes(md, sigHandle);
+                int wElemArg = -1, wCmpArg = -1, wResArg = -1;
+                for (int pi = 2; pi < wParams.Length; pi++)
+                {
+                    var wdef = GenericDefNameOf(wParams[pi]);
+                    if (wdef == "System.Func`2") wElemArg = pi;
+                    else if (wdef == "System.Func`3") wResArg = pi;
+                    else if (wdef == "System.Collections.Generic.IEqualityComparer`1") wCmpArg = pi;
+                }
+                byte? wElemByte = wElemArg >= 0 && genArgs.Length >= 3 ? genArgs[2] : null;
+                byte? wResByte = wResArg >= 0 && genArgs.Length >= 3
+                    ? (genArgs.Length >= 4 ? genArgs[3] : genArgs[2]) : null;
+                string WElemFamily(byte b, int nameIndex)
+                {
+                    switch (b)
+                    {
+                        case 0x08:
+                        case 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09:
+                            return "0";
+                        case 0x0A or 0x0B: return "2";
+                        case 0x0D: return "3";
+                        case 0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E: return "1";
+                        case 0x11:
+                        {
+                            var n = genArgNames is { Length: > 0 } && nameIndex < genArgNames.Length
+                                ? genArgNames[nameIndex] : null;
+                            if (n is not null && n.StartsWith("V:", StringComparison.Ordinal)) n = n[2..];
+                            return n switch
+                            {
+                                "System.Decimal" => "4",
+                                "System.DateTime" => "5",
+                                "System.Guid" => "6",
+                                _ => "",
+                            };
+                        }
+                        default: return "";
+                    }
+                }
+                string WResultFamily(byte b) => b switch
+                {
+                    0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                    0x0A or 0x0B => "3",
+                    0x0D => "4",
+                    0x0C => "5",
+                    _ => "2",
+                };
+                // key-only: the element IS the source element of the SOURCE
+                // family (int64 -> boxed-int64 bucket, double -> boxed-double,
+                // narrow -> the int32 slot the cell widens into).
+                string wDefaultElem = srcFam switch { "i8" => "2", "d" => "3", _ => "0" };
+                string wEk = wElemByte is { } web ? WElemFamily(web, 2) : wDefaultElem;
+                if (wEk.Length == 0)
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy TElement '{GenericArgTypeName(wElemByte!.Value)}' " +
+                        $"over a {elemScalar} source is not a supported element family");
+                string wRk = wResByte is { } wrb ? WResultFamily(wrb) : "0";
+                int wElemIdx = wElemArg >= 0 ? wElemArg : -1;
+                int wCmpIdx = wCmpArg >= 0 ? wCmpArg : -1;
+                int wResIdx = wResArg >= 0 ? wResArg : -1;
+                var wArgOrder = new[] { 0, 1, wElemIdx, wCmpIdx, wResIdx };
+                var wCasts = new[] { "a", "", "", "", "" };
+                string wSrcKind = srcFam switch { "i8" => "5", "d" => "6", _ => "7" };
+                var wLiterals = narrow
+                    ? new[] { wEk, wRk,
+                        wKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        wSrcKind, kindCode }
+                    : new[] { wEk, wRk,
+                        wKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        wSrcKind };
+                var wRetType = wRk == "0"
+                    ? "System.Linq.IGroupingResult"
+                    : wRk == "1" ? "System.Int32[]"
+                    : wRk == "3" ? "System.Int64[]"
+                    : wRk == "4" ? "System.Double[]"
+                    : wRk == "5" ? "System.Double[]" : "System.Object[]";
+                return I(narrow
+                        ? "il2cpp::il2cpp_linq_group_by_full_key_cell"
+                        : "il2cpp::il2cpp_linq_group_by_full_key",
+                    count, true, true, false, wCasts,
+                    returnTypeName: wRetType, appendLiterals: wLiterals, argOrder: wArgOrder);
             }
             default:
                 return null;

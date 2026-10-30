@@ -1667,14 +1667,15 @@ e2e (mingw, oracle sha == runtime sha):
    `Il2CppArray*` (a wrong value / access violation). Only a CHAINED
    `decimal[].ToList().Aggregate(0m, ...)` kept the tracked
    `List`1_System.Decimal` receiver.
-3. **GroupBy key families** (A cluster) -- evidence (transpile log):
+3. **GroupBy key families** (A cluster) -- FIXED by impl-groupbykey (see
+   section 23). Evidence (transpile log at the baseline):
    `GroupBy<int32,TimeSpan>` -> "a value-type (System.TimeSpan) key has no
    runtime key carrier"; `GroupBy<int64,DateTime>` -> "the stage-1 runtime
-   LINQ surface is int32 (0x08) element-family". DateTime/Guid keys over the
-   int32/reference/decimal/DateTime source families ARE already wired
-   (KeyKindForNamed 9/10); the missing pieces are the TimeSpan key kind and
-   the non-int32 element-source GroupBy surface. The key carrier / grouping
-   kernel lives in linq_map.cpp (outside this seat's write scope).
+   LINQ surface is int32 (0x08) element-family". The missing pieces were the
+   TimeSpan/DateTimeOffset/user-enum key kinds, the non-int32 element-source
+   GroupBy surface and three SILENT WRONG-VALUE comparers (decimal by raw
+   image, DateTime by kind, reference key into the result selector). A float[]
+   source stays LOUD and is registered in section 23.5.
 4. **`DefaultIfEmpty(source, defaultValue)`** (non-decimal) -- the mapping
    answered the 1-argument entry and DROPPED the default (a wrong empty-source
    value / stack desync). It is now a transpile-time LOUD for the int32,
@@ -2032,3 +2033,173 @@ Two independent causes, both in the element-family resolution:
 - All 6 regression probes plus the 9 audit-fix3 cases byte-identical.
 - Unit 3969/3969 (baseline 3946 + 23 new assertions). C0: il2cppc Debug build
   0 errors.
+
+## 23. impl-groupbykey: the GroupBy KEY-FAMILY matrix (b5-gaps 17.2 (3))
+
+### 23.1 The defect (measured)
+
+Two transpile-time LOUDs and three SILENT WRONG VALUES.
+
+LOUD (transpile log at 856edc87):
+
+```
+Enumerable.GroupBy<int32,System.TimeSpan> not wired: ... a value-type
+  (System.TimeSpan) key has no runtime key carrier (see docs/audit/b5-gaps.md)
+Enumerable.GroupBy<int64,System.DateTime> not wired: ... the stage-1 runtime
+  LINQ surface is int32 (0x08) element-family for this operator
+Enumerable.GroupBy<int32,Cases.Color> ... a value-type (Cases.Color) key has
+  no runtime key carrier
+```
+
+SILENT WRONG VALUES (the highest-priority class; each produced a WRONG BUCKET
+COUNT with no diagnostic at all):
+
+1. **A decimal key compared by its RAW 16-byte image.** net48 compares
+   `decimal` by VALUE, so `1.0m / 1.00m / 1.000m` is ONE bucket. The old
+   `GroupKeysEqual` did `memcmp` over the raw carrier, and the three literals
+   differ in their SCALE bits -> three buckets.
+2. **A DateTime key compared `ticks + kind`.** net48 compares `ticks` only
+   (`DateTime.Equals` ignores `Kind`), so the same instant as Utc / Local /
+   Unspecified is ONE bucket; the old comparer used `keyHi = kind` -> three.
+3. **A reference key reached the result selector as the int32 carrier.** In
+   `ApplyResultSelector`, every `keyKind >= 8` that was not 8/9 fell into the
+   Guid arm, and `keyKind 11` (reference) never had an arm at all -- the leaf's
+   first parameter (declared `Il2CppObject*`) received the int32 key slot as a
+   pointer. Measured blast radius while bisecting: the `probe-groupbykey`
+   `[refrs]` records emitted ~58 MB of garbage instead of two short strings.
+
+Two further traps found while fixing (the first was mine, the second
+pre-existing):
+
+- a duplicated `if (ed != nullptr)` guard nested the whole element-family
+  chain, so every key-only bucket stored a ZERO element (`p0grp` `[int] e0=0`
+  against an oracle `e0=5`). Caught by the `p0grp` regression, not by the new
+  probe;
+- `il2cpp_linq_group_by_full_key`'s key-only `elemKind` derivation covered only
+  the Guid (6) and DateTime (5) sources, so a key-only DECIMAL source defaulted
+  to the int32 bucket and stored zeros. The derivation now covers decimal (4),
+  int64 (2), double (3) and narrow (0) as well.
+
+Correction to an earlier internal note (kept for the record): the old
+`GroupKeysEqual` decimal arm's `keyHi == existing->keyHi` was NOT a
+self-comparison -- it compares the caller's carrier against the stored one. The
+real defect there is the comparison RULE (raw image instead of value), which is
+what item 1 above describes.
+
+
+### 23.2 Root cause
+
+The key carrier was a single 16-byte `(keyLo, keyHi)` pair with a per-family
+`switch` copy-pasted into FIVE source-family entry points (`int32`, reference,
+decimal, DateTime, Guid), each with its own hand-written selector ABI
+(`InvokeSelDecI4`, `InvokeSelDecDtKey`, ...). Consequences:
+
+- a new key family needed a new hand-written ABI per source family (so
+  TimeSpan / DateTimeOffset / user-enum simply did not exist);
+- a new SOURCE family needed a new hand-written key dispatch (so `long[]`,
+  `double[]` and `byte[]` sources could not GroupBy at all);
+- the comparison rules lived in one place but were written per family, so the
+  decimal (value) and DateTime (ticks-only) rules were never expressed.
+
+### 23.3 Fixed
+
+`src/runtime/src/linq_map.cpp` / `linq_map.h`:
+
+- `InvokeGroupKeySel<Src,Key>` / `InvokeGroupElemSel<Src,Elem>` -- ONE generic
+  invocation that reproduces every leaf ABI exactly (int32 slot, int64/double
+  registers, `Il2CppObject*`, and the hidden-pointer aggregate for the 8/16-byte
+  value structs), so any (source, key) pair is served without a new ABI.
+- `InvokeGroupEnumKeySel<Src>` + `Il2CppEnumKeyImage` -- a user enum is emitted
+  by TypeEmitter as `struct E { Il2CppObject _obj; int32_t value__; }`
+  (instanceSize 16, value__ at offset 8), so the runtime reads the payload
+  through that image without naming the enum's generated C++ type.
+- `ComputeGroupKey<Src>` / `ComputeGroupElem<Src>` -- the single dispatch both
+  kernels now use. Key kinds: `0..6` int32-slot (narrowed), `7` int64/uint64,
+  `8` Decimal, `9` DateTime, `10` Guid, `11` reference, `12` TimeSpan,
+  `13` DateTimeOffset, `14` user enum. All 15 are enumerated; there is no
+  `default` arm that silently reinterprets a family.
+- `GroupKeysEqual` rewritten to the net48 rules: 8 -> `icall_decimal_equals`
+  (VALUE), 9 -> `ticks` only, 10 -> raw 16 bytes, 12 -> `ticks`, 13 ->
+  `utcTicks` only (offset excluded), 14 -> int32 `value__`, 11 -> reference
+  equality, 7 -> `ComparerKeyEqualsLong`, 0..6 -> `ComparerKeyEquals`.
+- `ApplyResultSelector` gained the missing 11 / 12 / 13 / 14 arms, so the leaf
+  receives the REAL key (pointer / `Il2CppTimeSpan` / `Il2CppDateTimeOffset` /
+  enum image) instead of the int32 carrier.
+- `NarrowCellAt` + `il2cpp_linq_group_by_full_key_cell` -- srcKind 7 (the
+  1/2/4-byte integral families) reads its cell at the real width before
+  widening into the int32 selector slot; srcKind 5/6 read int64/double cells.
+- key-only `elemKind` derivation now covers decimal (4) / int64 (2) /
+  double (3) / narrow (0) sources as well; `il2cpp_linq_group_by_dec_key` calls
+  the shared `ComputeGroupKey`, so a decimal source accepts every key family.
+- new accessors `il2cpp_linq_grouping_get_key_ts` / `_dto` (a user-enum key
+  keeps the plain int32 `get_key`, its only payload being `value__`).
+
+`src/il2cppc/Emit/MethodMap.Linq.cs`:
+
+- `KeyKindForNamed`: +12 `System.TimeSpan`, +13 `System.DateTimeOffset`, +14 a
+  user enum (resolved through `TypeEmitter.SessionTypes` +
+  `BaseTypeName == "System.Enum"`), and a whitelisted BCL enum -> keyKind 0
+  (its translated value is a plain `int32_t`). A user STRUCT still returns -1.
+- `LinqGroupingKeyMarker`: +`_key_ts` / `_key_dto`; the get_Key dispatch binds
+  the two new accessors.
+- `TryMapLinqWide` gained a `GroupBy` arm for the int64 (srcKind 5) / double
+  (6) / narrow (7, via the `_cell` entry + the source cell code) source
+  families. A `float[]` source returns null and keeps its LOUD.
+
+### 23.4 e2e
+
+`tests/cases/probe-groupbykey` (new, 11 records, oracle-vs-runtime sha
+equality):
+
+- `[ts]` TimeSpan key over int32 -> 3 buckets by ticks; `[ts2]` a 1.5 s span
+  built from `FromMilliseconds` and from `FromTicks` is ONE bucket;
+- `[enum]` user-enum key -> 1/2/3 by `value__`;
+- `[i8]` long source (key-only buckets hold the source values) and `[i8dt]`
+  long source with a DateTime key;
+- `[narrow]` byte source; `[d]` double source;
+- `[dto]` DateTimeOffset key -> the same instant at +00:00/+02:00 is ONE
+  bucket and get_Key reports the FIRST key's offset;
+- `[refrs]` reference key + result selector -> the real key object;
+- `[deckey]` `1.0m / 1.00m / 1.000m` -> ONE bucket (2 with `2m`);
+- `[dtkey]` Utc/Local/Unspecified with the same ticks -> ONE bucket.
+
+RED at baseline (transpile LOUD, 0 records): `GroupBy<int32,System.TimeSpan>`.
+GREEN: oracle sha == runtime sha =
+`73a88e15accb68b86bb6b8786252350690ec5c9e423014b5e3dc5bde5be55535`,
+544 B, 11/11 records, diff 0.
+
+Regressions unchanged: `p0grp` `0b12732d`, `linqcase` `2d76fda3`,
+`linqorder2` `6a72ece6`, `probe-aggrs` `fdac4fff`, `probe-linqagg2` `eb49da63`,
+`loud-linq-decsetops` `454c4e2e`, `zmatrix` `24ba1e99` -- all ok.
+
+Unit: 3993/3993 (baseline 3974 + 19 new assertions in
+`tests/unit/MethodMapTests.GroupByKey.cs`). C0: il2cppc Debug rebuild
+0 errors, and the only warnings are the three pre-existing `CS8601` in
+`Ir/StackFold.cs` (verified byte-identical at HEAD) -- zero new warnings.
+
+### 23.5 Still open after this seat (registered)
+
+- **A `float[]` (System.Single) GroupBy source** stays LOUD. It is NOT a
+  key-carrier problem -- the key dispatch already accepts every family -- it is
+  the BUCKET ELEMENT surface that is missing:
+  (a) there is no `GroupElemKind::F`, so `NewGroupElementArray` cannot
+  materialize a `kElemKindF` bucket (the `I8`/`D` buckets box through
+  `icall_box_long`/`icall_box_double`; a float bucket would need
+  `icall_box_float`, which exists but stores a widened double, so
+  `get_elements`/`ToArray` would have to keep the 4-byte cell while the boxed
+  form widens -- a type change that needs its own design);
+  (b) there is no `il2cpp_ienum_get_current_f` carrier (`MethodRefResolver`
+  wires `_ref/_dec/_dt/_guid/_i8/_d/_i4/_obj` only), so a
+  `foreach (float f in bucket)` has no result slot.
+  Both are runtime-surface additions outside the GroupBy KEY scope; the LOUD
+  keeps naming the real reason ("int32 (0x08) element-family"), never a wrong
+  bucket. Registered as the follow-up for a `float` element-family seat.
+- **A user STRUCT key** (`GroupBy<int, SomeStruct>`) stays LOUD by design: the
+  generated struct has no `Equals`/`GetHashCode` vtable entry the runtime can
+  call for bucketing, so there is no by-value key carrier ABI to bind. The
+  message names the key type ("a value-type (Cases.Point) key has no runtime
+  key carrier"), so the gap is self-describing.
+- **A user `IEqualityComparer<TKey>` over the new key kinds** (12/13/14) is
+  LOUD: the comparer would have to be dispatched per family (`GroupKeysEqual`
+  refuses it explicitly). The default (null) comparer covers every new kind.
+
