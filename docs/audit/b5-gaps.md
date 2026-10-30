@@ -1909,3 +1909,126 @@ LOUD. This is the same deferral defect A needed.
   probe-aggvt2 `12a416bb`, zmatrix `24ba1e99`.
 - Unit 3960/3960 (baseline 3946 + 14 new resolver assertions). C0: il2cppc
   Debug build 0 errors.
+
+## 21. impl-loudvalstruct (D): the by-value VALUE-STRUCT List element
+
+### 21.1 The defect (measured)
+
+A `List<T>` whose element is a BY-VALUE VALUE STRUCT (`List<DateTime>` /
+`List<TimeSpan>` / `List<Guid>` / `List<DateTimeOffset>`) had NO list storage
+kind. `LinqListKindOfElemByte` answered null for every 0x11 name except
+`System.Decimal`, so the family fell into the REFERENCE tag
+(`IL2CPP_LIST_KIND_REF`) and the listobj snapshot handed out the BOXED POINTER
+while the lambda takes the struct BY VALUE. Measured on `audit-fix3-d2b`:
+
+```
+error: cannot convert 'il2cpp::runtime::Il2CppDateTime' to
+       'il2cpp::Il2CppObject*'
+  in: il2cpp_linq_list_default_if_empty_val_ref(Il2CppObject*, Il2CppObject*, int32_t)
+```
+
+RED evidence: `audit-fix3-d2j` (empty / single / multi element DateTime lists,
+TimeSpan and Guid lists, plus the non-empty pass-through) -- a hard cmake build
+failure, 0 bytes of output against a 351-byte net48 oracle.
+
+### 21.2 Fixed
+
+`linq_list.h` gained `IL2CPP_LIST_KIND_DT = 13`, `_TS = 14`, `_GUID = 15`,
+`_DTOFFSET = 16` (12 was the decimal kind). `linq_list.cpp`:
+
+- `SnapshotOf` maps the four kinds to the EXISTING listobj unbox accessors
+  (`il2cpp_list_obj_to_array_dt/_ts/_guid/_dtoffset`), so the snapshot holds
+  the family's own cell instead of a boxed pointer;
+- `ValueElemKindFor` keeps `kElemKindDateTime` / `kElemKindTimeSpan` on a
+  materialized result array;
+- four new `il2cpp_linq_list_default_if_empty_val_<fam>` entries write the
+  caller's default into the fresh one-element cell (DateTime through
+  `il2cpp_datetime_to_array_bits`, never a raw struct copy).
+
+`MethodMap.Linq.cs`: `LinqListKindOfElemByte` resolves the four names, the
+`DefaultIfEmpty(source, value)` arm binds the new entries, and the tracked
+result-array name now comes from the NAME-aware `LinqArrayTypeNameExact`
+overload (a DateTime list's snapshot is a `System.DateTime[]`, not an
+`object[]`).
+
+The OTHER operators over these list kinds stay a self-describing transpile-time
+LOUD: `LinqListAbiSuffix` answers "i4" for an unknown kind, so an unguarded arm
+would read a 4-byte slice out of an 8/16-byte cell. Wired today: Count, Any,
+LongCount, ToArray, DefaultIfEmpty. The element-returning / predicate / set /
+aggregate surfaces need a struct-typed delegate ABI per operator.
+
+### 21.3 e2e
+
+- `audit-fix3-d2j` GREEN: oracle sha == runtime sha = `40126b94`, 351 bytes.
+- The temporary LOUD lock case (`loud-linq-die-listvt`) was retired: the shape
+  it locked now works, so it became `audit-fix3-d2j` and the
+  scripts/sweep-exclude.txt entry was removed.
+- Regressions byte-identical: probe-aggrs `fdac4fff`, probe-linqagg2
+  `eb49da63`, probe-arrayagg `875acf6e`, probe-floatelem `9245caa6`,
+  probe-aggvt2 `12a416bb`, zmatrix `24ba1e99`, audit-fix3-d2a `5aa068ff`,
+  -d2b `16508381`, -d2c `aefc3f5b`, -d2d `935b78eb`, -d2e `eb7bf87b`,
+  -d2g `855a96c3`, -d2h `c3b071ff`, -d2i `f5d029ee`.
+- Unit 3964/3964 (baseline 3946 + 18 new resolver assertions). C0: il2cppc
+  Debug build 0 errors.
+
+### 21.4 Still open after this seat
+
+- `List<DateTime>` / `List<TimeSpan>` / `List<Guid>` / `List<DateTimeOffset>`
+  with the element-returning (First/Last/ElementAt/Single/Contains), predicate
+  (Where/All/TakeWhile/SkipWhile/Count(pred)/Any(pred)), set
+  (Take/Skip/Reverse/Concat/Distinct/Except/Union/Intersect) and Aggregate
+  operators -- each needs a struct-typed delegate ABI (the array surface has
+  them: `il2cpp_linq_where_dt`, `il2cpp_linq_first_dt`, ...). The list entries
+  are thin snapshot wrappers over those kernels, so the remaining work is
+  mechanical but broad; it stays a transpile-time LOUD until then.
+
+## 22. impl-loudvalstruct (D follow-up): the SOURCE-ONLY aggregates over a List<decimal>
+
+### 22.1 The defect (measured, reported by the impl-listdecalloc seat)
+
+`List<decimal>.Sum()` (and Min / Max / Average) produced uncompilable code:
+
+```
+error: no match for 'operator=' (operand types are
+       'il2cpp::runtime::Il2CppDecimal' and 'int32_t')
+```
+
+RED evidence: `audit-fix3-d2k`, hard cmake failure against a 340-byte net48
+oracle.
+
+Two independent causes, both in the element-family resolution:
+
+1. `TryMapLinqList`'s source-only suffix table covered only "2"/"3"/"4", so
+   every other list kind -- including the decimal kind 12 -- fell to the int32
+   entry, and the runtime has no decimal source-only kernel at all
+   (`il2cpp_linq_list_sum_dec` did not exist).
+2. `LinqListKind` only recognised the AOT underscore suffix
+   ("List`1_System.Decimal"). A METHOD PARAMETER / FIELD of a generic List is
+   tracked in the ANGLE form ("List`1<V:System.Decimal>"); its suffix
+   "<V:System.Decimal>" is longer than 1, so it matched the "nested generic ->
+   reference" arm. Because a 0x11 element also folds into "ref" in
+   `LinqSourceFamily`, the reference tag then survived even the name-aware
+   check.
+
+### 22.2 Fixed
+
+- `linq_list.cpp` / `linq_list.h`: four SOURCE-ONLY decimal entries --
+  `il2cpp_linq_list_sum_dec` / `_min_dec` / `_max_dec` / `_average_dec` (T3
+  result slot, decimal arithmetic through `icall_decimal_*`, empty source
+  throws for Min/Max/Average like net48).
+- `MethodMap.Linq.cs`: the source-only aggregate arm binds them for kind 12.
+- `LinqListKind`: the 0x11 branch resolves BOTH tracked name forms (underscore
+  and angle) through the new `LinqListKindOfElemName`, before the `srcFam ==
+  "ref"` fallback; the angle form also has its own arm in the suffix switch.
+  The same helper keeps a `List<DateTime>`-style parameter from folding into
+  the reference tag for the other operators.
+
+### 22.3 e2e
+
+- `audit-fix3-d2k` GREEN: oracle sha == runtime sha = `7ada338a`, 16 records
+  (3 non-empty lists across local/ToList shapes, empty-list Sum plus the three
+  throwing forms, values beyond int32 range, negatives).
+- `audit-fix3-d2j` (value-struct list DefaultIfEmpty) still GREEN `40126b94`.
+- All 6 regression probes plus the 9 audit-fix3 cases byte-identical.
+- Unit 3969/3969 (baseline 3946 + 23 new assertions). C0: il2cppc Debug build
+  0 errors.

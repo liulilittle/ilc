@@ -55,6 +55,15 @@ constexpr int32_t IL2CPP_LIST_KIND_UINT = 11;
 // P0LINQ1: a System.Decimal element (16-byte value cell). Only the decimal
 // value type has a Zip cell ABI; DateTime/TimeSpan/Guid stay LOUD.
 constexpr int32_t IL2CPP_LIST_KIND_DEC = 12;
+// impl-loudvalstruct (D): the remaining BY-VALUE VALUE-STRUCT element families.
+// The listobj storage BOXES a value element, so the snapshot has to unbox into
+// the family's own cell (listobj.h il2cpp_list_obj_to_array_dt/_ts/_guid/
+// _dtoffset); before these codes the families fell into IL2CPP_LIST_KIND_REF
+// and a boxed POINTER reached a lambda that takes the struct BY VALUE.
+constexpr int32_t IL2CPP_LIST_KIND_DT = 13;
+constexpr int32_t IL2CPP_LIST_KIND_TS = 14;
+constexpr int32_t IL2CPP_LIST_KIND_GUID = 15;
+constexpr int32_t IL2CPP_LIST_KIND_DTOFFSET = 16;
 
 // The exact-size element snapshot of a list (an independent array; the list is
 // never modified). Null list -> ArgumentNullException.
@@ -322,6 +331,19 @@ void il2cpp_linq_list_max_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* 
 void il2cpp_linq_list_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
                                       Il2CppObject* sel, int32_t kind);
 
+// SOURCE-ONLY aggregates over a List<System.Decimal> (net48 Sum/Min/Max/Average
+// without a selector). The int32/i8/d/f source-only entries read their own cell
+// width, so a decimal list (IL2CPP_LIST_KIND_DEC) went through the int32 reader:
+// a 4-byte slice of every 16-byte cell plus an int32 result assigned into a
+// decimal slot (a build failure). These read the cell at its real width and keep
+// DECIMAL arithmetic; the result rides the explicit T3 slot like the selector
+// forms, and an empty source throws for Min/Max/Average (net48).
+void il2cpp_linq_list_sum_dec(runtime::Il2CppDecimal* result, Il2CppObject* list, int32_t kind);
+void il2cpp_linq_list_min_dec(runtime::Il2CppDecimal* result, Il2CppObject* list, int32_t kind);
+void il2cpp_linq_list_max_dec(runtime::Il2CppDecimal* result, Il2CppObject* list, int32_t kind);
+void il2cpp_linq_list_average_dec(runtime::Il2CppDecimal* result, Il2CppObject* list,
+                                  int32_t kind);
+
 //------------------------------------------------------------------------------
 // Aggregate (no seed / int32 seed / int64 seed / double seed) over the list.
 //------------------------------------------------------------------------------
@@ -484,6 +506,21 @@ Il2CppArray* il2cpp_linq_default_if_empty_family_guid(Il2CppArray* src, Il2CppGu
                                                       int32_t cell);
 Il2CppArray* il2cpp_linq_default_if_empty_family_dtoffset(
     Il2CppArray* src, runtime::Il2CppDateTimeOffset value, int32_t cell);
+
+// impl-loudvalstruct (D): the LIST value-struct forms (List<DateTime> /
+// List<TimeSpan> / List<Guid> / List<DateTimeOffset>). The list snapshot
+// unboxes the elements into the family's own cell, and the caller's default is
+// written at that width. `kind` is the IL2CPP_LIST_KIND_* code.
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_dt(Il2CppObject* list,
+                                                      runtime::Il2CppDateTime value,
+                                                      int32_t kind);
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_ts(Il2CppObject* list,
+                                                      runtime::Il2CppTimeSpan value,
+                                                      int32_t kind);
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_guid(Il2CppObject* list, Il2CppGuid value,
+                                                        int32_t kind);
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_dtoffset(
+    Il2CppObject* list, runtime::Il2CppDateTimeOffset value, int32_t kind);
 
 //------------------------------------------------------------------------------
 // Aggregate(seed, func, resultSelector) over a List<T> (net48

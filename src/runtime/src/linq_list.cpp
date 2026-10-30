@@ -123,6 +123,14 @@ Il2CppArray* SnapshotOf(Il2CppObject* list, int32_t kind)
             return reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_uint(list));
         case IL2CPP_LIST_KIND_DEC:
             return reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_dec(list));
+        case IL2CPP_LIST_KIND_DT:
+            return reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_dt(list));
+        case IL2CPP_LIST_KIND_TS:
+            return reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_ts(list));
+        case IL2CPP_LIST_KIND_GUID:
+            return reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_guid(list));
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            return reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_dtoffset(list));
         default:
             il2cpp_throw_not_supported_exception("Unsupported List element kind for a LINQ operator.");
             return nullptr;
@@ -193,7 +201,12 @@ int32_t ValueElemKindFor(int32_t kind)
         case IL2CPP_LIST_KIND_F:    return 3;
         case IL2CPP_LIST_KIND_D:    return 4;
         case IL2CPP_LIST_KIND_UINT: return 5;
-        default:                    return 0; // narrow families
+        // impl-loudvalstruct (D): keep the DateTime/TimeSpan element kind so a
+        // materialized result array stays recognisable (the snapshot from
+        // il2cpp_list_obj_to_array_dt/_ts carries kElemKindDateTime/TimeSpan).
+        case IL2CPP_LIST_KIND_DT:   return kElemKindDateTime;
+        case IL2CPP_LIST_KIND_TS:   return kElemKindTimeSpan;
+        default:                    return 0; // narrow families + the 16-byte value cells
     }
 }
 
@@ -1242,6 +1255,92 @@ void il2cpp_linq_list_average_sel_dec(runtime::Il2CppDecimal* result, Il2CppObje
     for (int32_t i = 0; i < n; ++i)
     {
         const runtime::Il2CppDecimal elem = SelAggDec(d, snap, i, kind);
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+    runtime::Il2CppDecimal count;
+    std::memset(&count, 0, sizeof(runtime::Il2CppDecimal));
+    runtime::icall_decimal_ctor_int32(&count, n);
+    runtime::icall_decimal_div(result, result, &count);
+}
+
+//------------------------------------------------------------------------------
+// SOURCE-ONLY aggregates over a List<System.Decimal> (Sum / Min / Max / Average).
+//
+// The int32/i8/d/f source-only entries read their own cell width, so a decimal
+// list (IL2CPP_LIST_KIND_DEC = 12) went through the int32 reader: a 4-byte slice
+// of every 16-byte cell plus an int32 result assigned into a decimal slot (the
+// "no match for operator= (Il2CppDecimal = int32_t)" build failure). These four
+// read the cell at its real width and keep DECIMAL arithmetic (the same
+// icall_decimal_* contract the selector forms use).
+//------------------------------------------------------------------------------
+void il2cpp_linq_list_sum_dec(runtime::Il2CppDecimal* result, Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const runtime::Il2CppDecimal elem =
+            *reinterpret_cast<const runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(snap, i));
+        runtime::icall_decimal_add(result, result, &elem);
+    }
+}
+
+void il2cpp_linq_list_min_dec(runtime::Il2CppDecimal* result, Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best =
+        *reinterpret_cast<const runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(snap, 0));
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem =
+            *reinterpret_cast<const runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(snap, i));
+        if (runtime::icall_decimal_compare(&elem, &best) < 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_list_max_dec(runtime::Il2CppDecimal* result, Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best =
+        *reinterpret_cast<const runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(snap, 0));
+    for (int32_t i = 1; i < snap->length; ++i)
+    {
+        const runtime::Il2CppDecimal elem =
+            *reinterpret_cast<const runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(snap, i));
+        if (runtime::icall_decimal_compare(&elem, &best) > 0) best = elem;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+void il2cpp_linq_list_average_dec(runtime::Il2CppDecimal* result, Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    const int32_t n = snap->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const runtime::Il2CppDecimal elem =
+            *reinterpret_cast<const runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(snap, i));
         runtime::icall_decimal_add(result, result, &elem);
     }
     runtime::Il2CppDecimal count;
@@ -2349,6 +2448,75 @@ Il2CppArray* il2cpp_linq_list_default_if_empty_val_ref(Il2CppObject* list, Il2Cp
 Il2CppArray* il2cpp_linq_list_default_if_empty_val_dec(Il2CppObject* list,
                                                        runtime::Il2CppDecimal value,
                                                        int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length != 0) return snap;
+    Il2CppArray* out = AllocElemArray(snap, kind, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    std::memcpy(il2cpp_array_get_elem_ptr(out, 0), &value, sizeof(value));
+    return out;
+}
+
+// impl-loudvalstruct (D): the value-struct list forms. The snapshot already
+// unboxed every element into the family's own cell (SnapshotOf ->
+// il2cpp_list_obj_to_array_dt/_ts/_guid/_dtoffset), so the fresh one-element
+// array is allocated with the SNAPSHOT's element layout and the default is
+// written at that width. A DateTime cell holds the packed ticks+kind ARRAY
+// image -- never a raw struct copy (il2cpp_time.h).
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_dt(Il2CppObject* list,
+                                                      runtime::Il2CppDateTime value,
+                                                      int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length != 0) return snap;
+    Il2CppArray* out = AllocElemArray(snap, kind, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, 0)) =
+        runtime::il2cpp_datetime_to_array_bits(value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_ts(Il2CppObject* list,
+                                                      runtime::Il2CppTimeSpan value,
+                                                      int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length != 0) return snap;
+    Il2CppArray* out = AllocElemArray(snap, kind, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, 0)) = value.ticks;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_guid(Il2CppObject* list, Il2CppGuid value,
+                                                        int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    if (snap->length != 0) return snap;
+    Il2CppArray* out = AllocElemArray(snap, kind, 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    std::memcpy(il2cpp_array_get_elem_ptr(out, 0), value.b, sizeof(value.b));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_default_if_empty_val_dtoffset(
+    Il2CppObject* list, runtime::Il2CppDateTimeOffset value, int32_t kind)
 {
     RequireList(list);
     RootScope roots;

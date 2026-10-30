@@ -305,6 +305,72 @@ public class MethodMapTestsLinqAggRs
         Assert.Contains("not a supported result family", ex.Message);
     }
 
+    // impl-loudvalstruct (D): a List<T> of a BY-VALUE VALUE STRUCT now has its
+    // own list storage kind (13..16) and a snapshot that unboxes into the
+    // family's cell, so DefaultIfEmpty(source, value) crosses the default in the
+    // struct's own by-value ABI. Before this the family fell into the reference
+    // tag and the value landed in an Il2CppObject* slot.
+    [Theory]
+    [InlineData("System.DateTime", "il2cpp::il2cpp_linq_list_default_if_empty_val_dt", "13")]
+    [InlineData("System.TimeSpan", "il2cpp::il2cpp_linq_list_default_if_empty_val_ts", "14")]
+    [InlineData("System.Guid", "il2cpp::il2cpp_linq_list_default_if_empty_val_guid", "15")]
+    [InlineData("System.DateTimeOffset", "il2cpp::il2cpp_linq_list_default_if_empty_val_dtoffset", "16")]
+    public void Resolve_DefaultIfEmpty2_ValueStructList(string typeName, string cpp, string kindLiteral)
+    {
+        var r = Resolve(SynthesizeDie2Named(typeName), "System.Collections.Generic.List`1_" + typeName);
+
+        Assert.Equal(cpp, r.CppName);
+        Assert.Equal(2, r.ParamCount);
+        Assert.Equal(new[] { "", "" }, r.ParamTypeNames);
+        Assert.Equal(new[] { kindLiteral }, r.AppendLiterals);
+        Assert.Equal(typeName + "[]", r.ReturnTypeName);
+    }
+
+    //--------------------------------------------------------------------------
+    // impl-loudvalstruct (D): the SOURCE-ONLY aggregates over a List<decimal>.
+    //
+    // net48 carries CONCRETE non-generic overloads Sum/Min/Max/Average(this
+    // IEnumerable<decimal>) -- no MethodSpec, so the element family can only be
+    // read from the tracked RECEIVER name. The suffix table in TryMapLinqList
+    // only covered "2"/"3"/"4", so a decimal list fell to the int32 entry: a
+    // 4-byte slice of every 16-byte cell plus an int32 result assigned into a
+    // decimal slot (MEASURED: audit-fix3-d2k, "no match for 'operator='
+    // (Il2CppDecimal = int32_t)").
+    //
+    // Two tracked receiver forms exist and BOTH must resolve to kind 12: the AOT
+    // underscore form ("List`1_System.Decimal") and the generic form a METHOD
+    // PARAMETER / FIELD carries ("List`1<V:System.Decimal>"). The latter used to
+    // fold into the reference tag because 0x11 maps to "ref" in
+    // LinqSourceFamily.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("System.Collections.Generic.List`1_System.Decimal")]
+    [InlineData("System.Collections.Generic.List`1<V:System.Decimal>")]
+    public void Resolve_SourceOnlySum_DecimalList_MapsToDecimalKernel(string receiver)
+    {
+        var r = ResolveMemberRef(SynthesizeSumDecimal(), receiver);
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_sum_dec", r.CppName);
+        Assert.Equal(1, r.ParamCount);
+        Assert.Equal(new[] { "" }, r.ParamTypeNames);
+        Assert.Equal("dec", r.ResultKind);
+        Assert.Equal(new[] { "12" }, r.AppendLiterals);
+    }
+
+    // The SIGNATURE element byte is authoritative whenever it names a family:
+    // an int32 signature answers the int32 kernel no matter what the receiver
+    // name says (the receiver is only consulted for the 0x11 byte, where the
+    // signature cannot tell decimal from the other value types).
+    [Theory]
+    [InlineData("System.Collections.Generic.List`1_int")]
+    [InlineData("System.Collections.Generic.List`1<V:System.Int32>")]
+    [InlineData("System.Collections.Generic.List`1_double")]
+    public void Resolve_SourceOnlySum_Int32Signature_KeepsInt32Kernel(string receiver)
+    {
+        var r = ResolveMemberRef(SynthesizeSumConcrete(), receiver);
+        Assert.Equal("il2cpp::il2cpp_linq_list_sum_i4", r.CppName);
+    }
+
     //--------------------------------------------------------------------------
     // Helpers
     //--------------------------------------------------------------------------
@@ -443,6 +509,57 @@ public class MethodMapTestsLinqAggRs
         spec.WriteByte(0x11);
         spec.WriteCompressedInteger(vtCoded);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // A MemberRef (NO MethodSpec) resolve -- the CONCRETE non-generic overload
+    // shape net48 uses for Sum/Min/Max/Average(IEnumerable<T>).
+    private static ResolvedMethod ResolveMemberRef(MemoryStream pe, string? receiver)
+    {
+        using var reader = new PEReader(pe);
+        var md = reader.GetMetadataReader();
+        var token = MetadataTokens.GetToken(MetadataTokens.MemberReferenceHandle(1));
+        return MethodRefResolver.Resolve(md, token, Array.Empty<TypeDef>(), receiver, false, receiver, null);
+    }
+
+    // Enumerable.Sum(IEnumerable<System.Decimal>) -> System.Decimal, with NO
+    // MethodSpec (the CONCRETE net48 overload). The signature header is 0x00
+    // (DEFAULT calling convention, NOT generic -- 0x10 would claim one generic
+    // parameter and desync the decoder). The resolver synthesizes the element
+    // byte from this signature's GenericInst argument, so a 0x11 element with no
+    // name table is exactly the case where only the tracked RECEIVER name can
+    // tell a decimal list from the other value types.
+    private static MemoryStream SynthesizeSumDecimal()
+    {
+        var (mdb, enumerableRef, decCoded) = NewMetadata();
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x00);                                             // DEFAULT, NOT generic
+        sig.WriteByte(0x01);                                             // 1 parameter
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);       // return System.Decimal
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x11); sig.WriteCompressedInteger(decCoded);       //   IEnumerable<System.Decimal>
+        mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Sum"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // Enumerable.Sum(IEnumerable<int>) -> int32, with NO MethodSpec (the
+    // CONCRETE net48 overload shape). The SIGNATURE element byte is deliberately
+    // int32: the point under test is that a DECIMAL receiver name -- which is
+    // all the resolver has for these non-generic overloads -- selects the
+    // decimal list kernel instead of the int32 one. The real decimal-signature
+    // path is covered end-to-end by audit-fix3-d2k.
+    private static MemoryStream SynthesizeSumConcrete()
+    {
+        var (mdb, enumerableRef, _) = NewMetadata();
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x00);                                             // DEFAULT, NOT generic
+        sig.WriteByte(0x01);                                             // 1 parameter
+        sig.WriteByte(0x08);                                             // return int32
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x08);                                             //   IEnumerable<int32>
+        mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Sum"),
+            mdb.GetOrAddBlob(sig.ToArray()));
         return Serialize(mdb);
     }
 

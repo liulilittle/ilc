@@ -1,4 +1,4 @@
-# Sweep exclusion list (non byte-exact cases)
+﻿# Sweep exclusion list (non byte-exact cases)
 # Format: one case name per line; '#' comments allowed (put a space before '#'
 # when adding a trailing note, otherwise the note becomes part of the name).
 # These cases live under tests/cases/ but are NOT byte-exact difftest cases,
@@ -18,7 +18,6 @@ loud-p0-16-objkey-loud   # LOUD contract: object/string key ordering rejected at
 # BATCH4: loud-p0-17-zipres-loud is now WIRED (the narrow 1/2-byte Zip result
 # cell ABI) and was removed from this list.
 loud-p0-18-strmin-loud   # LOUD contract: string Min/Max requires culture-aware collation (transpile-time NotSupported)
-loud-linq-die-listvt     # LOUD contract: DefaultIfEmpty(value) over a List<by-value value struct> has no list storage kind (transpile-time NotSupported; the ARRAY surface is wired)
 # BATCH4: loud-p0-grp-key-long (long/ulong/decimal/DateTime/Guid key carriers) and
 # loud-p0-grp-dec-op (decimal-bucket aggregate/Contains operators) are now WIRED
 # real cases, so they were removed from this list.

@@ -1691,7 +1691,7 @@ public static partial class MethodRefResolver
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                         throw new NotSupportedException(
                             "Enumerable.OrderBy with a (element, index) key selector over a reference-element " +
-                            "source is not wired: LOUD whitelist é–³?-- net48 has no (element, index) key " +
+                            "source is not wired: LOUD whitelist ï¿?-- net48 has no (element, index) key " +
                             "selector overload. MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the " +
                             "net48 Reference Source System.Core/System/Linq/Enumerable.cs list only " +
                             "OrderBy<TSource,TKey>(IEnumerable<TSource>, Func<TSource,TKey>) and " +
@@ -4100,17 +4100,25 @@ public static partial class MethodRefResolver
         _ => null,
     };
 
-    // The List<T> element-kind literal, name-resolved for the 0x11 value types:
-    // only System.Decimal has a Zip cell ABI (IL2CPP_LIST_KIND_DEC = 12);
-    // DateTime/TimeSpan/Guid stay LOUD (the Zip element surface covers the
-    // decimal value type only).
+    // The List<T> element-kind literal, name-resolved for the 0x11 value types.
+    // System.Decimal keeps its own list cell kind (IL2CPP_LIST_KIND_DEC = 12);
+    // impl-loudvalstruct (D) added the remaining by-value value structs --
+    // DateTime 13, TimeSpan 14, Guid 15, DateTimeOffset 16 -- whose list
+    // storage is a BOXED element the snapshot unboxes into the family's cell. A
+    // USER struct has no cell ABI and stays null (the downstream LOUD gates).
     private static string? LinqListKindOfElemByte(byte b, string[]? genArgNames, int index)
     {
         if (b != 0x11 || genArgNames is not { Length: > 0 } || index >= genArgNames.Length)
             return LinqListKindOfElemByte(b);
-        var n = genArgNames[index];
-        if (n.StartsWith("V:", StringComparison.Ordinal)) n = n[2..];
-        return n == "System.Decimal" ? "12" : null;
+        return LinqStructNameOf(genArgNames[index]) switch
+        {
+            "System.Decimal" => "12",
+            "System.DateTime" => "13",
+            "System.TimeSpan" => "14",
+            "System.Guid" => "15",
+            "System.DateTimeOffset" => "16",
+            _ => null,
+        };
     }
 
     // D-LINQ-FAM: the IL2CPP_LINQ_CELL_* code of an element TYPE byte
@@ -4168,6 +4176,30 @@ public static partial class MethodRefResolver
         return null;
     }
 
+    // impl-loudvalstruct (D): the List element-kind literal of a tracked ELEMENT
+    // TYPE NAME (the angle form of a tracked generic receiver, or a bare name).
+    // Only the value families whose list storage has a real cell ABI answer a
+    // code; everything else is the reference tag (the same default the
+    // underscore-suffix table uses for a nested generic element).
+    private static string LinqListKindOfElemName(string name)
+    {
+        var n = LinqStructNameOf(name.Trim());
+        return n switch
+        {
+            "System.Decimal" => "12",
+            "System.DateTime" => "13",
+            "System.TimeSpan" => "14",
+            "System.Guid" => "15",
+            "System.DateTimeOffset" => "16",
+            "System.Int32" or "System.Int16" or "System.UInt16" or "System.Char"
+                or "System.SByte" or "System.Byte" or "System.Boolean" or "System.UInt32" => "0",
+            "System.Int64" or "System.UInt64" => "2",
+            "System.Single" => "3",
+            "System.Double" => "4",
+            _ => "1",
+        };
+    }
+
     // The List<T> element-kind literal (linq_list.h IL2CPP_LIST_KIND_*), or
     // null when the receiver is not a List<T>. The tracked List receiver names
     // come from the newobj AOT expansion (List`1_int / List`1_string / ...) or
@@ -4176,6 +4208,7 @@ public static partial class MethodRefResolver
         string[]? genArgNames = null)
     {
         if (receiverType == null) return null;
+
         if (!receiverType.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal))
             return null;
         var suffix = receiverType.Length > "System.Collections.Generic.List`1".Length
@@ -4203,7 +4236,25 @@ public static partial class MethodRefResolver
             // The non-generic aggregate surface (Sum/Min/Max/Average) carries
             // a synthesized single element byte with NO name table, so the
             // tracked receiver name is the only decimal evidence.
-            if (genArgs[0] == 0x11 && suffix is "_decimal" or "_System.Decimal") return "12";
+            //
+            // impl-loudvalstruct (D): the name arrives in EITHER form -- the AOT
+            // underscore form ("List`1_System.Decimal") or the tracked generic
+            // form ("List`1<V:System.Decimal>"). Both must be resolved BEFORE
+            // the srcFam fallback below: the 0x11 byte folds into "ref" in
+            // LinqSourceFamily, so an unnamed value-type element returned the
+            // REFERENCE tag and the source-only aggregate emitted the int32
+            // kernel into a decimal slot (MEASURED: audit-fix3-d2k,
+            // "no match for 'operator=' (Il2CppDecimal = int32_t)").
+            if (genArgs[0] == 0x11)
+            {
+                if (suffix is "_decimal" or "_System.Decimal") return "12";
+                if (suffix.StartsWith("<", StringComparison.Ordinal)
+                    && suffix.EndsWith(">", StringComparison.Ordinal))
+                {
+                    var angKind = LinqListKindOfElemName(suffix[1..^1]);
+                    if (angKind != "1") return angKind;
+                }
+            }
             if (srcFam == "ref") return "1";
         }
         return suffix switch
@@ -4224,6 +4275,17 @@ public static partial class MethodRefResolver
             // synthetic name may carry the short "_decimal".
             "_decimal" or "_System.Decimal" => "12",
             "_string" or "_class" or "_object" or "_array" => "1",
+            // impl-loudvalstruct (D): a METHOD PARAMETER / FIELD of a generic
+            // List is tracked in the ANGLE form ("List`1<V:System.Decimal>"),
+            // not the AOT underscore form. Without this arm the suffix was
+            // "<V:System.Decimal>" -- length > 1 -- and fell into the reference
+            // tag, so a `void Run(List<decimal> l) { l.Sum(); }` emitted the
+            // int32 source-only kernel and assigned an int32 into a decimal
+            // slot (MEASURED: audit-fix3-d2k, "no match for 'operator='
+            // (Il2CppDecimal = int32_t)").
+            _ when suffix.StartsWith("<", StringComparison.Ordinal)
+                && suffix.EndsWith(">", StringComparison.Ordinal)
+                => LinqListKindOfElemName(suffix[1..^1]),
             _ when suffix.Length > 1 => "1", // any nested generic element is a reference
             // The unsuffixed pseudo-type (ToList's tracked result): the family
             // comes from the call's own generic argument. The LIST kind must be
@@ -4343,15 +4405,55 @@ public static partial class MethodRefResolver
         string K = listKind;
         string abi = LinqListAbiSuffix(K);
         // A List<T> receiver is a LIST OBJECT: the slot is passed through
-        // UNCAST ("" -- never the "a" Il2CppArray* cast). Casting it would
+        // UNCAST ("" -- never the "i" Il2CppArray* cast). Casting it would
         // reinterpret the items pointer's low 32 bits as an array length.
         var L1 = new[] { "" };
         var L2 = new[] { "", "" };
         var L3 = new[] { "", "", "" };
-        var elemTracked = genArgs is { Length: >= 1 } ? LinqArrayTypeNameExact(genArgs[0])
+        // impl-loudvalstruct (D): a 0x11 element is EVERY value type, so the
+        // tracked result-array name needs the generic-argument NAME table (a
+        // DateTime list's snapshot is a System.DateTime[], not an object[]).
+        var elemTracked = genArgs is { Length: >= 1 }
+            ? LinqArrayTypeNameExact(genArgs[0], genArgNames, 0)
             : (srcFam == "ref" ? "System.Object[]" : "System.Int32[]");
-        var elemScalar = genArgs is { Length: >= 1 } ? LinqArrayTypeNameExact(genArgs[0]).TrimEnd('[', ']')
+        var elemScalar = genArgs is { Length: >= 1 }
+            ? LinqArrayTypeNameExact(genArgs[0], genArgNames, 0).TrimEnd('[', ']')
             : (srcFam == "ref" ? "System.Object" : "System.Int32");
+
+        // impl-loudvalstruct (D): the by-value VALUE-STRUCT list element kinds
+        // (13..16) only carry a real cell ABI for the operators wired below.
+        // EVERY other operator over these kinds must stay a self-describing
+        // transpile-time LOUD: LinqListAbiSuffix answers "i4" for an unknown
+        // kind, so an unguarded arm would read a 4-byte slice out of an
+        // 8/16-byte cell (a silent wrong value) or pass a boxed pointer where
+        // the lambda takes the struct by value.
+        if (K is "13" or "14" or "15" or "16")
+        {
+            bool wired = name switch
+            {
+                "Count" => count < 2,
+                "Any" => count < 2,
+                "LongCount" => count < 2,
+                "ToArray" => true,
+                "DefaultIfEmpty" => true,
+                _ => false,
+            };
+            if (!wired)
+            {
+                string famName = K switch
+                {
+                    "13" => "System.DateTime",
+                    "14" => "System.TimeSpan",
+                    "15" => "System.Guid",
+                    _ => "System.DateTimeOffset",
+                };
+                throw new NotSupportedException(
+                    $"Enumerable.{name} over a List<{famName}> is not wired: a by-value value-struct " +
+                    "list element has a cell ABI for Count/Any/LongCount/ToArray/DefaultIfEmpty only " +
+                    "(the element-returning, predicate, set and aggregate surfaces need a " +
+                    "struct-typed delegate ABI per operator) (see docs/audit/b5-gaps.md)");
+            }
+        }
 
         switch (name)
         {
@@ -4481,25 +4583,34 @@ public static partial class MethodRefResolver
                 // NAME table decides decimal vs reference -- the same rule the
                 // Aggregate arm above uses.
                 //
-                // impl-loudvalstruct (B): a NON-decimal value-struct element
-                // (List<DateTime> / List<TimeSpan> / List<Guid>) has NO list
-                // storage kind -- it falls into the reference tag and the value
-                // would cross into an Il2CppObject* slot ("cannot convert
-                // Il2CppDateTime to Il2CppObject*", MEASURED on audit-fix3-d2b).
-                // The list value-struct element surface is defect D of this seat
-                // (IL2CPP_LIST_KIND_* 13/14/15 + a list snapshot per struct), so
-                // this shape stays a transpile-time LOUD until it lands.
+                // impl-loudvalstruct (D): a NON-decimal value-struct element
+                // (List<DateTime> / List<TimeSpan> / List<Guid> /
+                // List<DateTimeOffset>) now has its own list storage kind
+                // (IL2CPP_LIST_KIND_DT/TS/GUID/DTOFFSET 13..16) and a snapshot
+                // that unboxes into the family's cell, so the default crosses
+                // in the struct's own by-value ABI. A USER struct still has no
+                // cell ABI and stays a transpile-time LOUD.
                 if (genArgNames is { Length: >= 1 } lstEn && genArgs is { Length: >= 1 }
                     && genArgs[0] == 0x11
                     && lstEn[0] is not ("System.Decimal" or "V:System.Decimal"))
                 {
-                    throw new NotSupportedException(
-                        $"Enumerable.DefaultIfEmpty<{LinqStructNameOf(lstEn[0])}> over a List<" +
-                        $"{LinqStructNameOf(lstEn[0])}> is not wired: a by-value value-struct list " +
-                        "element has no list storage kind yet (only System.Decimal has one -- " +
-                        "IL2CPP_LIST_KIND_DEC). The ARRAY surface is wired " +
-                        "(il2cpp_linq_default_if_empty_family_dt/_ts/_guid/_dtoffset) " +
-                        "(see docs/audit/b5-gaps.md)");
+                    string? structEntry = LinqStructResultSuffix(lstEn, 0) switch
+                    {
+                        "dt" => "il2cpp::il2cpp_linq_list_default_if_empty_val_dt",
+                        "ts" => "il2cpp::il2cpp_linq_list_default_if_empty_val_ts",
+                        "guid" => "il2cpp::il2cpp_linq_list_default_if_empty_val_guid",
+                        "dtoffset" => "il2cpp::il2cpp_linq_list_default_if_empty_val_dtoffset",
+                        _ => null,
+                    };
+                    if (structEntry == null)
+                        throw new NotSupportedException(
+                            $"Enumerable.DefaultIfEmpty<{LinqStructNameOf(lstEn[0])}> over a List<" +
+                            $"{LinqStructNameOf(lstEn[0])}> is not wired: a USER value struct has no " +
+                            "list element cell ABI (the wired value structs are System.Decimal, " +
+                            "System.DateTime, System.TimeSpan, System.Guid and System.DateTimeOffset; " +
+                            "the ARRAY surface has the same limit) (see docs/audit/b5-gaps.md)");
+                    return I(structEntry, 2, true, true, false, new[] { "", "" },
+                        returnTypeName: elemTracked, appendLiterals: new[] { K });
                 }
                 bool elemDec = genArgNames is { Length: >= 1 } en
                     && en[0] is "System.Decimal" or "V:System.Decimal";
@@ -4658,6 +4769,18 @@ public static partial class MethodRefResolver
                 if (count < 2)
                 {
                     // Source-only: the result family follows the list kind.
+                    //
+                    // A System.Decimal element list (kind 12) has its own
+                    // source-only entries: the int32/i8/d/f ones read their own
+                    // cell width, so routing a decimal list through the int32
+                    // entry read a 4-byte slice of every 16-byte cell and
+                    // assigned an int32 into a decimal slot (MEASURED: "no match
+                    // for 'operator=' (Il2CppDecimal = int32_t)" on
+                    // audit-fix3-d2k). The decimal result rides the explicit T3
+                    // slot, so ResultKind "dec" prepends it.
+                    if (K == "12")
+                        return I($"il2cpp::il2cpp_linq_list_{shortName}_dec", 1, true, false, false,
+                            L1, resultKind: "dec", appendLiterals: new[] { K });
                     string suffix = K switch
                     {
                         "2" => "i8",
@@ -5046,7 +5169,7 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over an int64-element source with an (element, index) key selector " +
-                        "is not wired: LOUD whitelist é–³?-- net48 has no (element, index) key selector overload. " +
+                        "is not wired: LOUD whitelist ï¿?-- net48 has no (element, index) key selector overload. " +
                         "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
@@ -5101,7 +5224,7 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a double/float-element source with an (element, index) key selector " +
-                        "is not wired: LOUD whitelist é–³?-- net48 has no (element, index) key selector overload. " +
+                        "is not wired: LOUD whitelist ï¿?-- net48 has no (element, index) key selector overload. " +
                         "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
