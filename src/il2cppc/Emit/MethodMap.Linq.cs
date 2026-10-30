@@ -1,4 +1,4 @@
-using System.Reflection.Metadata;
+﻿using System.Reflection.Metadata;
 
 namespace Il2Cpp.Transpiler.Emit;
 
@@ -766,7 +766,7 @@ public static partial class MethodRefResolver
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
                         0x0A or 0x0B => "i8",
                         // impl-orderfam: float gets its OWN entry (b5-gaps
-                        // §14 -- the 4-byte float return is never read
+                        // 搂14 -- the 4-byte float return is never read
                         // through the double reader).
                         0x0C => "f",
                         0x0D => "d",
@@ -1193,7 +1193,7 @@ public static partial class MethodRefResolver
                     // Func<decimal,float> leaf returns a 4-byte float per the
                     // MS x64 ABI; the shared _dec_d entry read it through a
                     // double(*) fn-pointer and mixed the callee's XMM0 residue
-                    // into every key -- b5-gaps §14, thenby-decfkey).
+                    // into every key -- b5-gaps 搂14, thenby-decfkey).
                     0x0C => "f",
                     0x0D => "d",
                     // 0x11 is every value type; a real System.Decimal key has
@@ -1537,6 +1537,54 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_group_by_full_key", count, true, true, false, guidCasts,
                     returnTypeName: guidRetType, appendLiterals: guidLiterals, argOrder: guidArgOrder);
             }
+            // impl-vtsel: GroupBy over a TimeSpan[] / DateTimeOffset[] SOURCE.
+            // The element crosses by value in its own struct slot and the
+            // bucket keeps the family's cell (8-byte ticks / 16-byte
+            // instant+offset). srcKind 9 / 10 selects the source reader.
+            if (name == "GroupBy" && genArgs is { Length: >= 1 } && genArgs[0] == 0x11
+                && genArgNames is { Length: >= 1 }
+                && (LinqStructNameOf(genArgNames[0]) is "System.TimeSpan" or "System.DateTimeOffset"))
+            {
+                string tsdSrcKind = LinqStructNameOf(genArgNames[0]) == "System.TimeSpan" ? "9" : "10";
+                string tsdDefaultEk = tsdSrcKind == "9" ? "8" : "9";
+                int tsdKeyKind = KeyKindForNamed(
+                    genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08, genArgNames, 1);
+                if (genArgs is not { Length: >= 2 } || tsdKeyKind < 0)
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy<{LinqStructNameOf(genArgNames[0])}," +
+                        $"{(genArgNames is { Length: >= 2 } ? genArgNames[1] : "?")}> not wired: the " +
+                        "struct-source grouping surface buckets by an int32-slot / int64 / struct / " +
+                        "reference key carrier only");
+                var tsdParams = LinqEncodedParamTypes(md, sigHandle);
+                int tsdElemArg = -1, tsdCmpArg = -1, tsdResArg = -1;
+                for (int pi = 2; pi < tsdParams.Length; pi++)
+                {
+                    var tsddef = GenericDefNameOf(tsdParams[pi]);
+                    if (tsddef == "System.Func`2") tsdElemArg = pi;
+                    else if (tsddef == "System.Func`3") tsdResArg = pi;
+                    else if (tsddef == "System.Collections.Generic.IEqualityComparer`1") tsdCmpArg = pi;
+                }
+                byte? tsdElemByte = tsdElemArg >= 0 && genArgs.Length >= 3 ? genArgs[2] : null;
+                byte? tsdResByte = tsdResArg >= 0 && genArgs.Length >= 3
+                    ? (genArgs.Length >= 4 ? genArgs[3] : genArgs[2]) : null;
+                string tsdEk = tsdElemByte is { } teb
+                    ? LinqGroupElemFamilyCode(teb, genArgNames, 2) : tsdDefaultEk;
+                if (tsdEk.Length == 0)
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy TElement '{GenericArgTypeName(tsdElemByte!.Value)}' over a " +
+                        $"{LinqStructNameOf(genArgNames[0])} source is not a supported bucket element family");
+                string tsdRk = tsdResByte is { } trb ? LinqGroupResultFamilyCode(trb) : "0";
+                return I("il2cpp::il2cpp_linq_group_by_full_key_cell", count, true, true, false,
+                    new[] { "a", "", "", "", "" },
+                    returnTypeName: LinqGroupResultTypeName(tsdRk),
+                    appendLiterals: new[]
+                    {
+                        tsdEk, tsdRk,
+                        tsdKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        tsdSrcKind, "0",
+                    },
+                    argOrder: new[] { 0, 1, tsdElemArg, tsdCmpArg, tsdResArg });
+            }
             // p0grp: GroupBy over a decimal[] SOURCE with an int32-slot key.
             // Before this arm the call fell past the decimal block, past the
             // ref block (no GroupBy there) and into the int32-only gate at
@@ -1691,6 +1739,96 @@ public static partial class MethodRefResolver
                 bool srcSelIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
                 return I($"il2cpp::il2cpp_linq_select_{(srcSelIdx ? "idx_" : "")}{srcFam}_dtoffset",
                     2, true, true, false, TwoArg, returnTypeName: "System.DateTimeOffset[]");
+            }
+        }
+
+        // impl-vtsel: OrderBy / OrderByDescending / ThenBy / ThenByDescending
+        // over a DateTime / TimeSpan / Guid / DateTimeOffset ARRAY source. The
+        // element crosses the key selector in its own struct slot
+        // (il2cpp_linq_order_by_key_vt / _then_by_key_vt).
+        if (listKind == null
+            && (name is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
+            && IsLinqValueTypeSource(genArgs, receiverType, arg0Type))
+        {
+            string? ordSrcKind = LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type) switch
+            {
+                "12" => "13", // DateTime
+                "13" => "14", // TimeSpan
+                "14" => "15", // Guid
+                "16" => "16", // DateTimeOffset
+                _ => null,
+            };
+            if (ordSrcKind != null)
+            {
+                string? ordKeyFam = LinqVtKeyFamilyCode(genArgs, genArgNames, 1)
+                    ?? throw new NotSupportedException(
+                        $"Enumerable.{name} over a {LinqStructNameOf(genArgNames?[0])} array with the key " +
+                        $"family '{GenericArgTypeName(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08)}' " +
+                        "is not wired: the struct-source key-selector surface covers int32/int64/double/" +
+                        "float/System.DateTime/System.Guid/System.TimeSpan/System.DateTimeOffset keys");
+                if (name is "ThenBy" or "ThenByDescending")
+                {
+                    return I(name == "ThenBy"
+                            ? ResolvedMethod.ThenByCombineMarker
+                            : ResolvedMethod.ThenByDescCombineMarker,
+                        2, false, false, false, new[] { "", "" },
+                        returnTypeName: LinqArrayTypeNameExact(genArgs![0], genArgNames, 0),
+                        appendLiterals: new[] { ordKeyFam });
+                }
+                return I("il2cpp::il2cpp_linq_order_by_key_vt", 2, true, true, false, TwoArg,
+                    returnTypeName: LinqArrayTypeNameExact(genArgs![0], genArgNames, 0),
+                    appendLiterals: new[]
+                    {
+                        name == "OrderByDescending" ? "1" : "0", ordSrcKind, ordKeyFam,
+                    });
+            }
+        }
+
+        // impl-vtsel: Select over a DateTime / TimeSpan / Guid / DateTimeOffset
+        // ARRAY source with ANY result family. The element crosses the selector
+        // in its own by-value slot and the result is the family's typed array
+        // (il2cpp_linq_select_family's srcKind/resKind literals). The narrower
+        // dtoffset-result arm above keeps its dedicated entry.
+        if (listKind == null && name == "Select"
+            && IsLinqValueTypeSource(genArgs, receiverType, arg0Type)
+            && genArgs is { Length: >= 2 })
+        {
+            string? srcVtKind = LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type) switch
+            {
+                "12" => "13", // DateTime
+                "13" => "14", // TimeSpan
+                "14" => "15", // Guid
+                "16" => "16", // DateTimeOffset
+                _ => null,
+            };
+            if (srcVtKind != null)
+            {
+                bool vtIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
+                string vtRes = genArgs[1] switch
+                {
+                    0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",
+                    0x0A or 0x0B => "2",
+                    0x0C => "3",
+                    0x0D => "4",
+                    0x11 => LinqValueResultSuffixWide(0x11, genArgNames, 1) switch
+                    {
+                        "dt" => "5",
+                        "ts" => "6",
+                        "guid" => "7",
+                        "dtoffset" => "8",
+                        _ => throw new NotSupportedException(
+                            $"Enumerable.Select over a {LinqStructNameOf(genArgNames?[0])} array with " +
+                            $"TResult '{GenericArgTypeName(genArgs[1])}' is not wired: the value-struct " +
+                            "result carrier covers System.DateTime/System.TimeSpan/System.Guid/" +
+                            "System.DateTimeOffset only (see docs/audit/b5-gaps.md)"),
+                    },
+                    _ => "1",
+                };
+                return I(vtIdx ? "il2cpp::il2cpp_linq_select_family_idx"
+                               : "il2cpp::il2cpp_linq_select_family",
+                    2, true, true, false, TwoArg,
+                    returnTypeName: LinqArrayTypeNameExact(genArgs[1], genArgNames, 1),
+                    appendLiterals: new[] { srcVtKind, vtRes });
             }
         }
 
@@ -1852,7 +1990,7 @@ public static partial class MethodRefResolver
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                         throw new NotSupportedException(
                             "Enumerable.OrderBy with a (element, index) key selector over a reference-element " +
-                            "source is not wired: LOUD whitelist �?-- net48 has no (element, index) key " +
+                            "source is not wired: LOUD whitelist 锟?-- net48 has no (element, index) key " +
                             "selector overload. MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the " +
                             "net48 Reference Source System.Core/System/Linq/Enumerable.cs list only " +
                             "OrderBy<TSource,TKey>(IEnumerable<TSource>, Func<TSource,TKey>) and " +
@@ -3539,7 +3677,7 @@ public static partial class MethodRefResolver
     // 0x11 byte covers every value type, so the decoded MethodSpec FULL NAME is
     // the authority -- the same rule LinqFamilyAggregate applies.
     //
-    // impl-linq-0x11 (audit loud-inv §3.1 Δ0): an UNDECODABLE name must never be
+    // impl-linq-0x11 (audit loud-inv 搂3.1 螖0): an UNDECODABLE name must never be
     // assumed to be decimal. The old fallback treated genArgNames == "?" (the
     // decoder's placeholder for a VALUETYPE generic argument whose TypeDefOrRef
     // was not resolvable) as System.Decimal, so ANY 0x11 source with a lost name
@@ -3708,7 +3846,7 @@ public static partial class MethodRefResolver
     // impl-orderfam: float (0x0C) is deliberately SEPARATE from double (0x0D)
     // -- a Func<decimal,float> leaf returns a 4-byte float per the MS x64 ABI,
     // and the old "2" fold read it through the double(*) reader, mixing the
-    // callee's XMM0 residue into every key (the b5-gaps §14 misread,
+    // callee's XMM0 residue into every key (the b5-gaps 搂14 misread,
     // thenby-decfkey). The pre-existing 0..5 codes keep their meaning; the
     // float column mirrors the impl-floatkey LinqValKeyFamilyCode split on the
     // runtime SortDecTwoKeysDispatch matrix (code 6).
@@ -3731,7 +3869,7 @@ public static partial class MethodRefResolver
     // float (0x0C) is deliberately SEPARATE from double (0x02): a
     // Func<TSource,float> leaf returns a 4-byte float per the MS x64 ABI, and
     // reading that return through a double(*) fn-pointer mixes the callee's
-    // XMM0 residue into every key -- the silent mis-order b5-gaps §14
+    // XMM0 residue into every key -- the silent mis-order b5-gaps 搂14
     // measured (thenby-floatprobe). This code space is disjoint from the
     // DECIMAL composite's LinqKeyFamilyCode (which also assigns 3=decimal,
     // 4=DateTime, 5=Guid on its own runtime dispatch).
@@ -3814,7 +3952,7 @@ public static partial class MethodRefResolver
             // dt/ts/gd Min/Max compile failures. Keep those LOUD.
             // An UNKNOWN name (the synthetic "?" the name table emits for a
             // VALUETYPE arg with no resolvable TypeRef) is NOT decimal any more
-            // (impl-linq-0x11 / audit loud-inv §3.1 Δ0): the old code kept the
+            // (impl-linq-0x11 / audit loud-inv 搂3.1 螖0): the old code kept the
             // historical decimal-kernel answer for "?", so a DateTime/TimeSpan/
             // Guid source whose name was lost bound the 16-byte dec kernel -- a
             // SILENT wrong value. The single authority is IsDecimalSourceNamed
@@ -3904,6 +4042,82 @@ public static partial class MethodRefResolver
         var pt = MethodSignatureCoder.Decode(md, sigHandle).ParamTypes;
         return pt.Length == 0 ? Array.Empty<string>() : CodeGenerator.SplitTopLevel(pt).ToArray();
     }
+
+    // impl-vtsel: the STRUCT-SOURCE key-family literal for
+    // il2cpp_linq_order_by_key_vt / il2cpp_linq_then_by_key_vt:
+    //   0 int32 | 1 int64 | 2 double | 3 float | 4 DateTime | 5 Guid |
+    //   6 TimeSpan | 7 DateTimeOffset
+    // Anything else (decimal, a reference key, a user struct) has no key reader
+    // over a value-struct element source -> null (the caller LOUDs).
+    private static string? LinqVtKeyFamilyCode(byte[]? genArgs, string[]? genArgNames, int index)
+    {
+        if (genArgs is null || genArgs.Length <= index) return null;
+        return genArgs[index] switch
+        {
+            0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",
+            0x0A or 0x0B => "1",
+            0x0D => "2",
+            0x0C => "3",
+            0x11 => LinqStructResultSuffix(genArgNames, index) switch
+            {
+                "dt" => "4",
+                "guid" => "5",
+                "ts" => "6",
+                "dtoffset" => "7",
+                _ => null,
+            },
+            _ => null,
+        };
+    }
+
+    // impl-vtsel: the GroupBy BUCKET element-family code for an arbitrary
+    // TElement byte (the 0x11 value types are name-resolved):
+    //   0 int32 | 1 ref | 2 int64 | 3 double | 4 decimal | 5 DateTime |
+    //   6 Guid | 7 float | 8 TimeSpan | 9 DateTimeOffset
+    private static string LinqGroupElemFamilyCode(byte b, string[]? genArgNames, int index)
+    {
+        if (b == 0x11)
+        {
+            return LinqStructResultSuffix(genArgNames, index) switch
+            {
+                "dt" => "5",
+                "guid" => "6",
+                "ts" => "8",
+                "dtoffset" => "9",
+                _ => IsDecimalGenArg(genArgNames, index) ? "4" : "",
+            };
+        }
+        return b switch
+        {
+            0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
+            0x0A or 0x0B => "2",
+            0x0D => "3",
+            0x0C => "7",
+            0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
+            _ => "",
+        };
+    }
+
+    // impl-vtsel: the GroupBy RESULT-selector family code (the runtime rsKind).
+    private static string LinqGroupResultFamilyCode(byte b) => b switch
+    {
+        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+        0x0A or 0x0B => "3",
+        0x0D => "4",
+        0x0C => "5",
+        _ => "2",
+    };
+
+    // impl-vtsel: the TRACKED result type of a GroupBy whose result selector
+    // runs (rsKind 0 keeps the grouping pseudo-type).
+    private static string LinqGroupResultTypeName(string rk) => rk switch
+    {
+        "0" => "System.Linq.IGroupingResult",
+        "1" => "System.Int32[]",
+        "3" => "System.Int64[]",
+        "4" or "5" => "System.Double[]",
+        _ => "System.Object[]",
+    };
 
     //--------------------------------------------------------------------------
     // B4-1 (P0-04): KeyKindFor -- the GroupBy KEY family code the runtime uses
@@ -4106,7 +4320,7 @@ public static partial class MethodRefResolver
     // rides its OWN f entry (impl-orderfam: a Func<T,float> leaf returns a
     // 4-byte float per the MS x64 ABI; the shared _ref_d entry read it through
     // a double(*) fn-pointer and mixed the callee's XMM0 residue into every
-    // key -- the b5-gaps §14 misread, the thenby-refkey probe).
+    // key -- the b5-gaps 搂14 misread, the thenby-refkey probe).
     private static string LinqKeyFamilySuffix(byte b) => b switch
     {
         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
@@ -4191,7 +4405,7 @@ public static partial class MethodRefResolver
             // leaf returns a 4-byte float per the MS x64 ABI, so the entry
             // must read the key through a float(*) reader (the shared _i4_d
             // entry read it as a double and mixed the callee's XMM0 residue
-            // into every key -- b5-gaps §14, thenby-floatprobe).
+            // into every key -- b5-gaps 搂14, thenby-floatprobe).
             0x0C
                 => desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4_f"
                          : "il2cpp::il2cpp_linq_order_by_key_i4_f",
@@ -4262,8 +4476,13 @@ public static partial class MethodRefResolver
         return n switch
         {
             "System.Decimal" => "13",
-            "System.DateTime" or "System.TimeSpan" => "14",
+            "System.DateTime" => "14",
             "System.Guid" => "15",
+            // impl-vtsel: TimeSpan / DateTimeOffset have their own result ABI
+            // (8-byte ticks / 16-byte instant+offset); sharing DateTime's code
+            // would make the selector return the wrong struct type.
+            "System.TimeSpan" => "16",
+            "System.DateTimeOffset" => "17",
             _ => null,
         };
     }
@@ -4740,15 +4959,117 @@ public static partial class MethodRefResolver
         };
         if (vtElem)
         {
+            // impl-vtsel: OrderBy / OrderByDescending / ThenBy / ThenByDescending
+            // / GroupBy / Zip over a by-value STRUCT element list are WIRED. The
+            // key-selector ABI takes the element in its own struct slot and the
+            // key in its own family slot (il2cpp_linq_list_order_by_key_vt /
+            // _then_by_key_vt), so no foreign ABI is used.
+            if (name is "OrderBy" or "OrderByDescending")
+            {
+                if (count < 2) return null;
+                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a List<{LinqStructNameOf(genArgNames?[0])}> with an " +
+                        "(element, index) key selector is not wired: net48 Enumerable.OrderBy has no " +
+                        "(element, index) key-selector overload (MS Learn Enumerable.OrderBy " +
+                        "view=netframework-4.8.1)");
+                string vtKeyFam = LinqVtKeyFamilyCode(genArgs, genArgNames, 1)
+                    ?? throw new NotSupportedException(
+                        $"Enumerable.{name} over a List<{LinqStructNameOf(genArgNames?[0])}> with the key " +
+                        $"family '{GenericArgTypeName(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08)}' " +
+                        "is not wired: the struct-source key-selector surface covers int32/int64/double/" +
+                        "float/System.DateTime/System.Guid/System.TimeSpan/System.DateTimeOffset keys");
+                return I("il2cpp::il2cpp_linq_list_order_by_key_vt", 2, true, true, false, L2,
+                    returnTypeName: elemTracked,
+                    appendLiterals: new[]
+                    {
+                        name == "OrderByDescending" ? "1" : "0",
+                        K, vtKeyFam,
+                    });
+            }
+            if (name is "ThenBy" or "ThenByDescending")
+            {
+                if (count < 2) return null;
+                string vtK2 = LinqVtKeyFamilyCode(genArgs, genArgNames, 1)
+                    ?? throw new NotSupportedException(
+                        $"Enumerable.{name} over a List<{LinqStructNameOf(genArgNames?[0])}> with the secondary " +
+                        $"key family '{GenericArgTypeName(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08)}' " +
+                        "is not wired: the fused struct-source composite covers int32/int64/double/float/" +
+                        "System.DateTime/System.Guid/System.TimeSpan/System.DateTimeOffset keys");
+                return I(name == "ThenBy"
+                        ? ResolvedMethod.ThenByCombineMarker
+                        : ResolvedMethod.ThenByDescCombineMarker,
+                    2, false, false, false, new[] { "", "" },
+                    returnTypeName: elemTracked,
+                    appendLiterals: new[] { vtK2 });
+            }
+            if (name == "GroupBy")
+            {
+                int vtKeyKind = KeyKindForNamed(
+                    genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08, genArgNames, 1);
+                if (vtKeyKind < 0)
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy<{LinqStructNameOf(genArgNames?[0])}," +
+                        $"{(genArgNames is { Length: >= 2 } ? genArgNames[1] : GenericArgTypeName(genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08))}> " +
+                        "over a List is not wired: the grouping key carrier has no rule for this TKey " +
+                        "(the wired key families are the int32 slot, int64, System.Decimal, System.DateTime, " +
+                        "System.Guid, System.TimeSpan, System.DateTimeOffset, a reference and a user enum)");
+                var vtParams = LinqEncodedParamTypes(md, sigHandle);
+                int vtElemArg = -1, vtCmpArg = -1, vtResArg = -1;
+                for (int pi = 2; pi < vtParams.Length; pi++)
+                {
+                    var pdef = GenericDefNameOf(vtParams[pi]);
+                    if (pdef == "System.Func`2") vtElemArg = pi;
+                    else if (pdef == "System.Func`3") vtResArg = pi;
+                    else if (pdef == "System.Collections.Generic.IEqualityComparer`1") vtCmpArg = pi;
+                }
+                byte? vtElemByte = vtElemArg >= 0 && genArgs is { Length: >= 3 } ? genArgs[2] : null;
+                byte? vtResByte = vtResArg >= 0 && genArgs is { Length: >= 3 }
+                    ? (genArgs.Length >= 4 ? genArgs[3] : genArgs[2]) : null;
+                string vtEk = vtElemByte is { } vb ? LinqGroupElemFamilyCode(vb, genArgNames, 2) : K switch
+                {
+                    "13" => "5",   // DateTime bucket
+                    "14" => "8",   // TimeSpan bucket
+                    "15" => "6",   // Guid bucket
+                    "16" => "9",   // DateTimeOffset bucket
+                    _ => "0",
+                };
+                if (vtEk.Length == 0)
+                    throw new NotSupportedException(
+                        $"Enumerable.GroupBy TElement '{GenericArgTypeName(vtElemByte!.Value)}' over a " +
+                        $"List<{LinqStructNameOf(genArgNames?[0])}> is not a supported bucket element family");
+                string vtRk = vtResByte is { } vrb ? LinqGroupResultFamilyCode(vrb) : "0";
+                // The runtime signature is (elemKind, rsKind, kind, keyKind,
+                // srcKind): `kind` is the LIST snapshot kind (IL2CPP_LIST_KIND_*,
+                // 13..16) and `srcKind` is the SOURCE element family code
+                // (il2cpp_linq_group_by_full_key_cell: 3 DateTime | 4 Guid |
+                // 9 TimeSpan | 10 DateTimeOffset). Feeding the list kind into the
+                // srcKind slot made SnapshotOf() snapshot through kind 9
+                // (IL2CPP_LIST_KIND_USHORT) -> list_obj_to_array_ushort on a
+                // DateTime list.
+                string vtGsrc = K switch
+                {
+                    "13" => "3",
+                    "14" => "9",
+                    "15" => "4",
+                    _ => "10",
+                };
+                return I("il2cpp::il2cpp_linq_list_group_by_full_kind", count, true, true, false,
+                    new[] { "", "", "", "", "" },
+                    returnTypeName: LinqGroupResultTypeName(vtRk),
+                    appendLiterals: new[]
+                    {
+                        vtEk, vtRk,
+                        K,
+                        vtKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        vtGsrc,
+                    },
+                    argOrder: new[] { 0, 1, vtElemArg, vtCmpArg, vtResArg });
+            }
             bool unsupported = name switch
             {
-                // A selector / key-selector / grouping over a by-value struct
-                // element needs a struct-typed delegate ABI per operator; the
-                // ARRAY surface has none either (only the DateTimeOffset
-                // result form of Select), so these stay LOUD.
-                "Select" or "OrderBy" or "OrderByDescending" or "ThenBy"
-                    or "ThenByDescending" or "GroupBy" or "Zip" => true,
-                // net48 has no numeric Sum/Min/Max/Average over these types.
+                // net48 has no numeric Sum/Min/Max/Average over these types
+                // (Enumerable.cs defines them for the numeric families only).
                 "Sum" or "Min" or "Max" or "Average" => true,
                 // The predicate forms of Single have no by-value kernel.
                 "Single" or "SingleOrDefault" => count >= 2,
@@ -4758,10 +5079,13 @@ public static partial class MethodRefResolver
             {
                 throw new NotSupportedException(
                     $"Enumerable.{name} over a List<{LinqStructNameOf(genArgs is { Length: >= 1 } ? genArgNames?[0] : null)}> " +
-                    "is not wired: this operator needs a struct-typed delegate / key-selector ABI " +
-                    "that the runtime does not ship for a by-value value-struct list element " +
-                    "(the wired surface is the element-returning, predicate, set and Aggregate " +
-                    "operators -- see docs/audit/b5-gaps.md)");
+                    (name is "Sum" or "Min" or "Max" or "Average"
+                        ? "is not wired because net48 Enumerable ships no numeric overload for this " +
+                          "element type (the numeric aggregates exist for the numeric families only)"
+                        : "with a predicate is not wired: the runtime ships no by-value value-struct " +
+                          "predicate kernel for this operator (the wired predicate forms are First/Last/" +
+                          "FirstOrDefault/LastOrDefault/Single-free Count/Any/All/Where)") +
+                    " -- see docs/audit/b5-gaps.md");
             }
         }
 
@@ -4955,14 +5279,47 @@ public static partial class MethodRefResolver
                         returnTypeName: genArgNames[1] + "[]",
                         appendLiterals: new[] { K, "\"" + tupleKinds + "\"" });
                 }
+                // impl-vtsel: the RESULT family codes. 0..4 are the pre-existing
+                // scalar/reference carriers; 5..8 are the by-value value structs
+                // (DateTime / TimeSpan / Guid / DateTimeOffset), which the
+                // family-generic struct selector ABI returns through their OWN
+                // slot. Before this seat a 0x11 result byte fell into "1" (a
+                // REFERENCE result), so a struct-returning lambda was called
+                // through an Il2CppObject*(*) pointer -- a silent wrong value.
                 string resKind = tRes switch
                 {
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "0",
                     0x0A or 0x0B => "2",
                     0x0C => "3",
                     0x0D => "4",
+                    0x11 => LinqValueResultSuffixWide(0x11, genArgNames, 1) switch
+                    {
+                        "dt" => "5",
+                        "ts" => "6",
+                        "guid" => "7",
+                        "dtoffset" => "8",
+                        // decimal has no entry on this surface; the reference
+                        // carrier would silently mis-read it, so stay LOUD.
+                        var unknown => throw new NotSupportedException(
+                            $"Enumerable.Select over a List<{LinqStructNameOf(genArgNames?[0])}> with a " +
+                            $"TResult '{GenericArgTypeName(tRes)}' is not wired: the value-struct result " +
+                            "carrier covers System.DateTime/System.TimeSpan/System.Guid/" +
+                            "System.DateTimeOffset only (a decimal result over a List source has no " +
+                            "selector kernel -- see docs/audit/b5-gaps.md)"),
+                    },
                     _ => "1",
                 };
+                bool structResult = resKind is "5" or "6" or "7" or "8";
+                if (vtElem || structResult)
+                {
+                    // The struct-typed selector ABI: the element crosses in its
+                    // own by-value slot (dt/ts/guid/dtoffset) and the result is
+                    // materialized as its typed array.
+                    return I(selIdx ? "il2cpp::il2cpp_linq_list_select_idx" : "il2cpp::il2cpp_linq_list_select",
+                        2, true, true, false, L2,
+                        returnTypeName: LinqArrayTypeNameExact(tRes, genArgNames, 1),
+                        appendLiterals: new[] { K, resKind });
+                }
                 return I(selIdx ? "il2cpp::il2cpp_linq_list_select_idx" : "il2cpp::il2cpp_linq_list_select",
                     2, true, true, false, L2,
                     returnTypeName: LinqArrayTypeNameExact(tRes), appendLiterals: new[] { K, resKind });
@@ -5194,7 +5551,7 @@ public static partial class MethodRefResolver
                     // Func<double,float> leaf returns a 4-byte float per the
                     // MS x64 ABI, and the shared _d entry read it through a
                     // double(*) fn-pointer, mixing the callee's XMM0 residue
-                    // into every key -- b5-gaps §14, list-orderkey-float). A
+                    // into every key -- b5-gaps 搂14, list-orderkey-float). A
                     // non-double/float key over a double list has no list
                     // kernel.
                     if (genArgs is not { Length: >= 2 })
@@ -5785,7 +6142,7 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over an int64-element source with an (element, index) key selector " +
-                        "is not wired: LOUD whitelist �?-- net48 has no (element, index) key selector overload. " +
+                        "is not wired: LOUD whitelist 锟?-- net48 has no (element, index) key selector overload. " +
                         "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
@@ -5804,7 +6161,7 @@ public static partial class MethodRefResolver
                     0x0A or 0x0B => "i8",
                     // impl-floatkey: float gets its OWN entry (a 4-byte float
                     // return read through a double(*) fn-pointer mixes the
-                    // callee's XMM0 residue into every key -- b5-gaps §14).
+                    // callee's XMM0 residue into every key -- b5-gaps 搂14).
                     0x0C => "f",
                     0x0D => "d",
                     _ => null,
@@ -5831,7 +6188,7 @@ public static partial class MethodRefResolver
             // F-stack slot (a float element widens to double -- the
             // InvokePredF / FPredFn convention) and the key returns in its own
             // family slot (a float key through the float(*) reader --
-            // impl-floatkey, b5-gaps §14). The source NAME gates the surface:
+            // impl-floatkey, b5-gaps 搂14). The source NAME gates the surface:
             // ONLY System.Double[] / System.Single[] sources are wired here;
             // every other element family keeps its own gate.
             case "OrderBy" when (srcFam == "d" || srcFam == "f") && count >= 2:
@@ -5840,7 +6197,7 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a double/float-element source with an (element, index) key selector " +
-                        "is not wired: LOUD whitelist �?-- net48 has no (element, index) key selector overload. " +
+                        "is not wired: LOUD whitelist 锟?-- net48 has no (element, index) key selector overload. " +
                         "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
@@ -6132,3 +6489,11 @@ public static partial class MethodRefResolver
         return args.Length >= 2 ? args[1] : "";
     }
 }
+
+
+
+
+
+
+
+

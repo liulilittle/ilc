@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // linq_list.cpp -- System.Linq over a List<T> receiver (nb15 B5 FIX, D-2).
 //
 // See linq_list.h. Every entry:
@@ -1769,6 +1769,19 @@ Il2CppArray* il2cpp_linq_list_select(Il2CppObject* list, Il2CppObject* sel,
     Il2CppArray* snap = SnapshotOf(list, kind);
     roots.Add(reinterpret_cast<void**>(&snap));
 
+    // impl-vtsel: the STRUCT-TYPED SELECTOR ABI. A DateTime/TimeSpan/Guid/
+    // DateTimeOffset source cell (kind 13..16) must reach the selector in its
+    // own by-value slot -- the generic int32 branch below would read only the
+    // first 4 bytes of every 8/16-byte cell (a silent wrong value). A struct
+    // RESULT (resKind 5..8) likewise needs the struct-returning ABI for every
+    // source family. Both ride the family-generic array selector surface.
+    if (kind == IL2CPP_LIST_KIND_DT || kind == IL2CPP_LIST_KIND_TS
+        || kind == IL2CPP_LIST_KIND_GUID || kind == IL2CPP_LIST_KIND_DTOFFSET
+        || resKind >= 5)
+    {
+        return il2cpp_linq_select_family(snap, sel, kind, resKind);
+    }
+
     if (kind == IL2CPP_LIST_KIND_I4)
     {
         switch (resKind)
@@ -2005,6 +2018,14 @@ Il2CppArray* il2cpp_linq_list_select_idx(Il2CppObject* list, Il2CppObject* sel,
     roots.Add(reinterpret_cast<void**>(&list));
     Il2CppArray* snap = SnapshotOf(list, kind);
     roots.Add(reinterpret_cast<void**>(&snap));
+
+    // impl-vtsel: same struct-typed ABI for the (element, index) overload.
+    if (kind == IL2CPP_LIST_KIND_DT || kind == IL2CPP_LIST_KIND_TS
+        || kind == IL2CPP_LIST_KIND_GUID || kind == IL2CPP_LIST_KIND_DTOFFSET
+        || resKind >= 5)
+    {
+        return il2cpp_linq_select_family_idx(snap, sel, kind, resKind);
+    }
 
     if (kind == IL2CPP_LIST_KIND_I4)
     {
@@ -3327,6 +3348,11 @@ int32_t ZipSideOfListKind(int32_t kind)
         case IL2CPP_LIST_KIND_CHAR:   return IL2CPP_LINQ_NARROW_CHAR;
         case IL2CPP_LIST_KIND_UINT:   return IL2CPP_LINQ_NARROW_UINT;
         case IL2CPP_LIST_KIND_DEC:    return IL2CPP_LINQ_ZIP_DEC;
+        // impl-vtsel: the by-value value-struct element families.
+        case IL2CPP_LIST_KIND_DT:        return IL2CPP_LINQ_ZIP_DT;
+        case IL2CPP_LIST_KIND_TS:        return IL2CPP_LINQ_ZIP_TS;
+        case IL2CPP_LIST_KIND_GUID:      return IL2CPP_LINQ_ZIP_GUID;
+        case IL2CPP_LIST_KIND_DTOFFSET:  return IL2CPP_LINQ_ZIP_DTO;
         default:
             il2cpp_throw_not_supported_exception(
                 "Unsupported List element kind for Zip (IL2CPP_LIST_KIND_REF is handled "
@@ -3408,7 +3434,10 @@ Il2CppArray* il2cpp_linq_zip_family(Il2CppObject* first, Il2CppObject* second,
     // the selector through the STATICALLY DECLARED ABI (the old code stored a
     // value-result thunk's EAX as a GC pointer -- a measured 0xC0000005).
     if (firstKind == IL2CPP_LIST_KIND_REF || secondKind == IL2CPP_LIST_KIND_REF ||
-        a->isRefElem || b->isRefElem || resKind >= 6)
+        a->isRefElem || b->isRefElem || resKind >= 6 ||
+        // impl-vtsel: a by-value value-struct SOURCE side needs the mixed entry
+        // (its element is not an int32/i8/double cell).
+        firstKind >= IL2CPP_LIST_KIND_DT || secondKind >= IL2CPP_LIST_KIND_DT)
         return il2cpp_linq_zip_mixed(a, b, sel, firstKind, secondKind, resKind);
     return il2cpp_linq_zip_wide(a, b, sel, ZipSideOfListKind(firstKind),
                                 ZipSideOfListKind(secondKind), resKind);
@@ -3580,7 +3609,7 @@ Il2CppArray* il2cpp_linq_list_order_by_key_ref_d(Il2CppObject* list, Il2CppObjec
 // impl-orderfam: the List REFERENCE-element FLOAT-key face (the
 // Func<TRef,float> ABI). The snapshot rides the array ref_f entry, whose
 // float(*) reader keeps the 4-byte float return out of the double misread
-// (b5-gaps §14).
+// (b5-gaps 搂14).
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_f(Il2CppObject* list, Il2CppObject* keySel,
                                                  int32_t desc, int32_t kind)
 {
@@ -3634,7 +3663,7 @@ Il2CppArray* il2cpp_linq_list_order_by_key_desc_d(Il2CppObject* list, Il2CppObje
 // impl-orderfam: the DOUBLE-element list FLOAT-key entries (the
 // Func<double,float> ABI). The snapshot is a double array (8-byte cells) and
 // the key returns in the float slot -- il2cpp_linq_order_by_key_d_f reads it
-// through the float(*) reader, never through the double reader (b5-gaps §14).
+// through the float(*) reader, never through the double reader (b5-gaps 搂14).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_list_order_by_key_f(Il2CppObject* list, Il2CppObject* keySel,
                                              int32_t kind)
@@ -4770,6 +4799,49 @@ LST_AGG_RS_DEC6(val)
 #undef LST_AGG_RS_DEC6
 #undef LST_AGG_NO_ROOT
 
+// impl-vtsel: the value-struct LIST keyed sorts. The list snapshot is the
+// family's typed array, so the array struct-element kernels serve it unchanged.
+Il2CppArray* il2cpp_linq_list_order_by_key_vt(Il2CppObject* list, Il2CppObject* keySel,
+                                              int32_t desc, int32_t kind, int32_t keyFam)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_order_by_key_vt(snap, keySel, desc, kind, keyFam);
+}
+
+// impl-vtsel: the fused ThenBy composite over a value-struct list.
+Il2CppArray* il2cpp_linq_list_then_by_key_vt(Il2CppObject* list, Il2CppObject* k1,
+                                             Il2CppObject* k2, int32_t k1Desc,
+                                             int32_t k2Desc, int32_t kind,
+                                             int32_t k1Fam, int32_t k2Fam)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_then_by_key_vt(snap, k1, k2, k1Desc, k2Desc, kind, k1Fam, k2Fam);
+}
+
+// impl-vtsel: GroupBy over a value-struct list. The old entry snapshotted
+// through IL2CPP_LIST_KIND_I4 unconditionally (a 4-byte read of every 8/16-byte
+// cell), so the family must come from the caller.
+Il2CppObject* il2cpp_linq_list_group_by_full_kind(Il2CppObject* list,
+                                                  Il2CppObject* keySel, Il2CppObject* elemSel,
+                                                  Il2CppObject* cmp, Il2CppObject* resSel,
+                                                  int32_t elemKind, int32_t rsKind,
+                                                  int32_t kind, int32_t keyKind,
+                                                  int32_t srcKind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_group_by_full_key_cell(snap, keySel, elemSel, cmp, resSel,
+                                              elemKind, rsKind, keyKind, srcKind, 0);
+}
+
 Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
                                              Il2CppObject* keySel, Il2CppObject* elemSel,
                                              Il2CppObject* cmp, Il2CppObject* resSel,
@@ -4825,3 +4897,5 @@ Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
 }
 
 } // namespace il2cpp
+
+

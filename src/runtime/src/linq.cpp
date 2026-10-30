@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // linq.cpp -- System.Linq array-family icalls (LINQ domain, T1 card).
 //
 // See linq.h for the contract. Implementation notes:
@@ -3044,10 +3044,16 @@ int32_t il2cpp_linq_last_or_default_narrow(Il2CppArray* src, int32_t elemKind)
 //------------------------------------------------------------------------------
 int32_t ZipSideWidthCode(int32_t side)
 {
-    // 0 = int32 slot, 1 = int64, 2 = double carrier, 3 = 16-byte decimal.
+    // 0 = int32 slot, 1 = int64, 2 = double carrier, 3 = 16-byte decimal,
+    // 4 = System.DateTime, 5 = System.TimeSpan, 6 = System.Guid,
+    // 7 = System.DateTimeOffset (impl-vtsel: the by-value struct sides).
     return side == IL2CPP_LINQ_ZIP_I8 ? 1
          : (side == IL2CPP_LINQ_ZIP_F || side == IL2CPP_LINQ_ZIP_D) ? 2
-         : side == IL2CPP_LINQ_ZIP_DEC ? 3 : 0;
+         : side == IL2CPP_LINQ_ZIP_DEC ? 3
+         : side == IL2CPP_LINQ_ZIP_DT ? 4
+         : side == IL2CPP_LINQ_ZIP_TS ? 5
+         : side == IL2CPP_LINQ_ZIP_GUID ? 6
+         : side == IL2CPP_LINQ_ZIP_DTO ? 7 : 0;
 }
 
 // Read element `i` as the int32 slot. The narrow codes (0..6) disambiguate the
@@ -3143,6 +3149,43 @@ inline runtime::Il2CppDecimal ZipReadAs<runtime::Il2CppDecimal>(Il2CppArray* arr
     return *reinterpret_cast<runtime::Il2CppDecimal*>(il2cpp_array_get_elem_ptr(arr, i));
 }
 
+// impl-vtsel: the by-value VALUE-STRUCT source sides. Each reads its own cell
+// width: a DateTime cell is the PACKED 8-byte image (ticks + the 2-bit kind), a
+// TimeSpan cell the bare ticks, a Guid / DateTimeOffset cell 16 raw bytes.
+template <>
+inline runtime::Il2CppDateTime ZipReadAs<runtime::Il2CppDateTime>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    (void)side;
+    return runtime::il2cpp_datetime_from_array_bits(
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(arr, i)));
+}
+
+template <>
+inline runtime::Il2CppTimeSpan ZipReadAs<runtime::Il2CppTimeSpan>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    (void)side;
+    return runtime::Il2CppTimeSpan(*reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(arr, i)));
+}
+
+template <>
+inline Il2CppGuid ZipReadAs<Il2CppGuid>(Il2CppArray* arr, int32_t i, int32_t side)
+{
+    (void)side;
+    Il2CppGuid g;
+    std::memcpy(g.b, il2cpp_array_get_elem_ptr(arr, i), sizeof(g.b));
+    return g;
+}
+
+template <>
+inline runtime::Il2CppDateTimeOffset ZipReadAs<runtime::Il2CppDateTimeOffset>(
+    Il2CppArray* arr, int32_t i, int32_t side)
+{
+    (void)side;
+    runtime::Il2CppDateTimeOffset v;
+    std::memcpy(&v, il2cpp_array_get_elem_ptr(arr, i), sizeof(v));
+    return v;
+}
+
 // Call the selector through the C signature of its declared parameter types
 // (T1, T2) and the result carrier R.
 template <typename T1, typename T2, typename R>
@@ -3190,6 +3233,22 @@ void ZipFill(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
         {
             // System.DateTime / System.TimeSpan result: the 8-byte value struct.
             const runtime::Il2CppDateTime r = ZipCall<T1, T2, runtime::Il2CppDateTime>(d, a, b);
+            // impl-vtsel: the DateTime ARRAY cell is the PACKED 8-byte image
+            // (ticks + the 2-bit kind); the in-memory struct is 16 bytes.
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                runtime::il2cpp_datetime_to_array_bits(r);
+        }
+        else if (resKind == 16)
+        {
+            // impl-vtsel: System.TimeSpan result (the bare ticks cell).
+            const runtime::Il2CppTimeSpan r = ZipCall<T1, T2, runtime::Il2CppTimeSpan>(d, a, b);
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = r.ticks;
+        }
+        else if (resKind == 17)
+        {
+            // impl-vtsel: System.DateTimeOffset result (16-byte value cell).
+            const runtime::Il2CppDateTimeOffset r =
+                ZipCall<T1, T2, runtime::Il2CppDateTimeOffset>(d, a, b);
             std::memcpy(il2cpp_array_get_elem_ptr(out, i), &r, sizeof(r));
         }
         else if (resKind == 15)
@@ -3274,6 +3333,22 @@ void ZipFillMixed(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
             // System.DateTime / System.TimeSpan result: the 8-byte runtime value
             // struct returned by value.
             const runtime::Il2CppDateTime r = ZipCall<T1, T2, runtime::Il2CppDateTime>(d, a, b);
+            // impl-vtsel: the DateTime ARRAY cell is the PACKED 8-byte image
+            // (ticks + the 2-bit kind); the in-memory struct is 16 bytes.
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                runtime::il2cpp_datetime_to_array_bits(r);
+        }
+        else if (resKind == 16)
+        {
+            // impl-vtsel: System.TimeSpan result (the bare ticks cell).
+            const runtime::Il2CppTimeSpan r = ZipCall<T1, T2, runtime::Il2CppTimeSpan>(d, a, b);
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = r.ticks;
+        }
+        else if (resKind == 17)
+        {
+            // impl-vtsel: System.DateTimeOffset result (16-byte value cell).
+            const runtime::Il2CppDateTimeOffset r =
+                ZipCall<T1, T2, runtime::Il2CppDateTimeOffset>(d, a, b);
             std::memcpy(il2cpp_array_get_elem_ptr(out, i), &r, sizeof(r));
         }
         else if (resKind == 15)
@@ -3326,14 +3401,19 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
         // 13 System.Decimal (16-byte) / 14 DateTime|TimeSpan (8-byte) /
         // 15 Guid (16-byte): the selector returns the struct by value.
         case 13: valResult = true; resSize = 16; resElemKind = 0; break;
-        case 14: valResult = true; resSize = 8; resElemKind = 0; break;
-        case 15: valResult = true; resSize = 16; resElemKind = 0; break;
+        // impl-vtsel: 14 DateTime (packed 8-byte cell, elemKind stamped) /
+        // 15 Guid (16) / 16 TimeSpan (8) / 17 DateTimeOffset (16).
+        case 14: valResult = true; resSize = 8; resElemKind = kElemKindDateTime; break;
+        case 15: valResult = true; resSize = 16; resElemKind = kElemKindGuid; break;
+        case 16: valResult = true; resSize = 8; resElemKind = kElemKindTimeSpan; break;
+        case 17: valResult = true; resSize = 16; resElemKind = 0; break;
         default: resSize = 4; resElemKind = 1; break;
     }
     Il2CppArray* out = refResult
         ? il2cpp_array_new(nullptr, resSize, true, n)
-        : (valResult ? il2cpp_array_new(nullptr, resSize, false, n)
-                     : il2cpp_array_new_typed(resSize, resElemKind, n));
+        : (valResult && resElemKind == 0
+            ? il2cpp_array_new(nullptr, resSize, false, n)
+            : il2cpp_array_new_typed(resSize, resElemKind, n));
     roots.Add(reinterpret_cast<void**>(&out));
 
     const int32_t c1 = ZipSideWidthCode(firstSide);
@@ -3389,6 +3469,73 @@ Il2CppArray* il2cpp_linq_zip_wide(Il2CppArray* first, Il2CppArray* second,
 // the IL2CPP_LIST_KIND_* codes from the MethodSpec element bytes; a reference
 // element byte maps to IL2CPP_LIST_KIND_REF. `resKind` is the TResult cell code
 // (see the ZipFillMixed comment).
+// impl-vtsel: per-SIDE dispatch for the mixed Zip entry, so a by-value STRUCT
+// side (width codes 4..7) pairs with any other side through the selector's
+// exact declared parameter slots.
+template <typename T1>
+void ZipFillSecondMix(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
+                      int32_t s1, int32_t s2, int32_t resKind, Il2CppArray* out,
+                      int32_t n, int32_t c2)
+{
+    switch (c2)
+    {
+        case 0: ZipFillMixed<T1, int32_t>(first, second, d, s1, s2, resKind, out, n); break;
+        case 1: ZipFillMixed<T1, int64_t>(first, second, d, s1, s2, resKind, out, n); break;
+        case 2: ZipFillMixed<T1, double>(first, second, d, s1, s2, resKind, out, n); break;
+        case 3: ZipFillMixed<T1, runtime::Il2CppDecimal>(first, second, d, s1, s2, resKind, out, n); break;
+        case 4: ZipFillMixed<T1, runtime::Il2CppDateTime>(first, second, d, s1, s2, resKind, out, n); break;
+        case 5: ZipFillMixed<T1, runtime::Il2CppTimeSpan>(first, second, d, s1, s2, resKind, out, n); break;
+        case 6: ZipFillMixed<T1, Il2CppGuid>(first, second, d, s1, s2, resKind, out, n); break;
+        case 7: ZipFillMixed<T1, runtime::Il2CppDateTimeOffset>(first, second, d, s1, s2, resKind, out, n); break;
+        default:
+            il2cpp_throw_not_supported_exception(
+                "Zip: unknown second-source element family.");
+    }
+}
+
+template <typename T2>
+void ZipFillFirstMix(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
+                     int32_t s1, int32_t s2, int32_t resKind, Il2CppArray* out,
+                     int32_t n, int32_t c1)
+{
+    switch (c1)
+    {
+        case 0: ZipFillMixed<int32_t, T2>(first, second, d, s1, s2, resKind, out, n); break;
+        case 1: ZipFillMixed<int64_t, T2>(first, second, d, s1, s2, resKind, out, n); break;
+        case 2: ZipFillMixed<double, T2>(first, second, d, s1, s2, resKind, out, n); break;
+        case 3: ZipFillMixed<runtime::Il2CppDecimal, T2>(first, second, d, s1, s2, resKind, out, n); break;
+        case 4: ZipFillMixed<runtime::Il2CppDateTime, T2>(first, second, d, s1, s2, resKind, out, n); break;
+        case 5: ZipFillMixed<runtime::Il2CppTimeSpan, T2>(first, second, d, s1, s2, resKind, out, n); break;
+        case 6: ZipFillMixed<Il2CppGuid, T2>(first, second, d, s1, s2, resKind, out, n); break;
+        case 7: ZipFillMixed<runtime::Il2CppDateTimeOffset, T2>(first, second, d, s1, s2, resKind, out, n); break;
+        default:
+            il2cpp_throw_not_supported_exception(
+                "Zip: unknown first-source element family.");
+    }
+}
+
+// Both sides value: the first side selects the T1 instantiation, the second
+// dispatches on c2.
+void ZipFillBothMix(Il2CppArray* first, Il2CppArray* second, Il2CppDelegate* d,
+                    int32_t s1, int32_t s2, int32_t resKind, Il2CppArray* out,
+                    int32_t n, int32_t c1, int32_t c2)
+{
+    switch (c1)
+    {
+        case 0: ZipFillSecondMix<int32_t>(first, second, d, s1, s2, resKind, out, n, c2); break;
+        case 1: ZipFillSecondMix<int64_t>(first, second, d, s1, s2, resKind, out, n, c2); break;
+        case 2: ZipFillSecondMix<double>(first, second, d, s1, s2, resKind, out, n, c2); break;
+        case 3: ZipFillSecondMix<runtime::Il2CppDecimal>(first, second, d, s1, s2, resKind, out, n, c2); break;
+        case 4: ZipFillSecondMix<runtime::Il2CppDateTime>(first, second, d, s1, s2, resKind, out, n, c2); break;
+        case 5: ZipFillSecondMix<runtime::Il2CppTimeSpan>(first, second, d, s1, s2, resKind, out, n, c2); break;
+        case 6: ZipFillSecondMix<Il2CppGuid>(first, second, d, s1, s2, resKind, out, n, c2); break;
+        case 7: ZipFillSecondMix<runtime::Il2CppDateTimeOffset>(first, second, d, s1, s2, resKind, out, n, c2); break;
+        default:
+            il2cpp_throw_not_supported_exception(
+                "Zip: unknown first-source element family.");
+    }
+}
+
 Il2CppArray* il2cpp_linq_zip_mixed(Il2CppArray* first, Il2CppArray* second,
                                    Il2CppObject* sel, int32_t firstKind,
                                    int32_t secondKind, int32_t resKind)
@@ -3422,14 +3569,19 @@ Il2CppArray* il2cpp_linq_zip_mixed(Il2CppArray* first, Il2CppArray* second,
         // 13 System.Decimal (16-byte cell) / 14 DateTime|TimeSpan (8-byte) /
         // 15 Guid (16-byte): the selector returns the struct by value.
         case 13: valResult = true; resSize = 16; resElemKind = 0; break;
-        case 14: valResult = true; resSize = 8; resElemKind = 0; break;
-        case 15: valResult = true; resSize = 16; resElemKind = 0; break;
+        // impl-vtsel: 14 DateTime (packed 8-byte cell, elemKind stamped) /
+        // 15 Guid (16) / 16 TimeSpan (8) / 17 DateTimeOffset (16).
+        case 14: valResult = true; resSize = 8; resElemKind = kElemKindDateTime; break;
+        case 15: valResult = true; resSize = 16; resElemKind = kElemKindGuid; break;
+        case 16: valResult = true; resSize = 8; resElemKind = kElemKindTimeSpan; break;
+        case 17: valResult = true; resSize = 16; resElemKind = 0; break;
         default: resSize = 4; resElemKind = 1; break;
     }
     Il2CppArray* out = refResult
         ? il2cpp_array_new(nullptr, resSize, true, n)
-        : (valResult ? il2cpp_array_new(nullptr, resSize, false, n)
-                     : il2cpp_array_new_typed(resSize, resElemKind, n));
+        : (valResult && resElemKind == 0
+            ? il2cpp_array_new(nullptr, resSize, false, n)
+            : il2cpp_array_new_typed(resSize, resElemKind, n));
     roots.Add(reinterpret_cast<void**>(&out));
 
     // The value side's ZIP width code (-1 for a reference side, which reads
@@ -3445,17 +3597,17 @@ Il2CppArray* il2cpp_linq_zip_mixed(Il2CppArray* first, Il2CppArray* second,
     }
     else if (aRef)
     {
-        if (c2 == 0)      ZipFillMixed<Il2CppObject*, int32_t>(first, second, d, s1, s2, resKind, out, n);
-        else if (c2 == 1) ZipFillMixed<Il2CppObject*, int64_t>(first, second, d, s1, s2, resKind, out, n);
-        else if (c2 == 3) ZipFillMixed<Il2CppObject*, runtime::Il2CppDecimal>(first, second, d, s1, s2, resKind, out, n);
-        else              ZipFillMixed<Il2CppObject*, double>(first, second, d, s1, s2, resKind, out, n);
+        ZipFillSecondMix<Il2CppObject*>(first, second, d, s1, s2, resKind, out, n, c2);
     }
     else if (bRef)
     {
-        if (c1 == 0)      ZipFillMixed<int32_t, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
-        else if (c1 == 1) ZipFillMixed<int64_t, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
-        else if (c1 == 3) ZipFillMixed<runtime::Il2CppDecimal, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
-        else              ZipFillMixed<double, Il2CppObject*>(first, second, d, s1, s2, resKind, out, n);
+        ZipFillFirstMix<Il2CppObject*>(first, second, d, s1, s2, resKind, out, n, c1);
+    }
+    else if (c1 >= 4 || c2 >= 4)
+    {
+        // impl-vtsel: at least one side is a by-value value struct, so the
+        // int32/i8/double-only entry above cannot serve the pair.
+        ZipFillBothMix(first, second, d, s1, s2, resKind, out, n, c1, c2);
     }
     else
     {
@@ -3465,3 +3617,10 @@ Il2CppArray* il2cpp_linq_zip_mixed(Il2CppArray* first, Il2CppArray* second,
 }
 
 } // namespace il2cpp
+
+
+
+
+
+
+

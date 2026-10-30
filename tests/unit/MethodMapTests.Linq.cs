@@ -1106,12 +1106,17 @@ public class MethodMapTestsLinq
     }
 
     // Zip's 0x11 VALUE-TYPE result cell ABI: the generic-argument NAME selects
-    // the cell (13 decimal / 14 DateTime|TimeSpan / 15 Guid).
+    // the cell (13 decimal / 14 DateTime / 16 TimeSpan / 15 Guid / 17
+    // DateTimeOffset). impl-vtsel gave TimeSpan and DateTimeOffset their OWN
+    // result codes: sharing DateTime's 14 makes the selector return an
+    // Il2CppTimeSpan where the runtime expects an Il2CppDateTime (and the
+    // 16-byte DateTimeOffset could never ride DateTime's 8-byte cell).
     [Theory]
     [InlineData("System.Decimal", "13")]
     [InlineData("System.DateTime", "14")]
-    [InlineData("System.TimeSpan", "14")]
+    [InlineData("System.TimeSpan", "16")]
     [InlineData("System.Guid", "15")]
+    [InlineData("System.DateTimeOffset", "17")]
     public void Resolve_Zip_ValueTypeResult_MapsResultCellAbi(string resTypeName, string resKind)
     {
         var resolved = ResolveMethodSpec(SynthesizeZipValResult(0x08, 0x08, resTypeName));
@@ -5726,8 +5731,10 @@ public class MethodMapTestsLinq
         Assert.True(resolved.AppendLiterals is null || resolved.AppendLiterals.Length == 0);
     }
 
-    // The operators that genuinely need a struct-typed SELECTOR / key ABI stay
-    // a self-describing transpile-time LOUD (never a silent int32 read).
+    // impl-vtsel: Select / OrderBy / ThenBy / GroupBy / Zip over a by-value
+    // value-struct List<T> are WIRED through the struct-typed selector ABI, so
+    // they must resolve (never LOUD). The numeric aggregates stay LOUD: net48
+    // Enumerable has no Sum/Average overload for these element types.
     [Theory]
     [InlineData("Select", 0x02)]
     [InlineData("OrderBy", 0x02)]
@@ -5735,6 +5742,17 @@ public class MethodMapTestsLinq
     [InlineData("Average", 0x02)]
     public void Resolve_ListValueStruct_UnsupportedOperator_StaysLoud(string name, byte second)
     {
+        if (name is "Select" or "OrderBy")
+        {
+            // WIRED: the struct-source selector surface binds (no exception).
+            var wired = ResolveMethodSpecWithReceiver(
+                SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("predicate"),
+                    "System", "DateTime"),
+                ListReceiverOf("DateTime"));
+            Assert.False(string.IsNullOrEmpty(wired.CppName));
+            _ = second;
+            return;
+        }
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMethodSpecWithReceiver(
                 SynthesizeGenericValueTypeSource(name, ValueTypeSourceSignature("predicate"),

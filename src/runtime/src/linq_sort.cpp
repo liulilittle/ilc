@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // linq_sort.cpp -- System.Linq OrderBy (linq_sort domain, see linq_sort.h).
 //
 // Implementation notes:
@@ -47,6 +47,7 @@
 #include "decimal.h"     // impl-linq3 (B): the decimal-source keyed sort cell
 #include "guid.h"        // impl-linq3 (B): the System.Guid key carrier + compare
 #include "il2cpp_time.h" // impl-linq3 (B): the System.DateTime key carrier
+#include "il2cpp_dtoffset.h" // impl-vtsel: the System.DateTimeOffset key carrier
 
 #include <cstdint>
 #include <cstdlib>
@@ -119,7 +120,7 @@ double InvokeKeyRefD(Il2CppDelegate* d, Il2CppObject* elem)
 // impl-orderfam: the FLOAT-key reader for a REFERENCE source (the
 // Func<TRef,float> ABI). A float leaf returns a 4-byte float per the MS x64
 // ABI (XMM0 low 32 bits), NOT a double; reading that return through KeyDRefFn
-// mixed the callee's XMM0 residue into every key (the b5-gaps §14 misread --
+// mixed the callee's XMM0 residue into every key (the b5-gaps 搂14 misread --
 // the thenby-refkey probe).
 using KeyFRefFn = float (*)(Il2CppObject* elem);
 using KeyFRefThisFn = float (*)(Il2CppObject* self, Il2CppObject* elem);
@@ -150,7 +151,7 @@ using KeyI8SrcDThisFn = double (*)(Il2CppObject* self, int64_t value);
 // impl-floatkey: the FLOAT-key reader for an int64 source. A Func<long,float>
 // leaf returns a 4-byte float per the MS x64 ABI; reading that return through
 // a double(*) fn-pointer mixes the callee's XMM0 residue into every key (the
-// b5-gaps §14 misread -- thenby-floatprobe).
+// b5-gaps 搂14 misread -- thenby-floatprobe).
 using KeyI8SrcFFn = float (*)(int64_t value);
 using KeyI8SrcFThisFn = float (*)(Il2CppObject* self, int64_t value);
 
@@ -194,7 +195,7 @@ using KeyI4DThisFn = double (*)(Il2CppObject* self, int32_t value);
 // impl-floatkey: the FLOAT-key reader for an int32 source (the Func<int,float>
 // ABI -- a 4-byte float return in the XMM0 low half, NOT a double; reading it
 // through KeyI4DFn mixed the callee's XMM0 residue into every key, the
-// b5-gaps §14 silent mis-order -- thenby-floatprobe).
+// b5-gaps 搂14 silent mis-order -- thenby-floatprobe).
 using KeyI4FFn = float (*)(int32_t value);
 using KeyI4FThisFn = float (*)(Il2CppObject* self, int32_t value);
 
@@ -347,7 +348,7 @@ double InvokeKeyDSrcD(Il2CppDelegate* d, double value)
 // int32 slot, int64 in the int64 slot, double in the F-stack slot, and a
 // FLOAT key through a float(*) reader (a 4-byte float return read through a
 // double(*) fn-pointer mixes the callee's XMM0 residue into every key -- the
-// impl-floatkey b5-gaps §14 misread, the orderwide-elem probe).
+// impl-floatkey b5-gaps 搂14 misread, the orderwide-elem probe).
 using KeyDSrcI4Fn = int32_t (*)(double value);
 using KeyDSrcI4ThisFn = int32_t (*)(Il2CppObject* self, double value);
 using KeyDSrcI8Fn = int64_t (*)(double value);
@@ -926,7 +927,7 @@ Il2CppArray* SortDecDecKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool de
 // impl-orderfam: the FLOAT-key reader for a DECIMAL source (the
 // Func<decimal,float> ABI). A float leaf returns a 4-byte float per the MS
 // x64 ABI, NOT a double; the old family-"2" fold read it through InvokeKeyDecD
-// and mixed the callee's XMM0 residue into every key (the b5-gaps §14
+// and mixed the callee's XMM0 residue into every key (the b5-gaps 搂14
 // misread -- the thenby-decfkey probe).
 static float InvokeKeyDecF(Il2CppDelegate* keySel, const runtime::Il2CppDecimal& v)
 {
@@ -1353,7 +1354,7 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_d(Il2CppArray* src, Il2CppObject*
 // impl-orderfam: the DECIMAL-source FLOAT-key counterparts (the
 // Func<decimal,float> ABI). Same cached-once / stable / fresh decimal[]
 // result contract; the key returns in the float slot and is read through
-// InvokeKeyDecF, never through the double reader (b5-gaps §14).
+// InvokeKeyDecF, never through the double reader (b5-gaps 搂14).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_order_by_key_dec_f(Il2CppArray* src, Il2CppObject* keySel)
 {
@@ -1657,7 +1658,7 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_d(Il2CppArray* src, Il2CppObject* keyS
 // impl-orderfam: the REFERENCE-source FLOAT-key counterpart (the
 // Func<TRef,float> ABI). Same cached-once / stable / fresh reference-array
 // result contract; the key returns in the float slot and is read through
-// InvokeKeyRefF, never through the double reader (b5-gaps §14).
+// InvokeKeyRefF, never through the double reader (b5-gaps 搂14).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_order_by_key_ref_f(Il2CppArray* src, Il2CppObject* keySel,
                                             int32_t desc)
@@ -1792,7 +1793,7 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_d(Il2CppArray* src, Il2CppObject* key
 // key family the element ABI carries: the element crosses to the selector in
 // the F-stack slot (a float element WIDENS to double -- the InvokePredF /
 // FPredFn convention, linq.cpp) and the key returns in its own family slot
-// (a float key through the float(*) reader -- impl-floatkey, b5-gaps §14).
+// (a float key through the float(*) reader -- impl-floatkey, b5-gaps 搂14).
 // Same cached-once / stable / fresh-source-family result contract as
 // SortInt32KeyCopyT / SortInt64KeyCopyT: the elements are snapshotted before
 // any selector call, the delegate is rooted across the key phase, and the
@@ -2081,7 +2082,7 @@ Il2CppArray* SortInt32TwoKeysFamDispatch(Il2CppArray* s, Il2CppDelegate* d1,
 {
 // impl-floatkey: family 3 = float (the Func<TSource,float> ABI) -- a float
 // key MUST be read through a float(*) reader, never through the double
-// KeyI4D reader (b5-gaps §14). 4 x 4 = 16 (k1fam, k2fam) combinations.
+// KeyI4D reader (b5-gaps 搂14). 4 x 4 = 16 (k1fam, k2fam) combinations.
 #define I4SRC_K1_CASES(K1TYPE, K1INV, K1CMP)                                                \
     case 0: return SortInt32TwoKeysCopyT<K1TYPE, int32_t>(s, d1, d2, k1Desc, k2Desc, K1INV, \
         InvokeKeyI4, K1CMP, CmpKeyValue<int32_t>);                                          \
@@ -2135,7 +2136,7 @@ Il2CppArray* SortInt64TwoKeysFamDispatch(Il2CppArray* s, Il2CppDelegate* d1,
                                          bool k2Desc, int32_t k1fam, int32_t k2fam)
 {
 // impl-floatkey: family 3 = float (read through InvokeKeyI8SrcF, b5-gaps
-// §14). 4 x 4 = 16 (k1fam, k2fam) combinations.
+// 搂14). 4 x 4 = 16 (k1fam, k2fam) combinations.
 #define I8SRC_K1_CASES(K1TYPE, K1INV, K1CMP)                                                \
     case 0: return SortInt64TwoKeysCopy<K1TYPE, int32_t>(s, d1, d2, k1Desc, k2Desc, K1INV,  \
         InvokeKeyI8SrcI4, K1CMP, CmpKeyValue<int32_t>);                                     \
@@ -2342,7 +2343,7 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_guid(Il2CppArray* src, Il2CppObje
 // surface supports. Family codes: 0=int32, 1=int64, 2=double, 3=decimal,
 // 4=System.DateTime, 5=System.Guid, 6=float (impl-orderfam: the float family
 // has its own float(*) reader -- a 4-byte float return read through a double
-// fn-pointer mixes the callee's XMM0 residue into every key, the b5-gaps §14
+// fn-pointer mixes the callee's XMM0 residue into every key, the b5-gaps 搂14
 // misread; the numeric code column mirrors the impl-floatkey LinqValKeyFamily
 // split while the pre-existing 0..5 codes keep their meaning). Each selector
 // is cached EXACTLY ONCE.
@@ -2463,4 +2464,478 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_guid(Il2CppArray* src, Il2CppObject* k
         CmpGuidKey);
 }
 
+//------------------------------------------------------------------------------
+// impl-vtsel: the VALUE-STRUCT ELEMENT-SOURCE keyed sorts
+// (net48 OrderBy<DateTime|TimeSpan|Guid|DateTimeOffset, TKey> over a List
+// snapshot / an array).
+//
+// The element crosses to the key selector in its OWN by-value slot
+// (Il2CppDateTime / Il2CppTimeSpan / Il2CppGuid / Il2CppDateTimeOffset) and
+// the key returns in ITS OWN family slot. Reading such a cell through the
+// int32 element reader (the pre-existing i4 surface) or calling the selector
+// through a foreign ABI is a silent wrong value, which is what this surface
+// removes.
+//
+// Key family codes (the transpiler's literals, shared with the ThenBy
+// composite dispatch):
+//   0 int32 | 1 int64 | 2 double | 3 float | 4 DateTime | 5 Guid |
+//   6 TimeSpan | 7 DateTimeOffset
+//
+// Same GC contract as the other keyed sorts: elements are snapshotted into a
+// native vector BEFORE any selector call, the delegate is rooted across the
+// key phase, and the result is allocated only after the last selector call.
+//------------------------------------------------------------------------------
+namespace {
+
+int32_t CmpTimeSpanKey(const runtime::Il2CppTimeSpan& a, const runtime::Il2CppTimeSpan& b)
+{
+    if (a.ticks < b.ticks) return -1;
+    if (a.ticks > b.ticks) return 1;
+    return 0;
+}
+
+int32_t CmpDtoKey(const runtime::Il2CppDateTimeOffset& a, const runtime::Il2CppDateTimeOffset& b)
+{
+    return runtime::icall_dtoffset_compare(a, b);
+}
+
+// impl-vtsel: the element CELL is read/written through the family accessor (a
+// DateTime cell is the PACKED 8-byte image, NOT sizeof(Il2CppDateTime)).
+template <typename TElem, typename TKey, typename InvokeKey, typename Cmp>
+Il2CppArray* SortVtElemKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc,
+                              int32_t elemSize, int32_t elemKind,
+                              TElem (*readElem)(Il2CppArray*, int32_t),
+                              void (*writeElem)(Il2CppArray*, int32_t, TElem),
+                              InvokeKey invokeKey, Cmp cmp)
+{
+    const int32_t n = src->length;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+
+    if (n > 0)
+    {
+        std::vector<TElem> elems(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i) elems[i] = readElem(src, i);
+        std::vector<TKey> keys(static_cast<size_t>(n));
+        std::vector<int32_t> order(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i) order[i] = i;
+        for (int32_t i = 0; i < n; ++i) keys[i] = invokeKey(keySel, elems[i]);
+        std::vector<int32_t> scratch(static_cast<size_t>(n));
+        MergeSortStable(order.data(), scratch.data(), 0, n,
+                        [&](int32_t a, int32_t b) -> int32_t {
+                            const int32_t c = cmp(keys[a], keys[b]);
+                            return desc ? -c : c;
+                        });
+        Il2CppArray* result = il2cpp_array_new_typed(elemSize, elemKind, n);
+        for (int32_t i = 0; i < n; ++i) writeElem(result, i, elems[order[i]]);
+        return result;
+    }
+    return il2cpp_array_new_typed(elemSize, elemKind, 0);
+}
+
+// --- key readers: source element family -> every key family ---------------
+template <typename Src>
+int32_t InvokeKeyVtI4(Il2CppDelegate* d, Src v)
+{
+    typedef int32_t (*Fn)(Src);
+    typedef int32_t (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+template <typename Src>
+int64_t InvokeKeyVtI8(Il2CppDelegate* d, Src v)
+{
+    typedef int64_t (*Fn)(Src);
+    typedef int64_t (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+template <typename Src>
+double InvokeKeyVtD(Il2CppDelegate* d, Src v)
+{
+    typedef double (*Fn)(Src);
+    typedef double (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+template <typename Src>
+float InvokeKeyVtF(Il2CppDelegate* d, Src v)
+{
+    typedef float (*Fn)(Src);
+    typedef float (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+template <typename Src>
+runtime::Il2CppDateTime InvokeKeyVtDt(Il2CppDelegate* d, Src v)
+{
+    typedef runtime::Il2CppDateTime (*Fn)(Src);
+    typedef runtime::Il2CppDateTime (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+template <typename Src>
+Il2CppGuid InvokeKeyVtGuid(Il2CppDelegate* d, Src v)
+{
+    typedef Il2CppGuid (*Fn)(Src);
+    typedef Il2CppGuid (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+template <typename Src>
+runtime::Il2CppTimeSpan InvokeKeyVtTs(Il2CppDelegate* d, Src v)
+{
+    typedef runtime::Il2CppTimeSpan (*Fn)(Src);
+    typedef runtime::Il2CppTimeSpan (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+template <typename Src>
+runtime::Il2CppDateTimeOffset InvokeKeyVtDto(Il2CppDelegate* d, Src v)
+{
+    typedef runtime::Il2CppDateTimeOffset (*Fn)(Src);
+    typedef runtime::Il2CppDateTimeOffset (*ThisFn)(Il2CppObject*, Src);
+    return d->target != nullptr
+        ? reinterpret_cast<ThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<Fn>(d->methodPtr)(v);
+}
+
+// impl-vtsel: the ELEMENT accessors of each value-struct family (the CELL
+// image, never the in-memory struct -- a DateTime cell is the PACKED 8 bytes).
+template <typename Src>
+struct VtElemAccess
+{
+    static Src Read(Il2CppArray* a, int32_t i);
+    static void Write(Il2CppArray* a, int32_t i, Src v);
+};
+
+template <>
+struct VtElemAccess<runtime::Il2CppDateTime>
+{
+    static runtime::Il2CppDateTime Read(Il2CppArray* a, int32_t i)
+    {
+        return runtime::il2cpp_datetime_from_array_bits(
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(a, i)));
+    }
+    static void Write(Il2CppArray* a, int32_t i, runtime::Il2CppDateTime v)
+    {
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(a, i)) =
+            runtime::il2cpp_datetime_to_array_bits(v);
+    }
+};
+
+template <>
+struct VtElemAccess<runtime::Il2CppTimeSpan>
+{
+    static runtime::Il2CppTimeSpan Read(Il2CppArray* a, int32_t i)
+    {
+        return runtime::Il2CppTimeSpan(
+            *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(a, i)));
+    }
+    static void Write(Il2CppArray* a, int32_t i, runtime::Il2CppTimeSpan v)
+    {
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(a, i)) = v.ticks;
+    }
+};
+
+template <>
+struct VtElemAccess<Il2CppGuid>
+{
+    static Il2CppGuid Read(Il2CppArray* a, int32_t i)
+    {
+        Il2CppGuid g;
+        std::memcpy(g.b, il2cpp_array_get_elem_ptr(a, i), sizeof(g.b));
+        return g;
+    }
+    static void Write(Il2CppArray* a, int32_t i, Il2CppGuid v)
+    {
+        std::memcpy(il2cpp_array_get_elem_ptr(a, i), v.b, sizeof(v.b));
+    }
+};
+
+template <>
+struct VtElemAccess<runtime::Il2CppDateTimeOffset>
+{
+    static runtime::Il2CppDateTimeOffset Read(Il2CppArray* a, int32_t i)
+    {
+        runtime::Il2CppDateTimeOffset v;
+        std::memcpy(&v, il2cpp_array_get_elem_ptr(a, i), sizeof(v));
+        return v;
+    }
+    static void Write(Il2CppArray* a, int32_t i, runtime::Il2CppDateTimeOffset v)
+    {
+        std::memcpy(il2cpp_array_get_elem_ptr(a, i), &v, sizeof(v));
+    }
+};
+
+template <typename Src>
+Il2CppArray* SortVtElemKeyFam(Il2CppArray* src, Il2CppDelegate* d, bool desc,
+                              int32_t elemSize, int32_t elemKind, int32_t keyFam)
+{
+    switch (keyFam)
+    {
+        case 0: return SortVtElemKeyCopy<Src, int32_t>(
+            src, d, desc, elemSize, elemKind, &VtElemAccess<Src>::Read,
+            &VtElemAccess<Src>::Write, InvokeKeyVtI4<Src>, CmpKeyValue<int32_t>);
+        case 1: return SortVtElemKeyCopy<Src, int64_t>(
+            src, d, desc, elemSize, elemKind, &VtElemAccess<Src>::Read,
+            &VtElemAccess<Src>::Write, InvokeKeyVtI8<Src>, CmpKeyValue<int64_t>);
+        case 2: return SortVtElemKeyCopy<Src, double>(
+            src, d, desc, elemSize, elemKind, &VtElemAccess<Src>::Read,
+            &VtElemAccess<Src>::Write, InvokeKeyVtD<Src>, CmpKeyValue<double>);
+        case 3: return SortVtElemKeyCopy<Src, float>(
+            src, d, desc, elemSize, elemKind, &VtElemAccess<Src>::Read,
+            &VtElemAccess<Src>::Write, InvokeKeyVtF<Src>, CmpKeyValue<float>);
+        case 4: return SortVtElemKeyCopy<Src, runtime::Il2CppDateTime>(
+            src, d, desc, elemSize, elemKind, &VtElemAccess<Src>::Read,
+            &VtElemAccess<Src>::Write, InvokeKeyVtDt<Src>, CmpDateTimeKey);
+        case 5: return SortVtElemKeyCopy<Src, Il2CppGuid>(
+            src, d, desc, elemSize, elemKind, &VtElemAccess<Src>::Read,
+            &VtElemAccess<Src>::Write, InvokeKeyVtGuid<Src>, CmpGuidKey);
+        case 6: return SortVtElemKeyCopy<Src, runtime::Il2CppTimeSpan>(
+            src, d, desc, elemSize, elemKind, &VtElemAccess<Src>::Read,
+            &VtElemAccess<Src>::Write, InvokeKeyVtTs<Src>, CmpTimeSpanKey);
+        case 7: return SortVtElemKeyCopy<Src, runtime::Il2CppDateTimeOffset>(
+            src, d, desc, elemSize, elemKind, &VtElemAccess<Src>::Read,
+            &VtElemAccess<Src>::Write, InvokeKeyVtDto<Src>, CmpDtoKey);
+        default: break;
+    }
+    il2cpp_throw_invalid_operation_exception(
+        "Enumerable.OrderBy: unknown value-struct-source key family");
+    return nullptr;
+}
+// The (elemSize, elemKind) CELL of a value-struct element family: DateTime and
+// TimeSpan cells are 8 bytes (their element kinds), Guid and DateTimeOffset are
+// 16-byte value cells without a primitive element kind.
+void VtElemCellOf(int32_t srcKind, int32_t& elemSize, int32_t& elemKind)
+{
+    switch (srcKind)
+    {
+        case 13: elemSize = 8; elemKind = kElemKindDateTime; return;
+        case 14: elemSize = 8; elemKind = kElemKindTimeSpan; return;
+        case 15: elemSize = 16; elemKind = kElemKindGuid; return;
+        case 16: elemSize = 16; elemKind = kElemKindNone; return;
+        default:
+            il2cpp_throw_not_supported_exception(
+                "OrderBy over a value-struct source: unknown element family.");
+    }
+}
+
+template <typename Src>
+Il2CppArray* SortVtElemDispatch(Il2CppArray* src, Il2CppDelegate* d, bool desc,
+                                int32_t srcKind, int32_t keyFam)
+{
+    int32_t elemSize = 0;
+    int32_t elemKind = kElemKindNone;
+    VtElemCellOf(srcKind, elemSize, elemKind);
+    return SortVtElemKeyFam<Src>(src, d, desc, elemSize, elemKind, keyFam);
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_order_by_key_vt(Il2CppArray* src, Il2CppObject* keySel,
+                                         int32_t desc, int32_t srcKind, int32_t keyFam)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    if (s->isRefElem) RequireRefLinqArray(s);
+    switch (srcKind)
+    {
+        case 13: return SortVtElemDispatch<runtime::Il2CppDateTime>(
+            s, d, desc != 0, srcKind, keyFam);
+        case 14: return SortVtElemDispatch<runtime::Il2CppTimeSpan>(
+            s, d, desc != 0, srcKind, keyFam);
+        case 15: return SortVtElemDispatch<Il2CppGuid>(s, d, desc != 0, srcKind, keyFam);
+        case 16: return SortVtElemDispatch<runtime::Il2CppDateTimeOffset>(
+            s, d, desc != 0, srcKind, keyFam);
+        default:
+            il2cpp_throw_not_supported_exception(
+                "OrderBy over a value-struct source: unknown element family.");
+            return nullptr;
+    }
+}
+
+//------------------------------------------------------------------------------
+// impl-vtsel: ThenBy / ThenByDescending over a value-struct element source --
+// the FUSED composite (net48 EnumerableSorter chain). Both keys are cached
+// EXACTLY ONCE; the primary key decides first and the secondary only breaks
+// ties. Both key families travel as literals, so every (TKey1, TKey2) pair is
+// served by the same dispatch.
+//------------------------------------------------------------------------------
+namespace {
+
+template <typename TElem, typename TK1, typename TK2, typename Invoke1,
+          typename Invoke2, typename Cmp1, typename Cmp2>
+Il2CppArray* SortVtElemTwoKeysCopy(Il2CppArray* src, Il2CppDelegate* d1,
+                                   Il2CppDelegate* d2, bool k1Desc, bool k2Desc,
+                                   int32_t elemSize, int32_t elemKind,
+                                   TElem (*readElem)(Il2CppArray*, int32_t),
+                                   void (*writeElem)(Il2CppArray*, int32_t, TElem),
+                                   Invoke1 invoke1, Invoke2 invoke2,
+                                   Cmp1 cmp1, Cmp2 cmp2)
+{
+    const int32_t n = src->length;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&d1));
+    roots.Add(reinterpret_cast<void**>(&d2));
+
+    if (n > 0)
+    {
+        std::vector<TElem> elems(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i) elems[i] = readElem(src, i);
+        std::vector<TK1> k1(static_cast<size_t>(n));
+        std::vector<TK2> k2(static_cast<size_t>(n));
+        std::vector<int32_t> order(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i) order[i] = i;
+        for (int32_t i = 0; i < n; ++i) k1[i] = invoke1(d1, elems[i]);
+        for (int32_t i = 0; i < n; ++i) k2[i] = invoke2(d2, elems[i]);
+        std::vector<int32_t> scratch(static_cast<size_t>(n));
+        MergeSortStable(order.data(), scratch.data(), 0, n,
+                        [&](int32_t a, int32_t b) -> int32_t {
+                            const int32_t c1 = cmp1(k1[a], k1[b]);
+                            if (c1 != 0) return k1Desc ? -c1 : c1;
+                            const int32_t c2 = cmp2(k2[a], k2[b]);
+                            return k2Desc ? -c2 : c2;
+                        });
+        Il2CppArray* result = il2cpp_array_new_typed(elemSize, elemKind, n);
+        for (int32_t i = 0; i < n; ++i) writeElem(result, i, elems[order[i]]);
+        return result;
+    }
+    return il2cpp_array_new_typed(elemSize, elemKind, 0);
+}
+
+// One key family, used as the PRIMARY key of the fused composite.
+template <typename Src, typename TK1, typename Invoke1, typename Cmp1>
+Il2CppArray* SortVtElemTwoKeysSecondary(Il2CppArray* src, Il2CppDelegate* d1,
+                                        Il2CppDelegate* d2, bool k1Desc, bool k2Desc,
+                                        int32_t elemSize, int32_t elemKind,
+                                        Src (*readElem)(Il2CppArray*, int32_t),
+                                        void (*writeElem)(Il2CppArray*, int32_t, Src),
+                                        Invoke1 invoke1, Cmp1 cmp1, int32_t k2Fam)
+{
+    switch (k2Fam)
+    {
+        case 0: return SortVtElemTwoKeysCopy<Src, TK1, int32_t>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, invoke1,
+            InvokeKeyVtI4<Src>, cmp1, CmpKeyValue<int32_t>);
+        case 1: return SortVtElemTwoKeysCopy<Src, TK1, int64_t>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, invoke1,
+            InvokeKeyVtI8<Src>, cmp1, CmpKeyValue<int64_t>);
+        case 2: return SortVtElemTwoKeysCopy<Src, TK1, double>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, invoke1,
+            InvokeKeyVtD<Src>, cmp1, CmpKeyValue<double>);
+        case 3: return SortVtElemTwoKeysCopy<Src, TK1, float>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, invoke1,
+            InvokeKeyVtF<Src>, cmp1, CmpKeyValue<float>);
+        case 4: return SortVtElemTwoKeysCopy<Src, TK1, runtime::Il2CppDateTime>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, invoke1,
+            InvokeKeyVtDt<Src>, cmp1, CmpDateTimeKey);
+        case 5: return SortVtElemTwoKeysCopy<Src, TK1, Il2CppGuid>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, invoke1,
+            InvokeKeyVtGuid<Src>, cmp1, CmpGuidKey);
+        case 6: return SortVtElemTwoKeysCopy<Src, TK1, runtime::Il2CppTimeSpan>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, invoke1,
+            InvokeKeyVtTs<Src>, cmp1, CmpTimeSpanKey);
+        case 7: return SortVtElemTwoKeysCopy<Src, TK1, runtime::Il2CppDateTimeOffset>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, invoke1,
+            InvokeKeyVtDto<Src>, cmp1, CmpDtoKey);
+        default: break;
+    }
+    il2cpp_throw_invalid_operation_exception(
+        "Enumerable.ThenBy: unknown secondary key family over a value-struct source");
+    return nullptr;
+}
+
+template <typename Src>
+Il2CppArray* SortVtElemTwoKeysFam(Il2CppArray* src, Il2CppDelegate* d1,
+                                  Il2CppDelegate* d2, bool k1Desc, bool k2Desc,
+                                  int32_t srcKind, int32_t k1Fam, int32_t k2Fam)
+{
+    int32_t elemSize = 0;
+    int32_t elemKind = kElemKindNone;
+    VtElemCellOf(srcKind, elemSize, elemKind);
+    Src (*readElem)(Il2CppArray*, int32_t) = &VtElemAccess<Src>::Read;
+    void (*writeElem)(Il2CppArray*, int32_t, Src) = &VtElemAccess<Src>::Write;
+    switch (k1Fam)
+    {
+        case 0: return SortVtElemTwoKeysSecondary<Src, int32_t>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, InvokeKeyVtI4<Src>,
+            CmpKeyValue<int32_t>, k2Fam);
+        case 1: return SortVtElemTwoKeysSecondary<Src, int64_t>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, InvokeKeyVtI8<Src>,
+            CmpKeyValue<int64_t>, k2Fam);
+        case 2: return SortVtElemTwoKeysSecondary<Src, double>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, InvokeKeyVtD<Src>,
+            CmpKeyValue<double>, k2Fam);
+        case 3: return SortVtElemTwoKeysSecondary<Src, float>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, InvokeKeyVtF<Src>,
+            CmpKeyValue<float>, k2Fam);
+        case 4: return SortVtElemTwoKeysSecondary<Src, runtime::Il2CppDateTime>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, InvokeKeyVtDt<Src>,
+            CmpDateTimeKey, k2Fam);
+        case 5: return SortVtElemTwoKeysSecondary<Src, Il2CppGuid>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, InvokeKeyVtGuid<Src>,
+            CmpGuidKey, k2Fam);
+        case 6: return SortVtElemTwoKeysSecondary<Src, runtime::Il2CppTimeSpan>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, InvokeKeyVtTs<Src>,
+            CmpTimeSpanKey, k2Fam);
+        case 7: return SortVtElemTwoKeysSecondary<Src, runtime::Il2CppDateTimeOffset>(
+            src, d1, d2, k1Desc, k2Desc, elemSize, elemKind, readElem, writeElem, InvokeKeyVtDto<Src>,
+            CmpDtoKey, k2Fam);
+        default: break;
+    }
+    il2cpp_throw_invalid_operation_exception(
+        "Enumerable.ThenBy: unknown primary key family over a value-struct source");
+    return nullptr;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_then_by_key_vt(Il2CppArray* src, Il2CppObject* k1Sel,
+                                        Il2CppObject* k2Sel, int32_t k1Desc,
+                                        int32_t k2Desc, int32_t srcKind,
+                                        int32_t k1Fam, int32_t k2Fam)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    switch (srcKind)
+    {
+        case 13: return SortVtElemTwoKeysFam<runtime::Il2CppDateTime>(
+            s, d1, d2, k1Desc != 0, k2Desc != 0, srcKind, k1Fam, k2Fam);
+        case 14: return SortVtElemTwoKeysFam<runtime::Il2CppTimeSpan>(
+            s, d1, d2, k1Desc != 0, k2Desc != 0, srcKind, k1Fam, k2Fam);
+        case 15: return SortVtElemTwoKeysFam<Il2CppGuid>(
+            s, d1, d2, k1Desc != 0, k2Desc != 0, srcKind, k1Fam, k2Fam);
+        case 16: return SortVtElemTwoKeysFam<runtime::Il2CppDateTimeOffset>(
+            s, d1, d2, k1Desc != 0, k2Desc != 0, srcKind, k1Fam, k2Fam);
+        default:
+            il2cpp_throw_not_supported_exception(
+                "ThenBy over a value-struct source: unknown element family.");
+            return nullptr;
+    }
+}
+
 } // namespace il2cpp
+
+
+
+
+
+

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 //------------------------------------------------------------------------------
 // linq_list.h -- System.Linq over a List<T> RECEIVER (nb15 B5 FIX, D-2).
 //
@@ -255,7 +255,7 @@ bool        il2cpp_linq_list_sequence_equal(Il2CppObject* list, Il2CppObject* se
 // snapshot is a reference array, so the reference key-selector surface runs on
 // it. The suffix is the KEY family (i4 / i8 / d / f / ref) exactly like the
 // array entries; `desc` non-zero flips the order. _ref_f is the impl-orderfam
-// float face (the float family has its own reader -- b5-gaps §14).
+// float face (the float family has its own reader -- b5-gaps 搂14).
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_i4(Il2CppObject* list, Il2CppObject* keySel,
                                                   int32_t desc, int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_i8(Il2CppObject* list, Il2CppObject* keySel,
@@ -271,7 +271,7 @@ Il2CppArray* il2cpp_linq_list_order_by_key_ref_ref(Il2CppObject* list, Il2CppObj
 // and the key crosses in the F-stack slot. The snapshot is taken through the
 // list's own accessor, so a List<double> is never cast to an array header.
 // _f is the impl-orderfam float-key face (Func<double,float>: the key returns
-// in the float slot and is read through the float(*) reader -- b5-gaps §14).
+// in the float slot and is read through the float(*) reader -- b5-gaps 搂14).
 Il2CppArray* il2cpp_linq_list_order_by_key_d(Il2CppObject* list, Il2CppObject* keySel,
                                             int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_desc_d(Il2CppObject* list, Il2CppObject* keySel,
@@ -728,6 +728,21 @@ IL2CPP_DECL_LST_AGG_RS_ROW(ref, Il2CppObject*)
 #undef IL2CPP_DECL_LST_AGG_RS
 #undef IL2CPP_DECL_LST_AGG_RS_ROW
 
+// impl-vtsel: the value-struct List keyed sorts (snapshot -> array struct kernels).
+Il2CppArray* il2cpp_linq_list_order_by_key_vt(Il2CppObject* list, Il2CppObject* keySel,
+                                              int32_t desc, int32_t kind, int32_t keyFam);
+Il2CppArray* il2cpp_linq_list_then_by_key_vt(Il2CppObject* list, Il2CppObject* k1,
+                                             Il2CppObject* k2, int32_t k1Desc,
+                                             int32_t k2Desc, int32_t kind,
+                                             int32_t k1Fam, int32_t k2Fam);
+// impl-vtsel: GroupBy over a List with an EXPLICIT snapshot family (the
+// pre-existing entry always snapshotted through the int32 kind).
+Il2CppObject* il2cpp_linq_list_group_by_full_kind(Il2CppObject* list,
+                                                  Il2CppObject* keySel, Il2CppObject* elemSel,
+                                                  Il2CppObject* cmp, Il2CppObject* resSel,
+                                                  int32_t elemKind, int32_t rsKind,
+                                                  int32_t kind, int32_t keyKind,
+                                                  int32_t srcKind);
 // GroupBy over the list (snapshot + the array grouping kernel). `kind` is the
 // receiver's IL2CPP_LIST_KIND_* element family: the snapshot MUST be taken at
 // that family's real cell width (the pre-impl-listselnum body snapshotted every
@@ -740,3 +755,4 @@ Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
                                              int32_t kind, int32_t keyKind);
 
 } // namespace il2cpp
+

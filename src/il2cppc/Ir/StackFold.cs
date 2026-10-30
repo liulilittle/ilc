@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Il2Cpp.Transpiler.Emit;
 using Il2Cpp.Transpiler.Il;
 using Il2Cpp.Transpiler.Model;
@@ -5054,7 +5054,7 @@ public static class StackFold
                 "il2cpp::il2cpp_linq_order_by_key_i4_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i4_d" => "_i4_d",
                 // impl-floatkey: the float-key primary entries (the float
-                // family has its own reader -- b5-gaps 搂14).
+                // family has its own reader -- b5-gaps 鎼?4).
                 "il2cpp::il2cpp_linq_order_by_key_i4_f"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i4_f" => "_i4_f",
                 "il2cpp::il2cpp_linq_order_by_key_i8_i4"
@@ -5076,7 +5076,7 @@ public static class StackFold
                 "il2cpp::il2cpp_linq_order_by_key_dec_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_dec_d" => "src_dec_d",
                 // impl-orderfam: the DECIMAL-source FLOAT-key primaries (the
-                // float family has its own reader -- b5-gaps 搂14).
+                // float family has its own reader -- b5-gaps 鎼?4).
                 "il2cpp::il2cpp_linq_order_by_key_dec_f"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_dec_f" => "src_dec_f",
                 "il2cpp::il2cpp_linq_order_by_key_dec_dec"
@@ -5100,6 +5100,15 @@ public static class StackFold
                     or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_dt" => "grp_dec_dt",
                 "il2cpp::il2cpp_linq_grouping_order_by_key_dec_guid"
                     or "il2cpp::il2cpp_linq_grouping_order_by_key_desc_dec_guid" => "grp_dec_guid",
+                // impl-vtsel: the value-struct element-source primaries
+                // (DateTime / TimeSpan / Guid / DateTimeOffset). The source family
+                // and the PRIMARY key family ride the OrderBy entry's appended
+                // literals; the SECONDARY key family rides the ThenBy marker's.
+                "il2cpp::il2cpp_linq_order_by_key_vt" => "src_vt",
+                // impl-vtsel: the same over a List<struct> receiver (the list
+                // snapshot rides the array kernel; the composite stays on the
+                // list entry so the snapshot happens once).
+                "il2cpp::il2cpp_linq_list_order_by_key_vt" => "list_vt",
                 _ => null,
             };
             // D-LO2-1 (linqorder2): Enumerable.ThenBy / ThenByDescending --
@@ -5201,7 +5210,7 @@ public static class StackFold
                         "dt" => "4",
                         "guid" => "5",
                         // impl-orderfam: the float family has its own reader
-                        // column on the runtime dec dispatch (b5-gaps 搂14).
+                        // column on the runtime dec dispatch (b5-gaps 鎼?4).
                         "f" => "6",
                         _ => "3",
                     };
@@ -5220,6 +5229,39 @@ public static class StackFold
                     {
                         primaryDesc ? "1" : "0", thenDesc ? "1" : "0",
                         primaryCode, secondaryCode,
+                    };
+                }
+                else if (familySuffix is "src_vt" or "list_vt")
+                {
+                    // impl-vtsel: the value-struct element-source composite. The
+                    // primary OrderBy entry carries (desc, srcKind, keyFam) as
+                    // appended literals and the ThenBy marker carries the
+                    // SECONDARY key family; the fused entry takes all of them.
+                    string vtSrcKind = obValue.Resolved!.AppendLiterals is { Length: >= 2 }
+                        ? obValue.Resolved.AppendLiterals[1] : "13";
+                    string vtK1Fam = obValue.Resolved.AppendLiterals is { Length: >= 3 }
+                        ? obValue.Resolved.AppendLiterals[2] : "0";
+                    string? vtK2Fam = resolved.AppendLiterals is { Length: >= 1 }
+                        ? resolved.AppendLiterals[0] : null;
+                    if (vtK2Fam is not ("0" or "1" or "2" or "3" or "4" or "5" or "6" or "7"))
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.ThenBy receiver '{recvLoc.Name}' marker carries no value-struct " +
+                            "secondary key family literal (impl-vtsel); the fused composite must know " +
+                            "both key families to pick the right key readers");
+                    }
+                    bool listRecv = familySuffix == "list_vt";
+                    compositeEntry = listRecv
+                        ? "il2cpp::il2cpp_linq_list_then_by_key_vt"
+                        : "il2cpp::il2cpp_linq_then_by_key_vt";
+                    compositeParamNames = listRecv
+                        ? new[] { "", "", "" }
+                        : new[] { "a", "", "" };
+                    compositeReturnType = obValue.Resolved.ReturnTypeName ?? "System.DateTime[]";
+                    compositeLiterals = new[]
+                    {
+                        primaryDesc ? "1" : "0", thenDesc ? "1" : "0",
+                        vtSrcKind, vtK1Fam, vtK2Fam,
                     };
                 }
                 else
@@ -7775,7 +7817,7 @@ public static class StackFold
                     // the MARKER as the coded index, so every TypeSpec-parent
                     // span call (ReadOnlySpan`1<char>::op_Implicit) resolved a
                     // garbage owner and the char[] carrier gate never matched
-                    // (P3-1閳?e2e red: "op_Implicit not wired in M5").
+                    // (P3-1闁?e2e red: "op_Implicit not wired in M5").
                     _ = sig.ReadByte();
                     var th = sig.ReadTypeHandle();
                     owner = th.Kind switch
@@ -7800,7 +7842,7 @@ public static class StackFold
         // parameter renders one segment), so the old
         // ParamCount==paramTypesShapes.Length precondition compared the CALL's
         // parameter count against the ALTERNATIVE COUNT -- every multi-shape
-        // gate with a 1-parameter call was structurally dead (P3-1閳?e2e red:
+        // gate with a 1-parameter call was structurally dead (P3-1闁?e2e red:
         // the char[] op_Implicit carrier never matched either shape).
         static bool SpanCarrierIdentitySig(MetadataReader md, int token, params string[] paramTypesShapes)
         {
@@ -11321,6 +11363,7 @@ public static class StackFold
         public required int Offset { get; init; }
     }
 }
+
 
 
 

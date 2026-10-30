@@ -564,6 +564,21 @@ Il2CppArray* il2cpp_linq_select_idx_guid_dtoffset(Il2CppArray* src, Il2CppObject
 Il2CppArray* il2cpp_linq_select_dto_dtoffset(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_dto_dtoffset(Il2CppArray* src, Il2CppObject* sel);
 
+// impl-vtsel: the STRUCT-TYPED SELECTOR ABI (net48 Select<TSource,TResult>),
+// family-generic in BOTH type arguments. `srcKind` is the IL2CPP_LIST_KIND_*
+// code of the source cell (0 int32, 1 ref, 2 int64, 3 float, 4 double,
+// 13 DateTime, 14 TimeSpan, 15 Guid, 16 DateTimeOffset) and `resKind` is the
+// result family:
+//   0 int32 | 1 reference | 2 int64 | 3 float (double carrier) | 4 double |
+//   5 DateTime | 6 TimeSpan | 7 Guid | 8 DateTimeOffset
+// The selector leaf is called through its OWN by-value parameter and return
+// slots -- never the int32 ABI. The result is a typed array (DateTime/TimeSpan
+// carry their element kind; Guid/DateTimeOffset are 16-byte value cells).
+Il2CppArray* il2cpp_linq_select_family(Il2CppArray* src, Il2CppObject* sel,
+                                       int32_t srcKind, int32_t resKind);
+Il2CppArray* il2cpp_linq_select_family_idx(Il2CppArray* src, Il2CppObject* sel,
+                                           int32_t srcKind, int32_t resKind);
+
 // The reference-source Select with a VALUE result (net48
 // Select<TSource,TResult> with a non-reference TResult over a reference source):
 // int32 / int64 / double / float. The result array carries the matching

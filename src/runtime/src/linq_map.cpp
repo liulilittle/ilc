@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // linq_map.cpp -- System.Linq filtering / mapping icalls (LINQ T2 card).
 //
 // See linq_map.h for the domain contract. Implementation summary:
@@ -42,6 +42,7 @@
 
 #include "linq_map.h"
 #include "linq.h"              // int32 array kernels reused by the grouping wrappers
+#include "linq_list.h"         // impl-vtsel: IL2CPP_LIST_KIND_* source-family codes
 #include "linq_family.h"       // BATCH4: the decimal cell-equality kernel
 #include "linq_sort.h"         // BATCH4: order_by_key(_desc)_dec_* reuse by the bucket OrderBy wrappers
 
@@ -4769,6 +4770,247 @@ IL2CPP_LINQ_SELECT_DTO_WRAP(dto, runtime::Il2CppDateTimeOffset, RequireDtoffsetF
 #undef IL2CPP_LINQ_SELECT_DTO_WRAP
 
 //------------------------------------------------------------------------------
+// impl-vtsel: the STRUCT-TYPED SELECTOR ABI (family-generic).
+//
+// net48 Enumerable.Select is generic in BOTH type arguments, so the selector
+// leaf receives the source element in its OWN by-value slot (Il2CppDateTime /
+// Il2CppTimeSpan / Il2CppGuid / Il2CppDateTimeOffset, or the scalar/reference
+// slot) and returns TResult in ITS OWN slot. Calling such a leaf through the
+// int32 ABI silently reads a 4-byte slice of every 8/16-byte source cell and
+// treats the struct return as an int32 -- this surface exists so that can
+// never happen.
+//
+// Result kinds (the same numbering the List select entries append):
+//   0 int32 | 1 reference | 2 int64 | 3 float (widened into a double cell) |
+//   4 double | 5 DateTime | 6 TimeSpan | 7 Guid | 8 DateTimeOffset
+// Source kinds are the IL2CPP_LIST_KIND_* codes (0 int32, 1 ref, 2 int64,
+// 3 float, 4 double, 13 DateTime, 14 TimeSpan, 15 Guid, 16 DateTimeOffset).
+//
+// GC SAFETY: the delegate, the source and the result are rooted across the
+// per-element callback; the result slot address is re-derived AFTER each
+// callback (never cached across it).
+//------------------------------------------------------------------------------
+namespace {
+
+template <typename SrcT, typename ResT>
+struct VtSelAbi
+{
+    typedef ResT (*Fn)(SrcT);
+    typedef ResT (*ThisFn)(Il2CppObject*, SrcT);
+    typedef ResT (*IdxFn)(SrcT, int32_t);
+    typedef ResT (*IdxThisFn)(Il2CppObject*, SrcT, int32_t);
+};
+
+template <typename ResT>
+struct VtResStore
+{
+    static void Store(Il2CppArray* out, int32_t i, ResT v)
+    {
+        *reinterpret_cast<ResT*>(il2cpp_array_get_elem_ptr(out, i)) = v;
+    }
+};
+
+template <>
+struct VtResStore<Il2CppObject*>
+{
+    static void Store(Il2CppArray* out, int32_t i, Il2CppObject* v)
+    {
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), v);
+        *slot = v;
+    }
+};
+
+template <>
+struct VtResStore<runtime::Il2CppTimeSpan>
+{
+    // TimeSpan[] cells hold the bare ticks (8 bytes).
+    static void Store(Il2CppArray* out, int32_t i, runtime::Il2CppTimeSpan v)
+    {
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) = v.ticks;
+    }
+};
+
+template <>
+struct VtResStore<float>
+{
+    // resKind 3: the float selector return widens into a double result cell
+    // (the pre-existing i4_f / ref_f convention -- tracked as System.Double[]).
+    static void Store(Il2CppArray* out, int32_t i, float v)
+    {
+        *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(v);
+    }
+};
+
+template <>
+struct VtResStore<runtime::Il2CppDateTime>
+{
+    // A DateTime ARRAY cell is the PACKED 8-byte image (ticks + the 2-bit
+    // kind), not the 16-byte in-memory struct -- storing the struct would
+    // overrun the cell and drop the Kind.
+    static void Store(Il2CppArray* out, int32_t i, runtime::Il2CppDateTime v)
+    {
+        *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+            runtime::il2cpp_datetime_to_array_bits(v);
+    }
+};
+
+Il2CppArray* AllocVtResultArray(int32_t resKind, int32_t n)
+{
+    switch (resKind)
+    {
+        case 1: return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, n);
+        case 2: return il2cpp_array_new_typed(8, kElemKindI8, n);
+        case 3:
+        case 4: return il2cpp_array_new_typed(8, kElemKindD, n);
+        case 5: return il2cpp_array_new_typed(8, kElemKindDateTime, n);
+        case 6: return il2cpp_array_new_typed(8, kElemKindTimeSpan, n);
+        // 16-byte value cells (Guid / DateTimeOffset): the same allocation the
+        // list snapshot uses (elemKind 0, non-reference).
+        case 7:
+        case 8: return il2cpp_array_new(nullptr, 16, false, n);
+        default: return il2cpp_array_new_typed(4, kElemKindI4, n);
+    }
+}
+
+template <typename SrcT, typename ResT>
+Il2CppArray* SelectVtLoop(Il2CppArray* src, Il2CppDelegate* d, int32_t resKind,
+                          SrcT (*read)(Il2CppArray*, int32_t), bool indexed)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = AllocVtResultArray(resKind, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const SrcT v = read(src, i);
+        ResT r = indexed
+            ? (d->target != nullptr
+                ? reinterpret_cast<typename VtSelAbi<SrcT, ResT>::IdxThisFn>(d->methodPtr)(d->target, v, i)
+                : reinterpret_cast<typename VtSelAbi<SrcT, ResT>::IdxFn>(d->methodPtr)(v, i))
+            : (d->target != nullptr
+                ? reinterpret_cast<typename VtSelAbi<SrcT, ResT>::ThisFn>(d->methodPtr)(d->target, v)
+                : reinterpret_cast<typename VtSelAbi<SrcT, ResT>::Fn>(d->methodPtr)(v));
+        VtResStore<ResT>::Store(out, i, r);
+    }
+    return out;
+}
+
+template <typename SrcT>
+Il2CppArray* SelectVtResultFamily(Il2CppArray* src, Il2CppDelegate* d, int32_t resKind,
+                                  SrcT (*read)(Il2CppArray*, int32_t), bool indexed)
+{
+    switch (resKind)
+    {
+        case 0: return SelectVtLoop<SrcT, int32_t>(src, d, resKind, read, indexed);
+        case 1: return SelectVtLoop<SrcT, Il2CppObject*>(src, d, resKind, read, indexed);
+        case 2: return SelectVtLoop<SrcT, int64_t>(src, d, resKind, read, indexed);
+        case 3: return SelectVtLoop<SrcT, float>(src, d, resKind, read, indexed);
+        case 4: return SelectVtLoop<SrcT, double>(src, d, resKind, read, indexed);
+        case 5: return SelectVtLoop<SrcT, runtime::Il2CppDateTime>(src, d, resKind, read, indexed);
+        case 6: return SelectVtLoop<SrcT, runtime::Il2CppTimeSpan>(src, d, resKind, read, indexed);
+        case 7: return SelectVtLoop<SrcT, Il2CppGuid>(src, d, resKind, read, indexed);
+        case 8: return SelectVtLoop<SrcT, runtime::Il2CppDateTimeOffset>(src, d, resKind, read, indexed);
+        default:
+            il2cpp_throw_not_supported_exception(
+                "Select result family is not wired for the family-generic selector ABI.");
+            return nullptr;
+    }
+}
+
+// A float source element crosses to a Func<float,TResult> leaf as a FLOAT
+// (the 4-byte XMM slot), never widened into a double.
+float ReadVtSrcF(Il2CppArray* a, int32_t i)
+{
+    return *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(a, i));
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_select_family(Il2CppArray* src, Il2CppObject* sel,
+                                       int32_t srcKind, int32_t resKind)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    switch (srcKind)
+    {
+        case IL2CPP_LIST_KIND_I4:
+            RequireInt32Family(src);
+            return SelectVtResultFamily<int32_t>(src, d, resKind, ReadDtoSrcI4, false);
+        case IL2CPP_LIST_KIND_REF:
+            RequireRefFamily(src);
+            return SelectVtResultFamily<Il2CppObject*>(src, d, resKind, ReadDtoSrcRef, false);
+        case IL2CPP_LIST_KIND_I8:
+            RequireI8Family(src);
+            return SelectVtResultFamily<int64_t>(src, d, resKind, ReadDtoSrcI8, false);
+        case IL2CPP_LIST_KIND_F:
+            RequireFloatFamily(src);
+            return SelectVtResultFamily<float>(src, d, resKind, ReadVtSrcF, false);
+        case IL2CPP_LIST_KIND_D:
+            RequireDoubleFamily(src);
+            return SelectVtResultFamily<double>(src, d, resKind, ReadDtoSrcD, false);
+        case IL2CPP_LIST_KIND_DT:
+            RequireDateTimeFamily(src);
+            return SelectVtResultFamily<runtime::Il2CppDateTime>(src, d, resKind, ReadDtoSrcDt, false);
+        case IL2CPP_LIST_KIND_TS:
+            RequireTimeSpanFamily(src);
+            return SelectVtResultFamily<runtime::Il2CppTimeSpan>(src, d, resKind, ReadDtoSrcTs, false);
+        case IL2CPP_LIST_KIND_GUID:
+            RequireGuidFamily(src);
+            return SelectVtResultFamily<Il2CppGuid>(src, d, resKind, ReadDtoSrcGuid, false);
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            RequireDtoffsetFamily(src);
+            return SelectVtResultFamily<runtime::Il2CppDateTimeOffset>(src, d, resKind, ReadDtoSrcDto, false);
+        default:
+            il2cpp_throw_not_supported_exception(
+                "Select source family is not wired for the family-generic selector ABI.");
+            return nullptr;
+    }
+}
+
+Il2CppArray* il2cpp_linq_select_family_idx(Il2CppArray* src, Il2CppObject* sel,
+                                           int32_t srcKind, int32_t resKind)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(sel, "selector");
+    switch (srcKind)
+    {
+        case IL2CPP_LIST_KIND_I4:
+            RequireInt32Family(src);
+            return SelectVtResultFamily<int32_t>(src, d, resKind, ReadDtoSrcI4, true);
+        case IL2CPP_LIST_KIND_REF:
+            RequireRefFamily(src);
+            return SelectVtResultFamily<Il2CppObject*>(src, d, resKind, ReadDtoSrcRef, true);
+        case IL2CPP_LIST_KIND_I8:
+            RequireI8Family(src);
+            return SelectVtResultFamily<int64_t>(src, d, resKind, ReadDtoSrcI8, true);
+        case IL2CPP_LIST_KIND_F:
+            RequireFloatFamily(src);
+            return SelectVtResultFamily<float>(src, d, resKind, ReadVtSrcF, true);
+        case IL2CPP_LIST_KIND_D:
+            RequireDoubleFamily(src);
+            return SelectVtResultFamily<double>(src, d, resKind, ReadDtoSrcD, true);
+        case IL2CPP_LIST_KIND_DT:
+            RequireDateTimeFamily(src);
+            return SelectVtResultFamily<runtime::Il2CppDateTime>(src, d, resKind, ReadDtoSrcDt, true);
+        case IL2CPP_LIST_KIND_TS:
+            RequireTimeSpanFamily(src);
+            return SelectVtResultFamily<runtime::Il2CppTimeSpan>(src, d, resKind, ReadDtoSrcTs, true);
+        case IL2CPP_LIST_KIND_GUID:
+            RequireGuidFamily(src);
+            return SelectVtResultFamily<Il2CppGuid>(src, d, resKind, ReadDtoSrcGuid, true);
+        case IL2CPP_LIST_KIND_DTOFFSET:
+            RequireDtoffsetFamily(src);
+            return SelectVtResultFamily<runtime::Il2CppDateTimeOffset>(src, d, resKind, ReadDtoSrcDto, true);
+        default:
+            il2cpp_throw_not_supported_exception(
+                "Select source family is not wired for the family-generic selector ABI.");
+            return nullptr;
+    }
+}
+
+//------------------------------------------------------------------------------
 // The DECIMAL-source INDEX Select (net48 Select<decimal,int,TResult>): the
 // selector receives the element AND its zero-based source index. TResult is
 // int32 / int64 / double / float / decimal.
@@ -5443,6 +5685,11 @@ enum class GroupElemKind
     // Only the BOXED form widens (icall_box_float stores a double), so the
     // bucket enumerator converts 4-byte cell -> double at that one point.
     F = 7,
+    // impl-vtsel: the remaining by-value value structs (struct-array /
+    // List<...> GroupBy sources). TimeSpan keeps the 8-byte ticks cell and
+    // DateTimeOffset the 16-byte utcTicks + offset cell.
+    TimeSpan = 8,
+    DateTimeOffset = 9,
 };
 
 
@@ -5810,6 +6057,13 @@ Il2CppArray* NewGroupElementArray(GroupElemKind kind, int32_t length)
     // value class this repository keeps hitting).
     if (kind == GroupElemKind::F)
         return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(float)), kElemKindF, length);
+    // impl-vtsel: the TimeSpan (8-byte ticks) and DateTimeOffset (16-byte) buckets.
+    if (kind == GroupElemKind::TimeSpan)
+        return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(int64_t)),
+                                      kElemKindTimeSpan, length);
+    if (kind == GroupElemKind::DateTimeOffset)
+        return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDateTimeOffset)),
+                                  false, length);
     return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, length);
 }
 
@@ -5931,7 +6185,9 @@ template <typename Src>
 void ComputeGroupElem(Il2CppDelegate* ed, Src v, GroupElemKind kind, int32_t& elemI4,
                       Il2CppObject*& elemRef, int64_t& elemI8, double& elemD,
                       runtime::Il2CppDecimal& elemDec, runtime::Il2CppDateTime& elemDt,
-                      Il2CppGuid& elemGuid, float& elemF)
+                      Il2CppGuid& elemGuid, float& elemF,
+                      runtime::Il2CppTimeSpan& elemTs,
+                      runtime::Il2CppDateTimeOffset& elemDto)
 {
     switch (kind)
     {
@@ -5963,6 +6219,14 @@ void ComputeGroupElem(Il2CppDelegate* ed, Src v, GroupElemKind kind, int32_t& el
             // value (the b5-gaps §14 misread class).
             elemF = InvokeGroupElemSel<Src, float>(ed, v);
             break;
+        // impl-vtsel: the TimeSpan (ticks) and DateTimeOffset (instant+offset)
+        // bucket elements of a struct source.
+        case GroupElemKind::TimeSpan:
+            elemTs = InvokeGroupElemSel<Src, runtime::Il2CppTimeSpan>(ed, v);
+            break;
+        case GroupElemKind::DateTimeOffset:
+            elemDto = InvokeGroupElemSel<Src, runtime::Il2CppDateTimeOffset>(ed, v);
+            break;
     }
 }
 
@@ -5993,6 +6257,10 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     // generated leaf takes/returns float as a double), so the whole key /
     // element dispatch reuses the double-source arms with Src = double.
     const bool floatSource = !refSource && srcKind == 8;
+    // impl-vtsel: the remaining by-value value-struct sources (TimeSpan 9,
+    // DateTimeOffset 10) -- 8-byte ticks / 16-byte instant+offset cells.
+    const bool tsSource = !refSource && srcKind == 9;
+    const bool dtoSource = !refSource && srcKind == 10;
     if (refSource) RequireRefFamily(src);
     else if (decimalSource) RequireDecimalFamily(src);
     else if (dtSource) RequireDateTimeFamily(src);
@@ -6000,6 +6268,8 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     else if (i8Source) RequireI8Family(src);
     else if (dSource) RequireDoubleFamily(src);
     else if (floatSource) RequireFloatFamily(src);
+    else if (tsSource) RequireTimeSpanFamily(src);
+    else if (dtoSource) RequireDtoffsetFamily(src);
     else if (narrowSource)
     {
         // A narrow cell must be narrower than (or equal to) the 4-byte int32
@@ -6057,7 +6327,8 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         // source element as the 16-byte value struct; an int32 source element as
         // the 4-byte cell value.
         const int32_t v = narrowSource ? NarrowCellAt(src, i, srcCell)
-            : ((refSource || decimalSource || dtSource || guidSource || i8Source || dSource)
+            : ((refSource || decimalSource || dtSource || guidSource || i8Source || dSource ||
+                tsSource || dtoSource)
                 ? 0 : I4At(src, i));
         // impl-groupbykey: the wide source elements cross their selector leaf in
         // the int64_t / double register slot.
@@ -6073,9 +6344,23 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                       il2cpp_array_get_elem_ptr(src, i)))
                 : 0.0;
         const runtime::Il2CppDecimal dv = decimalSource ? *DecAt(src, i) : runtime::Il2CppDecimal();
+        // impl-vtsel: a DateTime source cell is the PACKED 8-byte array image
+        // (kind<<62|ticks, il2cpp_time.h). Rebuilding the struct with
+        // (rawCell, kind 0) kept the kind bits INSIDE the tick count: a Utc
+        // cell read back as ticks 0x48D78F16B5E5C000 instead of
+        // 0x08D78F16B5E5C000, so every Utc/Local element landed in its own
+        // bucket and get_Key reported a garbage tick count.
         const runtime::Il2CppDateTime dts = dtSource
-            ? runtime::Il2CppDateTime(*reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i)), 0)
+            ? runtime::il2cpp_datetime_from_array_bits(
+                  *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i)))
             : runtime::Il2CppDateTime();
+        // impl-vtsel: the TimeSpan / DateTimeOffset source elements.
+        const runtime::Il2CppTimeSpan tsSrc = tsSource
+            ? runtime::Il2CppTimeSpan(*reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i)))
+            : runtime::Il2CppTimeSpan();
+        runtime::Il2CppDateTimeOffset dtoSrc{};
+        if (dtoSource)
+            std::memcpy(&dtoSrc, il2cpp_array_get_elem_ptr(src, i), sizeof(dtoSrc));
         Il2CppGuid gs{};
         if (guidSource)
             std::memcpy(&gs, il2cpp_array_get_elem_ptr(src, i), sizeof(gs));
@@ -6111,6 +6396,10 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
             ComputeGroupKey<int64_t>(kd, v8, keyKind, keyLo, keyHi, keyRef);
         else if (dSource || floatSource)
             ComputeGroupKey<double>(kd, vd, keyKind, keyLo, keyHi, keyRef);
+        else if (tsSource)
+            ComputeGroupKey<runtime::Il2CppTimeSpan>(kd, tsSrc, keyKind, keyLo, keyHi, keyRef);
+        else if (dtoSource)
+            ComputeGroupKey<runtime::Il2CppDateTimeOffset>(kd, dtoSrc, keyKind, keyLo, keyHi, keyRef);
         else
             ComputeGroupKey<int32_t>(kd, v, keyKind, keyLo, keyHi, keyRef);
 
@@ -6124,6 +6413,9 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         runtime::Il2CppDecimal elemDec{};
         runtime::Il2CppDateTime elemDt{};
         Il2CppGuid elemGuid{};
+        // impl-vtsel: the TimeSpan / DateTimeOffset bucket elements.
+        runtime::Il2CppTimeSpan elemTs{};
+        runtime::Il2CppDateTimeOffset elemDto{};
         // floatgrp: the projected System.Single element (the 4-byte bucket
         // cell's source value; the leaf returns it in the XMM0 low lane).
         float elemF = 0.0f;
@@ -6133,25 +6425,33 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
             // family (the generic template reproduces the leaf ABI exactly).
             if (dtSource)
                 ComputeGroupElem<runtime::Il2CppDateTime>(ed, dts, kind, elemI4, elemRef,
-                                                          elemI8, elemD, elemDec, elemDt, elemGuid, elemF);
+                                                          elemI8, elemD, elemDec, elemDt, elemGuid, elemF, elemTs, elemDto);
             else if (guidSource)
                 ComputeGroupElem<Il2CppGuid>(ed, gs, kind, elemI4, elemRef, elemI8, elemD,
-                                             elemDec, elemDt, elemGuid, elemF);
+                                             elemDec, elemDt, elemGuid, elemF, elemTs, elemDto);
             else if (decimalSource)
                 ComputeGroupElem<runtime::Il2CppDecimal>(ed, dv, kind, elemI4, elemRef, elemI8,
-                                                         elemD, elemDec, elemDt, elemGuid, elemF);
+                                                         elemD, elemDec, elemDt, elemGuid, elemF, elemTs, elemDto);
             else if (refSource)
                 ComputeGroupElem<Il2CppObject*>(ed, srcElem, kind, elemI4, elemRef, elemI8,
-                                                elemD, elemDec, elemDt, elemGuid, elemF);
+                                                elemD, elemDec, elemDt, elemGuid, elemF, elemTs, elemDto);
             else if (i8Source)
                 ComputeGroupElem<int64_t>(ed, v8, kind, elemI4, elemRef, elemI8, elemD,
-                                          elemDec, elemDt, elemGuid, elemF);
+                                          elemDec, elemDt, elemGuid, elemF, elemTs, elemDto);
+            else if (tsSource)
+                ComputeGroupElem<runtime::Il2CppTimeSpan>(ed, tsSrc, kind, elemI4, elemRef,
+                                                             elemI8, elemD, elemDec, elemDt,
+                                                             elemGuid, elemF, elemTs, elemDto);
+            else if (dtoSource)
+                ComputeGroupElem<runtime::Il2CppDateTimeOffset>(ed, dtoSrc, kind, elemI4,
+                                                                    elemRef, elemI8, elemD, elemDec,
+                                                                    elemDt, elemGuid, elemF, elemTs, elemDto);
             else if (dSource || floatSource)
                 ComputeGroupElem<double>(ed, vd, kind, elemI4, elemRef, elemI8, elemD,
-                                         elemDec, elemDt, elemGuid, elemF);
+                                         elemDec, elemDt, elemGuid, elemF, elemTs, elemDto);
             else
                 ComputeGroupElem<int32_t>(ed, v, kind, elemI4, elemRef, elemI8, elemD,
-                                          elemDec, elemDt, elemGuid, elemF);
+                                          elemDec, elemDt, elemGuid, elemF, elemTs, elemDto);
         }
         else if (kind == GroupElemKind::Int32)
         {
@@ -6194,6 +6494,16 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         {
             // impl-groupbykey: the key-only double-source overload.
             elemD = vd;
+        }
+        else if (kind == GroupElemKind::TimeSpan && srcKind == 9)
+        {
+            // impl-vtsel: key-only TimeSpan source -- the element IS the source span.
+            elemTs = tsSrc;
+        }
+        else if (kind == GroupElemKind::DateTimeOffset && srcKind == 10)
+        {
+            // impl-vtsel: key-only DateTimeOffset source.
+            elemDto = dtoSrc;
         }
         else if (floatSource && kind == GroupElemKind::F)
         {
@@ -6294,6 +6604,16 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     *reinterpret_cast<float*>(
                         il2cpp_array_get_elem_ptr(grp->elements, at)) = elemF;
                     break;
+                case GroupElemKind::TimeSpan:
+                    // impl-vtsel: the 8-byte ticks cell.
+                    *reinterpret_cast<int64_t*>(
+                        il2cpp_array_get_elem_ptr(grp->elements, at)) = elemTs.ticks;
+                    break;
+                case GroupElemKind::DateTimeOffset:
+                    // impl-vtsel: the 16-byte utcTicks + offset cell.
+                    std::memcpy(il2cpp_array_get_elem_ptr(grp->elements, at),
+                                &elemDto, sizeof(elemDto));
+                    break;
             }
             ++grp->count;
         }
@@ -6374,6 +6694,16 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     // floatgrp: the 4-byte float cell (no boxing).
                     *reinterpret_cast<float*>(
                         il2cpp_array_get_elem_ptr(grp->elements, 0)) = elemF;
+                    break;
+                case GroupElemKind::TimeSpan:
+                    // impl-vtsel: the 8-byte ticks cell.
+                    *reinterpret_cast<int64_t*>(
+                        il2cpp_array_get_elem_ptr(grp->elements, 0)) = elemTs.ticks;
+                    break;
+                case GroupElemKind::DateTimeOffset:
+                    // impl-vtsel: the 16-byte utcTicks + offset cell.
+                    std::memcpy(il2cpp_array_get_elem_ptr(grp->elements, 0),
+                                &elemDto, sizeof(elemDto));
                     break;
             }
             grp->count = 1;
@@ -6781,6 +7111,10 @@ Il2CppObject* il2cpp_linq_group_by_full_key_cell(Il2CppArray* src, Il2CppObject*
             // floatgrp: the key-only System.Single (8) source keeps the FLOAT
             // bucket (kind 7).
             : srcKind == 8 ? 7
+            // impl-vtsel: the key-only TimeSpan (9) / DateTimeOffset (10)
+            // sources keep their own bucket family.
+            : srcKind == 9 ? 8
+            : srcKind == 10 ? 9
             : ((src->isRefElem != 0) ? 1 : 0);
     }
     GroupElemKind kind = GroupElemKind::Int32;
@@ -6794,6 +7128,9 @@ Il2CppObject* il2cpp_linq_group_by_full_key_cell(Il2CppArray* src, Il2CppObject*
         case 5: kind = GroupElemKind::DateTime; break;
         case 6: kind = GroupElemKind::Guid; break;
         case 7: kind = GroupElemKind::F; break;
+        // impl-vtsel: the TimeSpan (8) / DateTimeOffset (9) buckets.
+        case 8: kind = GroupElemKind::TimeSpan; break;
+        case 9: kind = GroupElemKind::DateTimeOffset; break;
         default:
             il2cpp_throw_not_supported_exception("GroupBy: unsupported TElement family code.");
     }
@@ -7274,6 +7611,23 @@ Il2CppObject* il2cpp_linq_grouping_get_enumerator(Il2CppObject* grouping)
                 const int64_t v = *reinterpret_cast<const int64_t*>(
                     il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
                 boxed = runtime::icall_box_long(v);
+            }
+            else if (cells->elemKind == kElemKindTimeSpan && elemSize == static_cast<int32_t>(sizeof(int64_t)))
+            {
+                // impl-vtsel: a TimeSpan bucket element boxes as System.TimeSpan.
+                const int64_t v = *reinterpret_cast<const int64_t*>(
+                    il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+                boxed = runtime::icall_box_time_span(runtime::Il2CppTimeSpan(v));
+            }
+            else if (cells->elemKind == kElemKindNone
+                     && elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDateTimeOffset)))
+            {
+                // impl-vtsel: a DateTimeOffset bucket cell (16 bytes, no
+                // primitive element kind) boxes as System.DateTimeOffset.
+                runtime::Il2CppDateTimeOffset v;
+                std::memcpy(&v, il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i),
+                            sizeof(v));
+                boxed = runtime::icall_box_date_time_offset(&v);
             }
             else if (cells->elemKind == kElemKindNone
                      && elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)))
@@ -9389,5 +9743,14 @@ Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result)
 }
 
 } // namespace il2cpp
+
+
+
+
+
+
+
+
+
 
 

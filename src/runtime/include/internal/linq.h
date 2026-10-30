@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 //------------------------------------------------------------------------------
 // linq.h -- System.Linq array-family runtime (LINQ domain, T1 card).
 //
@@ -149,6 +149,13 @@ constexpr int32_t IL2CPP_LINQ_ZIP_D  = 10;
 // runtime value struct BY VALUE (the decimal T3 contract), so the selector's
 // declared parameter type is il2cpp::runtime::Il2CppDecimal.
 constexpr int32_t IL2CPP_LINQ_ZIP_DEC = 11;
+// impl-vtsel: a by-value VALUE-STRUCT source side (System.DateTime /
+// System.TimeSpan / System.Guid / System.DateTimeOffset). The element crosses
+// the Zip selector in its OWN struct slot.
+constexpr int32_t IL2CPP_LINQ_ZIP_DT   = 12;
+constexpr int32_t IL2CPP_LINQ_ZIP_TS   = 13;
+constexpr int32_t IL2CPP_LINQ_ZIP_GUID = 14;
+constexpr int32_t IL2CPP_LINQ_ZIP_DTO  = 15;
 //------------------------------------------------------------------------------
 // nb15 B5 FIX -- the same WIDE / NARROW families for Where / First /
 // FirstOrDefault / Last / LastOrDefault. Each keeps the source element family
@@ -570,3 +577,4 @@ Il2CppGuid               il2cpp_linq_min_guid(Il2CppArray* src);
 Il2CppGuid               il2cpp_linq_max_guid(Il2CppArray* src);
 
 } // namespace il2cpp
+

@@ -289,6 +289,26 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_dt(Il2CppArray* src, Il2CppObject* key
 Il2CppArray* il2cpp_linq_order_by_key_ref_guid(Il2CppArray* src, Il2CppObject* keySel,
                                                int32_t desc);
 
+// impl-vtsel: OrderBy / OrderByDescending over a BY-VALUE VALUE-STRUCT element
+// source (net48 OrderBy<DateTime|TimeSpan|Guid|DateTimeOffset, TKey>). The
+// element crosses the key selector in its own by-value slot; the result is a
+// fresh typed array of the SAME element family.
+//   srcKind  13 DateTime | 14 TimeSpan | 15 Guid | 16 DateTimeOffset
+//            (IL2CPP_LIST_KIND_*, the list snapshot family)
+//   keyFam   0 int32 | 1 int64 | 2 double | 3 float | 4 DateTime | 5 Guid |
+//            6 TimeSpan | 7 DateTimeOffset
+Il2CppArray* il2cpp_linq_order_by_key_vt(Il2CppArray* src, Il2CppObject* keySel,
+                                         int32_t desc, int32_t srcKind, int32_t keyFam);
+
+// impl-vtsel: ThenBy / ThenByDescending over a value-struct element source --
+// the FUSED composite (net48 EnumerableSorter chain). Each element's primary
+// and secondary keys are cached exactly once; the primary key decides first and
+// the secondary only breaks ties. `k1Fam` / `k2Fam` use the keyFam codes above.
+Il2CppArray* il2cpp_linq_then_by_key_vt(Il2CppArray* src, Il2CppObject* k1Sel,
+                                        Il2CppObject* k2Sel, int32_t k1Desc,
+                                        int32_t k2Desc, int32_t srcKind,
+                                        int32_t k1Fam, int32_t k2Fam);
+
 // The DOUBLE-source key-selector entries: the elements are 8-byte double cells
 // and the key crosses in the F-stack slot. Same cached-once / stable / fresh
 // double[] result contract.

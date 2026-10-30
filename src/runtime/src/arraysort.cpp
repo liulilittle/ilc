@@ -5099,6 +5099,16 @@ runtime::Il2CppDateTime il2cpp_ienum_get_current_dt(Il2CppObject* receiver)
         return *reinterpret_cast<const runtime::Il2CppDateTime*>(
             arr->data + static_cast<size_t>(idx) * static_cast<size_t>(arr->elemSize));
     }
+    // impl-vtsel: a System.DateTime[] source / Select-family result holds the
+    // PACKED 8-byte array image (kind<<62|ticks, il2cpp_time.h), not the
+    // 16-byte runtime value struct -- `foreach (var d in dates.Select(...))`
+    // used to raise InvalidCastException here.
+    if (arr->elemSize == static_cast<int32_t>(sizeof(int64_t))
+        && arr->elemKind == kElemKindDateTime)
+    {
+        return runtime::il2cpp_datetime_from_array_bits(*reinterpret_cast<const int64_t*>(
+            arr->data + static_cast<size_t>(idx) * static_cast<size_t>(arr->elemSize)));
+    }
     il2cpp_throw_new(
         "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
         "Specified cast is not valid: the snapshot element is neither a boxed DateTime nor a DateTime cell.");
