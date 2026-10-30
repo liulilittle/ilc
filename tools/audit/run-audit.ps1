@@ -136,21 +136,56 @@ if (-not $py) { throw 'python 3 is required for the analysis stages' }
 
 Step 'analysis: runtime symbols'
 & python (Join-Path $Tools 'parse_runtime_syms.py') $Root (Join-Path $OutDir 'runtime_syms.json')
+if ($LASTEXITCODE -ne 0) { throw 'runtime symbol index failed' }
 
 Step 'analysis: wiring surface'
 & python (Join-Path $Tools 'parse_wiring_surface.py') $Root (Join-Path $OutDir 'arms.json')
+if ($LASTEXITCODE -ne 0) { throw 'wiring surface parse failed' }
 
 Step 'analysis: wiring sites'
 & python (Join-Path $Tools 'locate_wiring_sites.py') $Root $OutDir
+if ($LASTEXITCODE -ne 0) { throw 'wiring site locate failed' }
 
 Step 'analysis: classification'
 & python (Join-Path $Tools 'classify_icalls.py') $OutDir
+if ($LASTEXITCODE -ne 0) { throw 'classification failed (does the five-class total still equal 908?)' }
 
 Step 'render: docs/audit/icall-mscorlib-current.md'
-& python (Join-Path $Tools 'render_report.py') $OutDir $Root
+$srcRev = (& git -C $Root rev-list -1 HEAD -- src 2>$null | Select-Object -First 1)
+if (-not $srcRev) { $srcRev = 'unknown' }
+Write-Host "source rev: $srcRev"
+& python (Join-Path $Tools 'render_report.py') $OutDir $Root $srcRev
+if ($LASTEXITCODE -ne 0) { throw 'render failed' }
 
 Step 'verify: every cited file:line'
 & python (Join-Path $Tools 'verify_report.py') $OutDir $Root
+if ($LASTEXITCODE -ne 0) { throw 'report evidence self-check failed' }
+
+# --- final gate: the five status classes must account for every icall ---------
+Step 'gate: five-class total == 908'
+$gate = @'
+import io, json, sys
+rows = json.load(io.open(sys.argv[1], encoding="utf-8"))
+five = ("wired", "half", "loud", "missing", "shadow", "partialShadow")
+by = {}
+for r in rows:
+    by[r["status"]] = by.get(r["status"], 0) + 1
+total = sum(by.get(s, 0) for s in five)
+print("classes:", {s: by.get(s, 0) for s in five}, "sum:", total)
+if total != len(rows):
+    print("FAIL: classes sum to", total, "but there are", len(rows), "rows")
+    sys.exit(1)
+if len(rows) != 908:
+    print("FAIL: expected 908 icall rows, got", len(rows))
+    sys.exit(1)
+print("ASSERT sum==908: OK")
+'@
+$gatePath = Join-Path $OutDir 'gate_sum.py'
+# ASCII on purpose: this file is pure Python, and PowerShell 5.1's -Encoding UTF8
+# would prepend a BOM that CPython rejects on the first line.
+Set-Content -LiteralPath $gatePath -Value $gate -Encoding ASCII
+& python $gatePath (Join-Path $OutDir 'classified.json')
+if ($LASTEXITCODE -ne 0) { throw 'five-class total is not 908' }
 
 Write-Host ''
 Write-Host "artifacts in $OutDir" -ForegroundColor Green

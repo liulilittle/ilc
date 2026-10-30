@@ -127,6 +127,9 @@ for fn, lines in files.items():
             throws = 'throw new NotSupportedException' in text
             line_no = i + k + 1          # 1-based source line of the case label
             if nm in arms:
+                # A multi-label arm (`case "A": case "B":`) shares one body; the
+                # FIRST label's line is the one a `file:line` citation should use,
+                # so it is kept and only the symbol/throw unions accumulate.
                 arms[nm]['symbols'] = sorted(set(arms[nm]['symbols']) | set(symbols))
                 arms[nm]['throws'] = arms[nm]['throws'] or throws
             else:

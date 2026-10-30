@@ -1,11 +1,21 @@
 """Index the runtime icall surface: symbol -> declaration site, definition site,
-and whether the definition is a LOUD throw stub rather than a real
-implementation.
+and whether the definition is a placeholder rather than a real implementation.
 
-A definition whose body calls `il2cpp_throw_not_supported_exception` (or the
-`*_loud` naming convention) deliberately rejects at runtime. Treating such a
-symbol as "wired" would let the audit report a delivered feature where the
-runtime in fact throws, so the distinction is kept explicitly.
+Two placeholder shapes are indexed:
+
+  loud  -- the body deliberately rejects at runtime: it calls
+           `il2cpp_throw_not_supported_exception` as its only exit, or the
+           symbol carries the `*_loud` naming convention.
+  const -- the body delivers no computation at all: it is empty (a no-op), or
+           it is a single `return <constant>;` statement (`return 0;`,
+           `return nullptr;`, `return false;`, ...). Such a body is a fixed
+           answer that cannot observe its arguments, so it is a placeholder for
+           the real net48 query even when the fixed value happens to be the
+           correct answer on the host.
+
+Both shapes are reported as `half` by the classifier: the transpiler emits a
+call, but the runtime does not perform the operation. Treating either as
+"wired" would let the audit claim a delivered feature.
 
 usage: parse_runtime_syms.py <repoRoot> <out.json>
 """
@@ -64,6 +74,47 @@ def is_pure_loud_stub(sym, body):
     return len(meaningful) <= 2
 
 
+# A single-statement body that returns a LITERAL cannot observe its arguments:
+# the answer is a compiled-in constant, not the result of the net48 operation.
+CONST_RETURN = re.compile(
+    r'^return\s+(-?\d+|true|false|nullptr|NULL|0[xX][0-9a-fA-F]+|-?\d+\.\d*f?)\s*$')
+
+
+def _body_statements(body):
+    """Split a comment-stripped body into statements, dropping the braces.
+
+    Semicolons inside a nested block are kept in their own statement, so a
+    one-liner guard (`if (x) return 0;` then more code) never collapses into a
+    single "constant return".
+    """
+    inner = body.strip()
+    if inner.startswith('{') and inner.endswith('}'):
+        inner = inner[1:-1]
+    return [s.strip() for s in inner.split(';') if s.strip()]
+
+
+def is_constant_stub(sym, body):
+    """Whether the definition is empty, or answers with a literal constant.
+
+    Recognised shapes (after comment stripping):
+      * an empty body -- `{ }` or `{ }` with only `(void)arg;` noise;
+      * exactly one statement, `return <literal>;`.
+
+    Deliberately NOT recognised: `return some_global;`, delegations, and any
+    body with more than one statement. Those do observe state and are real
+    implementations even when short.
+    """
+    if re.search(r'_loud$', sym):
+        return False                       # already a loud stub, different class
+    stmts = _body_statements(body)
+    stmts = [s for s in stmts if not re.match(r'^\(void\)', s)]
+    if not stmts:
+        return True
+    if len(stmts) == 1 and CONST_RETURN.match(stmts[0]):
+        return True
+    return False
+
+
 decl = {}
 for fn in sorted(os.listdir(HDR)):
     if not fn.endswith('.h'):
@@ -72,9 +123,25 @@ for fn in sorted(os.listdir(HDR)):
         for sym in SYM_ANY.findall(line):
             decl.setdefault(sym, (fn, i))
 
+def _statement_line(body_lines, first_line_no, pattern, decl_line_no):
+    """1-based source line of the first body line matching `pattern`.
+
+    Citing the STATEMENT (the throw or the `return <constant>;`) instead of the
+    function's first line makes the evidence checkable: the cited line shows the
+    behaviour that disqualifies the implementation. An EMPTY body has no
+    statement at all, so it falls back to the declaration line -- that is the
+    only citable evidence for a no-op.
+    """
+    for off, ln in enumerate(body_lines):
+        if re.search(pattern, ln):
+            return first_line_no + off
+    return decl_line_no
+
+
 # ---- definitions (sources) ----
 defs = {}
 loud = {}
+const = {}
 inline_defs = {}
 
 for fn in sorted(os.listdir(SRC)):
@@ -122,7 +189,9 @@ for fn in sorted(os.listdir(SRC)):
 
         text = strip_comments('\n'.join(body))
         if is_pure_loud_stub(sym, text):
-            loud[sym] = (fn, i + 1)
+            loud[sym] = (fn, _statement_line(body, j + 1, r'il2cpp_throw_not_supported_exception', i + 1))
+        elif is_constant_stub(sym, text):
+            const[sym] = (fn, _statement_line(body, j + 1, r'\breturn\b', i + 1))
         i = k + 1
 
 # inline definitions in headers count as implementations
@@ -141,11 +210,13 @@ print('declared symbols', len(decl))
 print('defined symbols', len(defs))
 print('inline definitions', len(inline_defs))
 print('loud stubs', len(loud))
+print('constant/empty stubs', len(const))
 print('declared-only', len(set(decl) - set(defs)))
 
 json.dump({'decl': {k: list(v) for k, v in decl.items()},
            'defs': {k: list(v) for k, v in defs.items()},
            'loud': {k: list(v) for k, v in loud.items()},
+           'const': {k: list(v) for k, v in const.items()},
            'inline': {k: list(v) for k, v in inline_defs.items()}},
           io.open(OUT, 'w', encoding='utf-8'), indent=1)
 print('wrote', OUT)

@@ -7,6 +7,12 @@
 // icall from a shadow (internal icall reached only through a public wrapper)
 // and what proves an icall is genuinely unreachable (P3).
 //
+// The output also carries, per icall, its own signature, and one flat list of
+// every public-face method (owner, name, signature). Both are needed because a
+// classification key is (owner, name, SIGNATURE): overloads of one name can have
+// different reachability, and a wrapper edge must be matched against the exact
+// overload the user calls -- not against every method sharing a name.
+//
 // The IL decoder validates itself: every method body must be consumed exactly.
 // A single misdecoded opcode would desynchronise the stream and show up as a
 // length mismatch, which is fatal (exit 4) rather than silently wrong.
@@ -19,6 +25,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using IcallAuditShared;
 
 namespace IcallCallGraph;
 
@@ -38,6 +45,7 @@ internal static class Program
 
         var methods = new Dictionary<int, MethodRec>();
         var byOwnerName = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        var sigProvider = new SignatureProvider(reader);
 
         foreach (var th in reader.TypeDefinitions)
         {
@@ -51,6 +59,7 @@ internal static class Program
                     Token = MetadataTokens.GetToken(mh),
                     Owner = owner,
                     Name = reader.GetString(md.Name),
+                    Signature = Sig(reader, sigProvider, md),
                     TypePublic = IsTypePublic(td.Attributes),
                     MethodPublic = (md.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public,
                     Static = (md.Attributes & MethodAttributes.Static) != 0,
@@ -166,6 +175,7 @@ internal static class Program
             sb.Append("    {");
             sb.Append("\"owner\": ").Append(J(m.Owner));
             sb.Append(", \"name\": ").Append(J(m.Name));
+            sb.Append(", \"sig\": ").Append(J(m.Signature));
             sb.Append(", \"typePublic\": ").Append(m.TypePublic ? "true" : "false");
             sb.Append(", \"methodPublic\": ").Append(m.MethodPublic ? "true" : "false");
             sb.Append(", \"static\": ").Append(m.Static ? "true" : "false");
@@ -184,6 +194,7 @@ internal static class Program
                     if (k > 0) sb.Append(", ");
                     sb.Append("{\"owner\": ").Append(J(ordered[k].Owner));
                     sb.Append(", \"name\": ").Append(J(ordered[k].Name));
+                    sb.Append(", \"sig\": ").Append(J(ordered[k].Signature));
                     sb.Append(", \"publicFace\": ").Append(ordered[k].TypePublic && ordered[k].MethodPublic ? "true" : "false");
                     sb.Append(", \"isIcall\": ").Append(ordered[k].IsIcall ? "true" : "false");
                     sb.Append('}');
@@ -232,18 +243,53 @@ internal static class Program
             foreach (var to in kv.Value.Distinct())
             {
                 var toRec = methods[to];
-                edgeRows.Add("    [" + J(from.Owner + "::" + from.Name) + ", " + J(toRec.Owner + "::" + toRec.Name) + "]");
+                edgeRows.Add("    [" + J(from.Owner) + ", " + J(from.Name) + ", " + J(from.Signature)
+                    + ", " + J(toRec.Owner) + ", " + J(toRec.Name) + ", " + J(toRec.Signature) + "]");
             }
         }
         edgeRows.Sort(StringComparer.Ordinal);
         sb.Append(string.Join(",\n", edgeRows));
-        sb.Append("\n  ]\n}\n");
+        sb.Append("\n  ],\n  \"publicFaces\": [\n");
+
+        // Every method USER code can call directly: public method on a public
+        // type, excluding the icalls themselves (an icall cannot wrap another
+        // icall -- it has no managed body). The classifier joins its wrapper
+        // edges against THIS list, so an internal helper is never mistaken for
+        // a user-visible entry point.
+        var faces = methods.Values
+            .Where(m => m.TypePublic && m.MethodPublic && !m.IsIcall)
+            .OrderBy(m => m.Owner, StringComparer.Ordinal)
+            .ThenBy(m => m.Name, StringComparer.Ordinal)
+            .ThenBy(m => m.Signature, StringComparer.Ordinal)
+            .ToList();
+        for (var i = 0; i < faces.Count; i++)
+        {
+            sb.Append("    [").Append(J(faces[i].Owner)).Append(", ").Append(J(faces[i].Name))
+                .Append(", ").Append(J(faces[i].Signature)).Append(']');
+            if (i + 1 < faces.Count) sb.Append(',');
+            sb.Append('\n');
+        }
+        sb.Append("  ]\n}\n");
         File.WriteAllText(Path.GetFullPath(args[1]), sb.ToString(), new UTF8Encoding(false));
 
         Console.WriteLine("icalls=" + icalls.Count);
         Console.WriteLine("publicFaceIcells=" + icalls.Count(m => m.TypePublic && m.MethodPublic));
+        Console.WriteLine("publicFaceMethods=" + faces.Count);
         Console.WriteLine("unreachableFromPublic=" + icalls.Count(m => !dist.ContainsKey(m.Token)));
         return decodeFailures == 0 ? 0 : 4;
+    }
+
+    private static string Sig(MetadataReader reader, SignatureProvider provider, MethodDefinition md)
+    {
+        try
+        {
+            var sig = md.DecodeSignature(provider, null);
+            return sig.ReturnType + " (" + string.Join(", ", sig.ParameterTypes) + ")";
+        }
+        catch (BadImageFormatException)
+        {
+            return "?";
+        }
     }
 
     private static int Resolve(MetadataReader reader, int token, Dictionary<string, List<int>> byOwnerName)
@@ -329,6 +375,7 @@ internal sealed class MethodRec
     public int Token;
     public string Owner = "";
     public string Name = "";
+    public string Signature = "";
     public bool TypePublic;
     public bool MethodPublic;
     public bool Static;
