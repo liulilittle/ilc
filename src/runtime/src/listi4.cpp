@@ -33,11 +33,14 @@
 
 #include "listi4.h"
 
+#include "il2cpp_boxing_ext.h" // runtime::icall_unbox_int32 (boxed sources)
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
 #include "il2cpp_runtime.h"
 #include "arraysort.h"
+#include "hashset.h"    // il2cpp_hashset_class + Il2CppHashSetObject (ICollection<int> source)
+#include "stackqueue.h" // il2cpp_stack_class/il2cpp_queue_class + typed enumerators
 
 #include <cstddef>
 #include <cstdint>
@@ -316,27 +319,288 @@ Il2CppDelegate* RequireListCallback(Il2CppObject* cb, const char* paramName)
     return reinterpret_cast<Il2CppDelegate*>(cb);
 }
 
-// RequireInt32ArrayArg -- validate an IEnumerable<int> argument (the wired
-// surface passes a one-dimensional int32 array): null -> ArgumentNullException;
-// a non-array -> ArgumentException; a non-int32 array -> NotSupportedException.
-Il2CppArray* RequireInt32ArrayArg(Il2CppObject* obj, const char* paramName)
+//--------------------------------------------------------------------------
+// COLLECTION-SOURCE NORMALIZATION.
+//
+// net48's List<T> accepts ANY IEnumerable<T> at the three collection-source
+// entry points (the ctor, AddRange and InsertRange). The reference source
+// (`collections_generic_list.cs`) splits the sources in two:
+//
+//   * an ICollection<T> source is BULK-COPIED: its Count pre-sizes the items
+//     array EXACTLY (EnsureCapacity(_size + c.Count)) and the cells are copied
+//     (or enumerated once for a set, whose internal slot order is the only
+//     observable order the runtime has);
+//   * every other IEnumerable<T> is enumerated element by element through
+//     Add/Insert, so the capacity grows the ordinary way (0 -> 4 -> doubling).
+//
+// The runtime used to accept a one-dimensional int32 array ONLY and raise
+// ArgumentException("Object is not an array.") for every other shape, so
+// List<int>/yield/LINQ/HashSet/Queue sources threw on code that runs on net48.
+//
+// Normalization (net48 order: the null check precedes the index check):
+//   1. int32[]        -> ICollection<int> bulk copy (memcpy fast path)
+//   2. List<int>      -> ICollection<int> bulk copy; a SELF source is
+//                        snapshotted first (the cells are read before the
+//                        growth the copy itself requires)
+//   3. HashSet<int>   -> ICollection<int>: live Count pre-sizes, then the
+//                        shared snapshot enumerator supplies the cells
+//   4. other enumerables (yield / LINQ / Queue<int> / Stack<int> / user
+//      IEnumerable<int>) -> GetEnumerator / MoveNext / get_Current via the
+//                        i4 enumerator kernel, Dispose exactly once (also on
+//                        the throwing path), get_Current NEVER read after
+//                        MoveNext returns false.
+//--------------------------------------------------------------------------
+
+// The ICollection<int> element count of 'source', or -1 when the source has
+// no int-collection carrier and must be enumerated.
+constexpr int32_t kNotIntCollection = -1;
+
+int32_t IntCollectionCount(Il2CppObject* source)
 {
-    if (obj == nullptr)
+    Il2CppClass* klass = source->klass;
+    if (klass == nullptr || klass->name == nullptr)
     {
-        il2cpp_throw_argument_null_exception(paramName);
+        return kNotIntCollection;
     }
-    Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(obj);
-    if (arr->obj.klass == nullptr || arr->obj.klass->name == nullptr ||
-        arr->obj.klass->name[0] != '[')
+    if (klass->name[0] == '[')
     {
-        il2cpp_throw_argument_exception("Object is not an array.");
+        Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(source);
+        if (arr->isRefElem) return kNotIntCollection;
+        if (arr->elemSize != static_cast<int32_t>(sizeof(int32_t))) return kNotIntCollection;
+        if (arr->elemKind != kElemKindI4 && arr->elemKind != kElemKindNone)
+            return kNotIntCollection;
+        return arr->length;
     }
-    if (arr->isRefElem || arr->elemSize != sizeof(int32_t))
+    if (klass == il2cpp_list_i4_class())
     {
-        il2cpp_throw_not_supported_exception(
-            "Only one-dimensional System.Int32 arrays are supported.");
+        return reinterpret_cast<Il2CppListI4*>(source)->count;
     }
-    return arr;
+    if (klass == il2cpp_hashset_class())
+    {
+        // One shared descriptor backs EVERY HashSet<T> family; only the int32
+        // family is an ICollection<int> at this surface. The live count
+        // (slot count minus the free-list holes) is the net48 Count.
+        Il2CppHashSetObject* set = reinterpret_cast<Il2CppHashSetObject*>(source);
+        if (set->family != 1) return kNotIntCollection;
+        return set->count - set->freeCount;
+    }
+    return kNotIntCollection;
+}
+
+// The int32 cells of an ICollection<int> source, or nullptr when the source
+// has no contiguous int32 storage (the HashSet family). MUST be called AFTER
+// every allocation of the operation: a Gen0 compaction may move the source
+// array/list object, and the caller re-derives it from the rooted slot.
+const int32_t* IntCollectionCells(Il2CppObject* source)
+{
+    Il2CppClass* klass = source->klass;
+    if (klass == nullptr || klass->name == nullptr) return nullptr;
+    if (klass->name[0] == '[')
+    {
+        return reinterpret_cast<const int32_t*>(reinterpret_cast<Il2CppArray*>(source)->data);
+    }
+    if (klass == il2cpp_list_i4_class())
+    {
+        Il2CppListI4* list = reinterpret_cast<Il2CppListI4*>(source);
+        return list->items != nullptr ? reinterpret_cast<const int32_t*>(list->items->data)
+                                      : nullptr;
+    }
+    return nullptr;
+}
+
+// IEnumerable<int>.GetEnumerator for the shapes that have NO generic
+// interface dispatch in this runtime: the int32-typed Queue/Stack expansions
+// ride the shared non-generic container descriptors, whose snapshot
+// enumerators are addressed directly (the transpiler's foreach does the same
+// in MethodMap.Collections).
+Il2CppObject* GetIntSourceEnumerator(Il2CppObject* source)
+{
+    Il2CppClass* klass = source->klass;
+    if (klass == il2cpp_queue_class()) return il2cpp_queue_get_enumerator(source);
+    if (klass == il2cpp_stack_class()) return il2cpp_stack_get_enumerator(source);
+    if (klass != nullptr && klass->name != nullptr && klass->name[0] == '[')
+    {
+        // net48's `foreach (int x in source)` casts EVERY element; a value
+        // array of another width (long[]/double[]/DateTime[]/...) can never
+        // yield an int32, so it is an InvalidCastException, never a silent
+        // numeric conversion.
+        Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(source);
+        if (!arr->isRefElem &&
+            (arr->elemSize != static_cast<int32_t>(sizeof(int32_t)) ||
+             (arr->elemKind != kElemKindI4 && arr->elemKind != kElemKindNone)))
+        {
+            il2cpp_throw_new(
+                "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+                "Specified cast is not valid.");
+        }
+    }
+    return il2cpp_ienum_get_enumerator(source);
+}
+
+int32_t IntSourceMoveNext(Il2CppObject* en)
+{
+    if (en == nullptr)
+    {
+        // The source's GetEnumerator returned null: net48's foreach reads
+        // en.MoveNext() and raises NullReferenceException.
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    if (en->klass == &System_Collections_Queue_Enumerator_class)
+        return il2cpp_queue_enumerator_move_next(en);
+    if (en->klass == &System_Collections_Stack_Enumerator_class)
+        return il2cpp_stack_enumerator_move_next(en);
+    return il2cpp_ienum_move_next(en);
+}
+
+int32_t IntSourceCurrent(Il2CppObject* en)
+{
+    if (en->klass == &System_Collections_Queue_Enumerator_class)
+        return runtime::icall_unbox_int32(il2cpp_queue_enumerator_get_current(en));
+    if (en->klass == &System_Collections_Stack_Enumerator_class)
+        return runtime::icall_unbox_int32(il2cpp_stack_enumerator_get_current(en));
+    return il2cpp_ienum_get_current_i4(en);
+}
+
+// The `foreach` finally arm: Dispose runs exactly once on EVERY exit path
+// (normal completion and a MoveNext/Add exception both). A null enumerator
+// (the source's GetEnumerator returned null) is left alone -- net48's using
+// skips the null Dispose and the MoveNext below raises NRE.
+class IntSourceEnumeratorGuard
+{
+public:
+    IntSourceEnumeratorGuard() : m_slot(nullptr) {}
+    ~IntSourceEnumeratorGuard()
+    {
+        if (m_slot != nullptr && *m_slot != nullptr)
+        {
+            il2cpp_ienum_dispose(*m_slot);
+        }
+    }
+    void Attach(Il2CppObject** slot) { m_slot = slot; }
+
+private:
+    Il2CppObject** m_slot;
+};
+
+// Grow the items array so at least 'needed' elements fit, following the net48
+// EnsureCapacity shape: double (floor kMinItems at zero), then raise to
+// 'needed' when the doubling is still too small (the bulk-copy branch).
+void EnsureCapacityAtLeast(Il2CppObject** selfSlot, int32_t needed)
+{
+    EnsureItems(selfSlot);
+    Il2CppListI4* list = AsList(*selfSlot);
+    if (list->items->length >= needed) return;
+    if (needed > kMaxItems)
+    {
+        il2cpp_throw_new(
+            "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+            "Array dimensions exceeded supported range.");
+    }
+    const int32_t oldLength = list->items->length;
+    int32_t newLength = NextLength(oldLength);
+    if (newLength < needed) newLength = needed;
+    if (newLength <= oldLength) return; // already at the cap
+    Il2CppArray* newItems = AllocItems(newLength);
+    list = AsList(*selfSlot); // re-derive after the (possibly collecting) allocation
+    int32_t* dst = reinterpret_cast<int32_t*>(newItems->data);
+    const int32_t* src = Slots(list);
+    for (int32_t i = 0; i < oldLength; ++i)
+    {
+        dst[i] = src[i];
+    }
+    il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
+                         reinterpret_cast<Il2CppObject*>(newItems));
+    list->items = newItems;
+}
+
+// Bulk copy of an ICollection<int> source into the range [index, index+srcLen).
+// 'capacityReady' says the caller already ensured the room (the ctor pre-sizes
+// its own storage and never shifts); otherwise the net48 EnsureCapacity shape
+// is applied here. 'sourceSlot' is the caller's ROOTED source slot: the growth
+// and the enumerator allocation can compact the source object, so it is
+// re-read after every allocation instead of trusting a stale by-value copy.
+void InsertCollectionCells(Il2CppObject** selfSlot, int32_t index,
+                           Il2CppObject** sourceSlot, int32_t srcLen, bool capacityReady)
+{
+    if (srcLen <= 0) return;
+    const int32_t oldCount = AsList(*selfSlot)->count;
+    if (!capacityReady) EnsureCapacityAtLeast(selfSlot, oldCount + srcLen);
+    {
+        Il2CppListI4* list = AsList(*selfSlot);
+        int32_t* slots = Slots(list);
+        for (int32_t i = oldCount - 1; i >= index; --i)
+        {
+            slots[i + srcLen] = slots[i];
+        }
+    }
+    const int32_t* src = IntCollectionCells(*sourceSlot);
+    if (src != nullptr)
+    {
+        int32_t* slots = Slots(AsList(*selfSlot));
+        for (int32_t i = 0; i < srcLen; ++i)
+        {
+            slots[index + i] = src[i];
+        }
+    }
+    else
+    {
+        // HashSet<int>: its internal slot order IS the net48 CopyTo order, so
+        // the shared snapshot enumerator supplies the cells. The root scope is
+        // declared BEFORE the guard so the guard (which calls Dispose) is torn
+        // down while the enumerator is still rooted.
+        Il2CppObject* en = GetIntSourceEnumerator(*sourceSlot);
+        RootScope scope;
+        scope.Add(reinterpret_cast<void**>(&en));
+        IntSourceEnumeratorGuard guard;
+        guard.Attach(&en);
+        int32_t w = 0;
+        while (w < srcLen && IntSourceMoveNext(en) != 0)
+        {
+            const int32_t value = IntSourceCurrent(en);
+            int32_t* slots = Slots(AsList(*selfSlot)); // re-derive (get_Current may box)
+            slots[index + w] = value;
+            ++w;
+        }
+    }
+    AsList(*selfSlot)->count = oldCount + srcLen;
+}
+
+// Enumerate 'source' through the int32 enumerator kernel, inserting each
+// element at a RUNNING index (net48's `while (en.MoveNext()) Insert(index++,
+// en.Current)`), so an exception mid-way keeps the prefix that was already
+// inserted and the net48 capacity growth is reproduced exactly.
+void InsertEnumerableCells(Il2CppObject** selfSlot, int32_t index, Il2CppObject* source)
+{
+    Il2CppObject* en = GetIntSourceEnumerator(source);
+    IntSourceEnumeratorGuard guard;
+    guard.Attach(&en);
+    // The enumerator is a GC reference held only in this frame: root the slot
+    // (the per-element Insert can allocate and compact).
+    RootScope scope;
+    scope.Add(reinterpret_cast<void**>(&en));
+    while (IntSourceMoveNext(en) != 0)
+    {
+        const int32_t value = IntSourceCurrent(en);
+        il2cpp_list_i4_insert(*selfSlot, index, value);
+        ++index;
+    }
+}
+
+// Snapshot the int32 cells of a List<int> source into a fresh exact-length
+// value array. Used for SELF references (AddRange(this) / InsertRange(i,this)):
+// the growth the copy needs would otherwise replace the very array the cells
+// are being read from.
+Il2CppArray* SnapshotListCells(Il2CppObject** sourceSlot, int32_t count)
+{
+    Il2CppArray* snap = AllocItems(count);
+    Il2CppListI4* src = AsList(*sourceSlot); // re-derive after the allocation
+    const int32_t* cells = src->items != nullptr ? Slots(src) : nullptr;
+    int32_t* dst = reinterpret_cast<int32_t*>(snap->data);
+    for (int32_t i = 0; i < count; ++i)
+    {
+        dst[i] = cells != nullptr ? cells[i] : 0;
+    }
+    return snap;
 }
 
 } // namespace
@@ -403,25 +667,50 @@ void il2cpp_list_i4_create_with_capacity(Il2CppObject* self, int32_t capacity)
 void il2cpp_list_i4_create_with_collection(Il2CppObject* self, Il2CppObject* source)
 {
     ThrowIfNullReceiver(self);
-    Il2CppArray* src = RequireInt32ArrayArg(source, "collection");
-    // Root both the shell and the source across the items allocation (either
-    // may be compacted/moved).
+    // net48: a null source raises ArgumentNullException("collection") BEFORE
+    // any other validation (the ctor body's own null guard).
+    if (source == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("collection");
+    }
+    // Root both the shell and the source across every allocation (either may
+    // be compacted/moved).
     RootScope scope;
     scope.Add(reinterpret_cast<void**>(&self));
     scope.Add(reinterpret_cast<void**>(&source));
-    // The initial Capacity equals the source count (net48); the items allocation
-    // may compact the freshly created list, so the pointer is re-derived after.
-    Il2CppArray* items = AllocItems(src->length);
-    Il2CppListI4* list = AsList(self);
-    list->items = items;
-    il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
-                         reinterpret_cast<Il2CppObject*>(items));
-    list->count = src->length;
-    if (src->length > 0)
+
+    // ICollection<int> (int32[] / List<int> / HashSet<int>): the initial
+    // Capacity equals the source Count (net48; an empty source stays 0), then
+    // the cells are copied. A SELF source cannot occur here (the shell is
+    // fresh), so the source cells need no snapshot.
+    const int32_t n = IntCollectionCount(source);
+    if (n != kNotIntCollection)
     {
-        std::memcpy(items->data, src->data,
-                    static_cast<size_t>(src->length) * sizeof(int32_t));
+        Il2CppArray* items = AllocItems(n);
+        Il2CppListI4* list = AsList(self); // re-derive after the allocation
+        list->items = items;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
+                             reinterpret_cast<Il2CppObject*>(items));
+        list->count = 0;
+        if (n > 0)
+        {
+            InsertCollectionCells(&self, 0, &source, n, /*capacityReady=*/true);
+        }
+        return;
     }
+
+    // Every other IEnumerable<int>: net48 starts with the default Capacity (0)
+    // and appends element by element, so the growth is the ordinary 0 -> 4 ->
+    // doubling walk (never the source's Count -- it has none).
+    {
+        Il2CppArray* items = AllocItems(0);
+        Il2CppListI4* list = AsList(self);
+        list->items = items;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&list->items),
+                             reinterpret_cast<Il2CppObject*>(items));
+        list->count = 0;
+    }
+    InsertEnumerableCells(&self, 0, source);
 }
 
 void il2cpp_list_i4_add(Il2CppObject* self, int32_t value)
@@ -749,49 +1038,69 @@ void il2cpp_list_i4_copy_to(Il2CppObject* self, Il2CppObject* array, int32_t arr
 void il2cpp_list_i4_add_range(Il2CppObject* self, Il2CppObject* collection)
 {
     ThrowIfNullReceiver(self);
-    Il2CppArray* src = RequireInt32ArrayArg(collection, "collection");
+    // net48 AddRange == InsertRange(_size, collection): the null check runs
+    // before anything else (ArgumentNullException("collection")), then the
+    // whole source-shape matrix is normalized (arrays/lists bulk copy,
+    // everything else enumerates through Add).
+    if (collection == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("collection");
+    }
     RootScope scope;
     scope.Add(reinterpret_cast<void**>(&self));
     scope.Add(reinterpret_cast<void**>(&collection));
-    EnsureItems(&self);
-    const int32_t srcLen = reinterpret_cast<Il2CppArray*>(collection)->length;
-    const int32_t need = AsList(self)->count + srcLen;
-    while (AsList(self)->items->length < need)
+    const int32_t n = IntCollectionCount(collection);
+    if (n != kNotIntCollection)
     {
-        GrowList(&self);
+        // ICollection<int>: bulk copy (an empty source changes nothing).
+        // EnsureCapacity(_size + Count) is the net48 growth shape.
+        InsertCollectionCells(&self, AsList(self)->count, &collection, n,
+                              /*capacityReady=*/false);
+        return;
     }
-    Il2CppListI4* list = AsList(self);
-    const int32_t* srcSlots = reinterpret_cast<const int32_t*>(src->data);
-    std::memcpy(Slots(list) + list->count, srcSlots,
-                static_cast<size_t>(srcLen) * sizeof(int32_t));
-    list->count += srcLen;
+    // Any other IEnumerable<int>: net48 appends one element at a time (the
+    // Add growth walk), keeping the already-appended prefix on an exception.
+    InsertEnumerableCells(&self, AsList(self)->count, collection);
 }
 
 void il2cpp_list_i4_insert_range(Il2CppObject* self, int32_t index, Il2CppObject* collection)
 {
     ThrowIfNullReceiver(self);
-    Il2CppArray* src = RequireInt32ArrayArg(collection, "collection");
+    // net48 order: the null check FIRST, then the index bounds.
+    if (collection == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("collection");
+    }
+    Il2CppListI4* list = AsList(self);
+    // net48 InsertRange raises ArgumentOutOfRange_Index (the ELEMENT-range
+    // message), not the ArgumentOutOfRange_ListInsert text of Insert(int,T).
+    if (index < 0 || index > list->count)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index", kIndexOutOfRangeMessage);
+    }
     RootScope scope;
     scope.Add(reinterpret_cast<void**>(&self));
     scope.Add(reinterpret_cast<void**>(&collection));
-    Il2CppListI4* list = AsList(self);
-    ThrowIfInsertIndexOutOfRange(index, list->count);
-    const int32_t srcLen = reinterpret_cast<Il2CppArray*>(collection)->length;
-    const int32_t need = list->count + srcLen;
-    while (AsList(self)->items->length < need)
+    const int32_t n = IntCollectionCount(collection);
+    if (n != kNotIntCollection)
     {
-        GrowList(&self);
+        if (collection == self)
+        {
+            // SELF reference: the growth below replaces the items array the
+            // copy still has to read, so the cells are snapshotted first.
+            Il2CppArray* snap = SnapshotListCells(&self, n);
+            Il2CppObject* snapObj = reinterpret_cast<Il2CppObject*>(snap);
+            RootScope snapScope;
+            snapScope.Add(reinterpret_cast<void**>(&snapObj));
+            InsertCollectionCells(&self, index, &snapObj, n, /*capacityReady=*/false);
+            return;
+        }
+        InsertCollectionCells(&self, index, &collection, n, /*capacityReady=*/false);
+        return;
     }
-    list = AsList(self);
-    int32_t* slots = Slots(list);
-    for (int32_t i = list->count; i > index; --i)
-    {
-        slots[i + srcLen - 1] = slots[i - 1];
-    }
-    const int32_t* srcSlots = reinterpret_cast<const int32_t*>(src->data);
-    std::memcpy(slots + index, srcSlots,
-                static_cast<size_t>(srcLen) * sizeof(int32_t));
-    list->count += srcLen;
+    // Any other IEnumerable<int>: net48 inserts one element at a time at the
+    // running index (the prefix survives a mid-enumeration exception).
+    InsertEnumerableCells(&self, index, collection);
 }
 
 void il2cpp_list_i4_remove_range(Il2CppObject* self, int32_t index, int32_t count)
