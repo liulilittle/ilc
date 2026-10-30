@@ -4850,6 +4850,35 @@ double ArrayEnumD(Il2CppObject* self)
     return 0.0;
 }
 
+// floatgrp: the System.Single carrier. The snapshot element may be
+//   * a BOXED System.Single (the grouping bucket enumerator boxes every cell
+//     through icall_box_float, whose payload is the widened double);
+//   * a REAL 4-byte float cell (kElemKindF -- a float[] bucket/source); or
+//   * an 8-byte F-stack cell (the runtime's own Select<float> result arrays
+//     store the float widened to a double at an 8-byte slot).
+// Any other layout raises InvalidCastException instead of reinterpreting the
+// payload (a 4-byte Int32 cell read as a float would be a silent wrong value).
+double ArrayEnumF(Il2CppObject* self)
+{
+    Il2CppArray* arr = ArrayEnum(self)->array;
+    const int32_t idx = ArrayEnum(self)->index;
+    if (arr->isRefElem)
+    {
+        Il2CppObject* boxed = reinterpret_cast<Il2CppObject* const*>(arr->data)[idx];
+        return runtime::icall_unbox_float(boxed);
+    }
+    int32_t size = 0;
+    const char* p = ArrayEnumElemPtr(arr, idx, &size);
+    if (size == 4 && arr->elemKind == kElemKindF)
+        return static_cast<double>(*reinterpret_cast<const float*>(p));
+    if (size == 8)
+        return static_cast<double>(static_cast<float>(*reinterpret_cast<const double*>(p)));
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+        "Specified cast is not valid.");
+    return 0.0;
+}
+
 int32_t ArrayEnumI4(Il2CppObject* self)
 {
     Il2CppArray* arr = ArrayEnum(self)->array;
@@ -4934,6 +4963,24 @@ double il2cpp_ienum_get_current_d(Il2CppObject* receiver)
     // nb9 fix P0-3/P0-4: same shared-enumerator arm for the double carrier.
     if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
         return ArrayEnumD(receiver);
+    const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentD, "get_Current");
+    return reinterpret_cast<IEnumFnD>(
+        RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);
+}
+
+// floatgrp: IEnumerator<System.Single>.get_Current -- an explicit carrier so a
+// `foreach (float f in bucket)` never reads a 4-byte float cell through the
+// int64/double carriers (they would reinterpret the bits). The value crosses as
+// the F-stack double (float -> double is exact), matching the rest of the
+// runtime's float ABI; the call site narrows to float.
+double il2cpp_ienum_get_current_f(Il2CppObject* receiver)
+{
+    if (receiver == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
+        return ArrayEnumF(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentD, "get_Current");
     return reinterpret_cast<IEnumFnD>(
         RequireIEnumVtableSlot(receiver, slot, "get_Current"))(receiver);

@@ -149,15 +149,30 @@ public class MethodMapTestsGroupByKey
         Assert.Equal(new[] { "0", "0", "12", "0" }, resolved.AppendLiterals);
     }
 
-    // A float[] source has no bucket cell ABI (the Single element family has no
-    // boxed bucket carrier), so it keeps the LOUD instead of a wrong bucket.
+    // floatgrp: a System.Single[] source is now wired. The bucket stores REAL
+    // 4-byte float cells (element family 7) so ToArray/foreach observe net48's
+    // float[], and srcKind 8 tells the kernel to read the 4-byte source cell
+    // and widen it into the F-stack selector slot.
     [Fact]
-    public void GroupBy_FloatSource_StaysLoud()
+    public void GroupBy_FloatSource_MapsFloatBucketFamily()
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGroupBy(
-            srcTypeName: null, srcByte: 0x0C, keyTypeName: null, keyByte: 0x08)));
+        var resolved = ResolveMethodSpec(SynthesizeGroupBy(
+            srcTypeName: null, srcByte: 0x0C, keyTypeName: null, keyByte: 0x08));
 
-        Assert.Contains("int32 (0x08) element-family", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
+        Assert.Equal(new[] { "7", "0", "0", "8" }, resolved.AppendLiterals);
+    }
+
+    // A System.Double key rides the value-semantics key family 15 (raw 64-bit
+    // image; NaN == NaN and +0 == -0), never the bit pattern.
+    [Fact]
+    public void GroupBy_DoubleKey_MapsKeyKind15()
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGroupBy(
+            srcTypeName: null, srcByte: 0x0C, keyTypeName: null, keyByte: 0x0D));
+
+        Assert.Equal("il2cpp::il2cpp_linq_group_by_full_key", resolved.CppName);
+        Assert.Equal(new[] { "7", "0", "15", "8" }, resolved.AppendLiterals);
     }
 
     // ------------------------------------------------- marker / get_Key ------

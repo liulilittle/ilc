@@ -556,6 +556,11 @@ int32_t il2cpp_ienum_move_next(Il2CppObject* receiver);
 int32_t     il2cpp_ienum_get_current_i4(Il2CppObject* receiver);
 int64_t     il2cpp_ienum_get_current_i8(Il2CppObject* receiver);
 double      il2cpp_ienum_get_current_d(Il2CppObject* receiver);
+// floatgrp: IEnumerator<System.Single>.get_Current. The value crosses as the
+// F-stack double (float -> double is exact); the call site narrows to float.
+// Distinguishing this carrier from the double one is what keeps a 4-byte
+// float cell from being read through the int32/i8/double readers.
+double      il2cpp_ienum_get_current_f(Il2CppObject* receiver);
 Il2CppObject* il2cpp_ienum_get_current_ref(Il2CppObject* receiver);
 
 // p0grp: the 16-byte System.Decimal carrier (IEnumerator<decimal>.get_Current).

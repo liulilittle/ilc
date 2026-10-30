@@ -2709,8 +2709,17 @@ var userRecvLike = receiverType ?? arg0Type;
                         if (instName?.Contains("_long", StringComparison.Ordinal) == true
                             || instName?.Contains("_ulong", StringComparison.Ordinal) == true)
                             return I("il2cpp::il2cpp_ienum_get_current_i8", 0, true, false, true, resultKind: "l");
-                        if (instName?.Contains("_double", StringComparison.Ordinal) == true
-                            || instName?.Contains("_float", StringComparison.Ordinal) == true)
+                        // floatgrp: a System.Single carrier is its OWN entry.
+                        // The double carrier reads a 4-byte cell as an int32
+                        // (a silent wrong value) and cannot see the
+                        // kElemKindF float bucket cells; the float carrier
+                        // reads a boxed Single / 4-byte float cell / 8-byte
+                        // F-stack cell correctly. The value still crosses the
+                        // C++ slot as a double (the F-stack convention), so
+                        // the result kind stays "d".
+                        if (instName?.Contains("_float", StringComparison.Ordinal) == true)
+                            return I("il2cpp::il2cpp_ienum_get_current_f", 0, true, false, true, resultKind: "d");
+                        if (instName?.Contains("_double", StringComparison.Ordinal) == true)
                             return I("il2cpp::il2cpp_ienum_get_current_d", 0, true, false, true, resultKind: "d");
                         if (instName?.Contains("_string", StringComparison.Ordinal) == true
                             || instName?.Contains("_object", StringComparison.Ordinal) == true

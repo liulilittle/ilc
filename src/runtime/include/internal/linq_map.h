@@ -1063,6 +1063,23 @@ int32_t       il2cpp_linq_grouping_element_at_i4(Il2CppObject* grouping, int32_t
 bool          il2cpp_linq_grouping_contains_i4(Il2CppObject* grouping, int32_t value);
 Il2CppArray*  il2cpp_linq_grouping_to_array(Il2CppObject* grouping);
 
+// floatgrp: the System.Single bucket operator surface. The bucket snapshot is
+// a REAL float[] (4-byte kElemKindF cells), so each entry reuses the float
+// ARRAY kernel; the F-stack carrier means a float leaf crosses as a double.
+Il2CppArray*  il2cpp_linq_grouping_where_f(Il2CppObject* grouping, Il2CppObject* pred);
+Il2CppArray*  il2cpp_linq_grouping_select_f(Il2CppObject* grouping, Il2CppObject* sel, int32_t resKind);
+int32_t       il2cpp_linq_grouping_count_pred_f(Il2CppObject* grouping, Il2CppObject* pred);
+bool          il2cpp_linq_grouping_any_pred_f(Il2CppObject* grouping, Il2CppObject* pred);
+bool          il2cpp_linq_grouping_all_f(Il2CppObject* grouping, Il2CppObject* pred);
+double        il2cpp_linq_grouping_first_f(Il2CppObject* grouping);
+double        il2cpp_linq_grouping_first_or_default_f(Il2CppObject* grouping);
+double        il2cpp_linq_grouping_last_f(Il2CppObject* grouping);
+double        il2cpp_linq_grouping_last_or_default_f(Il2CppObject* grouping);
+float         il2cpp_linq_grouping_sum_f(Il2CppObject* grouping);
+float         il2cpp_linq_grouping_min_f(Il2CppObject* grouping);
+float         il2cpp_linq_grouping_max_f(Il2CppObject* grouping);
+float         il2cpp_linq_grouping_average_f(Il2CppObject* grouping);
+
 // BATCH4: the DECIMAL-bucket operators (a decimal-source bucket stores 16-byte
 // System.Decimal cells). The aggregate results ride the decimal T3 result-slot
 // ABI (the result slot is the FIRST C++ parameter); Contains takes the value by
@@ -1315,6 +1332,20 @@ Il2CppObject*      il2cpp_linq_grouping_get_key_ref(Il2CppObject* grouping);
 // (il2cpp_linq_grouping_get_key), because the enum's only payload is value__.
 runtime::Il2CppTimeSpan     il2cpp_linq_grouping_get_key_ts(Il2CppObject* grouping);
 runtime::Il2CppDateTimeOffset il2cpp_linq_grouping_get_key_dto(Il2CppObject* grouping);
+// floatgrp: the System.Double key accessor (the raw 64-bit carrier image).
+double              il2cpp_linq_grouping_get_key_d(Il2CppObject* grouping);
+
+// floatgrp: GroupBy over a List<System.Single> source. The list snapshot is the
+// REAL float[] (il2cpp_list_obj_to_array_float), which then rides the ordinary
+// float-source kernel -- the list domain's own entry would read every boxed
+// Single as an int32 and drop the key family.
+Il2CppObject*       il2cpp_linq_list_float_group_by_full(Il2CppObject* list,
+                                                         Il2CppObject* keySel,
+                                                         Il2CppObject* elemSel,
+                                                         Il2CppObject* cmp,
+                                                         Il2CppObject* resSel,
+                                                         int32_t elemKind, int32_t rsKind,
+                                                         int32_t keyKind);
 
 // IEnumerable.GetEnumerator over the two grouping surfaces (nb9): the
 // result yields its buckets in first-appearance order (reference elements),

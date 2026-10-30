@@ -5437,6 +5437,12 @@ enum class GroupElemKind
     // vtsrc: a System.Guid bucket element (16-byte value cell) -- the
     // Guid-source GroupBy with a Guid TElement.
     Guid = 6,
+    // floatgrp: a System.Single bucket element. The bucket keeps the net48
+    // float[] layout (a REAL 4-byte cell, kElemKindF), NOT a widened double:
+    // get_elements/ToArray must return the byte-exact float[] the source had.
+    // Only the BOXED form widens (icall_box_float stores a double), so the
+    // bucket enumerator converts 4-byte cell -> double at that one point.
+    F = 7,
 };
 
 
@@ -5752,6 +5758,24 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
         }
         return static_cast<int32_t>(keyLo) == static_cast<int32_t>(existing->key);
     }
+    if (keyKind == 15)
+    {
+        // floatgrp: a System.Double key. net48 EqualityComparer<double>.Default
+        // is Double.Equals: NaN equals NaN and +0.0 equals -0.0 (the raw bit
+        // patterns differ), so a memcmp of the carrier is NOT the contract.
+        if (cmp != nullptr)
+        {
+            il2cpp_throw_not_supported_exception(
+                "GroupBy with a user IEqualityComparer over a System.Double key is not "
+                "wired; the default comparer (null) compares the double value.");
+            return false; // unreachable (the factory throws)
+        }
+        double a;
+        double b;
+        std::memcpy(&a, &keyLo, sizeof(a));
+        std::memcpy(&b, &existing->key, sizeof(b));
+        return a == b || (a != a && b != b);
+    }
     if (keyKind == 7)
     {
         return ComparerKeyEqualsLong(cmp, keyLo, existing->key);
@@ -5779,6 +5803,13 @@ Il2CppArray* NewGroupElementArray(GroupElemKind kind, int32_t length)
                                       kElemKindGuid, length);
     if (kind == GroupElemKind::Int32)
         return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(int32_t)), kElemKindI4, length);
+    // floatgrp: a REAL 4-byte System.Single cell (the net48 float[] layout) so
+    // get_elements/ToArray are byte-exact with the oracle. The element kind is
+    // stamped so the bucket enumerator/ienum carrier read it as a float (an
+    // untyped 4-byte cell would be boxed as System.Int32 -- the silent wrong
+    // value class this repository keeps hitting).
+    if (kind == GroupElemKind::F)
+        return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(float)), kElemKindF, length);
     return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)), true, length);
 }
 
@@ -5877,6 +5908,16 @@ void ComputeGroupKey(Il2CppDelegate* kd, Src v, int32_t keyKind,
         case 14: // user enum (the int32 value__)
             keyLo = InvokeGroupEnumKeySel<Src>(kd, v);
             break;
+        case 15: // System.Double / System.Single key (the raw 8-byte image)
+        {
+            // floatgrp: the double KEY family. The leaf returns a double (the
+            // F-stack carrier), so the bucket carrier keeps its 64-bit image
+            // and the equality kernel compares VALUES (NaN == NaN, +0 == -0 --
+            // the net48 EqualityComparer<double>.Default contract).
+            const double kv = InvokeGroupKeySel<Src, double>(kd, v);
+            std::memcpy(&keyLo, &kv, sizeof(keyLo));
+            break;
+        }
         default: // 0..6: the int32-slot families, narrowed to the declared width
             keyLo = NarrowKey(static_cast<int32_t>(InvokeGroupKeySel<Src, int32_t>(kd, v)),
                               keyKind);
@@ -5890,7 +5931,7 @@ template <typename Src>
 void ComputeGroupElem(Il2CppDelegate* ed, Src v, GroupElemKind kind, int32_t& elemI4,
                       Il2CppObject*& elemRef, int64_t& elemI8, double& elemD,
                       runtime::Il2CppDecimal& elemDec, runtime::Il2CppDateTime& elemDt,
-                      Il2CppGuid& elemGuid)
+                      Il2CppGuid& elemGuid, float& elemF)
 {
     switch (kind)
     {
@@ -5914,6 +5955,13 @@ void ComputeGroupElem(Il2CppDelegate* ed, Src v, GroupElemKind kind, int32_t& el
             break;
         case GroupElemKind::Guid:
             elemGuid = InvokeGroupElemSel<Src, Il2CppGuid>(ed, v);
+            break;
+        case GroupElemKind::F:
+            // floatgrp: the leaf returns a 4-byte float (the MS x64 ABI's
+            // XMM0 low lane), so the slot type is float -- reading it through
+            // the double slot would mix the callee's XMM0 residue into the
+            // value (the b5-gaps §14 misread class).
+            elemF = InvokeGroupElemSel<Src, float>(ed, v);
             break;
     }
 }
@@ -5940,12 +5988,18 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
     const bool i8Source = !refSource && srcKind == 5;
     const bool dSource = !refSource && srcKind == 6;
     const bool narrowSource = !refSource && srcKind == 7;
+    // floatgrp: a System.Single[] source -- 4-byte cells read at their REAL
+    // width and widened into the selector slot (the F-stack carrier: every
+    // generated leaf takes/returns float as a double), so the whole key /
+    // element dispatch reuses the double-source arms with Src = double.
+    const bool floatSource = !refSource && srcKind == 8;
     if (refSource) RequireRefFamily(src);
     else if (decimalSource) RequireDecimalFamily(src);
     else if (dtSource) RequireDateTimeFamily(src);
     else if (guidSource) RequireGuidFamily(src);
     else if (i8Source) RequireI8Family(src);
     else if (dSource) RequireDoubleFamily(src);
+    else if (floatSource) RequireFloatFamily(src);
     else if (narrowSource)
     {
         // A narrow cell must be narrower than (or equal to) the 4-byte int32
@@ -6009,8 +6063,15 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         // the int64_t / double register slot.
         const int64_t v8 = i8Source
             ? *reinterpret_cast<const int64_t*>(il2cpp_array_get_elem_ptr(src, i)) : 0;
+        // floatgrp: a float cell is 4 bytes; the selector slot is the F-stack
+        // double (float -> double is exact), NEVER a 4-byte cell read as a
+        // double (that would pair two adjacent cells).
         const double vd = dSource
-            ? *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(src, i)) : 0.0;
+            ? *reinterpret_cast<const double*>(il2cpp_array_get_elem_ptr(src, i))
+            : floatSource
+                ? static_cast<double>(*reinterpret_cast<const float*>(
+                      il2cpp_array_get_elem_ptr(src, i)))
+                : 0.0;
         const runtime::Il2CppDecimal dv = decimalSource ? *DecAt(src, i) : runtime::Il2CppDecimal();
         const runtime::Il2CppDateTime dts = dtSource
             ? runtime::Il2CppDateTime(*reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(src, i)), 0)
@@ -6048,7 +6109,7 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
             ComputeGroupKey<Il2CppObject*>(kd, srcElem, keyKind, keyLo, keyHi, keyRef);
         else if (i8Source)
             ComputeGroupKey<int64_t>(kd, v8, keyKind, keyLo, keyHi, keyRef);
-        else if (dSource)
+        else if (dSource || floatSource)
             ComputeGroupKey<double>(kd, vd, keyKind, keyLo, keyHi, keyRef);
         else
             ComputeGroupKey<int32_t>(kd, v, keyKind, keyLo, keyHi, keyRef);
@@ -6063,31 +6124,34 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
         runtime::Il2CppDecimal elemDec{};
         runtime::Il2CppDateTime elemDt{};
         Il2CppGuid elemGuid{};
+        // floatgrp: the projected System.Single element (the 4-byte bucket
+        // cell's source value; the leaf returns it in the XMM0 low lane).
+        float elemF = 0.0f;
         if (ed != nullptr)
         {
             // impl-groupbykey: ONE element-family dispatch for every source
             // family (the generic template reproduces the leaf ABI exactly).
             if (dtSource)
                 ComputeGroupElem<runtime::Il2CppDateTime>(ed, dts, kind, elemI4, elemRef,
-                                                          elemI8, elemD, elemDec, elemDt, elemGuid);
+                                                          elemI8, elemD, elemDec, elemDt, elemGuid, elemF);
             else if (guidSource)
                 ComputeGroupElem<Il2CppGuid>(ed, gs, kind, elemI4, elemRef, elemI8, elemD,
-                                             elemDec, elemDt, elemGuid);
+                                             elemDec, elemDt, elemGuid, elemF);
             else if (decimalSource)
                 ComputeGroupElem<runtime::Il2CppDecimal>(ed, dv, kind, elemI4, elemRef, elemI8,
-                                                         elemD, elemDec, elemDt, elemGuid);
+                                                         elemD, elemDec, elemDt, elemGuid, elemF);
             else if (refSource)
                 ComputeGroupElem<Il2CppObject*>(ed, srcElem, kind, elemI4, elemRef, elemI8,
-                                                elemD, elemDec, elemDt, elemGuid);
+                                                elemD, elemDec, elemDt, elemGuid, elemF);
             else if (i8Source)
                 ComputeGroupElem<int64_t>(ed, v8, kind, elemI4, elemRef, elemI8, elemD,
-                                          elemDec, elemDt, elemGuid);
-            else if (dSource)
+                                          elemDec, elemDt, elemGuid, elemF);
+            else if (dSource || floatSource)
                 ComputeGroupElem<double>(ed, vd, kind, elemI4, elemRef, elemI8, elemD,
-                                         elemDec, elemDt, elemGuid);
+                                         elemDec, elemDt, elemGuid, elemF);
             else
                 ComputeGroupElem<int32_t>(ed, v, kind, elemI4, elemRef, elemI8, elemD,
-                                          elemDec, elemDt, elemGuid);
+                                          elemDec, elemDt, elemGuid, elemF);
         }
         else if (kind == GroupElemKind::Int32)
         {
@@ -6126,10 +6190,18 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
             // impl-groupbykey: the key-only int64/uint64-source overload.
             elemI8 = v8;
         }
-        else if (dSource && kind == GroupElemKind::D)
+        else if ((dSource || floatSource) && kind == GroupElemKind::D)
         {
             // impl-groupbykey: the key-only double-source overload.
             elemD = vd;
+        }
+        else if (floatSource && kind == GroupElemKind::F)
+        {
+            // floatgrp: the key-only System.Single-source overload -- the
+            // bucket element IS the source float. The narrowing back to float
+            // is exact: `vd` was widened from the 4-byte cell, so the float
+            // round-trip preserves every bit pattern (incl. NaN payloads).
+            elemF = static_cast<float>(vd);
         }
 
 
@@ -6216,6 +6288,12 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                     std::memcpy(il2cpp_array_get_elem_ptr(grp->elements, at),
                                 &elemGuid, sizeof(elemGuid));
                     break;
+                case GroupElemKind::F:
+                    // floatgrp: a REAL 4-byte float cell (the bucket is a
+                    // float[]). The boxed enumerator form widens at read time.
+                    *reinterpret_cast<float*>(
+                        il2cpp_array_get_elem_ptr(grp->elements, at)) = elemF;
+                    break;
             }
             ++grp->count;
         }
@@ -6291,6 +6369,11 @@ Il2CppObject* BuildGroups(Il2CppArray* src, Il2CppObject* keySel, Il2CppObject* 
                 case GroupElemKind::Guid:
                     std::memcpy(il2cpp_array_get_elem_ptr(grp->elements, 0),
                                 &elemGuid, sizeof(elemGuid));
+                    break;
+                case GroupElemKind::F:
+                    // floatgrp: the 4-byte float cell (no boxing).
+                    *reinterpret_cast<float*>(
+                        il2cpp_array_get_elem_ptr(grp->elements, 0)) = elemF;
                     break;
             }
             grp->count = 1;
@@ -6563,6 +6646,32 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, int
                         InvokeSelKeyGroupKeyTyped<Il2CppGuid, int32_t>(d, k, elemsObj);
             }
         }
+        else if (keyKind == 15)
+        {
+            // floatgrp: a System.Double key. The leaf receives the double in
+            // its real XMM0 slot; the carrier keeps the 64-bit image.
+            double k;
+            std::memcpy(&k, &kLo, sizeof(k));
+            if (refResult)
+            {
+                Il2CppObject* r = InvokeSelKeyGroupKeyTyped<double, Il2CppObject*>(d, k, elemsObj);
+                Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(out, i));
+                il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
+                *slot = r;
+            }
+            else if (rsKind == 3)
+                *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<double, int64_t>(d, k, elemsObj);
+            else if (rsKind == 4)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<double, double>(d, k, elemsObj);
+            else if (rsKind == 5)
+                *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(out, i)) = static_cast<double>(
+                    InvokeSelKeyGroupKeyTyped<double, float>(d, k, elemsObj));
+            else
+                *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(out, i)) =
+                    InvokeSelKeyGroupKeyTyped<double, int32_t>(d, k, elemsObj);
+        }
         else if (keyKind == 7)
         {
             if (refResult)
@@ -6669,6 +6778,9 @@ Il2CppObject* il2cpp_linq_group_by_full_key_cell(Il2CppArray* src, Il2CppObject*
             : srcKind == 2 ? 4
             : srcKind == 5 ? 2
             : srcKind == 6 ? 3
+            // floatgrp: the key-only System.Single (8) source keeps the FLOAT
+            // bucket (kind 7).
+            : srcKind == 8 ? 7
             : ((src->isRefElem != 0) ? 1 : 0);
     }
     GroupElemKind kind = GroupElemKind::Int32;
@@ -6681,6 +6793,7 @@ Il2CppObject* il2cpp_linq_group_by_full_key_cell(Il2CppArray* src, Il2CppObject*
         case 4: kind = GroupElemKind::Decimal; break;
         case 5: kind = GroupElemKind::DateTime; break;
         case 6: kind = GroupElemKind::Guid; break;
+        case 7: kind = GroupElemKind::F; break;
         default:
             il2cpp_throw_not_supported_exception("GroupBy: unsupported TElement family code.");
     }
@@ -6704,6 +6817,32 @@ Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
 {
     return il2cpp_linq_group_by_full_key(src, keySel, elemSel, cmp, resSel,
                                          elemKind, rsKind, /*keyKind=*/0);
+}
+
+// floatgrp: GroupBy over a List<System.Single> source.
+//
+// The list domain's own entry (il2cpp_linq_list_group_by_full, linq_list.cpp)
+// snapshots through SnapshotOf(list, IL2CPP_LIST_KIND_I4) and calls the
+// int32-source kernel, so it reads each float as an int32 AND drops the key
+// family entirely (silent wrong keys AND wrong elements). The float list's
+// storage is a reference array of BOXED System.Single, whose REAL image is the
+// float[] snapshot the list domain already exposes
+// (il2cpp_list_obj_to_array_float: 4-byte kElemKindF cells). Handing that
+// snapshot to the float-source kernel keeps the rest of the pipeline (key
+// carrier, bucket cells, ToArray, operator wrappers) on the one float path.
+Il2CppObject* il2cpp_linq_list_float_group_by_full(Il2CppObject* list,
+                                                   Il2CppObject* keySel, Il2CppObject* elemSel,
+                                                   Il2CppObject* cmp, Il2CppObject* resSel,
+                                                   int32_t elemKind, int32_t rsKind,
+                                                   int32_t keyKind)
+{
+    if (list == nullptr)
+    {
+        il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+    }
+    Il2CppArray* snapshot = reinterpret_cast<Il2CppArray*>(il2cpp_list_obj_to_array_float(list));
+    return il2cpp_linq_group_by_full_key_cell(snapshot, keySel, elemSel, cmp, resSel, elemKind,
+                                              rsKind, keyKind, /*srcKind=*/8, /*srcCell=*/0);
 }
 
 // p0grp: GroupBy over a DECIMAL-element array source (int32-slot key).
@@ -6943,6 +7082,16 @@ runtime::Il2CppTimeSpan il2cpp_linq_grouping_get_key_ts(Il2CppObject* grouping)
     return runtime::Il2CppTimeSpan(AsGrouping(grouping)->key);
 }
 
+// floatgrp: the System.Double key accessor (the raw 64-bit carrier image).
+double il2cpp_linq_grouping_get_key_d(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    const Il2CppLinqGrouping* grp = AsGrouping(grouping);
+    double v;
+    std::memcpy(&v, &grp->key, sizeof(v));
+    return v;
+}
+
 // impl-groupbykey: the System.DateTimeOffset key accessor. The carrier keeps
 // the UTC instant in `key` (the equality slot) and the offset minutes in
 // `keyHi`; the value must be reconstructed with BOTH to round-trip.
@@ -7105,6 +7254,17 @@ Il2CppObject* il2cpp_linq_grouping_get_enumerator(Il2CppObject* grouping)
                 const runtime::Il2CppDateTime v = *reinterpret_cast<const runtime::Il2CppDateTime*>(
                     il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
                 boxed = runtime::icall_box_date_time(v);
+            }
+            else if (cells->elemKind == kElemKindF
+                     && elemSize == static_cast<int32_t>(sizeof(float)))
+            {
+                // floatgrp: a System.Single bucket cell is a REAL 4-byte float.
+                // The managed box widens it to the ABI double
+                // (icall_box_float stores that double), so the i4 arm below
+                // must never see it (it would box the float BITS as Int32).
+                const float v = *reinterpret_cast<const float*>(
+                    il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+                boxed = runtime::icall_box_float(static_cast<double>(v));
             }
             else if (cells->elemKind == kElemKindTimeSpan)
             {
@@ -8365,6 +8525,107 @@ Il2CppArray* RequireI4GroupElements(Il2CppObject* grouping)
         return nullptr; // unreachable (the factory throws)
     }
     return elems;
+}
+
+// floatgrp: the System.Single bucket's operator surface. The bucket snapshot
+// IS a real float[] (4-byte kElemKindF cells, NewGroupElementArray), so each
+// entry reuses the float-ARRAY kernel with the F-stack carrier (a float leaf
+// crosses as a double). The guard reads the bucket's OWN recorded element kind
+// -- a 4-byte cell without kElemKindF is never read as a float (the silent
+// wrong-value class this repository keeps hitting).
+Il2CppArray* RequireFGroupElements(Il2CppObject* grouping)
+{
+    Il2CppArray* elems = il2cpp_linq_grouping_get_elements(grouping);
+    if (elems == nullptr || elems->isRefElem ||
+        elems->elemSize != static_cast<int32_t>(sizeof(float)) ||
+        elems->elemKind != kElemKindF)
+    {
+        il2cpp_throw_not_supported_exception(
+            "GroupBy bucket operator: the bucket holds non-System.Single elements "
+            "(a float-source bucket is the only one with the float operator kernel).");
+        return nullptr; // unreachable (the factory throws)
+    }
+    return elems;
+}
+
+Il2CppArray* il2cpp_linq_grouping_where_f(Il2CppObject* grouping, Il2CppObject* pred)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_where_f(RequireFGroupElements(grouping), pred);
+}
+
+Il2CppArray* il2cpp_linq_grouping_select_f(Il2CppObject* grouping, Il2CppObject* sel,
+                                           int32_t resKind)
+{
+    ThrowIfNullReceiver(grouping);
+    // srcKind 3 = the System.Single source cell family (il2cpp_linq_select_wide).
+    return il2cpp_linq_select_wide(RequireFGroupElements(grouping), sel, 3, resKind);
+}
+
+int32_t il2cpp_linq_grouping_count_pred_f(Il2CppObject* grouping, Il2CppObject* pred)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_count_f(RequireFGroupElements(grouping), pred);
+}
+
+bool il2cpp_linq_grouping_any_pred_f(Il2CppObject* grouping, Il2CppObject* pred)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_any_f(RequireFGroupElements(grouping), pred);
+}
+
+bool il2cpp_linq_grouping_all_f(Il2CppObject* grouping, Il2CppObject* pred)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_all_f(RequireFGroupElements(grouping), pred);
+}
+
+double il2cpp_linq_grouping_first_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_first_f(RequireFGroupElements(grouping));
+}
+
+double il2cpp_linq_grouping_first_or_default_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_first_or_default_f(RequireFGroupElements(grouping));
+}
+
+double il2cpp_linq_grouping_last_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_last_f(RequireFGroupElements(grouping));
+}
+
+double il2cpp_linq_grouping_last_or_default_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_last_or_default_f(RequireFGroupElements(grouping));
+}
+
+float il2cpp_linq_grouping_sum_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_sum_f(RequireFGroupElements(grouping));
+}
+
+float il2cpp_linq_grouping_min_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_min_f(RequireFGroupElements(grouping));
+}
+
+float il2cpp_linq_grouping_max_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_max_f(RequireFGroupElements(grouping));
+}
+
+float il2cpp_linq_grouping_average_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_average_f(RequireFGroupElements(grouping));
 }
 
 Il2CppArray* il2cpp_linq_grouping_where(Il2CppObject* grouping, Il2CppObject* pred)

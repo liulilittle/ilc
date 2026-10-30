@@ -231,6 +231,31 @@ public static partial class MethodRefResolver
                         "non-decimal value-type element family (the decimal bucket entries read 16-byte " +
                         "decimal cells and the int32 entries 4-byte cells out of the bucket's own " +
                         "8/16-byte payload -- both would be a silent wrong value; see docs/audit/b5-gaps.md)");
+                // floatgrp: a System.Single bucket holds REAL 4-byte float cells.
+                // The int32 entries below would read those cells as int32 (the
+                // exact 7.5f -> 1089470464 misread) and declare an int32 result,
+                // so every aggregate rides the float bucket kernels.
+                if (genArgs is { Length: >= 1 } && genArgs[0] == 0x0C)
+                {
+                    if (count >= 2)
+                        throw new NotSupportedException(
+                            $"Enumerable.{name} over a System.Single GroupBy bucket with a selector is " +
+                            "not wired (the runtime float bucket surface has the source-only form; see " +
+                            "docs/audit/b5-gaps.md)");
+                    var fAggEntry = name switch
+                    {
+                        "Sum" => "il2cpp::il2cpp_linq_grouping_sum_f",
+                        "Min" => "il2cpp::il2cpp_linq_grouping_min_f",
+                        "Max" => "il2cpp::il2cpp_linq_grouping_max_f",
+                        "Average" => "il2cpp::il2cpp_linq_grouping_average_f",
+                        _ => null,
+                    };
+                    if (fAggEntry != null)
+                        return I(fAggEntry, 1, true, false, false, new[] { "" }, resultKind: "d");
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a System.Single GroupBy bucket is not wired (see " +
+                        "docs/audit/b5-gaps.md)");
+                }
                 if (name == "Sum")
                 {
                     // Sum() -> the per-bucket checked sum; Sum(selector) ->
@@ -511,6 +536,9 @@ public static partial class MethodRefResolver
                         resultKind: "ts"),
                     "_key_dto" => I("il2cpp::il2cpp_linq_grouping_get_key_dto", 0, true, false, true,
                         resultKind: "dto"),
+                    // floatgrp: the System.Double key accessor.
+                    "_key_d" => I("il2cpp::il2cpp_linq_grouping_get_key_d", 0, true, false, true,
+                        resultKind: "d"),
                     _ => I("il2cpp::il2cpp_linq_grouping_get_key", 0, true, false, true),
                 };
             }
@@ -534,8 +562,92 @@ public static partial class MethodRefResolver
             bool decBucket = IsLinqDecimalSource(genArgs, receiverType, arg0Type)
                 && IsDecimalSourceNamed(genArgs, genArgNames, receiverType, arg0Type);
             bool valueBucket = IsLinqValueTypeSource(genArgs, receiverType, arg0Type) && !decBucket;
+            // floatgrp: a System.Single bucket holds REAL 4-byte float cells.
+            // The int32 entries below would reinterpret every cell as an int32
+            // (a silent wrong value) and declare an int32 result, so the whole
+            // cell-reading surface gets its own family (the runtime wrappers
+            // snapshot the bucket to float[] and reuse the float array kernels).
+            bool floatBucket = genArgs is { Length: >= 1 } && genArgs[0] == 0x0C;
             switch (name)
             {
+                case "Where" when floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_where_f", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Single[]");
+                case "Select" when floatBucket:
+                {
+                    if (genArgs is not { Length: >= 2 }) return null;
+                    string? fResSuffix = LinqValueResultSuffix(genArgs[1]);
+                    if (fResSuffix is null)
+                    {
+                        // A reference result: the float snapshot feeds a
+                        // reference-returning selector (resKind 0).
+                        if (!IsRefFamilyByte(genArgs[1])) return null;
+                        return I("il2cpp::il2cpp_linq_grouping_select_f", 2, true, true, false,
+                            new[] { "", "" }, returnTypeName: LinqRefArrayTypeName(new[] { genArgs[1] }, null),
+                            appendLiterals: new[] { "0" });
+                    }
+                    string fResKind = fResSuffix switch
+                    {
+                        "i4" => "1",
+                        "i8" => "2",
+                        "f" => "3",
+                        "d" => "4",
+                        _ => "0",
+                    };
+                    return I("il2cpp::il2cpp_linq_grouping_select_f", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: LinqValueResultArrayName(fResSuffix),
+                        appendLiterals: new[] { fResKind });
+                }
+                case "Count" when count >= 2 && floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_count_pred_f", 2, true, false, false,
+                        new[] { "", "" });
+                case "Any" when count >= 2 && floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_any_pred_f", 2, true, false, false,
+                        new[] { "", "" });
+                case "All" when floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_all_f", 2, true, false, false,
+                        new[] { "", "" });
+                case "First" when count < 2 && floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_first_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
+                case "First" when floatBucket:
+                    throw new NotSupportedException(
+                        "Enumerable.First over a System.Single GroupBy bucket with a predicate is not " +
+                        "wired (the runtime float bucket surface has the source-only form; see " +
+                        "docs/audit/b5-gaps.md)");
+                case "FirstOrDefault" when count < 2 && floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_first_or_default_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
+                case "Last" when count < 2 && floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_last_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
+                case "LastOrDefault" when count < 2 && floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_last_or_default_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
+                case "Sum" when floatBucket:
+                    if (count >= 2)
+                        throw new NotSupportedException(
+                            "Enumerable.Sum over a System.Single GroupBy bucket with a selector is not " +
+                            "wired (the runtime float bucket surface has the source-only form; see " +
+                            "docs/audit/b5-gaps.md)");
+                    return I("il2cpp::il2cpp_linq_grouping_sum_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
+                case "Min" when floatBucket:
+                    if (count >= 2) return null;
+                    return I("il2cpp::il2cpp_linq_grouping_min_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
+                case "Max" when floatBucket:
+                    if (count >= 2) return null;
+                    return I("il2cpp::il2cpp_linq_grouping_max_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
+                case "Average" when floatBucket:
+                    if (count >= 2)
+                        throw new NotSupportedException(
+                            "Enumerable.Average over a System.Single GroupBy bucket with a selector is " +
+                            "not wired (the runtime float bucket surface has the source-only form; see " +
+                            "docs/audit/b5-gaps.md)");
+                    return I("il2cpp::il2cpp_linq_grouping_average_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
                 // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each
                 // entry snapshots the bucket's exact-size decimal cells (the
                 // runtime RequireDecGroupElements) and reuses the DECIMAL-SOURCE
@@ -732,6 +844,9 @@ public static partial class MethodRefResolver
                     // "System.Decimal[]" for every 0x11 source).
                     return I("il2cpp::il2cpp_linq_grouping_get_elements", 1, true, true, false, new[] { "" },
                         returnTypeName: decBucket ? "System.Decimal[]"
+                            // floatgrp: the float bucket's snapshot is a REAL
+                            // float[] (4-byte cells), not int32[].
+                            : floatBucket ? "System.Single[]"
                             : valueBucket && genArgs is { Length: >= 1 }
                                 ? LinqArrayTypeNameExact(genArgs[0], genArgNames, 0)
                             : "System.Int32[]");
@@ -793,6 +908,19 @@ public static partial class MethodRefResolver
                     "value-type element family (the decimal bucket entries read 16-byte decimal cells and " +
                     "the int32 entries 4-byte cells out of the bucket's own 8/16-byte payload -- both would " +
                     "be a silent wrong value; see docs/audit/b5-gaps.md)");
+            }
+            if (floatBucket)
+            {
+                // floatgrp: the runtime float bucket surface covers Where /
+                // Select / Count(pred) / Any(pred) / All / First / FirstOr-
+                // Default / Last / LastOrDefault / Sum / Min / Max / Average.
+                // Everything else stays LOUD: the int32 bucket entries below
+                // would read 4-byte float cells as int32 (a silent wrong value)
+                // and declare an int32 result for a float element.
+                throw new NotSupportedException(
+                    $"Enumerable.{name} over a System.Single GroupBy bucket is not wired: the float " +
+                    "bucket surface covers Where/Select/Count(pred)/Any(pred)/All/First/FirstOrDefault/" +
+                    "Last/LastOrDefault/Sum/Min/Max/Average and get_Key (see docs/audit/b5-gaps.md)");
             }
         }
 
@@ -1285,6 +1413,8 @@ public static partial class MethodRefResolver
                     0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
                     0x0A or 0x0B => "2",
                     0x0D => "3",
+                    // floatgrp: a System.Single bucket element (4-byte cell).
+                    0x0C => "7",
                     0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
                     0x11 => "5", // System.DateTime
                     _ => "",
@@ -1355,6 +1485,8 @@ public static partial class MethodRefResolver
                             return "0";
                         case 0x0A or 0x0B: return "2";
                         case 0x0D: return "3";
+                        // floatgrp: a System.Single bucket element (4-byte cell).
+                        case 0x0C: return "7";
                         case 0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E: return "1";
                         case 0x11:
                         {
@@ -1484,6 +1616,8 @@ public static partial class MethodRefResolver
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
                         0x0A or 0x0B => "2",
                         0x0D => "3",
+                        // floatgrp: a System.Single bucket element (4-byte cell).
+                        0x0C => "7",
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
                         _ => "",
                     };
@@ -1860,6 +1994,8 @@ public static partial class MethodRefResolver
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
                         0x0A or 0x0B => "2",
                         0x0D => "3",
+                        // floatgrp: a System.Single bucket element (4-byte cell).
+                        0x0C => "7",
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
                         _ => "",
                     };
@@ -2558,6 +2694,12 @@ public static partial class MethodRefResolver
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
                         0x0A or 0x0B => "2",                        // int64 / uint64 (boxed; bit-identical)
                         0x0D => "3",                                   // double (boxed)
+                        // floatgrp: a REAL 4-byte float cell (kElemKindF). It must
+                        // NOT ride the int32 family: the 4-byte store would keep
+                        // the float bits, but every int32 reader/enumerator would
+                        // reinterpret them (silent wrong value), and ToArray would
+                        // emit int32[] instead of net48's float[].
+                        0x0C => "7",                                   // float (real 4-byte cell)
                         0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1", // reference
                         _ => "",
                     };
@@ -3784,6 +3926,12 @@ public static partial class MethodRefResolver
         0x09 => 5, // uint (bit pattern; equality only)
         0x02 => 6, // bool
         0x0A or 0x0B => 7, // BATCH4: long / ulong (the 64-bit key carrier)
+        // floatgrp: the System.Double key. The carrier keeps the raw 64-bit
+        // image and the equality kernel compares VALUES (NaN == NaN, +0 == -0
+        // -- net48 Double.Equals), never the bit pattern. A System.Single KEY
+        // stays LOUD: its leaf returns in the 32-bit XMM lane, a different
+        // return ABI from this double carrier.
+        0x0D => 15,
         _ => -1,   // decimal/DateTime/Guid (name-resolved below) / reference: LOUD
     };
 
@@ -3856,6 +4004,9 @@ public static partial class MethodRefResolver
             // marker.
             "System.TimeSpan" or "TimeSpan" => "_key_ts",
             "System.DateTimeOffset" or "DateTimeOffset" => "_key_dto",
+            // floatgrp: a System.Double key (the raw 64-bit image; the get_Key
+            // accessor returns it as a double).
+            "System.Double" or "double" => "_key_d",
             _ => "",
         };
 
@@ -5287,6 +5438,77 @@ public static partial class MethodRefResolver
                 }
                 return null;
             case "GroupBy":
+                // floatgrp: a List<System.Single> source. The list domain's own
+                // entry snapshots through IL2CPP_LIST_KIND_I4 and calls the
+                // int32-source kernel -- it would read every boxed Single as an
+                // int32 and drop the key family (a silent wrong result). The
+                // float entry snapshots the list to its REAL float[] first and
+                // rides the float-source kernel, so the KEY family must ride
+                // along as an appended literal.
+                if (K == "3")
+                {
+                    int fKeyKind = genArgs is { Length: >= 2 }
+                        ? KeyKindForNamed(genArgs[1], genArgNames, 1) : -1;
+                    // The optional elementSelector / comparer / resultSelector
+                    // slots must be mapped by ARG ORDER (the runtime entry takes
+                    // all five plus three appended literals); an unmapped slot
+                    // is passed as nullptr by the emitter.
+                    var fParams = LinqEncodedParamTypes(md, sigHandle);
+                    int fElemArg = -1, fCmpArg = -1, fResArg = -1;
+                    for (int pi = 2; pi < fParams.Length; pi++)
+                    {
+                        var fdef = GenericDefNameOf(fParams[pi]);
+                        if (fdef == "System.Func`2") fElemArg = pi;
+                        else if (fdef == "System.Func`3") fResArg = pi;
+                        else if (fdef == "System.Collections.Generic.IEqualityComparer`1") fCmpArg = pi;
+                    }
+                    string fDefaultElem = "7";
+                    byte? fElemByte = genArgs is { Length: >= 3 } ? genArgs[2] : null;
+                    string fEk = fElemByte is { } feb
+                        ? (feb switch
+                        {
+                            0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "0",
+                            0x0A or 0x0B => "2",
+                            0x0D => "3",
+                            0x0C => "7",
+                            0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E => "1",
+                            _ => "",
+                        })
+                        : fDefaultElem;
+                    if (fEk.Length == 0 || fKeyKind < 0)
+                    {
+                        throw new NotSupportedException(
+                            "Enumerable.GroupBy over a System.Collections.Generic.List<System.Single> " +
+                            "source is not wired for this TElement/TKey combination (see " +
+                            "docs/audit/b5-gaps.md)");
+                    }
+                    byte? fResByte = genArgs is { Length: >= 4 } ? genArgs[3]
+                        : genArgs is { Length: >= 3 } ? genArgs[2] : null;
+                    string fRk = fResByte is { } frb
+                        ? (frb switch
+                        {
+                            0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                            0x0A or 0x0B => "3",
+                            0x0D => "4",
+                            0x0C => "5",
+                            _ => "2",
+                        })
+                        : "0";
+                    string fRetType = fRk == "0"
+                        ? "System.Linq.IGroupingResult"
+                        : fRk == "1" ? "System.Int32[]"
+                        : fRk == "3" ? "System.Int64[]"
+                        : fRk is "4" or "5" ? "System.Double[]" : "System.Object[]";
+                    return I("il2cpp::il2cpp_linq_list_float_group_by_full", count, true, true, false,
+                        new[] { "", "", "", "", "" },
+                        returnTypeName: fRetType,
+                        appendLiterals: new[]
+                        {
+                            fEk, fRk,
+                            fKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        },
+                        argOrder: new[] { 0, 1, fElemArg, fCmpArg, fResArg });
+                }
                 return I("il2cpp::il2cpp_linq_list_group_by_full", count, true, true, false,
                     new[] { "", "", "", "", "" },
                     returnTypeName: "System.Linq.IGroupingResult");
@@ -5716,7 +5938,11 @@ public static partial class MethodRefResolver
                 // 5/6/7 + the narrow cell code) and buckets it through the
                 // SHARED key-family dispatch, so every key carrier the int32
                 // source supports is available here too.
-                if (srcFam == "f") return null; // float source: no bucket cell ABI (LOUD below)
+                // floatgrp: a System.Single[] source. The bucket stores REAL
+                // 4-byte float cells (kElemKindF) so ToArray / foreach see
+                // net48's float[]; srcKind 8 tells the kernel to read the
+                // source cell at its REAL width and widen into the selector
+                // slot (the F-stack carrier takes/returns float as a double).
                 if (genArgs is not { Length: >= 2 }) return null;
                 int wKeyKind = KeyKindForNamed(genArgs[1], genArgNames, 1);
                 if (wKeyKind < 0)
@@ -5754,6 +5980,8 @@ public static partial class MethodRefResolver
                             return "0";
                         case 0x0A or 0x0B: return "2";
                         case 0x0D: return "3";
+                        // floatgrp: a System.Single bucket element (4-byte cell).
+                        case 0x0C: return "7";
                         case 0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E: return "1";
                         case 0x11:
                         {
@@ -5782,7 +6010,7 @@ public static partial class MethodRefResolver
                 // key-only: the element IS the source element of the SOURCE
                 // family (int64 -> boxed-int64 bucket, double -> boxed-double,
                 // narrow -> the int32 slot the cell widens into).
-                string wDefaultElem = srcFam switch { "i8" => "2", "d" => "3", _ => "0" };
+                string wDefaultElem = srcFam switch { "i8" => "2", "d" => "3", "f" => "7", _ => "0" };
                 string wEk = wElemByte is { } web ? WElemFamily(web, 2) : wDefaultElem;
                 if (wEk.Length == 0)
                     throw new NotSupportedException(
@@ -5794,7 +6022,7 @@ public static partial class MethodRefResolver
                 int wResIdx = wResArg >= 0 ? wResArg : -1;
                 var wArgOrder = new[] { 0, 1, wElemIdx, wCmpIdx, wResIdx };
                 var wCasts = new[] { "a", "", "", "", "" };
-                string wSrcKind = srcFam switch { "i8" => "5", "d" => "6", _ => "7" };
+                string wSrcKind = srcFam switch { "i8" => "5", "d" => "6", "f" => "8", _ => "7" };
                 var wLiterals = narrow
                     ? new[] { wEk, wRk,
                         wKeyKind.ToString(System.Globalization.CultureInfo.InvariantCulture),
