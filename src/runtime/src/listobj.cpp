@@ -1,4 +1,5 @@
 #include "listobj.h"
+#include "listi4.h"   // il2cpp_list_i4_class (List<int> ctor-source identity)
 #include "arraysort.h" // il2cpp_array_sort_icomparer (List.Sort default comparer)
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_runtime.h"
@@ -11,6 +12,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <new>
+#include <vector>
 
 namespace il2cpp {
 namespace {
@@ -35,7 +38,12 @@ void EnsureItems(Il2CppObject** slot){
 }
 inline Il2CppObject** Slots(Il2CppListObj* l){ return reinterpret_cast<Il2CppObject**>(l->items->data); }
 class RootScope{ public: RootScope():c(0){} ~RootScope(){ while(c>0) il2cpp_gc_remove_static_root(s[--c]); } void Add(void** p){ if(c>=static_cast<int32_t>(sizeof(s)/sizeof(s[0]))) std::abort(); il2cpp_gc_add_static_root(p); s[c++]=p; } private: void** s[4]; int c; };
-int32_t NextLen(int32_t oldLen){ int32_t n=oldLen*2; if(n<oldLen||n>kMaxItems) n=oldLen; return n; }
+int32_t NextLen(int32_t oldLen){
+    // net48 EnsureCapacity(0) grows straight to DefaultCapacity (4): a list
+    // built with the capacity ctor at 0 must grow to 4 slots on the first Add
+    // (doubling from 0 would stay 0 and the grow loop would never terminate).
+    if(oldLen==0) return kMinItems;
+    int32_t n=oldLen*2; if(n<oldLen||n>kMaxItems) n=oldLen; return n; }
 void Grow(Il2CppObject** slot){
     Il2CppListObj* l=AsList(*slot); int32_t oldLen=l->items->length; int32_t newLen=NextLen(oldLen);
     if(newLen!=oldLen){ Il2CppArray* na=AllocItems(newLen); l=AsList(*slot); Il2CppObject** ns=reinterpret_cast<Il2CppObject**>(na->data); Il2CppObject** os=Slots(l);
@@ -49,6 +57,223 @@ void ThrowIns(int32_t i,int32_t cnt){ if(i<0||i>cnt) il2cpp_throw_argument_out_o
 Il2CppClass* il2cpp_list_obj_class(){ EnsureRegistered(); return &g_listObjClass; }
 Il2CppObject* il2cpp_list_obj_create(){ EnsureRegistered(); Il2CppObject* s=il2cpp_object_new(&g_listObjClass); RootScope rs; rs.Add(reinterpret_cast<void**>(&s)); Il2CppArray* a=AllocItems(kMinItems); Il2CppListObj* l=AsList(s); l->items=a; il2cpp_write_barrier(reinterpret_cast<void**>(&l->items), reinterpret_cast<Il2CppObject*>(a)); l->count=0; return s; }
 Il2CppObject* il2cpp_list_obj_create_with_capacity(int32_t cap){ if(cap<0) il2cpp_throw_argument_out_of_range_exception("capacity",kNonNegativeMessage); EnsureRegistered(); Il2CppObject* s=il2cpp_object_new(&g_listObjClass); RootScope rs; rs.Add(reinterpret_cast<void**>(&s)); int32_t n=cap>0?cap:kMinItems; Il2CppArray* a=AllocItems(n); Il2CppListObj* l=AsList(s); l->items=a; il2cpp_write_barrier(reinterpret_cast<void**>(&l->items), reinterpret_cast<Il2CppObject*>(a)); l->count=0; return s; }
+
+//------------------------------------------------------------------------------
+// List<T>(int capacity) / List<T>(IEnumerable<T>) -- the SELF-MUTATING ctor
+// ABI (the il2cpp_list_i4_create_with_capacity/_with_collection convention:
+// the transpiler's newobj already allocated the shell, the ctor fills it and
+// returns void). These are the listobj-domain counterparts of the two
+// single-argument net48 List`1 ctors, for EVERY non-int32 element family.
+//
+// SOURCE NORMALISATION (net48 accepts any IEnumerable<T>; the wired surface
+// produces the two ICollection<T> shapes that have a runtime carrier here):
+//   * an Il2CppArray    -- the element is read at the array's REAL cell width
+//                          (elemSize/elemKind) and re-boxed through the target
+//                          family's own *_add forwarder, so the listobj slot
+//                          holds a box of the RIGHT value family;
+//   * a List (listobj)  -- the elements are ALREADY boxes in the same
+//                          reference storage, so the slots are copied by
+//                          reference (identical observable semantics: element
+//                          getters unbox into a value copy);
+//   * a List (listi4)   -- int32 cells. Only the List<int32> expansion may
+//                          legally observe it (IEnumerable<T> is invariant for
+//                          value T) and that arm owns its own runtime entry,
+//                          so this is rejected precisely.
+//
+// GC SAFETY: 'self' and 'source' are rooted across every allocating step; a
+// 16-byte cell (decimal/Guid/DateTimeOffset) and the user-struct payload are
+// copied into a LOCAL before the box allocation, because the box helpers copy
+// the payload AFTER allocating (a Gen0 compaction would stale an array pointer
+// otherwise).
+//------------------------------------------------------------------------------
+void il2cpp_list_obj_ctor_capacity(Il2CppObject* self, int32_t capacity)
+{
+    ThrowIfNull(self);
+    // net48 List<T>(int capacity): a negative capacity raises
+    // ArgumentOutOfRangeException (ArgumentOutOfRange_MustBeNonNegNum).
+    if (capacity < 0) il2cpp_throw_argument_out_of_range_exception("capacity", kNonNegativeMessage);
+    RootScope rs; rs.Add(reinterpret_cast<void**>(&self));
+    // The items-array length IS the Capacity (net48 observable): a zero
+    // capacity keeps a zero-length array (the first Add grows to the 4-slot
+    // minimum through NextLen(0)).
+    Il2CppArray* items = AllocItems(capacity);
+    Il2CppListObj* l = AsList(self);
+    l->items = items;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&l->items), reinterpret_cast<Il2CppObject*>(items));
+    l->count = 0;
+}
+
+namespace {
+// The element count of a ctor SOURCE, or -1 when the object is neither a
+// managed array nor a List. The listi4 and listobj layouts share the
+// (obj, items, count) prefix, so both list domains read through Il2CppListObj.
+int32_t CtorSourceCount(Il2CppObject* source)
+{
+    if (source->klass == &g_listObjClass) return reinterpret_cast<Il2CppListObj*>(source)->count;
+    if (source->klass == il2cpp_list_i4_class()) return reinterpret_cast<Il2CppListObj*>(source)->count;
+    if (source->klass != nullptr && source->klass->name != nullptr && source->klass->name[0] == '[')
+        return reinterpret_cast<Il2CppArray*>(source)->length;
+    return -1;
+}
+} // namespace
+
+void il2cpp_list_obj_ctor_collection(Il2CppObject* self, Il2CppObject* source, int32_t kind)
+{
+    ThrowIfNull(self);
+    if (source == nullptr) il2cpp_throw_argument_null_exception("collection");
+    const bool srcIsListObj = source->klass == &g_listObjClass;
+    const bool srcIsListI4 = source->klass == il2cpp_list_i4_class();
+    const int32_t n = CtorSourceCount(source);
+    if (n < 0)
+    {
+        il2cpp_throw_not_supported_exception(
+            "List<T>(IEnumerable<T>): the source is neither an array nor a List<T>.");
+    }
+    if (srcIsListI4)
+    {
+        il2cpp_throw_not_supported_exception(
+            "List<T>(IEnumerable<T>): a List<int32> source is only valid for the List<int32> expansion.");
+    }
+    RootScope rs;
+    rs.Add(reinterpret_cast<void**>(&self));
+    rs.Add(reinterpret_cast<void**>(&source));
+    // net48 List<T>(IEnumerable<T>) over an ICollection<T>: the initial
+    // Capacity equals the source count (an empty source yields Capacity 0).
+    Il2CppArray* items = AllocItems(n);
+    Il2CppListObj* l = AsList(self);
+    l->items = items;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&l->items), reinterpret_cast<Il2CppObject*>(items));
+    l->count = 0;
+    if (n == 0) return;
+    if (srcIsListObj)
+    {
+        Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(items->data);
+        Il2CppObject** src = Slots(AsList(source));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            dst[i] = src[i];
+            il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), dst[i]);
+        }
+        AsList(self)->count = n;
+        return;
+    }
+    Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(source);
+    if (arr->isRefElem)
+    {
+        // Reference-element array (string[]/object[]/class[]): the elements
+        // are managed references and ride the target's reference slots.
+        for (int32_t i = 0; i < n; ++i)
+        {
+            arr = reinterpret_cast<Il2CppArray*>(source); // re-derive (the add may collect)
+            il2cpp_list_obj_add(self, *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(arr, i)));
+        }
+        return;
+    }
+    for (int32_t i = 0; i < n; ++i)
+    {
+        arr = reinterpret_cast<Il2CppArray*>(source); // re-derive (the add may collect)
+        const char* p = il2cpp_array_get_elem_ptr(arr, i);
+        switch (kind)
+        {
+            case kListObjCtorLong:   il2cpp_list_obj_add_long(self, *reinterpret_cast<const int64_t*>(p)); break;
+            case kListObjCtorDouble: il2cpp_list_obj_add_double(self, *reinterpret_cast<const double*>(p)); break;
+            case kListObjCtorFloat:  il2cpp_list_obj_add_float(self, il2cpp_array_get_elem_float_as_double(arr, i)); break;
+            case kListObjCtorBool:   il2cpp_list_obj_add_bool(self, *reinterpret_cast<const uint8_t*>(p) != 0 ? 1 : 0); break;
+            case kListObjCtorChar:   il2cpp_list_obj_add_char(self, *reinterpret_cast<const uint16_t*>(p)); break;
+            case kListObjCtorSbyte:  il2cpp_list_obj_add_sbyte(self, *reinterpret_cast<const int8_t*>(p)); break;
+            case kListObjCtorByte:   il2cpp_list_obj_add_byte(self, *reinterpret_cast<const uint8_t*>(p)); break;
+            case kListObjCtorShort:  il2cpp_list_obj_add_short(self, *reinterpret_cast<const int16_t*>(p)); break;
+            case kListObjCtorUshort: il2cpp_list_obj_add_ushort(self, *reinterpret_cast<const uint16_t*>(p)); break;
+            case kListObjCtorUint:   il2cpp_list_obj_add_uint(self, static_cast<int32_t>(*reinterpret_cast<const uint32_t*>(p))); break;
+            case kListObjCtorDecimal:
+            {
+                const runtime::Il2CppDecimal v = *reinterpret_cast<const runtime::Il2CppDecimal*>(p);
+                il2cpp_list_obj_add_dec(self, &v);
+                break;
+            }
+            case kListObjCtorDateTime:
+                il2cpp_list_obj_add_dt(self, runtime::il2cpp_datetime_from_array_bits(*reinterpret_cast<const int64_t*>(p)));
+                break;
+            case kListObjCtorTimeSpan:
+                il2cpp_list_obj_add_ts(self, runtime::Il2CppTimeSpan(*reinterpret_cast<const int64_t*>(p)));
+                break;
+            case kListObjCtorGuid:
+            {
+                const Il2CppGuid g = *reinterpret_cast<const Il2CppGuid*>(p);
+                il2cpp_list_obj_add_guid(self, g.b);
+                break;
+            }
+            case kListObjCtorDateTimeOffset:
+            {
+                const runtime::Il2CppDateTimeOffset v = *reinterpret_cast<const runtime::Il2CppDateTimeOffset*>(p);
+                il2cpp_list_obj_add_dtoffset(self, v);
+                break;
+            }
+            default:
+                il2cpp_throw_not_supported_exception(
+                    "List<T>(IEnumerable<T>): the source value cell does not match the element family.");
+        }
+    }
+}
+
+void il2cpp_list_obj_ctor_collection_struct(Il2CppObject* self, Il2CppObject* source,
+                                           Il2CppClass* klass, int32_t payloadSize)
+{
+    ThrowIfNull(self);
+    if (source == nullptr) il2cpp_throw_argument_null_exception("collection");
+    if (klass == nullptr || payloadSize <= 0)
+        il2cpp_throw_not_supported_exception(
+            "List<T>(IEnumerable<T>): the struct element descriptor is missing.");
+    const bool srcIsListObj = source->klass == &g_listObjClass;
+    const int32_t n = CtorSourceCount(source);
+    if (n < 0)
+        il2cpp_throw_not_supported_exception(
+            "List<T>(IEnumerable<T>): the source is neither an array nor a List<T>.");
+    if (source->klass == il2cpp_list_i4_class())
+        il2cpp_throw_not_supported_exception(
+            "List<T>(IEnumerable<T>): a List<int32> source is only valid for the List<int32> expansion.");
+    RootScope rs;
+    rs.Add(reinterpret_cast<void**>(&self));
+    rs.Add(reinterpret_cast<void**>(&source));
+    Il2CppArray* items = AllocItems(n);
+    Il2CppListObj* l = AsList(self);
+    l->items = items;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&l->items), reinterpret_cast<Il2CppObject*>(items));
+    l->count = 0;
+    if (n == 0) return;
+    if (srcIsListObj)
+    {
+        Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(items->data);
+        Il2CppObject** src = Slots(AsList(source));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            dst[i] = src[i];
+            il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), dst[i]);
+        }
+        AsList(self)->count = n;
+        return;
+    }
+    Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(source);
+    if (arr->isRefElem)
+        il2cpp_throw_not_supported_exception(
+            "List<struct>(IEnumerable<struct>): the source is a reference array, not a value array.");
+    // The payload is copied out of the (possibly moving) array BEFORE the box
+    // allocation, exactly like the 16-byte scalar families above.
+    std::vector<char> cell;
+    try { cell.resize(static_cast<size_t>(payloadSize)); }
+    catch (const std::bad_alloc&)
+    {
+        il2cpp_throw_new(
+            "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+            "Insufficient memory to continue the execution of the program.");
+    }
+    for (int32_t i = 0; i < n; ++i)
+    {
+        arr = reinterpret_cast<Il2CppArray*>(source);
+        std::memcpy(cell.data(), il2cpp_array_get_elem_ptr(arr, i), static_cast<size_t>(payloadSize));
+        il2cpp_list_obj_add_struct(self, cell.data(), klass, payloadSize);
+    }
+}
 void il2cpp_list_obj_add(Il2CppObject* self, Il2CppObject* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); /* nb9 M-7: Grow allocates -- root the element too */ rs.Add(reinterpret_cast<void**>(&v)); EnsureItems(&self); Il2CppListObj* l=AsList(self); if(l->count==l->items->length) Grow(&self); l=AsList(self); Slots(l)[l->count]=v; il2cpp_write_barrier(reinterpret_cast<void**>(&Slots(l)[l->count]), v); ++l->count; }
 void il2cpp_list_obj_insert(Il2CppObject* self,int32_t idx,Il2CppObject* v){ ThrowIfNull(self); RootScope rs; rs.Add(reinterpret_cast<void**>(&self)); /* nb9 M-7: Grow allocates -- root the element too */ rs.Add(reinterpret_cast<void**>(&v)); Il2CppListObj* l=AsList(self); ThrowIns(idx,l->count); EnsureItems(&self); l=AsList(self); if(l->count==l->items->length) Grow(&self); l=AsList(self); Il2CppObject** s=Slots(l); for(int32_t i=l->count;i>idx;--i){ s[i]=s[i-1]; il2cpp_write_barrier(reinterpret_cast<void**>(&s[i]), s[i]); } s[idx]=v; il2cpp_write_barrier(reinterpret_cast<void**>(&s[idx]), v); ++l->count; }
 void il2cpp_list_obj_remove_at(Il2CppObject* self,int32_t idx){ ThrowIfNull(self); Il2CppListObj* l=AsList(self); ThrowElem(idx,l->count); Il2CppObject** s=Slots(l); for(int32_t i=idx;i<l->count-1;++i){ s[i]=s[i+1]; il2cpp_write_barrier(reinterpret_cast<void**>(&s[i]), s[i]); } s[l->count-1]=nullptr; il2cpp_write_barrier(reinterpret_cast<void**>(&s[l->count-1]), nullptr); --l->count; }

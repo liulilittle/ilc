@@ -179,6 +179,12 @@ public static partial class MethodRefResolver
             : tsReceiver ? "ts"
             : guidReceiver ? "guid"
             : null;
+        // The families that ride the shared listobj reference storage (the
+        // T-free members and the newobj shell). A C# bool rather than an
+        // instance-name test so the ctor arms below cannot drift from the
+        // per-member dispatch.
+        var listObjFamily = objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
+            || decReceiver || dtReceiver || tsReceiver || guidReceiver || dtoReceiver || structDef != null || tupleReceiver;
         ResolvedMethod Loud() => throw new NotSupportedException(
             $"LOUD whitelist (no runtime descriptor/model): List`1 member '{name}' is not a wired instantiation " +
             $"(receiver '{receiverType ?? "<untracked>"}', ps [{BitConverter.ToString(ps)}]) -- only the List<int32> (listi4.h) " +
@@ -194,27 +200,63 @@ public static partial class MethodRefResolver
                 // dropped). The reference instantiation creates through the
                 // listobj domain.
                 if (count == 0)
-                    return objReceiver || longReceiver || doubleReceiver || floatReceiver || byteLike
-                        || decReceiver || dtReceiver || tsReceiver || guidReceiver || dtoReceiver || structDef != null || tupleReceiver
+                    return listObjFamily
                     ? I("il2cpp::il2cpp_list_obj_create", 0, true, true, true, new[] { "drop" })
                     : i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_create", 0, true, true, true, new[] { "drop" })
                         : Loud();
-                // The capacity/collection ctors are SELF-MUTATING: the
-                // transpiler's newobj allocates the shell and the ctor call
-                // fills it (the il2cpp_sortedlist_create ABI), so the receiver
-                // is passed ("") and the return is void.
-                if (count == 1 && ps.Length == 1 && ps[0] == 0x08 && i4Receiver)
-                    return I("il2cpp::il2cpp_list_i4_create_with_capacity", 1, false, false, true, new[] { "", "i" });
-                // listb1: List<int>(IEnumerable<int>) -- the collection ctor
-                // (the compiler passes the int32[] source; the runtime sizes the
-                // items array to the source count and copies it). The value is a
-                // managed reference slot (""), not the int32 capacity.
-                if (count == 1 && ps.Length == 1 && ps[0] != 0x08 && i4Receiver)
-                    return I("il2cpp::il2cpp_list_i4_create_with_collection", 1, false, false, true, new[] { "", "" });
+                // net48 List`1 defines EXACTLY two single-argument ctors, and
+                // the parameter-type byte disambiguates them for every element
+                // family (verified against the case metadata: List`1::.ctor
+                // MemberRefs are 20-01-01-08 = List(int) and
+                // 20-01-01-15-12-80-89-01-13-00 = List(IEnumerable<T>)):
+                //   ps[0] == 0x08 (ELEMENT_TYPE_I4)        -> List(int capacity)
+                //   ps[0] == 0x15 (GENERICINST IEnumerable) -> List(IEnumerable<T>)
+                // Both are SELF-MUTATING (the newobj shell is filled in place,
+                // the il2cpp_list_i4_create_with_* ABI), so the receiver is
+                // passed ("") and the return is void.
+                if (count == 1 && ps.Length == 1 && ps[0] == 0x08)
+                {
+                    if (i4Receiver)
+                        return I("il2cpp::il2cpp_list_i4_create_with_capacity", 1, false, false, true, new[] { "", "i" });
+                    if (listObjFamily)
+                        return I("il2cpp::il2cpp_list_obj_ctor_capacity", 1, false, false, true, new[] { "", "i" });
+                    return Loud();
+                }
+                if (count == 1 && ps.Length == 1)
+                {
+                    if (i4Receiver)
+                        return I("il2cpp::il2cpp_list_i4_create_with_collection", 1, false, false, true, new[] { "", "" });
+                    if (listObjFamily)
+                    {
+                        // A user-struct / ValueTuple element boxes with its OWN
+                        // descriptor (the same klass the Add forwarder uses), so
+                        // the ctor and the element accessors agree on the box
+                        // identity; the source may be a value array (cells boxed
+                        // per element) or a List (already boxed -- slots copied).
+                        if (structCpp != null)
+                            return I($"il2cpp::il2cpp_list_obj_ctor_collection_struct_t<{structCpp}>", 1, false, false, true,
+                                new[] { "", "" }, appendLiterals: new[] { $"&{structCpp}_class" });
+                        if (tupleReceiver)
+                            return I($"il2cpp::il2cpp_list_obj_ctor_collection_struct_t<{tupleCpp}>", 1, false, false, true,
+                                new[] { "", "" }, appendLiterals: new[] { tupleKlassExpr! });
+                        // Reference elements (class/string/object/array/nested/
+                        // dotted class) share the reference storage (kind 0);
+                        // every value family carries its own ListObjCtorKind.
+                        var ctorKind = objReceiver ? "0" : ListCtorKind(instTag);
+                        if (ctorKind != null)
+                            return I("il2cpp::il2cpp_list_obj_ctor_collection", 1, false, false, true,
+                                new[] { "", "" }, appendLiterals: new[] { ctorKind });
+                    }
+                    return Loud();
+                }
+                // net48 List`1 has NO ctor of arity > 1 (only List(), List(int)
+                // and List(IEnumerable<T>)). This arm is a model/metadata defect
+                // guard, not a real source shape; the message states the actual
+                // net48 surface.
                 throw new NotSupportedException(
-                    $"LOUD whitelist (net48 has no such overload): List`1 ctor arity {count} -- net48 has only List(), List(int) " +
-                    "and List(IEnumerable<T>) [Reference Source collections_generic_list.cs:52,60,74]");
+                    $"LOUD whitelist: List`1 ctor arity {count} is not a net48 overload (net48 defines only List(), " +
+                    "List(int) and List(IEnumerable<T>)) [Reference Source collections_generic_list.cs:52,60,74]");
             case "get_Count":
                 // ilistException: the reference instantiation reads the
                 // element-count through the listobj domain (same value
@@ -750,6 +792,32 @@ public static partial class MethodRefResolver
         "string" => "System.String",
         "object" => "System.Object",
         "array" => "System.Object[]",
+        _ => null,
+    };
+
+    // The collection-ctor element-family literal for
+    // il2cpp_list_obj_ctor_collection (listobj.h ListObjCtorKind). Only the
+    // VALUE families are listed: a reference element (objReceiver) shares the
+    // reference storage and is passed as kind 0 by the caller. The values MUST
+    // stay in sync with ListObjCtorKind -- this is the one place the transpiler
+    // names them.
+    private static string? ListCtorKind(string? instTag) => instTag switch
+    {
+        "System.Collections.Generic.List`1_long" => "1",
+        "System.Collections.Generic.List`1_double" => "2",
+        "System.Collections.Generic.List`1_float" => "3",
+        "System.Collections.Generic.List`1_bool" => "4",
+        "System.Collections.Generic.List`1_char" => "5",
+        "System.Collections.Generic.List`1_sbyte" => "6",
+        "System.Collections.Generic.List`1_byte" => "7",
+        "System.Collections.Generic.List`1_short" => "8",
+        "System.Collections.Generic.List`1_ushort" => "9",
+        "System.Collections.Generic.List`1_uint" => "10",
+        "System.Collections.Generic.List`1_System.Decimal" => "11",
+        "System.Collections.Generic.List`1_System.DateTime" => "12",
+        "System.Collections.Generic.List`1_System.TimeSpan" => "13",
+        "System.Collections.Generic.List`1_System.Guid" => "14",
+        "System.Collections.Generic.List`1_System.DateTimeOffset" => "15",
         _ => null,
     };
 

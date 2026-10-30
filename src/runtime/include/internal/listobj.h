@@ -30,6 +30,61 @@ Il2CppClass* il2cpp_list_obj_class();
 bool il2cpp_is_list_obj(Il2CppObject* obj);
 Il2CppObject* il2cpp_list_obj_create();
 Il2CppObject* il2cpp_list_obj_create_with_capacity(int32_t capacity);
+
+//------------------------------------------------------------------------------
+// List<T>(int capacity) / List<T>(IEnumerable<T>) -- the SELF-MUTATING ctor
+// ABI (the il2cpp_list_i4_create_with_capacity/_with_collection convention):
+// the transpiler's newobj already allocated the shell, so these initialize it
+// in place and return void. They are the listobj-domain counterparts of the
+// two single-argument net48 ctors for EVERY non-int32 element family:
+//
+//   il2cpp_list_obj_ctor_capacity(self, capacity)
+//     Count 0; the items array length IS the Capacity, exactly 'capacity'
+//     (capacity 0 keeps a zero-length array -- the first Add grows to the
+//     4-slot minimum, net48 DefaultCapacity). capacity < 0 raises
+//     ArgumentOutOfRangeException("capacity") (net48
+//     ArgumentOutOfRange_MustBeNonNegNum).
+//
+//   il2cpp_list_obj_ctor_collection(self, source, kind)
+//     a COPY of the source elements; for the wired ICollection<T> sources
+//     (an array or a List<T>) the initial Capacity equals the source count
+//     (net48), so an empty source yields Capacity 0. A null source raises
+//     ArgumentNullException("collection"). 'kind' names the TARGET element
+//     family (ListObjCtorKind below) and only selects how a VALUE-CELL array
+//     source is read/re-boxed; a List source is already in the boxed listobj
+//     storage and is copied by reference slot.
+//
+// The kind codes are LISTOBJ-LOCAL on purpose: this domain must not depend on
+// the LINQ layer (il2cpp_linq_* owns its own, differently numbered
+// IL2CPP_LIST_KIND_* contract in linq_list.h).
+//------------------------------------------------------------------------------
+enum ListObjCtorKind : int32_t
+{
+    kListObjCtorRef = 0,
+    kListObjCtorLong = 1,
+    kListObjCtorDouble = 2,
+    kListObjCtorFloat = 3,
+    kListObjCtorBool = 4,
+    kListObjCtorChar = 5,
+    kListObjCtorSbyte = 6,
+    kListObjCtorByte = 7,
+    kListObjCtorShort = 8,
+    kListObjCtorUshort = 9,
+    kListObjCtorUint = 10,
+    kListObjCtorDecimal = 11,
+    kListObjCtorDateTime = 12,
+    kListObjCtorTimeSpan = 13,
+    kListObjCtorGuid = 14,
+    kListObjCtorDateTimeOffset = 15,
+};
+void il2cpp_list_obj_ctor_capacity(Il2CppObject* self, int32_t capacity);
+void il2cpp_list_obj_ctor_collection(Il2CppObject* self, Il2CppObject* source, int32_t kind);
+// The user-STRUCT / tuple element form: the value cell has no runtime-known
+// width or box identity from the kind alone, so the call site passes the
+// struct's OWN descriptor and the template fixes the payload size.
+void il2cpp_list_obj_ctor_collection_struct(Il2CppObject* self, Il2CppObject* source,
+                                            Il2CppClass* klass, int32_t payloadSize);
+
 void il2cpp_list_obj_add(Il2CppObject* self, Il2CppObject* value);
 void il2cpp_list_obj_insert(Il2CppObject* self, int32_t index, Il2CppObject* value);
 void il2cpp_list_obj_remove_at(Il2CppObject* self, int32_t index);
@@ -295,6 +350,17 @@ inline void il2cpp_list_obj_insert_struct_t(Il2CppObject* self, int32_t index, c
                                            Il2CppClass* klass)
 {
     il2cpp_list_obj_insert_struct(self, index, value, klass, static_cast<int32_t>(sizeof(T)));
+}
+
+// List<T>(IEnumerable<T>) for a user-STRUCT / ValueTuple element: the value
+// cells are boxed with the element's OWN descriptor (the same klass the Add
+// forwarder uses), so the ctor and the element accessors agree on the box
+// identity.
+template <typename T>
+inline void il2cpp_list_obj_ctor_collection_struct_t(Il2CppObject* self, Il2CppObject* source,
+                                                     Il2CppClass* klass)
+{
+    il2cpp_list_obj_ctor_collection_struct(self, source, klass, static_cast<int32_t>(sizeof(T)));
 }
 
 template <typename T>
