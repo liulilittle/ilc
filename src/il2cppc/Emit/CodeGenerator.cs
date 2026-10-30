@@ -6275,6 +6275,26 @@ public static class CodeGenerator
         "System.Collections.Generic.List`1_short" or
         "System.Collections.Generic.List`1_ushort" or
         "System.Collections.Generic.List`1_uint" => "il2cpp_object_new(il2cpp::il2cpp_list_obj_class())",
+        // p0linq4 (D1) ALLOCATION half: the BOXED BCL value-struct element
+        // instantiations. MethodMap.List.cs has routed their members through
+        // the listobj *_dec/_dt/_ts/_guid/_dtoffset forwarders (listobj.h)
+        // since p0linq4, but the allocation table never registered them --
+        // DottedRefArg deliberately EXCLUDES the closed BCL value-type names
+        // (IsKnownValueTypeName), so `new List<decimal>()` / `new
+        // List<DateTime>()` / `new List<TimeSpan>()` / `new List<Guid>()` /
+        // `new List<DateTimeOffset>()` fell through to the generated-descriptor
+        // fallback il2cpp_object_new(&System_Collections_Generic_List_1_System_
+        // Decimal_class) -- an UNDEFINED symbol (the transpiler emits no
+        // descriptor for a BCL type). A ToList()-materialised List<decimal>
+        // worked because the runtime CREATES that list object itself, so only
+        // the `new` shape was broken. Every value element is BOXED into the
+        // shared listobj reference array, so the ONE listobj descriptor serves
+        // all five families (probe-listvtalloc).
+        "System.Collections.Generic.List`1_System.Decimal" or
+        "System.Collections.Generic.List`1_System.DateTime" or
+        "System.Collections.Generic.List`1_System.TimeSpan" or
+        "System.Collections.Generic.List`1_System.Guid" or
+        "System.Collections.Generic.List`1_System.DateTimeOffset" => "il2cpp_object_new(il2cpp::il2cpp_list_obj_class())",
         // G4: a NESTED GenericInst element (List<List<int>>) is a managed
         // reference; its instance name carries the fully nested suffix
         // ("...List`1_System.Collections.Generic.List`1_int"), so the entry is

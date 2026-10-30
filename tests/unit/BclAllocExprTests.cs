@@ -67,6 +67,59 @@ public class BclAllocExprTests
         }
     }
 
+    [Theory]
+    [InlineData("System", "Decimal")]
+    [InlineData("System", "DateTime")]
+    [InlineData("System", "TimeSpan")]
+    [InlineData("System", "Guid")]
+    [InlineData("System", "DateTimeOffset")]
+    public void Generate_NewListOfBclValueStruct_AllocatesThroughListObjClass(string ns, string name)
+    {
+        // p0linq4 (D1) registered the listobj *_dec/_dt/_ts/_guid/_dtoffset
+        // member forwarders for these closed value-struct element
+        // instantiations, but the ALLOCATION table was never updated:
+        // DottedRefArg excludes the closed BCL value-type names, so `new
+        // List<decimal>()` fell through to the generated-descriptor fallback
+        // il2cpp_object_new(&System_Collections_Generic_List_1_System_Decimal_class)
+        // -- an undefined symbol (probe-listvtalloc: gcc "was not declared in
+        // this scope" for all five families). Every value element is BOXED
+        // into the shared listobj reference array, so ONE descriptor serves
+        // them all.
+        var tmp = Path.Combine(Path.GetTempPath(), "il2cpp_bclalloc_" + Guid.NewGuid().ToString("N") + ".dll");
+        File.WriteAllBytes(tmp, SynthesizeNewListOfValueStruct(ns, name).ToArray());
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var types = MetadataLoader.LoadAssembly(tmp);
+            CodeGenerator.Generate(types, dir, tmp);
+            var generated = File.ReadAllText(Path.Combine(dir, "src", "Cases_GenList.cpp"));
+            Assert.Contains("il2cpp_object_new(il2cpp::il2cpp_list_obj_class())", generated);
+            Assert.DoesNotContain("System_Collections_Generic_List_1_" + ns + "_" + name + "_class", generated);
+        }
+        finally
+        {
+            File.Delete(tmp);
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    // TypeRefs: System.Object (row 1 -> coded 0x05), List`1 (row 2 -> 0x09),
+    // the ELEMENT type (row 3 -> coded 0x0D); TypeSpec List<elem>
+    // [15 12 09 01 11 0D] (0x11 = VALUETYPE element); ctor MemberRef
+    // (parent = TypeSpec, sig 20 00 01).
+    private static MemoryStream SynthesizeNewListOfValueStruct(string elemNamespace, string elemName)
+    {
+        var mdb = NewBuilder();
+        var objRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb), mdb.GetOrAddString("System"), mdb.GetOrAddString("Object"));
+        var listRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb),
+            mdb.GetOrAddString("System.Collections.Generic"), mdb.GetOrAddString("List`1"));
+        var elemRef = mdb.AddTypeReference(GetOrAddMscorlib(mdb),
+            mdb.GetOrAddString(elemNamespace), mdb.GetOrAddString(elemName));
+        var typeSpec = mdb.AddTypeSpecification(mdb.GetOrAddBlob(new byte[] { 0x15, 0x12, 0x09, 0x01, 0x11, 0x0D }));
+        var ctor = mdb.AddMemberReference(typeSpec, mdb.GetOrAddString(".ctor"), mdb.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x01 }));
+        return BuildMainBody(mdb, ctor);
+    }
+
     // TypeRefs: System.Object (row 1 -> coded 0x05), List`1 (row 2 -> 0x09);
     // TypeSpec List<int> [15 12 09 01 08]; ctor MemberRef (parent = TypeSpec,
     // sig 20 00 01); a TypeDef whose Main body does newobj <0A000001>; pop; ret.
