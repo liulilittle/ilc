@@ -696,6 +696,10 @@ def wiring_lookup(wiring, owner, name):
     Returns (status, evidence). status is one of
       wired          -- the owner's dispatch chain has a case arm for the method
                         that names at least one runtime icall symbol
+      stub           -- the arm exists and names a runtime symbol, but that
+                        symbol is a documented `*_unsupported` PNSE stub (the
+                        call links and throws at runtime, it does not implement
+                        the operation)
       half-wired     -- the arm exists but names no runtime symbol (fold / null
                         marker / PNSE throw)
       no-wiring      -- no case literal reachable from the owner's dispatch chain
@@ -710,9 +714,15 @@ def wiring_lookup(wiring, owner, name):
             # generic tuple-keyed arms (owner::name) used by TryMapEmit
             hit = cases.get(owner + "::" + name)
         if hit is not None:
-            status = "wired" if hit["symbols"] else "half-wired"
+            syms = hit["symbols"]
+            if not syms:
+                status = "half-wired"
+            elif all("_unsupported" in s for s in syms):
+                status = "stub"
+            else:
+                status = "wired"
             return status, {"func": target, "file": hit["file"], "line": hit["line"],
-                            "symbols": hit["symbols"], "owner_line": disp["line"]}
+                            "symbols": syms, "owner_line": disp["line"]}
     return "no-wiring", {"funcs": disp["targets"], "owner_line": disp["line"]}
 
 
@@ -808,7 +818,7 @@ def classify_qcall(row, wiring, entry_index):
     status, ev = wiring_lookup(wiring, decl["owner"], decl["name"])
     out = dict(ev or {})
     out["decl"] = decl
-    if status in ("wired", "half-wired"):
+    if status in ("wired", "stub", "half-wired"):
         return status, out
     return "missing", out
 
@@ -865,7 +875,8 @@ def entry_method_name(entry):
 
 
 def status_counts(rows):
-    out = {k: 0 for k in ("wired", "half-wired", "missing", "unreachable", "no-decl")}
+    out = {k: 0 for k in ("wired", "stub", "half-wired", "missing",
+                          "unreachable", "no-decl")}
     for r in rows:
         out[r["status"]] += 1
     return out
@@ -883,10 +894,15 @@ def evidence_cell(row):
     """Render the file:line (or "no wiring") evidence for one row."""
     ev = row.get("evidence") or {}
     st = row["status"]
-    if st in ("wired", "half-wired"):
+    if st in ("wired", "stub", "half-wired"):
         syms = ", ".join("`" + s + "`" for s in ev.get("symbols") or [])
         loc = f"{shell_path(ev.get('file'))}:{ev.get('line')}" if ev.get("file") else "-"
-        return f"{loc} -> {syms}" if syms else f"{loc} (arm without runtime symbol)"
+        if not syms:
+            return f"{loc} (arm without runtime symbol)"
+        cell = f"{loc} -> {syms}"
+        if st == "stub":
+            cell += " (PNSE stub)"
+        return cell
     if st == "missing":
         d = ev.get("decl") or {}
         if d:
@@ -923,7 +939,7 @@ def write_report(path, data, f_rows, q_rows, ref_root):
     ri_rh = [r for r in ri_rows if (r["exported"] or "").startswith(("Rh", "Rhp"))]
     ri_libm = [r for r in ri_rows if r not in ri_rh]
 
-    gap_statuses = ("missing", "half-wired")
+    gap_statuses = ("missing", "half-wired", "stub")
     table_entries = {q["entry"] for q in q_rows}
     p0_f = tier_counts(f_rows, gap_statuses)["P0"]
     p0_q = tier_counts(q_rows, gap_statuses)["P0"]
@@ -973,19 +989,22 @@ def write_report(path, data, f_rows, q_rows, ref_root):
     w("")
     w("### 0.2 接线状态（FCall / QCall 分开）")
     w("")
-    w("| 表 | 总数 | 已接 wired | 半接 half-wired | 缺 missing | 不可达 unreachable | no-decl |")
-    w("|---|---|---|---|---|---|---|")
-    w(f"| **FCall** | {len(f_rows)} | {fc['wired']} | {fc['half-wired']} | "
+    w("| 表 | 总数 | 已接 wired | 桩接 stub | 半接 half-wired | 缺 missing | 不可达 unreachable | no-decl |")
+    w("|---|---|---|---|---|---|---|---|")
+    w(f"| **FCall** | {len(f_rows)} | {fc['wired']} | {fc['stub']} | {fc['half-wired']} | "
       f"{fc['missing']} | {fc['unreachable']} | {fc['no-decl']} |")
-    w(f"| **QCall** | {len(q_rows)} | {qc['wired']} | {qc['half-wired']} | "
+    w(f"| **QCall** | {len(q_rows)} | {qc['wired']} | {qc['stub']} | {qc['half-wired']} | "
       f"{qc['missing']} | {qc['unreachable']} | {qc['no-decl']} |")
-    w(f"| **RuntimeImport** | {len(ri_rows)} | 1 (`RhBulkMoveWithWriteBarrier`) | 0 | "
+    w(f"| **RuntimeImport** | {len(ri_rows)} | 1 (`RhBulkMoveWithWriteBarrier`) | 0 | 0 | "
       f"{len(ri_rows) - 1} | 0 | 0 |")
     w("")
     w("状态定义（本文档全篇统一口径）：")
     w("")
     w("- **已接 wired**：owner 分发链上存在该方法名对应的 case 分支，且该分支指名了**运行时 icall 符号**；")
     w("  证据为该分支的 `file:line` 加符号名。")
+    w("- **桩接 stub**：分支存在且指名了运行时符号，但该符号是 `*_unsupported` 的")
+    w("  PNSE 桩（`src/runtime/src/stubs.cpp` 里直接 throw NotSupported）——")
+    w("  链接得通，语义未实现。本序列入缺口。")
     w("- **半接 half-wired**：分支存在但解析到 fold/null/PNSE 抛异常（**不指名运行时符号**），")
     w("  或分支被签名形状守卫挡掉、对真实调用返回 null。")
     w("- **缺 missing**：没有任何分支命中该方法名 —— 调用点会发射一个未定义 extern。")
@@ -1174,11 +1193,11 @@ def write_report(path, data, f_rows, q_rows, ref_root):
     w("")
     w("排序：先按可达性 P0→P3，再按 owner。**FCall 与 QCall 分段统计**。")
     w("")
-    for label, rows in (("4.1 FCall 缺口（missing / half-wired）", f_rows),
-                        ("4.2 QCall 缺口（missing / half-wired）", q_rows)):
+    for label, rows in (("4.1 FCall 缺口（missing / half-wired / stub）", f_rows),
+                        ("4.2 QCall 缺口（missing / half-wired / stub）", q_rows)):
         w(f"### {label}")
         w("")
-        sel = [r for r in rows if r["status"] in ("missing", "half-wired")]
+        sel = [r for r in rows if r["status"] in ("missing", "half-wired", "stub")]
         if not sel:
             w("（无）")
             w("")

@@ -26,16 +26,19 @@ worktree 内的 `src/` 才是被审计的 ILC 接线面。
 
 ### 0.2 接线状态（FCall / QCall 分开）
 
-| 表 | 总数 | 已接 wired | 半接 half-wired | 缺 missing | 不可达 unreachable | no-decl |
-|---|---|---|---|---|---|---|
-| **FCall** | 225 | 84 | 1 | 129 | 11 | 0 |
-| **QCall** | 403 | 24 | 2 | 333 | 36 | 8 |
-| **RuntimeImport** | 173 | 1 (`RhBulkMoveWithWriteBarrier`) | 0 | 172 | 0 | 0 |
+| 表 | 总数 | 已接 wired | 桩接 stub | 半接 half-wired | 缺 missing | 不可达 unreachable | no-decl |
+|---|---|---|---|---|---|---|---|
+| **FCall** | 225 | 84 | 0 | 1 | 129 | 11 | 0 |
+| **QCall** | 403 | 23 | 1 | 2 | 333 | 36 | 8 |
+| **RuntimeImport** | 173 | 1 (`RhBulkMoveWithWriteBarrier`) | 0 | 0 | 172 | 0 | 0 |
 
 状态定义（本文档全篇统一口径）：
 
 - **已接 wired**：owner 分发链上存在该方法名对应的 case 分支，且该分支指名了**运行时 icall 符号**；
   证据为该分支的 `file:line` 加符号名。
+- **桩接 stub**：分支存在且指名了运行时符号，但该符号是 `*_unsupported` 的
+  PNSE 桩（`src/runtime/src/stubs.cpp` 里直接 throw NotSupported）——
+  链接得通，语义未实现。本序列入缺口。
 - **半接 half-wired**：分支存在但解析到 fold/null/PNSE 抛异常（**不指名运行时符号**），
   或分支被签名形状守卫挡掉、对真实调用返回 null。
 - **缺 missing**：没有任何分支命中该方法名 —— 调用点会发射一个未定义 extern。
@@ -67,7 +70,7 @@ worktree 内的 `src/` 才是被审计的 ILC 接线面。
 |---|---|---|---|
 | P0 | 29 | 60 | 用户代码直接调用 |
 | P1 | 1 | 10 | 常见 BCL 间接可达 |
-| P2 | 94 | 197 | 反射/序列化/线程/装配加载 |
+| P2 | 94 | 198 | 反射/序列化/线程/装配加载 |
 | P3 | 6 | 68 | 仅运行时内部 |
 
 **P0 缺口合计 89 条**（FCall 29 + QCall 60）。
@@ -75,7 +78,7 @@ worktree 内的 `src/` 才是被审计的 ILC 接线面。
 ### 0.4 关键判断
 
 1. QCall 才是大头：s_QCall[] 403 条 vs FCall 225 条；
-   而 ILC 的 QCall 接线只有 **24** 条（且其中多数是**顺带命中**——同一个托管方法名在 net48 版 MethodMap 里已存在，QCall 走同一条 map，例如 `Environment.GetProcessorCount`、`String.Intern`）。
+   而 ILC 的 QCall 接线只有 **23** 条（且其中多数是**顺带命中**——同一个托管方法名在 net48 版 MethodMap 里已存在，QCall 走同一条 map，例如 `Environment.GetProcessorCount`、`String.Intern`）。
 2. FCall 侧 ILC 已接 84/225，主要是 String/Math/MathF/GC/Delegate/
    RuntimeHelpers 的 net48 形状；MathF 25/25 全接（float 数学面无缺口）。
 3. RuntimeImport 173 条基本**整体缺失**：ILC 的运行时不是 Redhawk，
@@ -314,7 +317,6 @@ worktree 内的 `src/` 才是被审计的 ILC 接线面。
 | `Environment_FailFast` | `System.Environment.FailFast` | src/il2cppc/Emit/MethodMap.Environment.cs:126 -> `il2cpp::runtime::icall_environment_fail_fast` |
 | `Environment_GetProcessorCount` | `System.Environment.GetProcessorCount` | src/il2cppc/Emit/MethodMap.Environment.cs:41 -> `il2cpp::runtime::icall_environment_get_processor_count` |
 | `StackTrace_GetStackFramesInternal` | `System.Diagnostics.StackTrace.GetStackFramesInternal` | src/il2cppc/Emit/MethodMap.GC.cs:138 -> `il2cpp::runtime::icall_stack_trace_get_stack_frames_internal` |
-| `AssemblyNative_GetVersion` | `System.Reflection.RuntimeAssembly.GetVersion` | src/il2cppc/Emit/MethodMap.RuntimeAssembly.cs:30 -> `il2cpp::runtime::icall_assembly_get_version_unsupported` |
 | `AssemblyNative_GetLoadedAssemblies` | `System.Runtime.Loader.AssemblyLoadContext.GetLoadedAssemblies` | src/il2cppc/Emit/MethodMap.GC.cs:129 -> `il2cpp::runtime::icall_assembly_load_context_get_loaded_assemblies` |
 | `String_Intern` | `System.String.Intern` | src/il2cppc/Emit/MethodMap.String.cs:726 -> `il2cpp::il2cpp_string_intern` |
 | `String_IsInterned` | `System.String.IsInterned` | src/il2cppc/Emit/MethodMap.String.cs:730 -> `il2cpp::il2cpp_string_is_interned` |
@@ -338,7 +340,7 @@ worktree 内的 `src/` 才是被审计的 ILC 接线面。
 
 排序：先按可达性 P0→P3，再按 owner。**FCall 与 QCall 分段统计**。
 
-### 4.1 FCall 缺口（missing / half-wired）
+### 4.1 FCall 缺口（missing / half-wired / stub）
 
 #### P0（29 条）
 
@@ -490,7 +492,7 @@ worktree 内的 `src/` 才是被审计的 ILC 接线面。
 | `System.StubHelpers.StubHelpers.LogPinnedArgument` | missing | `StubHelpers::LogPinnedArgument` | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/StubHelpers.cs:2516 |
 | `System.StubHelpers.StubHelpers.SetLastError` | missing | `StubHelpers::SetLastError` | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/StubHelpers.cs:2174 |
 
-### 4.2 QCall 缺口（missing / half-wired）
+### 4.2 QCall 缺口（missing / half-wired / stub）
 
 #### P0（60 条）
 
@@ -572,7 +574,7 @@ worktree 内的 `src/` 才是被审计的 ILC 接线面。
 | `Stream_HasOverriddenSlow` | `System.IO.Stream.HasOverriddenSlow` | missing | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/IO/Stream.CoreCLR.cs:14 |
 | `ObjectHeader_GetOrCreateLockObject` | `System.Threading.ObjectHeader.GetOrCreateLockObject` | missing | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/Threading/ObjectHeader.CoreCLR.cs:92 |
 
-#### P2（197 条）
+#### P2（198 条）
 
 | EntryPoint | 托管声明 | 状态 | 证据 |
 |---|---|---|---|
@@ -655,6 +657,7 @@ worktree 内的 `src/` 才是被审计的 ILC 接线面。
 | `AssemblyNative_GetSimpleName` | `System.Reflection.RuntimeAssembly.GetSimpleName` | missing | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/Reflection/RuntimeAssembly.cs:589 |
 | `AssemblyNative_GetTypeCore` | `System.Reflection.RuntimeAssembly.GetTypeCore` | missing | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/Reflection/RuntimeAssembly.cs:181 |
 | `AssemblyNative_GetTypeCoreIgnoreCase` | `System.Reflection.RuntimeAssembly.GetTypeCoreIgnoreCase` | missing | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/Reflection/RuntimeAssembly.cs:188 |
+| `AssemblyNative_GetVersion` | `System.Reflection.RuntimeAssembly.GetVersion` | stub | src/il2cppc/Emit/MethodMap.RuntimeAssembly.cs:30 -> `il2cpp::runtime::icall_assembly_get_version_unsupported` (PNSE stub) |
 | `AssemblyNative_InternalLoad` | `System.Reflection.RuntimeAssembly.InternalLoad` | missing | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/Reflection/RuntimeAssembly.cs:398 |
 | `RuntimeModule_GetFullyQualifiedName` | `System.Reflection.RuntimeModule.GetFullyQualifiedName` | missing | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/Reflection/RuntimeModule.cs:404 |
 | `RuntimeModule_GetScopeName` | `System.Reflection.RuntimeModule.GetScopeName` | missing | no wiring; non-public helper decl reference/coreclr/src/coreclr/System.Private.CoreLib/src/System/Reflection/RuntimeModule.cs:485 |
