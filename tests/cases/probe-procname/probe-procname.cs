@@ -216,6 +216,50 @@ namespace Cases
                 iName = "!" + e.GetType().Name;
             }
             Console.WriteLine("[i.unread_after_hasexited]=" + iName);
+
+            // [j]: the cache must survive a compacting collection. A live read
+            // fills it, GC.Collect() runs a full (Gen0-compacting) cycle, then
+            // the post-exit read must still answer the same stem. This pins the
+            // GC-safety of the cache (the runtime keeps NON-managed text and
+            // materializes the managed string per read).
+            Process pj = Process.Start("cmd.exe", "/c ping 127.0.0.1 -n 3");
+            string jAlive;
+            try
+            {
+                jAlive = pj.ProcessName;
+            }
+            catch (Exception e)
+            {
+                jAlive = "!" + e.GetType().Name;
+            }
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            string jAfterGc;
+            try
+            {
+                jAfterGc = pj.ProcessName;
+            }
+            catch (Exception e)
+            {
+                jAfterGc = "!" + e.GetType().Name;
+            }
+            Console.WriteLine("[j.gc_alive.eq_expected]=" + Same(jAlive, "cmd"));
+            Console.WriteLine("[j.gc_after.eq_alive]=" + Same(jAfterGc, jAlive));
+            pj.WaitForExit();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            string jAfterExitGc;
+            try
+            {
+                jAfterExitGc = pj.ProcessName;
+            }
+            catch (Exception e)
+            {
+                jAfterExitGc = "!" + e.GetType().Name;
+            }
+            Console.WriteLine("[j.gc_exited.eq_alive]=" + Same(jAfterExitGc, jAlive));
         }
     }
 }
