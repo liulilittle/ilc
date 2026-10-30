@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 
 ALL_CAPS = ['handleref', 'entrypoint-suffix', 'byref-scalar', 'array',
             'stringbuilder', 'struct-return', 'name-clash', 'byref-other', 'object',
-            'entrypoint-missing']
+            'entrypoint-missing', 'nonblittable-struct']
 
 
 def needs_of(row):

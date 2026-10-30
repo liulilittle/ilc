@@ -115,6 +115,12 @@ R_SUFFIX = ('entrypoint-suffix',
             '"Name"; il2cpp_pinvoke_resolve looks up the BARE name only, so a W/A-only API '
             'throws EntryPointNotFoundException [probe: CharSet.Unicode GetWindowText with '
             'ExactSpelling=false = runtime "Unable to find an entry point named GetWindowText"]')
+R_NONBLIT = ('nonblittable-struct',
+             'struct parameter whose managed layout is NOT byte-identical to the native one (it carries '
+             'a managed reference where the native side has inline data): LOGFONTW.lfFaceName is '
+             'WCHAR[32] natively but an Il2CppObject* in the generated struct; the same for '
+             'CHOOSEFONT/OPENFILENAME/NOTIFYICONDATA/MONITORINFOEX/... '
+             '[probe: LOGFONT-like struct by-ref = TRANSPILE-PASS, generated field is a GC pointer]')
 R_NAME_CLASH = ('name-clash',
                 'struct parameter whose C++ struct name collides with a Windows SDK typedef '
                 '(LOGFONTW / TEXTMETRICW / ...): generated.h forward-declares "struct LOGFONTW" '
@@ -152,6 +158,25 @@ def flags_of(row):
     return set(f for f in row['flag'].split(',') if f)
 
 
+def load_nonblittable_structs(graph_dir):
+    """Struct names whose layout is NOT byte-identical to the native one.
+
+    WinFormsStructProbe marks a struct NON-BLITTABLE when it has a managed
+    reference field (string / class / array / delegate). The emitter passes such
+    a struct BY ADDRESS with a GC pointer where the native side expects inline
+    data (e.g. LOGFONTW.lfFaceName is WCHAR[32] natively but Il2CppObject* in the
+    generated struct) -- a silent layout mismatch, not a LOUD rejection.
+    """
+    path = os.path.join(graph_dir, 'structs.tsv')
+    out = set()
+    if not os.path.exists(path):
+        return out
+    for r in csv.DictReader(io.open(path, encoding='utf-16', newline=''), delimiter='\t'):
+        if r['verdict'] != 'blittable':
+            out.add(r['struct'])
+    return out
+
+
 def load_exports(graph_dir):
     """(module, entrypoint) -> verdict from WinFormsExportProbe, when present."""
     path = os.path.join(graph_dir, 'exports.tsv')
@@ -163,7 +188,7 @@ def load_exports(graph_dir):
     return out
 
 
-def classify(row, com_types, exports):
+def classify(row, com_types, exports, nonblittable):
     module = row['module']
     owner = row['owner']
     entry = row['entrypoint']
@@ -230,6 +255,9 @@ def classify(row, com_types, exports):
             needs.append('name-clash')
     if 'object' in flags:
         needs.append('object')
+    struct_params = [p.rstrip('&') for p in params if p.rstrip('&') in nonblittable]
+    if struct_params:
+        needs.append('nonblittable-struct')
 
     needs = [n for n in dict.fromkeys(needs)]
     # ZeroMemory is a kernel32 MACRO (the loader has no such export at all);
@@ -241,6 +269,7 @@ def classify(row, com_types, exports):
         reasons = {
             'entrypoint-suffix': R_SUFFIX[1],
             'entrypoint-missing': R_MISSING[1],
+            'nonblittable-struct': R_NONBLIT[1],
             'handleref': R_HANDLEREF[1],
             'stringbuilder': R_SB[1],
             'array': R_ARRAY[1],
@@ -270,12 +299,13 @@ def main():
     graph_dir, out_tsv = sys.argv[1], sys.argv[2]
     com_types = load_com_types(graph_dir)
     exports = load_exports(graph_dir)
+    nonblittable = load_nonblittable_structs(graph_dir)
 
     rows = list(csv.DictReader(io.open(os.path.join(graph_dir, 'pinvokes.tsv'),
                                        encoding='utf-8', newline=''), delimiter='\t'))
     out = []
     for r in rows:
-        cls, reason, needs = classify(r, com_types, exports)
+        cls, reason, needs = classify(r, com_types, exports, nonblittable)
         out.append(dict(r, klass=cls, needs='+'.join(needs), reason=reason))
 
     cols = ['klass', 'needs', 'module', 'entrypoint', 'owner', 'method', 'charset',

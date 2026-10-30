@@ -26,7 +26,7 @@ from classify_winforms_pinvokes import (  # noqa: E402
 
 ALL_CAPS = ['handleref', 'entrypoint-suffix', 'byref-scalar', 'array',
             'stringbuilder', 'struct-return', 'name-clash', 'byref-other', 'object',
-            'entrypoint-missing']
+            'entrypoint-missing', 'nonblittable-struct']
 
 CAP_LABEL = {
     'handleref': 'HandleRef -> native handle decay',
@@ -39,6 +39,7 @@ CAP_LABEL = {
     'byref-other': 'ref/out of class / foreign-assembly value type',
     'object': 'System.Object VARIANT-style parameter',
     'entrypoint-missing': 'entry point absent from the module (macro alias / comctl32 v6 only)',
+    'nonblittable-struct': 'struct layout not byte-identical (managed ref field vs inline native data)',
 }
 
 DOMAIN_ORDER = [
@@ -308,9 +309,10 @@ def main():
          'TRANSPILE-FAIL `P/Invoke parameter type \'B:i\' ... not supported`'),
         ('1.9', '`HandleRef` 参数', '**缺**（本审计新发现，影响 %d 条）' % cap_touch['handleref'],
          '`src/il2cppc/Emit/CodeGenerator.cs:9128`（只有委托 `r:` 被特判）→ '
-         '`src/il2cppc/Emit/CodeGenerator.cs:9153`（HandleRef 无衰减路径）；'
-         '生成的头文件不声明该结构体（probe 的 `System_Runtime_InteropServices_HandleRef_class` 未声明）',
-         'TRANSPILE-PASS 但 **C++-BUILD-FAIL**'),
+         '`src/il2cppc/Emit/CodeGenerator.cs:9153`（HandleRef 无衰减路径）。net48 把 HandleRef '
+         '作为**特殊**结构体：只传 `.Handle`（一个 IntPtr），wrapper 对象只用于保活；'
+         '当前发射器按普通值类型（`V:`）传整个 16 字节结构体，即使类型能声明，ABI 也不对',
+         'TRANSPILE-PASS 但 **C++-BUILD-FAIL**（`System_Runtime_InteropServices_HandleRef_class` 未声明）'),
         ('1.10', '入口名 A/W 后缀探测（`ExactSpelling=false`）', '**缺**（本审计新发现，影响 %d 条）'
          % cap_touch['entrypoint-suffix'],
          '`src/runtime/src/pinvoke.cpp:153`（`il2cpp_pinvoke_resolve` 只用传入的字面 entry 名，无后缀探测）',
@@ -340,6 +342,13 @@ def main():
          '填充 `:13499`（`il2cpp_resource_pool_fill()`）；读取 `src/il2cppc/Emit/MethodMap.Resources.cs:54`；'
          '`ResourceManager` 接线 `src/il2cppc/Emit/MethodMap.Resource.cs:58`',
          'Forms 227 个资源全部被枚举（`resources.tsv`），实际 223 + Drawing 4'),
+        ('1.16b', '结构体布局的**逐字节**等价性（非 blittable 结构体）', '**缺**（本审计新发现，影响 %d 条）'
+         % 55,
+         '`src/il2cppc/Emit/TypeEmitter.cs:1054`（`LayoutValueTypeFields` 按 C++ 自然对齐排字段，'
+         '但 `src/il2cppc/MetadataLoader.cs:1011` 把引用字段解成 GC 指针）；'
+         '`src/il2cppc/Emit/CodeGenerator.cs:9045`（未注册结构体按地址透传）；'
+         '实测清单 `structs.tsv`（WinFormsStructProbe）',
+         'LOGFONT 形态 by-ref：TRANSPILE-PASS，生成字段是 `Il2CppObject*`（原生 `WCHAR[32]`）'),
         ('1.17', 'COM（RCW/CCW/IDispatch）', '已有**部分**运行时（旧文档「M8 远期、无 COM 运行时」**不成立**）',
          '`src/runtime/include/internal/il2cpp_com.h:3`；实现 `src/runtime/src/com.cpp:8045`（'
          '`icall_com_create_instance_clsid`）等；托管面 `src/il2cppc/Emit/MethodMap.Marshal.cs:457`'
@@ -461,7 +470,10 @@ def main():
     w('\n分类分布：A=%d / B=%d / C=%d / D=%d / E=%d。\n\n'
       % (reach_class['A'], reach_class['B'], reach_class['C'], reach_class['D'], reach_class['E']))
 
-    w('### 4.2 P0 清单（3 跳以内，按接线成本升序：缺的能力越少越靠前）\n\n')
+    w('### 4.2 P0 清单（全部可达 EntryPoint，按接线成本升序）\n\n')
+    w('排序键 = (仍缺的能力个数, 距 root 跳数, DLL, EntryPoint)。「仍缺能力」为空 = 现有 marshal '
+      '直接可用（A/E）。**这是阶段 1 的完整 P0 集合**：`Application.Run(new Form())` + Button/Label + '
+      'Click + WM_PAINT 这条路径上真正会被调用的全部 P/Invoke。\n\n')
     capcnt = {}
     for k in reach_keys:
         rs = [r for r in reach_rows if (r['module'], r['entrypoint']) == k]
@@ -470,16 +482,15 @@ def main():
             ns |= needs_of(r)
         capcnt[k] = ns
     order2 = sorted(reach_keys, key=lambda k: (len(capcnt[k]), reach[k][0], k[0], k[1]))
-    n3 = [k for k in order2 if reach[k][0] <= 3]
-    w('| # | DLL | EntryPoint | 跳数 | class | 仍缺能力 | exports |\n|---|---|---|---|---|---|\n')
-    for i, k in enumerate(n3, 1):
+    w('| # | DLL | EntryPoint | 跳数 | 声明数 | class | 仍缺能力 | exports |\n|---|---|---|---|---|---|---|---|\n')
+    for i, k in enumerate(order2, 1):
         rs = [r for r in reach_rows if (r['module'], r['entrypoint']) == k]
         classes = '/'.join(sorted({r['klass'] for r in rs}))
-        w('| %d | `%s` | `%s` | %d | %s | %s | %s |\n'
-          % (i, k[0], k[1], reach[k][0], classes,
+        w('| %d | `%s` | `%s` | %d | %d | %s | %s | %s |\n'
+          % (i, k[0], k[1], reach[k][0], len(rs), classes,
              '+'.join(sorted(capcnt[k])) or '-', (exports.get(k) or {}).get('verdict', '?')))
-    w('\n共 **%d** 个 EntryPoint（%d 条声明）落在 3 跳以内。\n\n'
-      % (len(n3), sum(1 for r in reach_rows if reach[(r['module'], r['entrypoint'])][0] <= 3)))
+    w('\n共 **%d** 个 EntryPoint（%d 条声明）。其中 %d 个在 3 跳以内（最小可跑集的"第一波"）。\n\n'
+      % (len(order2), len(reach_rows), sum(1 for k in order2 if reach[k][0] <= 3)))
 
     w('### 4.3 贪心接线顺序（每加一个能力，阶段 1 闭环多少条）\n\n')
     have = set()
@@ -658,15 +669,19 @@ def main():
         ('11', '「user32 281 / gdi32 117 / kernel32 60」',
          '**口径不清楚**：Forms 子集数；Forms+Drawing 全量是 301/203/71',
          '`pinvokes.tsv` 按 assembly×DLL 聚合'),
-        ('12', '「阶段 1 五个大缺口：UTF-16、结构体、IntPtr 参数、byte[] 参数、委托回调」',
+        ('12', '（旧文档未提）结构体布局是否逐字节等价',
+         '**新增缺口**：55 条 P/Invoke 用的结构体含托管引用字段（string/数组/委托），'
+         '生成的 C++ 结构体是 GC 指针而非原生内联数据，静默错位',
+         '`src/il2cppc/MetadataLoader.cs:1011`、`tools/audit/WinFormsStructProbe` 的 `structs.tsv`'),
+        ('13', '「阶段 1 五个大缺口：UTF-16、结构体、IntPtr 参数、byte[] 参数、委托回调」',
          '**推翻一半**：三项已补齐；byte[] 与 ref/out 标量仍缺，'
          '并**新增** `HandleRef` 与入口名后缀两项（旧文档完全没提）',
          '§1 表格 1.3/1.5/1.2/1.11 vs 1.7/1.8/1.9/1.10'),
     ]
     for r in ref_tbl:
         w('| %s |\n' % ' | '.join(r))
-    w('\n**合计：12 条差异 —— 完全推翻 5 条、部分推翻 4 条、旧称「施工中」现已落地 1 条、'
-      '统计口径不同 2 条。被推翻/部分推翻合计 **9 条**。**\n\n')
+    w('\n**合计：13 条差异 —— 完全推翻 5 条、部分推翻 4 条、旧称「施工中」现已落地 1 条、'
+      '统计口径不同 2 条、旧文档未记的新缺口 1 条。被推翻/部分推翻合计 **9 条**。**\n\n')
     w('**未被推翻**的旧结论（仍然成立）：\n\n')
     w('- 数组参数（`byte[]`/`char[]`/`int[]`/`Ptr[]`/`struct[]`）无 pin/copy 桥（1.7）。\n')
     w('- uxtheme(31) / imm32(10) / UIAutomationCore(9) 属后置或不可达（§2 分类）。\n')
@@ -695,6 +710,13 @@ def main():
       '+ `EmitIcallCallArgs` 的地址转换 | %d 条 / 直接闭环 %d 条 | probe 的 `ref int / ref IntPtr`、'
       '`out Guid`、`out string` → `C++-BUILD-OK`；`GetWindowThreadProcessId` 真机返值 |\n'
       % (cap_touch['byref-scalar'], cap_alone['byref-scalar']))
+    w('| **W3b** | 非 blittable 结构体的字段 marshal | `src/il2cppc/MetadataLoader.cs:1011`'
+      '（引用字段必须按 `ByValTStr`/`ByValArray`/函数指针的**原生形态**布局，而不是 GC 指针）+'
+      ' `src/il2cppc/Emit/TypeEmitter.cs:1054`（布局按 marshal 后的宽度排）+ '
+      '`src/il2cppc/Emit/CodeGenerator.cs:9045`（透传前的逐字段转换） | %d 条 / 阶段 1 直接闭环 24 条 | '
+      '`WinFormsStructProbe` 的 `structs.tsv` 里 `NON-BLITTABLE` 归零；`SystemParametersInfo`'
+      '（LOGFONT/NONCLIENTMETRICS）与 `RegisterClass`（WNDCLASS_D）真机回填 |\n'
+      % cap_touch['nonblittable-struct'])
     w('| **W4** | 数组 pin/copy | `src/il2cppc/Emit/CodeGenerator.cs`（`PinvokeParamList` + 折叠器'
       ' `src/il2cppc/Ir/StackFold.cs`）：复用 `src/runtime/src/pinvokeext.cpp:257` 的 '
       '`il2cpp_pinvoke_byte_array_data`，扩展到 `char[]`/`int[]`/`float[]`/结构体[] | '
@@ -732,6 +754,10 @@ def main():
     w('  "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/System.Drawing.dll"\n\n')
     w('# 2) 真实 GetProcAddress 导出探测（裸名 / NameW / NameA）\n')
     w('dotnet run --project <repo>/tools/audit/WinFormsExportProbe -- <out>/graph/pinvokes.tsv <out>/graph/exports.tsv\n\n')
+    w('# 2b) struct layout / blittability census\n')
+    w('dotnet run --project <repo>/tools/audit/WinFormsStructProbe -- <out>/graph/pinvokes.tsv `\n')
+    w('  "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/System.Windows.Forms.dll" `\n')
+    w('  "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/System.Drawing.dll" > <out>/graph/structs.tsv\n\n')
     w('# 3) 逐条分类（A/B/C/D/E + 缺失能力集合）\n')
     w('python <repo>/tools/audit/classify_winforms_pinvokes.py <out>/graph <out>/classified.tsv\n\n')
     w('# 4) 阶段 1 闭环分析\n')

@@ -11,8 +11,8 @@
 
 | 类 | 含义 | 条数 | 占比 |
 |---|---|---|---|
-| **A** | 现有 marshal 即可（只需接线/声明） | 109 | 8.3% |
-| **B** | 需新增 marshal 能力 | 1098 | 83.4% |
+| **A** | 现有 marshal 即可（只需接线/声明） | 106 | 8.0% |
+| **B** | 需新增 marshal 能力 | 1101 | 83.6% |
 | **C** | 需 COM 运行时（RCW/CCW/IDispatch） | 50 | 3.8% |
 | **D** | 阶段 1 不可达（域不在范围内） | 53 | 4.0% |
 | **E** | 托管/运行时侧实现即可 | 7 | 0.5% |
@@ -20,8 +20,8 @@
 
 要点：
 
-- **B 类占到 83%**；其中 983 条（75%）涉及**同一个**能力 —— `HandleRef` → native handle 的衰减，且 620 条**只差这一个**（见 §1.9 与 §8）。这是整份盘点的最大结论。
-- **A 类只有 109 条**，且集中在 gdiplus 之外的 DLL：gdiplus 的 566 条里只有 4 条不需要新能力。
+- **B 类占到 84%**；其中 983 条（75%）涉及**同一个**能力 —— `HandleRef` → native handle 的衰减，且 617 条**只差这一个**（见 §1.9 与 §8）。这是整份盘点的最大结论。
+- **A 类只有 106 条**，且集中在 gdiplus 之外的 DLL：gdiplus 的 566 条里只有 4 条不需要新能力。
 - **入口名后缀探测**（`ExactSpelling=false` + A/W-only 导出）是第二个被漏掉的能力：174 条 P/Invoke 会转译成功、运行时抛 `EntryPointNotFoundException`（§1.10 有 red 证据）。
 - **InternalCall = 0**（方法层）已复核：Forms 0 / Drawing 0。但有 **4 个 ComImport 类的 `.ctor`** 带 `InternalCall` 位（`impl=4099`），它们由 CLR 的 COM 激活器实现，不是普通方法 —— 这 4 条是 COM 面的一部分（§5.3）。
 - 阶段 1 从 `Application.Run` / `Control.WndProc` / `Control.WmPaint` 等 11 个 root 前向 BFS 可达 **327 个** 不同 EntryPoint（529 条声明），其中 85 条落在 3 跳以内。
@@ -57,7 +57,7 @@ internalcalls=4
 | 1.6 | 结构体 by-value **返回**（未注册类型） | **缺**（声明退回 `int32_t`） | `src/il2cppc/Emit/CodeGenerator.cs:9153`（注册表只有 Point/Rectangle/Message）；`src/il2cppc/Emit/CodeGenerator.cs:9157`（`_ => null` 落到 `int32_t`） | TRANSPILE-PASS 但 **C++-BUILD-FAIL**（`request for member cx in il2cpp_pinvoke_call<int32_t>`） |
 | 1.7 | `byte[]` / `char[]` / `int[]` 数组参数 | **缺**（旧文档「大缺口」**成立**） | `src/il2cppc/Emit/CodeGenerator.cs:9138`（`r:`/`F:`/`P:`/`B:` 一律 LOUD 抛）与 `:9142`（异常消息）；运行时 helper `src/runtime/src/pinvokeext.cpp:257` 存在但**无发射路径** | TRANSPILE-FAIL `P/Invoke parameter type 'r:u1[]' ... not supported` |
 | 1.8 | `ref`/`out` 标量（`int&` / `IntPtr&`） | **缺** | 同 1.7 的 LOUD 分支 `src/il2cppc/Emit/CodeGenerator.cs:9138`（`B:` 前缀）；只有注册结构体的 `B:V:` 在 `:9075` 被放行 | TRANSPILE-FAIL `P/Invoke parameter type 'B:i' ... not supported` |
-| 1.9 | `HandleRef` 参数 | **缺**（本审计新发现，影响 983 条） | `src/il2cppc/Emit/CodeGenerator.cs:9128`（只有委托 `r:` 被特判）→ `src/il2cppc/Emit/CodeGenerator.cs:9153`（HandleRef 无衰减路径）；生成的头文件不声明该结构体（probe 的 `System_Runtime_InteropServices_HandleRef_class` 未声明） | TRANSPILE-PASS 但 **C++-BUILD-FAIL** |
+| 1.9 | `HandleRef` 参数 | **缺**（本审计新发现，影响 983 条） | `src/il2cppc/Emit/CodeGenerator.cs:9128`（只有委托 `r:` 被特判）→ `src/il2cppc/Emit/CodeGenerator.cs:9153`（HandleRef 无衰减路径）。net48 把 HandleRef 作为**特殊**结构体：只传 `.Handle`（一个 IntPtr），wrapper 对象只用于保活；当前发射器按普通值类型（`V:`）传整个 16 字节结构体，即使类型能声明，ABI 也不对 | TRANSPILE-PASS 但 **C++-BUILD-FAIL**（`System_Runtime_InteropServices_HandleRef_class` 未声明） |
 | 1.10 | 入口名 A/W 后缀探测（`ExactSpelling=false`） | **缺**（本审计新发现，影响 174 条） | `src/runtime/src/pinvoke.cpp:153`（`il2cpp_pinvoke_resolve` 只用传入的字面 entry 名，无后缀探测） | **运行时** `EntryPointNotFoundException: Unable to find an entry point named 'GetWindowText'` |
 | 1.11 | 委托 → 函数指针回调 | 已有（旧文档「施工中」**已落地**） | `src/il2cppc/Emit/CodeGenerator.cs:9128`（`DelegateGfpForPinvokeParam` → `intptr_t`）；`src/il2cppc/Emit/MethodRefResolver.cs:3227`；运行时 `src/runtime/src/pinvokeext.cpp:278` | TRANSPILE-PASS + C++-BUILD-OK（`il2cpp_delegate_gfp_...` 分发器） |
 | 1.12 | `SetLastError` 捕获 / 读取 | 已有 | 捕获 `src/runtime/src/pinvoke.cpp:278`；读取 `:291`；发射点 `src/il2cppc/Emit/CodeGenerator.cs:4623`；折叠点 `src/il2cppc/Ir/StackFold.cs:2560`；`Marshal.GetLastWin32Error` → `src/il2cppc/Emit/MethodMap.Marshal.cs:95` | 生成代码含 `il2cpp_pinvoke_capture_last_error();` |
@@ -65,6 +65,7 @@ internalcalls=4
 | 1.14 | 返回值：`IntPtr` / 宽度 / `void` | 已有 | `src/il2cppc/Emit/CodeGenerator.cs:8986`（`PinvokeReturnTypeCpp`）；结果 kind `src/il2cppc/Emit/MethodRefResolver.cs:712` | TRANSPILE-PASS + C++-BUILD-OK |
 | 1.15 | 返回值：字符串 | **缺**（native `char*`/`char16_t*` 返回没有回填） | `src/il2cppc/Emit/CodeGenerator.cs:8986` 尾部注释（「STRING-typed return ... out of P0 scope」） | 本次未单列 probe（签名里没有这样的 net48 P/Invoke，见 §1 备注） |
 | 1.16 | 嵌入资源解码（`ManifestResource` / `ResourceManager`） | 已有（旧文档「转译器 0 匹配」**不成立**） | 计数 `src/il2cppc/Emit/CodeGenerator.cs:9167`（`ResourceCount`）→ 头文件 `:2084`（`resource-pool.h`）→ 填充 `:13499`（`il2cpp_resource_pool_fill()`）；读取 `src/il2cppc/Emit/MethodMap.Resources.cs:54`；`ResourceManager` 接线 `src/il2cppc/Emit/MethodMap.Resource.cs:58` | Forms 227 个资源全部被枚举（`resources.tsv`），实际 223 + Drawing 4 |
+| 1.16b | 结构体布局的**逐字节**等价性（非 blittable 结构体） | **缺**（本审计新发现，影响 55 条） | `src/il2cppc/Emit/TypeEmitter.cs:1054`（`LayoutValueTypeFields` 按 C++ 自然对齐排字段，但 `src/il2cppc/MetadataLoader.cs:1011` 把引用字段解成 GC 指针）；`src/il2cppc/Emit/CodeGenerator.cs:9045`（未注册结构体按地址透传）；实测清单 `structs.tsv`（WinFormsStructProbe） | LOGFONT 形态 by-ref：TRANSPILE-PASS，生成字段是 `Il2CppObject*`（原生 `WCHAR[32]`） |
 | 1.17 | COM（RCW/CCW/IDispatch） | 已有**部分**运行时（旧文档「M8 远期、无 COM 运行时」**不成立**） | `src/runtime/include/internal/il2cpp_com.h:3`；实现 `src/runtime/src/com.cpp:8045`（`icall_com_create_instance_clsid`）等；托管面 `src/il2cppc/Emit/MethodMap.Marshal.cs:457`（`IsComObject`）/ `:472` / `:512` / `:541` | ComImport 接口本身可转译（`probe_com`：TRANSPILE-PASS），vtable 调用仍缺 |
 
 **1.15 备注**：net48 里返回 native 指针/字符串的 P/Invoke 会把结果声明成 `IntPtr`（`GetProcAddress`、`SHGetKnownFolderPath` 等），再由托管侧 `Marshal.PtrToStringUni` 解码 —— 解码侧 `src/il2cppc/Emit/MethodMap.Marshal.cs:120` 已接线。所以 1.15 在 Forms/Drawing 的 1317 条里**没有实际命中**（`pinvokes.tsv` 的 `ret` 列无 `System.String`）。
@@ -94,9 +95,9 @@ internalcalls=4
 | `uxtheme.dll` | 3 | 28 | 0 | 0 | 0 | 31 |
 | `ole32.dll` | 0 | 3 | 21 | 0 | 0 | 24 |
 | `comctl32.dll` | 4 | 14 | 3 | 0 | 0 | 21 |
-| `oleaut32.dll` | 1 | 4 | 13 | 0 | 0 | 18 |
+| `oleaut32.dll` | 0 | 5 | 13 | 0 | 0 | 18 |
 | `clr.dll` | 0 | 0 | 0 | 16 | 0 | 16 |
-| `shell32.dll` | 3 | 9 | 1 | 0 | 0 | 13 |
+| `shell32.dll` | 1 | 11 | 1 | 0 | 0 | 13 |
 | `comdlg32.dll` | 1 | 10 | 0 | 0 | 0 | 11 |
 | `imm32.dll` | 0 | 0 | 0 | 10 | 0 | 10 |
 | `UIAutomationCore.dll` | 0 | 0 | 0 | 9 | 0 | 9 |
@@ -110,19 +111,20 @@ internalcalls=4
 | `Powrprof.dll` | 0 | 0 | 0 | 1 | 0 | 1 |
 | `wldp.dll` | 0 | 0 | 0 | 1 | 0 | 1 |
 | `SHCore.dll` | 1 | 0 | 0 | 0 | 0 | 1 |
-| **合计** | **109** | **1098** | **50** | **53** | **7** | **1317** |
+| **合计** | **106** | **1101** | **50** | **53** | **7** | **1317** |
 
 ### 2.1 B 类按缺失能力分组（同一能力一起补 = 一次大批量收益）
 
 | 缺失能力 | 涉及条数 | 补齐后**单独**解决 |
 |---|---|---|
-| HandleRef -> native handle decay（`handleref`） | 983 | 620 |
+| HandleRef -> native handle decay（`handleref`） | 983 | 617 |
 | ref/out SCALAR (int*/IntPtr*) + out-Guid + out-string（`byref-scalar`） | 238 | 39 |
-| CharSet A/W entry-point suffix probing（`entrypoint-suffix`） | 174 | 35 |
+| CharSet A/W entry-point suffix probing（`entrypoint-suffix`） | 174 | 22 |
 | array buffer pin/copy (byte[]/char[]/...)（`array`） | 67 | 16 |
+| struct layout not byte-identical (managed ref field vs inline native data)（`nonblittable-struct`） | 55 | 3 |
 | StringBuilder native-write buffer（`stringbuilder`） | 21 | 3 |
 | ref/out of class / foreign-assembly value type（`byref-other`） | 13 | 0 |
-| struct C++ name vs Windows SDK typedef（`name-clash`） | 11 | 1 |
+| struct C++ name vs Windows SDK typedef（`name-clash`） | 11 | 0 |
 | by-value struct RETURN for unregistered structs（`struct-return`） | 9 | 3 |
 | System.Object VARIANT-style parameter（`object`） | 7 | 0 |
 | entry point absent from the module (macro alias / comctl32 v6 only)（`entrypoint-missing`） | 1 | 0 |
@@ -205,7 +207,7 @@ internalcalls=4
 | `EndPaint` | 1 | B | handleref | bare |
 | `EnumChildWindows` | 1 | B | handleref | bare |
 | `EnumDisplayMonitors` | 1 | B | handleref | bare |
-| `EnumDisplaySettings` | 1 | B | entrypoint-suffix | only-W |
+| `EnumDisplaySettings` | 1 | B | entrypoint-suffix, nonblittable-struct | only-W |
 | `EnumThreadWindows` | 1 | B | handleref | bare |
 | `EnumWindows` | 1 | A | - | bare |
 | `FillRect` | 3 | B | handleref | bare |
@@ -240,11 +242,11 @@ internalcalls=4
 | `GetMenu` | 1 | B | handleref | bare |
 | `GetMenuItemCount` | 1 | B | handleref | bare |
 | `GetMenuItemID` | 1 | B | handleref | bare |
-| `GetMenuItemInfo` | 2 | B | entrypoint-suffix, handleref | only-W |
+| `GetMenuItemInfo` | 2 | B | entrypoint-suffix, handleref, nonblittable-struct | only-W |
 | `GetMessageA` | 1 | B | handleref | bare |
 | `GetMessagePos` | 1 | A | - | bare |
 | `GetMessageW` | 1 | B | handleref | bare |
-| `GetMonitorInfo` | 1 | B | entrypoint-suffix, handleref | only-W |
+| `GetMonitorInfo` | 1 | B | entrypoint-suffix, handleref, nonblittable-struct | only-W |
 | `GetParent` | 1 | B | handleref | bare |
 | `GetPhysicalCursorPos` | 1 | B | struct-return | bare |
 | `GetProcessWindowStation` | 1 | A | - | bare |
@@ -269,7 +271,7 @@ internalcalls=4
 | `GetWindowTextLength` | 1 | B | entrypoint-suffix, handleref | only-W |
 | `GetWindowThreadProcessId` | 1 | B | byref-scalar, handleref | bare |
 | `HideCaret` | 1 | B | handleref | bare |
-| `InsertMenuItem` | 1 | B | entrypoint-suffix, handleref | only-W |
+| `InsertMenuItem` | 1 | B | entrypoint-suffix, handleref, nonblittable-struct | only-W |
 | `InvalidateRect` | 2 | B | handleref | bare |
 | `InvalidateRgn` | 1 | B | handleref | bare |
 | `IsChild` | 2 | B | handleref | bare |
@@ -299,7 +301,7 @@ internalcalls=4
 | `PostQuitMessage` | 1 | A | - | bare |
 | `PostThreadMessage` | 1 | B | entrypoint-suffix | only-W |
 | `RedrawWindow` | 2 | B | handleref | bare |
-| `RegisterClass` | 1 | B | entrypoint-suffix | only-W |
+| `RegisterClass` | 1 | B | entrypoint-suffix, nonblittable-struct | only-W |
 | `RegisterClipboardFormat` | 1 | B | entrypoint-suffix | only-W |
 | `RegisterWindowMessage` | 1 | B | entrypoint-suffix | only-W |
 | `ReleaseCapture` | 1 | A | - | bare |
@@ -310,7 +312,7 @@ internalcalls=4
 | `ScrollWindowEx` | 1 | B | handleref | bare |
 | `SendDlgItemMessage` | 1 | B | entrypoint-suffix, handleref | only-W |
 | `SendInput` | 1 | B | array | bare |
-| `SendMessage` | 61 | B | array, byref-other, byref-scalar, entrypoint-suffix, handleref, name-clash, stringbuilder | only-W |
+| `SendMessage` | 61 | B | array, byref-other, byref-scalar, entrypoint-suffix, handleref, name-clash, nonblittable-struct, stringbuilder | only-W |
 | `SendMessageTimeout` | 1 | B | byref-scalar, entrypoint-suffix, handleref | only-W |
 | `SetActiveWindow` | 1 | B | handleref | bare |
 | `SetCapture` | 1 | B | handleref | bare |
@@ -324,7 +326,7 @@ internalcalls=4
 | `SetLayeredWindowAttributes` | 1 | B | handleref | bare |
 | `SetMenu` | 1 | B | handleref | bare |
 | `SetMenuDefaultItem` | 1 | B | handleref | bare |
-| `SetMenuItemInfo` | 1 | B | entrypoint-suffix, handleref | only-W |
+| `SetMenuItemInfo` | 1 | B | entrypoint-suffix, handleref, nonblittable-struct | only-W |
 | `SetParent` | 1 | B | handleref | bare |
 | `SetProcessDPIAware` | 1 | A | - | bare |
 | `SetProcessDpiAwarenessContext` | 1 | A | - | bare |
@@ -342,8 +344,8 @@ internalcalls=4
 | `ShowCaret` | 1 | B | handleref | bare |
 | `ShowCursor` | 1 | A | - | bare |
 | `ShowWindow` | 1 | B | handleref | bare |
-| `SystemParametersInfo` | 10 | B | array, byref-scalar, entrypoint-suffix, name-clash | only-W |
-| `SystemParametersInfoForDpi` | 1 | B | name-clash | bare |
+| `SystemParametersInfo` | 10 | B | array, byref-scalar, entrypoint-suffix, name-clash, nonblittable-struct | only-W |
+| `SystemParametersInfoForDpi` | 1 | B | name-clash, nonblittable-struct | bare |
 | `TrackPopupMenuEx` | 1 | B | handleref | bare |
 | `TranslateMDISysAccel` | 1 | A | - | bare |
 | `TranslateMessage` | 1 | A | - | bare |
@@ -373,7 +375,7 @@ internalcalls=4
 | `CreateCompatibleBitmap` | 2 | B | handleref | bare |
 | `CreateCompatibleDC` | 4 | B | handleref | bare |
 | `CreateDC` | 3 | B | entrypoint-suffix, handleref | only-W |
-| `CreateDIBSection` | 2 | B | array, byref-scalar, handleref | bare |
+| `CreateDIBSection` | 2 | B | array, byref-scalar, handleref, nonblittable-struct | bare |
 | `CreateFontIndirect` | 2 | B | entrypoint-suffix, object | only-W |
 | `CreateHalftonePalette` | 1 | B | handleref | bare |
 | `CreateIC` | 3 | B | entrypoint-suffix, handleref | only-W |
@@ -396,12 +398,12 @@ internalcalls=4
 | `GetBkMode` | 2 | B | handleref | bare |
 | `GetClipRgn` | 4 | B | handleref | bare |
 | `GetCurrentObject` | 2 | B | handleref | bare |
-| `GetDIBits` | 2 | B | array, handleref | bare |
+| `GetDIBits` | 2 | B | array, handleref, nonblittable-struct | bare |
 | `GetDeviceCaps` | 4 | B | handleref | bare |
 | `GetGraphicsMode` | 2 | B | handleref | bare |
 | `GetMapMode` | 2 | B | handleref | bare |
 | `GetNearestColor` | 2 | B | handleref | bare |
-| `GetObject` | 12 | B | array, byref-scalar, entrypoint-suffix, handleref, name-clash | only-W |
+| `GetObject` | 12 | B | array, byref-scalar, entrypoint-suffix, handleref, name-clash, nonblittable-struct | only-W |
 | `GetObjectType` | 2 | B | handleref | bare |
 | `GetPaletteEntries` | 2 | B | array, handleref | bare |
 | `GetROP2` | 2 | B | handleref | bare |
@@ -443,9 +445,9 @@ internalcalls=4
 | `SetViewportOrgEx` | 3 | B | handleref | bare |
 | `SetWindowExtEx` | 1 | B | handleref | bare |
 | `SetWindowOrgEx` | 1 | B | handleref | bare |
-| `StartDoc` | 1 | B | entrypoint-suffix, handleref | only-W |
+| `StartDoc` | 1 | B | entrypoint-suffix, handleref, nonblittable-struct | only-W |
 | `StartPage` | 1 | B | handleref | bare |
-| `StretchDIBits` | 1 | B | array, handleref | bare |
+| `StretchDIBits` | 1 | B | array, handleref, nonblittable-struct | bare |
 | `StrokePath` | 2 | B | handleref | bare |
 
 ### 3.3 `kernel32.dll` — 71 条声明 / 46 个 EntryPoint
@@ -454,7 +456,7 @@ internalcalls=4
 |---|---|---|---|---|
 | `ActivateActCtx` | 1 | B | byref-scalar | bare |
 | `CloseHandle` | 2 | B | handleref | bare |
-| `CreateActCtx` | 1 | B | entrypoint-suffix | only-W |
+| `CreateActCtx` | 1 | B | entrypoint-suffix, nonblittable-struct | only-W |
 | `DeactivateActCtx` | 1 | A | - | bare |
 | `DuplicateHandle` | 1 | B | byref-scalar, handleref | bare |
 | `FormatMessage` | 3 | B | entrypoint-suffix, handleref, stringbuilder | only-W |
@@ -539,112 +541,357 @@ BFS 结果：**327 个**不同 EntryPoint 可达（529 条声明）。按跳数�
 
 分类分布：A=61 / B=441 / C=7 / D=17 / E=3。
 
-### 4.2 P0 清单（3 跳以内，按接线成本升序：缺的能力越少越靠前）
+### 4.2 P0 清单（全部可达 EntryPoint，按接线成本升序）
 
-| # | DLL | EntryPoint | 跳数 | class | 仍缺能力 | exports |
-|---|---|---|---|---|---|
-| 1 | `user32.dll` | `GetDesktopWindow` | 1 | A | - | bare |
-| 2 | `user32.dll` | `GetFocus` | 1 | A | - | bare |
-| 3 | `user32.dll` | `GetKeyState` | 1 | A | - | bare |
-| 4 | `UIAutomationCore.dll` | `UiaReturnRawElementProvider` | 2 | D | - | bare |
-| 5 | `kernel32.dll` | `DeactivateActCtx` | 2 | A | - | bare |
-| 6 | `oleacc.dll` | `LresultFromObject` | 2 | C | - | bare |
-| 7 | `user32.dll` | `GetForegroundWindow` | 2 | A | - | bare |
-| 8 | `user32.dll` | `GetThreadDpiAwarenessContext` | 2 | A | - | bare |
-| 9 | `UIAutomationCore.dll` | `UiaDisconnectProvider` | 3 | D | - | bare |
-| 10 | `gdi32.dll` | `GetStockObject` | 3 | A | - | bare |
-| 11 | `gdiplus.dll` | `GdipCreateHalftonePalette` | 3 | A | - | bare |
-| 12 | `kernel32.dll` | `GetCurrentProcess` | 3 | A | - | bare |
-| 13 | `kernel32.dll` | `GetCurrentThread` | 3 | A | - | bare |
-| 14 | `kernel32.dll` | `GetCurrentThreadId` | 3 | E | - | bare |
-| 15 | `user32.dll` | `AreDpiAwarenessContextsEqual` | 3 | A | - | bare |
-| 16 | `user32.dll` | `ReleaseCapture` | 3 | A | - | bare |
-| 17 | `user32.dll` | `SetThreadDpiAwarenessContext` | 3 | A | - | bare |
-| 18 | `user32.dll` | `WindowFromPoint` | 3 | A | - | bare |
-| 19 | `gdi32.dll` | `SelectPalette` | 1 | B | handleref | bare |
-| 20 | `kernel32.dll` | `GetModuleHandle` | 1 | B | entrypoint-suffix | only-W |
-| 21 | `user32.dll` | `GetParent` | 1 | B | handleref | bare |
-| 22 | `gdi32.dll` | `GetNearestColor` | 2 | B | handleref | bare |
-| 23 | `gdi32.dll` | `RealizePalette` | 2 | B | handleref | bare |
-| 24 | `gdiplus.dll` | `GdipCreateSolidFill` | 2 | B | byref-scalar | bare |
-| 25 | `gdiplus.dll` | `GdipRestoreGraphics` | 2 | B | handleref | bare |
-| 26 | `kernel32.dll` | `ActivateActCtx` | 2 | B | byref-scalar | bare |
-| 27 | `user32.dll` | `BeginPaint` | 2 | B | handleref | bare |
-| 28 | `user32.dll` | `CallWindowProc` | 2 | B | entrypoint-suffix | only-W |
-| 29 | `user32.dll` | `DefWindowProc` | 2 | B | entrypoint-suffix | only-W |
-| 30 | `user32.dll` | `EndPaint` | 2 | B | handleref | bare |
-| 31 | `user32.dll` | `GetClientRect` | 2 | B | handleref | bare |
-| 32 | `user32.dll` | `GetDlgItem` | 2 | B | handleref | bare |
-| 33 | `user32.dll` | `GetDpiForWindow` | 2 | B | handleref | bare |
-| 34 | `user32.dll` | `GetMenu` | 2 | B | handleref | bare |
-| 35 | `user32.dll` | `RegisterWindowMessage` | 2 | B | entrypoint-suffix | only-W |
-| 36 | `gdi32.dll` | `BitBlt` | 3 | B | handleref | bare |
-| 37 | `gdi32.dll` | `SetBkColor` | 3 | B | handleref | bare |
-| 38 | `gdi32.dll` | `SetTextColor` | 3 | B | handleref | bare |
-| 39 | `gdiplus.dll` | `GdipDrawImageRect` | 3 | B | handleref | bare |
-| 40 | `gdiplus.dll` | `GdipDrawString` | 3 | B | handleref | bare |
-| 41 | `gdiplus.dll` | `GdipSetClipGraphics` | 3 | B | handleref | bare |
-| 42 | `gdiplus.dll` | `GdipSetPageUnit` | 3 | B | handleref | bare |
-| 43 | `kernel32.dll` | `GetCurrentActCtx` | 3 | B | byref-scalar | bare |
-| 44 | `kernel32.dll` | `GetProcAddress` | 3 | B | handleref | bare |
-| 45 | `kernel32.dll` | `LoadLibrary` | 3 | B | entrypoint-suffix | only-W |
-| 46 | `kernel32.dll` | `LoadLibraryEx` | 3 | B | entrypoint-suffix | only-W |
-| 47 | `kernel32.dll` | `MultiByteToWideChar` | 3 | B | array | bare |
-| 48 | `kernel32.dll` | `WideCharToMultiByte` | 3 | B | array | bare |
-| 49 | `user32.dll` | `EnableWindow` | 3 | B | handleref | bare |
-| 50 | `user32.dll` | `GetDC` | 3 | B | handleref | bare |
-| 51 | `user32.dll` | `GetMenuItemCount` | 3 | B | handleref | bare |
-| 52 | `user32.dll` | `GetMenuItemID` | 3 | B | handleref | bare |
-| 53 | `user32.dll` | `GetSubMenu` | 3 | B | handleref | bare |
-| 54 | `user32.dll` | `GetWindow` | 3 | B | handleref | bare |
-| 55 | `user32.dll` | `GetWindowRect` | 3 | B | handleref | bare |
-| 56 | `user32.dll` | `InvalidateRect` | 3 | B | handleref | bare |
-| 57 | `user32.dll` | `IsWindowEnabled` | 3 | B | handleref | bare |
-| 58 | `user32.dll` | `IsWindowVisible` | 3 | B | handleref | bare |
-| 59 | `user32.dll` | `MapWindowPoints` | 3 | A/B | handleref | bare |
-| 60 | `user32.dll` | `NotifyWinEvent` | 3 | B | handleref | bare |
-| 61 | `user32.dll` | `RedrawWindow` | 3 | B | handleref | bare |
-| 62 | `user32.dll` | `RegisterClass` | 3 | B | entrypoint-suffix | only-W |
-| 63 | `user32.dll` | `ReleaseDC` | 3 | B | handleref | bare |
-| 64 | `user32.dll` | `SetCapture` | 3 | B | handleref | bare |
-| 65 | `user32.dll` | `SetCursor` | 3 | B | handleref | bare |
-| 66 | `user32.dll` | `SetFocus` | 3 | B | handleref | bare |
-| 67 | `user32.dll` | `SetWindowPos` | 3 | B | handleref | bare |
-| 68 | `gdiplus.dll` | `GdipGetDC` | 2 | B | byref-scalar+handleref | bare |
-| 69 | `gdiplus.dll` | `GdipSaveGraphics` | 2 | B | byref-scalar+handleref | bare |
-| 70 | `user32.dll` | `PostMessage` | 2 | B | entrypoint-suffix+handleref | only-W |
-| 71 | `gdiplus.dll` | `GdipCreateFromHDC` | 3 | B | byref-scalar+handleref | bare |
-| 72 | `gdiplus.dll` | `GdipGetImageHeight` | 3 | B | byref-scalar+handleref | bare |
-| 73 | `gdiplus.dll` | `GdipGetImageWidth` | 3 | B | byref-scalar+handleref | bare |
-| 74 | `user32.dll` | `GetClassInfo` | 3 | B | entrypoint-suffix+handleref | only-W |
-| 75 | `user32.dll` | `GetWindowLong` | 3 | B | entrypoint-suffix+handleref | only-W |
-| 76 | `user32.dll` | `GetWindowLongPtr` | 3 | B | entrypoint-suffix+handleref | only-W |
-| 77 | `user32.dll` | `GetWindowTextLength` | 3 | B | entrypoint-suffix+handleref | only-W |
-| 78 | `user32.dll` | `GetWindowThreadProcessId` | 3 | B | byref-scalar+handleref | bare |
-| 79 | `user32.dll` | `SetWindowText` | 3 | B | entrypoint-suffix+handleref | only-W |
-| 80 | `user32.dll` | `UnregisterClass` | 3 | B | entrypoint-suffix+handleref | only-W |
-| 81 | `user32.dll` | `CreateWindowEx` | 2 | B | entrypoint-suffix+handleref+object | only-W |
-| 82 | `user32.dll` | `GetClassName` | 3 | B | entrypoint-suffix+handleref+stringbuilder | only-W |
-| 83 | `user32.dll` | `GetWindowText` | 3 | B | entrypoint-suffix+handleref+stringbuilder | only-W |
-| 84 | `user32.dll` | `SystemParametersInfo` | 3 | B | array+byref-scalar+entrypoint-suffix+name-clash | only-W |
-| 85 | `user32.dll` | `SendMessage` | 1 | B | array+byref-other+byref-scalar+entrypoint-suffix+handleref+name-clash+stringbuilder | only-W |
+排序键 = (仍缺的能力个数, 距 root 跳数, DLL, EntryPoint)。「仍缺能力」为空 = 现有 marshal 直接可用（A/E）。**这是阶段 1 的完整 P0 集合**：`Application.Run(new Form())` + Button/Label + Click + WM_PAINT 这条路径上真正会被调用的全部 P/Invoke。
 
-共 **85** 个 EntryPoint（186 条声明）落在 3 跳以内。
+| # | DLL | EntryPoint | 跳数 | 声明数 | class | 仍缺能力 | exports |
+|---|---|---|---|---|---|---|---|
+| 1 | `user32.dll` | `GetDesktopWindow` | 1 | 1 | A | - | bare |
+| 2 | `user32.dll` | `GetFocus` | 1 | 1 | A | - | bare |
+| 3 | `user32.dll` | `GetKeyState` | 1 | 1 | A | - | bare |
+| 4 | `UIAutomationCore.dll` | `UiaReturnRawElementProvider` | 2 | 1 | D | - | bare |
+| 5 | `kernel32.dll` | `DeactivateActCtx` | 2 | 1 | A | - | bare |
+| 6 | `oleacc.dll` | `LresultFromObject` | 2 | 1 | C | - | bare |
+| 7 | `user32.dll` | `GetForegroundWindow` | 2 | 1 | A | - | bare |
+| 8 | `user32.dll` | `GetThreadDpiAwarenessContext` | 2 | 2 | A | - | bare |
+| 9 | `UIAutomationCore.dll` | `UiaDisconnectProvider` | 3 | 1 | D | - | bare |
+| 10 | `gdi32.dll` | `GetStockObject` | 3 | 4 | A | - | bare |
+| 11 | `gdiplus.dll` | `GdipCreateHalftonePalette` | 3 | 1 | A | - | bare |
+| 12 | `kernel32.dll` | `GetCurrentProcess` | 3 | 1 | A | - | bare |
+| 13 | `kernel32.dll` | `GetCurrentThread` | 3 | 1 | A | - | bare |
+| 14 | `kernel32.dll` | `GetCurrentThreadId` | 3 | 1 | E | - | bare |
+| 15 | `user32.dll` | `AreDpiAwarenessContextsEqual` | 3 | 2 | A | - | bare |
+| 16 | `user32.dll` | `ReleaseCapture` | 3 | 1 | A | - | bare |
+| 17 | `user32.dll` | `SetThreadDpiAwarenessContext` | 3 | 1 | A | - | bare |
+| 18 | `user32.dll` | `WindowFromPoint` | 3 | 1 | A | - | bare |
+| 19 | `hhctrl.ocx` | `HtmlHelp` | 4 | 5 | D | - | only-W |
+| 20 | `imm32.dll` | `ImmGetContext` | 4 | 1 | D | - | bare |
+| 21 | `imm32.dll` | `ImmGetConversionStatus` | 4 | 1 | D | - | bare |
+| 22 | `imm32.dll` | `ImmReleaseContext` | 4 | 1 | D | - | bare |
+| 23 | `imm32.dll` | `ImmSetConversionStatus` | 4 | 1 | D | - | bare |
+| 24 | `kernel32.dll` | `GetSystemDefaultLCID` | 4 | 1 | A | - | bare |
+| 25 | `ole32.dll` | `OleUninitialize` | 4 | 1 | C | - | bare |
+| 26 | `ole32.dll` | `RegisterDragDrop` | 4 | 1 | C | - | bare |
+| 27 | `ole32.dll` | `RevokeDragDrop` | 4 | 1 | C | - | bare |
+| 28 | `user32.dll` | `DispatchMessageA` | 4 | 1 | A | - | bare |
+| 29 | `user32.dll` | `DispatchMessageW` | 4 | 1 | A | - | bare |
+| 30 | `user32.dll` | `GetActiveWindow` | 4 | 1 | A | - | bare |
+| 31 | `user32.dll` | `GetCapture` | 4 | 1 | A | - | bare |
+| 32 | `user32.dll` | `GetKeyboardLayout` | 4 | 1 | A | - | bare |
+| 33 | `user32.dll` | `GetProcessWindowStation` | 4 | 1 | A | - | bare |
+| 34 | `user32.dll` | `GetSysColorBrush` | 4 | 1 | A | - | bare |
+| 35 | `user32.dll` | `GetSystemMetrics` | 4 | 2 | A | - | bare |
+| 36 | `user32.dll` | `TranslateMessage` | 4 | 1 | A | - | bare |
+| 37 | `user32.dll` | `WaitMessage` | 4 | 1 | A | - | bare |
+| 38 | `SHCore.dll` | `SetProcessDpiAwareness` | 5 | 1 | A | - | bare |
+| 39 | `gdi32.dll` | `CreateSolidBrush` | 5 | 3 | A | - | bare |
+| 40 | `imm32.dll` | `ImmAssociateContext` | 5 | 1 | D | - | bare |
+| 41 | `imm32.dll` | `ImmCreateContext` | 5 | 1 | D | - | bare |
+| 42 | `imm32.dll` | `ImmGetOpenStatus` | 5 | 1 | D | - | bare |
+| 43 | `imm32.dll` | `ImmSetOpenStatus` | 5 | 1 | D | - | bare |
+| 44 | `user32.dll` | `SetProcessDPIAware` | 5 | 1 | A | - | bare |
+| 45 | `user32.dll` | `SetProcessDpiAwarenessContext` | 5 | 1 | A | - | bare |
+| 46 | `comctl32.dll` | `ImageList_Create` | 6 | 1 | A | - | bare |
+| 47 | `comctl32.dll` | `InitCommonControls` | 6 | 1 | A | - | bare |
+| 48 | `gdi32.dll` | `CreateRectRgn` | 6 | 4 | A | - | bare |
+| 49 | `oleacc.dll` | `CreateStdAccessibleObject` | 6 | 1 | C | - | bare |
+| 50 | `user32.dll` | `AdjustWindowRectEx` | 6 | 1 | A | - | bare |
+| 51 | `user32.dll` | `AdjustWindowRectExForDpi` | 6 | 1 | A | - | bare |
+| 52 | `ole32.dll` | `OleInitialize` | 7 | 1 | C | - | bare |
+| 53 | `user32.dll` | `GetWindowDpiAwarenessContext` | 7 | 1 | A | - | bare |
+| 54 | `UIAutomationCore.dll` | `UiaClientsAreListening` | 8 | 1 | D | - | bare |
+| 55 | `UIAutomationCore.dll` | `UiaRaiseAutomationEvent` | 8 | 1 | D | - | bare |
+| 56 | `comctl32.dll` | `InitCommonControlsEx` | 8 | 1 | A | - | bare |
+| 57 | `gdiplus.dll` | `GdipCreateBitmapFromStream` | 8 | 1 | C | - | bare |
+| 58 | `user32.dll` | `CreatePopupMenu` | 8 | 1 | A | - | bare |
+| 59 | `user32.dll` | `GetMessagePos` | 8 | 1 | A | - | bare |
+| 60 | `user32.dll` | `MonitorFromPoint` | 8 | 1 | A | - | bare |
+| 61 | `uxtheme.dll` | `GetThemeAppProperties` | 8 | 1 | A | - | bare |
+| 62 | `uxtheme.dll` | `IsAppThemed` | 8 | 1 | A | - | bare |
+| 63 | `user32.dll` | `GetSysColor` | 9 | 2 | A | - | bare |
+| 64 | `user32.dll` | `GetCursor` | 10 | 1 | A | - | bare |
+| 65 | `user32.dll` | `GetCursorPos` | 10 | 1 | A | - | bare |
+| 66 | `user32.dll` | `GetSystemMetricsForDpi` | 10 | 1 | A | - | bare |
+| 67 | `user32.dll` | `MonitorFromRect` | 11 | 1 | A | - | bare |
+| 68 | `gdi32.dll` | `SelectPalette` | 1 | 1 | B | handleref | bare |
+| 69 | `kernel32.dll` | `GetModuleHandle` | 1 | 2 | B | entrypoint-suffix | only-W |
+| 70 | `user32.dll` | `GetParent` | 1 | 1 | B | handleref | bare |
+| 71 | `gdi32.dll` | `GetNearestColor` | 2 | 2 | B | handleref | bare |
+| 72 | `gdi32.dll` | `RealizePalette` | 2 | 1 | B | handleref | bare |
+| 73 | `gdiplus.dll` | `GdipCreateSolidFill` | 2 | 1 | B | byref-scalar | bare |
+| 74 | `gdiplus.dll` | `GdipRestoreGraphics` | 2 | 1 | B | handleref | bare |
+| 75 | `kernel32.dll` | `ActivateActCtx` | 2 | 1 | B | byref-scalar | bare |
+| 76 | `user32.dll` | `BeginPaint` | 2 | 1 | B | handleref | bare |
+| 77 | `user32.dll` | `CallWindowProc` | 2 | 1 | B | entrypoint-suffix | only-W |
+| 78 | `user32.dll` | `DefWindowProc` | 2 | 1 | B | entrypoint-suffix | only-W |
+| 79 | `user32.dll` | `EndPaint` | 2 | 1 | B | handleref | bare |
+| 80 | `user32.dll` | `GetClientRect` | 2 | 3 | B | handleref | bare |
+| 81 | `user32.dll` | `GetDlgItem` | 2 | 1 | B | handleref | bare |
+| 82 | `user32.dll` | `GetDpiForWindow` | 2 | 1 | B | handleref | bare |
+| 83 | `user32.dll` | `GetMenu` | 2 | 1 | B | handleref | bare |
+| 84 | `user32.dll` | `RegisterWindowMessage` | 2 | 1 | B | entrypoint-suffix | only-W |
+| 85 | `gdi32.dll` | `BitBlt` | 3 | 2 | B | handleref | bare |
+| 86 | `gdi32.dll` | `SetBkColor` | 3 | 3 | B | handleref | bare |
+| 87 | `gdi32.dll` | `SetTextColor` | 3 | 3 | B | handleref | bare |
+| 88 | `gdiplus.dll` | `GdipDrawImageRect` | 3 | 1 | B | handleref | bare |
+| 89 | `gdiplus.dll` | `GdipDrawString` | 3 | 1 | B | handleref | bare |
+| 90 | `gdiplus.dll` | `GdipSetClipGraphics` | 3 | 1 | B | handleref | bare |
+| 91 | `gdiplus.dll` | `GdipSetPageUnit` | 3 | 1 | B | handleref | bare |
+| 92 | `kernel32.dll` | `GetCurrentActCtx` | 3 | 1 | B | byref-scalar | bare |
+| 93 | `kernel32.dll` | `GetProcAddress` | 3 | 2 | B | handleref | bare |
+| 94 | `kernel32.dll` | `LoadLibrary` | 3 | 2 | B | entrypoint-suffix | only-W |
+| 95 | `kernel32.dll` | `LoadLibraryEx` | 3 | 2 | B | entrypoint-suffix | only-W |
+| 96 | `kernel32.dll` | `MultiByteToWideChar` | 3 | 1 | B | array | bare |
+| 97 | `kernel32.dll` | `WideCharToMultiByte` | 3 | 3 | B | array | bare |
+| 98 | `user32.dll` | `EnableWindow` | 3 | 1 | B | handleref | bare |
+| 99 | `user32.dll` | `GetDC` | 3 | 4 | B | handleref | bare |
+| 100 | `user32.dll` | `GetMenuItemCount` | 3 | 1 | B | handleref | bare |
+| 101 | `user32.dll` | `GetMenuItemID` | 3 | 1 | B | handleref | bare |
+| 102 | `user32.dll` | `GetSubMenu` | 3 | 1 | B | handleref | bare |
+| 103 | `user32.dll` | `GetWindow` | 3 | 1 | B | handleref | bare |
+| 104 | `user32.dll` | `GetWindowRect` | 3 | 1 | B | handleref | bare |
+| 105 | `user32.dll` | `InvalidateRect` | 3 | 2 | B | handleref | bare |
+| 106 | `user32.dll` | `IsWindowEnabled` | 3 | 1 | B | handleref | bare |
+| 107 | `user32.dll` | `IsWindowVisible` | 3 | 1 | B | handleref | bare |
+| 108 | `user32.dll` | `MapWindowPoints` | 3 | 3 | A/B | handleref | bare |
+| 109 | `user32.dll` | `NotifyWinEvent` | 3 | 1 | B | handleref | bare |
+| 110 | `user32.dll` | `RedrawWindow` | 3 | 2 | B | handleref | bare |
+| 111 | `user32.dll` | `ReleaseDC` | 3 | 4 | B | handleref | bare |
+| 112 | `user32.dll` | `SetCapture` | 3 | 1 | B | handleref | bare |
+| 113 | `user32.dll` | `SetCursor` | 3 | 1 | B | handleref | bare |
+| 114 | `user32.dll` | `SetFocus` | 3 | 1 | B | handleref | bare |
+| 115 | `user32.dll` | `SetWindowPos` | 3 | 1 | B | handleref | bare |
+| 116 | `comctl32.dll` | `ImageList_DrawEx` | 4 | 1 | B | handleref | bare |
+| 117 | `comctl32.dll` | `ImageList_GetImageCount` | 4 | 1 | B | handleref | bare |
+| 118 | `comctl32.dll` | `ImageList_GetImageInfo` | 4 | 1 | B | handleref | bare |
+| 119 | `gdi32.dll` | `DeleteObject` | 4 | 5 | B | handleref | bare |
+| 120 | `gdi32.dll` | `GetDeviceCaps` | 4 | 4 | B | handleref | bare |
+| 121 | `gdi32.dll` | `SelectObject` | 4 | 4 | B | handleref | bare |
+| 122 | `gdiplus.dll` | `GdipDrawLine` | 4 | 1 | B | handleref | bare |
+| 123 | `gdiplus.dll` | `GdipDrawRectangle` | 4 | 1 | B | handleref | bare |
+| 124 | `gdiplus.dll` | `GdipGetClip` | 4 | 1 | B | handleref | bare |
+| 125 | `gdiplus.dll` | `GdipGetMatrixElements` | 4 | 1 | B | handleref | bare |
+| 126 | `gdiplus.dll` | `GdipGetStringFormatFlags` | 4 | 1 | B | handleref | bare |
+| 127 | `gdiplus.dll` | `GdipGetTextRenderingHint` | 4 | 1 | B | handleref | bare |
+| 128 | `gdiplus.dll` | `GdipGetWorldTransform` | 4 | 1 | B | handleref | bare |
+| 129 | `gdiplus.dll` | `GdipReleaseDC` | 4 | 1 | B | handleref | bare |
+| 130 | `gdiplus.dll` | `GdipSetSolidFillColor` | 4 | 1 | B | handleref | bare |
+| 131 | `gdiplus.dll` | `GdipSetStringFormatFlags` | 4 | 1 | B | handleref | bare |
+| 132 | `gdiplus.dll` | `GdipSetStringFormatHotkeyPrefix` | 4 | 1 | B | handleref | bare |
+| 133 | `gdiplus.dll` | `GdipSetStringFormatTrimming` | 4 | 1 | B | handleref | bare |
+| 134 | `kernel32.dll` | `FreeLibrary` | 4 | 2 | B | handleref | bare |
+| 135 | `user32.dll` | `GetAncestor` | 4 | 1 | B | handleref | bare |
+| 136 | `user32.dll` | `GetMessageA` | 4 | 1 | B | handleref | bare |
+| 137 | `user32.dll` | `GetMessageW` | 4 | 1 | B | handleref | bare |
+| 138 | `user32.dll` | `IsChild` | 4 | 2 | B | handleref | bare |
+| 139 | `user32.dll` | `IsWindowUnicode` | 4 | 1 | B | handleref | bare |
+| 140 | `user32.dll` | `SetWindowRgn` | 4 | 1 | B | handleref | bare |
+| 141 | `user32.dll` | `WindowFromDC` | 4 | 3 | B | handleref | bare |
+| 142 | `gdi32.dll` | `CreateCompatibleDC` | 5 | 4 | B | handleref | bare |
+| 143 | `gdi32.dll` | `GetBkColor` | 5 | 3 | B | handleref | bare |
+| 144 | `gdi32.dll` | `GetCurrentObject` | 5 | 2 | B | handleref | bare |
+| 145 | `gdi32.dll` | `GetObjectType` | 5 | 2 | B | handleref | bare |
+| 146 | `gdi32.dll` | `GetTextAlign` | 5 | 2 | B | handleref | bare |
+| 147 | `gdi32.dll` | `GetTextColor` | 5 | 3 | B | handleref | bare |
+| 148 | `gdi32.dll` | `SaveDC` | 5 | 2 | B | handleref | bare |
+| 149 | `gdi32.dll` | `SetTextAlign` | 5 | 2 | B | handleref | bare |
+| 150 | `gdiplus.dll` | `GdipBitmapUnlockBits` | 5 | 1 | B | handleref | bare |
+| 151 | `gdiplus.dll` | `GdipCreateBitmapFromFile` | 5 | 1 | B | byref-scalar | bare |
+| 152 | `gdiplus.dll` | `GdipCreateBitmapFromFileICM` | 5 | 1 | B | byref-scalar | bare |
+| 153 | `gdiplus.dll` | `GdipCreateImageAttributes` | 5 | 1 | B | byref-scalar | bare |
+| 154 | `gdiplus.dll` | `GdipCreateMatrix` | 5 | 1 | B | byref-scalar | bare |
+| 155 | `gdiplus.dll` | `GdipCreateRegion` | 5 | 1 | B | byref-scalar | bare |
+| 156 | `gdiplus.dll` | `GdipFillRectangle` | 5 | 1 | B | handleref | bare |
+| 157 | `gdiplus.dll` | `GdipImageForceValidation` | 5 | 1 | B | handleref | bare |
+| 158 | `gdiplus.dll` | `GdipSetStringFormatAlign` | 5 | 1 | B | handleref | bare |
+| 159 | `gdiplus.dll` | `GdipSetStringFormatLineAlign` | 5 | 1 | B | handleref | bare |
+| 160 | `kernel32.dll` | `CloseHandle` | 5 | 2 | B | handleref | bare |
+| 161 | `user32.dll` | `DrawTextExW` | 5 | 2 | B | handleref | bare |
+| 162 | `user32.dll` | `GetScrollInfo` | 5 | 2 | B | handleref | bare |
+| 163 | `user32.dll` | `HideCaret` | 5 | 1 | B | handleref | bare |
+| 164 | `user32.dll` | `IsDialogMessage` | 5 | 1 | B | handleref | bare |
+| 165 | `user32.dll` | `PostThreadMessage` | 5 | 1 | B | entrypoint-suffix | only-W |
+| 166 | `user32.dll` | `SetParent` | 5 | 1 | B | handleref | bare |
+| 167 | `user32.dll` | `ShowWindow` | 5 | 1 | B | handleref | bare |
+| 168 | `user32.dll` | `TrackPopupMenuEx` | 5 | 1 | B | handleref | bare |
+| 169 | `comctl32.dll` | `ImageList_SetBkColor` | 6 | 1 | B | handleref | bare |
+| 170 | `gdi32.dll` | `DeleteDC` | 6 | 4 | B | handleref | bare |
+| 171 | `gdi32.dll` | `GetBkMode` | 6 | 2 | B | handleref | bare |
+| 172 | `gdi32.dll` | `GetClipRgn` | 6 | 4 | B | handleref | bare |
+| 173 | `gdi32.dll` | `OffsetViewportOrgEx` | 6 | 2 | B | handleref | bare |
+| 174 | `gdi32.dll` | `SetBkMode` | 6 | 3 | B | handleref | bare |
+| 175 | `gdiplus.dll` | `GdipBitmapLockBits` | 6 | 1 | B | handleref | bare |
+| 176 | `gdiplus.dll` | `GdipCombineRegionRegion` | 6 | 1 | B | handleref | bare |
+| 177 | `gdiplus.dll` | `GdipCreatePen1` | 6 | 1 | B | byref-scalar | bare |
+| 178 | `gdiplus.dll` | `GdipCreateStringFormat` | 6 | 1 | B | byref-scalar | bare |
+| 179 | `gdiplus.dll` | `GdipDeleteGraphics` | 6 | 1 | B | handleref | bare |
+| 180 | `gdiplus.dll` | `GdipDeleteMatrix` | 6 | 1 | B | handleref | bare |
+| 181 | `gdiplus.dll` | `GdipDeleteRegion` | 6 | 1 | B | handleref | bare |
+| 182 | `gdiplus.dll` | `GdipDisposeImage` | 6 | 1 | B | handleref | bare |
+| 183 | `gdiplus.dll` | `GdipDrawImageI` | 6 | 1 | B | handleref | bare |
+| 184 | `gdiplus.dll` | `GdipDrawImageRectRectI` | 6 | 1 | B | handleref | bare |
+| 185 | `gdiplus.dll` | `GdipGetGenericFontFamilySansSerif` | 6 | 1 | B | byref-scalar | bare |
+| 186 | `gdiplus.dll` | `GdipGetPropertyItem` | 6 | 1 | B | handleref | bare |
+| 187 | `gdiplus.dll` | `GdipGraphicsClear` | 6 | 1 | B | handleref | bare |
+| 188 | `gdiplus.dll` | `GdipSetImageAttributesColorKeys` | 6 | 1 | B | handleref | bare |
+| 189 | `gdiplus.dll` | `GdipSetImageAttributesColorMatrix` | 6 | 1 | B | handleref | bare |
+| 190 | `gdiplus.dll` | `GdipTranslateRegion` | 6 | 1 | B | handleref | bare |
+| 191 | `gdiplus.dll` | `GdipTranslateWorldTransform` | 6 | 1 | B | handleref | bare |
+| 192 | `user32.dll` | `EnumThreadWindows` | 6 | 1 | B | handleref | bare |
+| 193 | `user32.dll` | `IsWindow` | 6 | 1 | B | handleref | bare |
+| 194 | `user32.dll` | `SetActiveWindow` | 6 | 1 | B | handleref | bare |
+| 195 | `comctl32.dll` | `ImageList_Add` | 7 | 1 | B | handleref | bare |
+| 196 | `comctl32.dll` | `ImageList_ReplaceIcon` | 7 | 1 | B | handleref | bare |
+| 197 | `gdi32.dll` | `CreateCompatibleBitmap` | 7 | 2 | B | handleref | bare |
+| 198 | `gdiplus.dll` | `GdipDeleteFont` | 7 | 1 | B | handleref | bare |
+| 199 | `gdiplus.dll` | `GdipDrawImagePointsRect` | 7 | 1 | B | handleref | bare |
+| 200 | `gdiplus.dll` | `GdipDrawImageRectRect` | 7 | 1 | B | handleref | bare |
+| 201 | `gdiplus.dll` | `GdipGetFontStyle` | 7 | 1 | B | handleref | bare |
+| 202 | `gdiplus.dll` | `GdipGetFontUnit` | 7 | 1 | B | handleref | bare |
+| 203 | `gdiplus.dll` | `GdipImageGetFrameDimensionsList` | 7 | 1 | B | handleref | bare |
+| 204 | `gdiplus.dll` | `GdipTranslateMatrix` | 7 | 1 | B | handleref | bare |
+| 205 | `user32.dll` | `DefMDIChildProc` | 7 | 1 | B | entrypoint-suffix | only-W |
+| 206 | `user32.dll` | `DrawMenuBar` | 7 | 1 | B | handleref | bare |
+| 207 | `user32.dll` | `GetAwarenessFromDpiAwarenessContext` | 7 | 1 | B | struct-return | bare |
+| 208 | `user32.dll` | `GetIconInfo` | 7 | 2 | B | handleref | bare |
+| 209 | `user32.dll` | `ScrollWindowEx` | 7 | 1 | B | handleref | bare |
+| 210 | `user32.dll` | `UpdateWindow` | 7 | 1 | B | handleref | bare |
+| 211 | `gdiplus.dll` | `GdipDisposeImageAttributes` | 8 | 1 | B | handleref | bare |
+| 212 | `gdiplus.dll` | `GdipDrawImage` | 8 | 1 | B | handleref | bare |
+| 213 | `gdiplus.dll` | `GdipGetTextureTransform` | 8 | 1 | B | handleref | bare |
+| 214 | `gdiplus.dll` | `GdipSetImageAttributesWrapMode` | 8 | 1 | B | handleref | bare |
+| 215 | `gdiplus.dll` | `GdipSetTextureTransform` | 8 | 1 | B | handleref | bare |
+| 216 | `gdiplus.dll` | `GdipTranslateClip` | 8 | 1 | B | handleref | bare |
+| 217 | `user32.dll` | `SetScrollInfo` | 8 | 1 | B | handleref | bare |
+| 218 | `user32.dll` | `UnhookWindowsHookEx` | 8 | 1 | B | handleref | bare |
+| 219 | `gdi32.dll` | `CreateBitmap` | 9 | 4 | A/B | array | bare |
+| 220 | `gdi32.dll` | `GetTextMetricsA` | 9 | 3 | B | handleref | bare |
+| 221 | `gdi32.dll` | `GetTextMetricsW` | 9 | 3 | B | handleref | bare |
+| 222 | `gdi32.dll` | `IntersectClipRect` | 9 | 2 | B | handleref | bare |
+| 223 | `gdiplus.dll` | `GdipCombineRegionRect` | 9 | 1 | B | handleref | bare |
+| 224 | `gdiplus.dll` | `GdipCreateRegionRect` | 9 | 1 | B | byref-scalar | bare |
+| 225 | `gdiplus.dll` | `GdipDrawImageRectI` | 9 | 1 | B | handleref | bare |
+| 226 | `gdiplus.dll` | `GdipSetClipRegion` | 9 | 1 | B | handleref | bare |
+| 227 | `user32.dll` | `CallNextHookEx` | 9 | 1 | B | handleref | bare |
+| 228 | `user32.dll` | `DestroyMenu` | 9 | 1 | B | handleref | bare |
+| 229 | `user32.dll` | `DestroyWindow` | 9 | 1 | B | handleref | bare |
+| 230 | `user32.dll` | `DrawIconEx` | 9 | 2 | B | handleref | bare |
+| 231 | `user32.dll` | `EnumDisplayMonitors` | 9 | 1 | B | handleref | bare |
+| 232 | `user32.dll` | `FillRect` | 9 | 3 | B | handleref | bare |
+| 233 | `user32.dll` | `FindWindow` | 9 | 1 | B | entrypoint-suffix | only-W |
+| 234 | `user32.dll` | `InvalidateRgn` | 9 | 1 | B | handleref | bare |
+| 235 | `user32.dll` | `KillTimer` | 9 | 1 | B | handleref | bare |
+| 236 | `user32.dll` | `SetTimer` | 9 | 1 | B | handleref | bare |
+| 237 | `uxtheme.dll` | `CloseThemeData` | 9 | 1 | B | handleref | bare |
+| 238 | `uxtheme.dll` | `DrawThemeParentBackground` | 9 | 1 | B | handleref | bare |
+| 239 | `uxtheme.dll` | `OpenThemeData` | 9 | 1 | B | handleref | bare |
+| 240 | `gdi32.dll` | `GetMapMode` | 10 | 2 | B | handleref | bare |
+| 241 | `gdi32.dll` | `RestoreDC` | 10 | 2 | B | handleref | bare |
+| 242 | `gdi32.dll` | `SetMapMode` | 10 | 3 | B | handleref | bare |
+| 243 | `gdiplus.dll` | `GdipGetRegionBounds` | 10 | 1 | B | handleref | bare |
+| 244 | `gdiplus.dll` | `GdipSetInterpolationMode` | 10 | 1 | B | handleref | bare |
+| 245 | `user32.dll` | `DestroyIcon` | 10 | 1 | B | handleref | bare |
+| 246 | `user32.dll` | `RemoveMenu` | 11 | 1 | B | handleref | bare |
+| 247 | `uxtheme.dll` | `IsThemePartDefined` | 11 | 1 | B | handleref | bare |
+| 248 | `gdiplus.dll` | `GdipGetDC` | 2 | 1 | B | byref-scalar+handleref | bare |
+| 249 | `gdiplus.dll` | `GdipSaveGraphics` | 2 | 1 | B | byref-scalar+handleref | bare |
+| 250 | `user32.dll` | `PostMessage` | 2 | 3 | B | entrypoint-suffix+handleref | only-W |
+| 251 | `gdiplus.dll` | `GdipCreateFromHDC` | 3 | 1 | B | byref-scalar+handleref | bare |
+| 252 | `gdiplus.dll` | `GdipGetImageHeight` | 3 | 1 | B | byref-scalar+handleref | bare |
+| 253 | `gdiplus.dll` | `GdipGetImageWidth` | 3 | 1 | B | byref-scalar+handleref | bare |
+| 254 | `user32.dll` | `GetClassInfo` | 3 | 2 | B | entrypoint-suffix+handleref | only-W |
+| 255 | `user32.dll` | `GetWindowLong` | 3 | 1 | B | entrypoint-suffix+handleref | only-W |
+| 256 | `user32.dll` | `GetWindowLongPtr` | 3 | 1 | B | entrypoint-suffix+handleref | only-W |
+| 257 | `user32.dll` | `GetWindowTextLength` | 3 | 1 | B | entrypoint-suffix+handleref | only-W |
+| 258 | `user32.dll` | `GetWindowThreadProcessId` | 3 | 1 | B | byref-scalar+handleref | bare |
+| 259 | `user32.dll` | `RegisterClass` | 3 | 1 | B | entrypoint-suffix+nonblittable-struct | only-W |
+| 260 | `user32.dll` | `SetWindowText` | 3 | 1 | B | entrypoint-suffix+handleref | only-W |
+| 261 | `user32.dll` | `UnregisterClass` | 3 | 1 | B | entrypoint-suffix+handleref | only-W |
+| 262 | `gdiplus.dll` | `GdipGetFontSize` | 4 | 1 | B | byref-scalar+handleref | bare |
+| 263 | `gdiplus.dll` | `GdipImageSelectActiveFrame` | 4 | 1 | B | byref-other+handleref | bare |
+| 264 | `gdiplus.dll` | `GdipIsInfiniteRegion` | 4 | 1 | B | byref-scalar+handleref | bare |
+| 265 | `gdiplus.dll` | `GdipIsMatrixIdentity` | 4 | 1 | B | byref-scalar+handleref | bare |
+| 266 | `kernel32.dll` | `DuplicateHandle` | 4 | 1 | B | byref-scalar+handleref | bare |
+| 267 | `kernel32.dll` | `GetShortPathName` | 4 | 1 | B | entrypoint-suffix+stringbuilder | only-W |
+| 268 | `ole32.dll` | `CoRegisterMessageFilter` | 4 | 1 | B | byref-scalar+handleref | bare |
+| 269 | `shell32.dll` | `ShellExecute` | 4 | 2 | B | entrypoint-suffix+handleref | only-W |
+| 270 | `user32.dll` | `PeekMessage` | 4 | 1 | B | entrypoint-suffix+handleref | only-W |
+| 271 | `gdi32.dll` | `CombineRgn` | 5 | 3 | B | handleref+struct-return | bare |
+| 272 | `gdiplus.dll` | `GdipCreateBitmapFromScan0` | 5 | 1 | B | byref-scalar+handleref | bare |
+| 273 | `gdiplus.dll` | `GdipCreateFont` | 5 | 1 | B | byref-scalar+handleref | bare |
+| 274 | `gdiplus.dll` | `GdipGetImageGraphicsContext` | 5 | 1 | B | byref-scalar+handleref | bare |
+| 275 | `gdiplus.dll` | `GdipGetImagePixelFormat` | 5 | 1 | B | byref-scalar+handleref | bare |
+| 276 | `gdiplus.dll` | `GdipGetImageRawFormat` | 5 | 1 | B | byref-other+handleref | bare |
+| 277 | `gdiplus.dll` | `GdipGetRegionHRgn` | 5 | 1 | B | byref-scalar+handleref | bare |
+| 278 | `kernel32.dll` | `RtlMoveMemory` | 5 | 7 | B/E | array+handleref | bare |
+| 279 | `user32.dll` | `DrawTextExA` | 5 | 2 | B | array+handleref | bare |
+| 280 | `user32.dll` | `SetWindowLong` | 5 | 2 | B | entrypoint-suffix+handleref | only-W |
+| 281 | `user32.dll` | `SetWindowLongPtr` | 5 | 2 | B | entrypoint-suffix+handleref | only-W |
+| 282 | `gdiplus.dll` | `GdipCreateBitmapFromHBITMAP` | 6 | 1 | B | byref-scalar+handleref | bare |
+| 283 | `gdiplus.dll` | `GdipCreateFromHWND` | 6 | 1 | B | byref-scalar+handleref | bare |
+| 284 | `gdiplus.dll` | `GdipGetDpiY` | 6 | 1 | B | array+handleref | bare |
+| 285 | `gdiplus.dll` | `GdipGetEmHeight` | 6 | 1 | B | byref-scalar+handleref | bare |
+| 286 | `gdiplus.dll` | `GdipGetFamilyName` | 6 | 1 | B | handleref+stringbuilder | bare |
+| 287 | `gdiplus.dll` | `GdipGetFontHeight` | 6 | 1 | B | byref-scalar+handleref | bare |
+| 288 | `gdiplus.dll` | `GdipGetLineSpacing` | 6 | 1 | B | byref-scalar+handleref | bare |
+| 289 | `gdiplus.dll` | `GdipGetPropertyItemSize` | 6 | 1 | B | byref-scalar+handleref | bare |
+| 290 | `user32.dll` | `LoadCursor` | 6 | 1 | B | entrypoint-suffix+handleref | only-W |
+| 291 | `gdi32.dll` | `CreateFontIndirect` | 7 | 2 | B | entrypoint-suffix+object | only-W |
+| 292 | `gdi32.dll` | `GetPaletteEntries` | 7 | 2 | B | array+handleref | bare |
+| 293 | `gdi32.dll` | `SelectClipRgn` | 7 | 4 | B | handleref+struct-return | bare |
+| 294 | `gdiplus.dll` | `GdipBitmapGetPixel` | 7 | 1 | B | byref-scalar+handleref | bare |
+| 295 | `gdiplus.dll` | `GdipCreateTexture` | 7 | 1 | B | byref-scalar+handleref | bare |
+| 296 | `gdiplus.dll` | `GdipGetFamily` | 7 | 1 | B | byref-scalar+handleref | bare |
+| 297 | `gdiplus.dll` | `GdipGetImageFlags` | 7 | 1 | B | byref-scalar+handleref | bare |
+| 298 | `gdiplus.dll` | `GdipImageGetFrameDimensionsCount` | 7 | 1 | B | byref-scalar+handleref | bare |
+| 299 | `gdiplus.dll` | `GdipMeasureString` | 7 | 1 | B | byref-scalar+handleref | bare |
+| 300 | `kernel32.dll` | `GetExitCodeThread` | 7 | 2 | B | byref-scalar+handleref | bare |
+| 301 | `user32.dll` | `LoadIcon` | 7 | 1 | B | entrypoint-suffix+handleref | only-W |
+| 302 | `user32.dll` | `SystemParametersInfoForDpi` | 7 | 1 | B | name-clash+nonblittable-struct | bare |
+| 303 | `gdiplus.dll` | `GdipCloneImage` | 8 | 1 | B | byref-scalar+handleref | bare |
+| 304 | `gdiplus.dll` | `GdipCreateBitmapFromHICON` | 8 | 1 | B | byref-scalar+handleref | bare |
+| 305 | `gdiplus.dll` | `GdipCreateFontFamilyFromName` | 8 | 1 | B | byref-scalar+handleref | bare |
+| 306 | `user32.dll` | `SetWindowsHookEx` | 8 | 1 | B | entrypoint-suffix+handleref | only-W |
+| 307 | `gdiplus.dll` | `GdipGetImageType` | 9 | 1 | B | byref-scalar+handleref | bare |
+| 308 | `gdiplus.dll` | `GdipGetLogFontA` | 9 | 1 | B | handleref+object | bare |
+| 309 | `gdiplus.dll` | `GdipGetLogFontW` | 9 | 1 | B | handleref+object | bare |
+| 310 | `gdi32.dll` | `CreateDC` | 10 | 3 | B | entrypoint-suffix+handleref | only-W |
+| 311 | `gdiplus.dll` | `GdipCreateHBITMAPFromBitmap` | 10 | 1 | B | byref-scalar+handleref | bare |
+| 312 | `user32.dll` | `CreateWindowEx` | 2 | 1 | B | entrypoint-suffix+handleref+object | only-W |
+| 313 | `user32.dll` | `GetClassName` | 3 | 1 | B | entrypoint-suffix+handleref+stringbuilder | only-W |
+| 314 | `user32.dll` | `GetWindowText` | 3 | 1 | B | entrypoint-suffix+handleref+stringbuilder | only-W |
+| 315 | `user32.dll` | `GetUserObjectInformation` | 4 | 1 | B | byref-scalar+entrypoint-suffix+handleref | only-W |
+| 316 | `user32.dll` | `InsertMenuItem` | 5 | 1 | B | entrypoint-suffix+handleref+nonblittable-struct | only-W |
+| 317 | `gdi32.dll` | `GetDIBits` | 6 | 2 | B | array+handleref+nonblittable-struct | bare |
+| 318 | `gdiplus.dll` | `GdipCreateFontFromLogfontA` | 6 | 1 | B | byref-scalar+handleref+object | bare |
+| 319 | `gdiplus.dll` | `GdipCreateFontFromLogfontW` | 6 | 1 | B | byref-scalar+handleref+object | bare |
+| 320 | `gdiplus.dll` | `GdipImageGetFrameCount` | 6 | 1 | B | array+byref-other+handleref | bare |
+| 321 | `user32.dll` | `GetMenuItemInfo` | 6 | 2 | B | entrypoint-suffix+handleref+nonblittable-struct | only-W |
+| 322 | `user32.dll` | `SetMenuItemInfo` | 7 | 1 | B | entrypoint-suffix+handleref+nonblittable-struct | only-W |
+| 323 | `user32.dll` | `GetMonitorInfo` | 8 | 1 | B | entrypoint-suffix+handleref+nonblittable-struct | only-W |
+| 324 | `gdi32.dll` | `CreateDIBSection` | 6 | 2 | B | array+byref-scalar+handleref+nonblittable-struct | bare |
+| 325 | `user32.dll` | `SystemParametersInfo` | 3 | 10 | B | array+byref-scalar+entrypoint-suffix+name-clash+nonblittable-struct | only-W |
+| 326 | `gdi32.dll` | `GetObject` | 5 | 12 | B | array+byref-scalar+entrypoint-suffix+handleref+name-clash+nonblittable-struct | only-W |
+| 327 | `user32.dll` | `SendMessage` | 1 | 61 | B | array+byref-other+byref-scalar+entrypoint-suffix+handleref+name-clash+nonblittable-struct+stringbuilder | only-W |
+
+共 **327** 个 EntryPoint（529 条声明）。其中 85 个在 3 跳以内（最小可跑集的"第一波"）。
 
 ### 4.3 贪心接线顺序（每加一个能力，阶段 1 闭环多少条）
 
 | 步骤 | 新增能力 | 闭环声明数 / 529 |
 |---|---|---|
 | 0 | （无新能力） | 64 |
-| 1 | `handleref` | 296 |
-| 2 | `entrypoint-suffix` | 397 |
-| 3 | `byref-scalar` | 452 |
-| 4 | `array` | 473 |
-| 5 | `name-clash` | 483 |
-| 6 | `object` | 490 |
-| 7 | `stringbuilder` | 495 |
-| 8 | `struct-return` | 500 |
-| 9 | `byref-other` | 505 |
+| 1 | `handleref` | 295 |
+| 2 | `entrypoint-suffix` | 374 |
+| 3 | `byref-scalar` | 428 |
+| 4 | `nonblittable-struct` | 452 |
+| 5 | `array` | 473 |
+| 6 | `name-clash` | 483 |
+| 7 | `object` | 490 |
+| 8 | `stringbuilder` | 495 |
+| 9 | `struct-return` | 500 |
+| 10 | `byref-other` | 505 |
 
 ### 4.4 补齐全部 marshal 能力后仍不可达的 EntryPoint（C/D 类）
 
@@ -766,9 +1013,10 @@ BFS 结果：**327 个**不同 EntryPoint 可达（529 条声明）。按跳数�
 | 9 | 「SetLastError 已覆盖（capture/clear/get_last_error）」 | **半推翻**：capture/get 有，**clear 从未被发射** | `src/runtime/src/pinvokeext.cpp:329`（定义）vs `src/il2cppc` 无发射点 |
 | 10 | 「CharSet 分布 Auto 479 / None 108 / Unicode 25 / Ansi 13」（Forms 子集） | **口径不清楚**：这是 Forms(625) 子集；1317 条全量是 Unicode 595 / Auto 586 / None 117 / Ansi 19 | `pinvokes.tsv` CharSet 列聚合 |
 | 11 | 「user32 281 / gdi32 117 / kernel32 60」 | **口径不清楚**：Forms 子集数；Forms+Drawing 全量是 301/203/71 | `pinvokes.tsv` 按 assembly×DLL 聚合 |
-| 12 | 「阶段 1 五个大缺口：UTF-16、结构体、IntPtr 参数、byte[] 参数、委托回调」 | **推翻一半**：三项已补齐；byte[] 与 ref/out 标量仍缺，并**新增** `HandleRef` 与入口名后缀两项（旧文档完全没提） | §1 表格 1.3/1.5/1.2/1.11 vs 1.7/1.8/1.9/1.10 |
+| 12 | （旧文档未提）结构体布局是否逐字节等价 | **新增缺口**：55 条 P/Invoke 用的结构体含托管引用字段（string/数组/委托），生成的 C++ 结构体是 GC 指针而非原生内联数据，静默错位 | `src/il2cppc/MetadataLoader.cs:1011`、`tools/audit/WinFormsStructProbe` 的 `structs.tsv` |
+| 13 | 「阶段 1 五个大缺口：UTF-16、结构体、IntPtr 参数、byte[] 参数、委托回调」 | **推翻一半**：三项已补齐；byte[] 与 ref/out 标量仍缺，并**新增** `HandleRef` 与入口名后缀两项（旧文档完全没提） | §1 表格 1.3/1.5/1.2/1.11 vs 1.7/1.8/1.9/1.10 |
 
-**合计：12 条差异 —— 完全推翻 5 条、部分推翻 4 条、旧称「施工中」现已落地 1 条、统计口径不同 2 条。被推翻/部分推翻合计 **9 条**。**
+**合计：13 条差异 —— 完全推翻 5 条、部分推翻 4 条、旧称「施工中」现已落地 1 条、统计口径不同 2 条、旧文档未记的新缺口 1 条。被推翻/部分推翻合计 **9 条**。**
 
 **未被推翻**的旧结论（仍然成立）：
 
@@ -782,16 +1030,17 @@ BFS 结果：**327 个**不同 EntryPoint 可达（529 条声明）。按跳数�
 
 | 批次 | 能力 | 改动位置 | 覆盖 | 验证 |
 |---|---|---|---|---|
-| **W1** | `HandleRef` → 原生句柄衰减 | `src/il2cppc/Emit/CodeGenerator.cs`（`PinvokeParamList` 与 `EmitIcallCallArgs`）：`r:System.Runtime.InteropServices.HandleRef` 编码 → `n`/`intptr_t`，取值表达式 `.Handle`。**注意**：这不是新运行时能力，`HandleRef` 是纯托管结构体，唯一要做的是别把它当原生结构体传 | 983 条 / 直接闭环 620 条 | `run-marshal-probe.ps1` 的 `HandleRef param` → `C++-BUILD-OK`；winforms1/winformsext 回归 |
-| **W2** | 入口名 A/W 后缀探测 | `src/runtime/src/pinvoke.cpp:153`（`il2cpp_pinvoke_resolve`）：按 `CharSet`+`ExactSpelling` 依次试 `Name`、`NameW`、`NameA`。签名需带上 CharSet/ExactSpelling（`ResolvedMethod` 已有 `SetLastError`，再加两个字段） | 174 条 / 直接闭环 35 条 | `run-marshal-probe.ps1` 若加 `GetWindowText`（`ExactSpelling=false`）应不再抛 `EntryPointNotFoundException`；`WinFormsExportProbe` 的 `only-W` 集合作为测试清单 |
+| **W1** | `HandleRef` → 原生句柄衰减 | `src/il2cppc/Emit/CodeGenerator.cs`（`PinvokeParamList` 与 `EmitIcallCallArgs`）：`r:System.Runtime.InteropServices.HandleRef` 编码 → `n`/`intptr_t`，取值表达式 `.Handle`。**注意**：这不是新运行时能力，`HandleRef` 是纯托管结构体，唯一要做的是别把它当原生结构体传 | 983 条 / 直接闭环 617 条 | `run-marshal-probe.ps1` 的 `HandleRef param` → `C++-BUILD-OK`；winforms1/winformsext 回归 |
+| **W2** | 入口名 A/W 后缀探测 | `src/runtime/src/pinvoke.cpp:153`（`il2cpp_pinvoke_resolve`）：按 `CharSet`+`ExactSpelling` 依次试 `Name`、`NameW`、`NameA`。签名需带上 CharSet/ExactSpelling（`ResolvedMethod` 已有 `SetLastError`，再加两个字段） | 174 条 / 直接闭环 22 条 | `run-marshal-probe.ps1` 若加 `GetWindowText`（`ExactSpelling=false`）应不再抛 `EntryPointNotFoundException`；`WinFormsExportProbe` 的 `only-W` 集合作为测试清单 |
 | **W3** | `ref`/`out` 标量 + `out Guid`/`out string` | `src/il2cppc/Emit/CodeGenerator.cs:9138`（放行 `B:i`/`B:n`/`B:l`/`B:d`/`B:b`/`B:V:System.Guid`/`B:r:System.String`）+ `EmitIcallCallArgs` 的地址转换 | 238 条 / 直接闭环 39 条 | probe 的 `ref int / ref IntPtr`、`out Guid`、`out string` → `C++-BUILD-OK`；`GetWindowThreadProcessId` 真机返值 |
+| **W3b** | 非 blittable 结构体的字段 marshal | `src/il2cppc/MetadataLoader.cs:1011`（引用字段必须按 `ByValTStr`/`ByValArray`/函数指针的**原生形态**布局，而不是 GC 指针）+ `src/il2cppc/Emit/TypeEmitter.cs:1054`（布局按 marshal 后的宽度排）+ `src/il2cppc/Emit/CodeGenerator.cs:9045`（透传前的逐字段转换） | 55 条 / 阶段 1 直接闭环 24 条 | `WinFormsStructProbe` 的 `structs.tsv` 里 `NON-BLITTABLE` 归零；`SystemParametersInfo`（LOGFONT/NONCLIENTMETRICS）与 `RegisterClass`（WNDCLASS_D）真机回填 |
 | **W4** | 数组 pin/copy | `src/il2cppc/Emit/CodeGenerator.cs`（`PinvokeParamList` + 折叠器 `src/il2cppc/Ir/StackFold.cs`）：复用 `src/runtime/src/pinvokeext.cpp:257` 的 `il2cpp_pinvoke_byte_array_data`，扩展到 `char[]`/`int[]`/`float[]`/结构体[] | 67 条 / 直接闭环 16 条 | probe 的 `byte[]`/`char[]`/`IntPtr[]`/`bool[]` → `C++-BUILD-OK`；`GetKeyboardState` 回填 256 字节 |
 | **W5** | `StringBuilder` 缓冲 | 同上（按 `Capacity` 分配 native 缓冲，调用后回填） | 21 条 / 直接闭环 3 条 | probe 的 `StringBuilder buffer param` |
 | **W6** | 结构体名与 SDK typedef 冲突 | `src/il2cppc/Emit/TypeEmitter.cs`（结构体 C++ 名加前缀，如 `Wf_LOGFONTW`）或 `generated.h` 的 forward declaration 改为不撞 typedef 的形式 | 11 条 | probe 的 `LOGFONTW by-ref` → `C++-BUILD-OK` |
 | **W7** | by-value 结构体返回 | `src/il2cppc/Emit/CodeGenerator.cs:9153`（注册表按完整名解析，而不是只认三个） | 9 条 | probe 的 `struct by-value return` → `C++-BUILD-OK` |
 | **W8** | `SetLastError` 调用前清零 | `src/il2cppc/Ir/StackFold.cs`（在 `SetLastError=true` 的调用**之前** 插 `clear_last_error`，与已有 `:2560` 的 capture 对称）+ `src/il2cppc/Emit/CodeGenerator.cs:4620` 同名分支 | 879 条 SetLastError 声明 | `Marshal.GetLastWin32Error()` 在成功调用后返回 0 |
 
-经 W1~W8 后，阶段 1 可达集里剩下的只有 C/D 类（§4.4）。建议按 **W1 → W2 → W3** 的顺序开工：这三步合计闭环 694 条，且互不依赖。
+经 W1~W8 后，阶段 1 可达集里剩下的只有 C/D 类（§4.4）。建议按 **W1 → W2 → W3** 的顺序开工：这三步合计闭环 678 条，且互不依赖。
 
 ## 9. 复现方法
 
@@ -808,6 +1057,11 @@ dotnet run --project <repo>/tools/audit/WinFormsPinvokeGraph -- <out>/graph `
 
 # 2) 真实 GetProcAddress 导出探测（裸名 / NameW / NameA）
 dotnet run --project <repo>/tools/audit/WinFormsExportProbe -- <out>/graph/pinvokes.tsv <out>/graph/exports.tsv
+
+# 2b) struct layout / blittability census
+dotnet run --project <repo>/tools/audit/WinFormsStructProbe -- <out>/graph/pinvokes.tsv `
+  "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/System.Windows.Forms.dll" `
+  "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/System.Drawing.dll" > <out>/graph/structs.tsv
 
 # 3) 逐条分类（A/B/C/D/E + 缺失能力集合）
 python <repo>/tools/audit/classify_winforms_pinvokes.py <out>/graph <out>/classified.tsv
