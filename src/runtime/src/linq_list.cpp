@@ -664,8 +664,60 @@ Il2CppObject* il2cpp_linq_list_to_list(Il2CppObject* list, int32_t kind)
     // family add -- the reference loop below would read the first 8 bytes of a
     // value cell as a GC pointer (a wild reference / crash). Before this seat
     // List<value>.ToList() was a transpile-time LOUD, so the shape is new.
+    //
+    // impl-tolistnumeric: the NUMERIC families had the SAME defect and fell
+    // through to the reference loop below. Their snapshots are typed value
+    // arrays (int64 8 bytes, float 4, double 8, the narrow cells 1/2/4), so
+    // ReadRef read a value cell as a GC pointer: a wild reference (a crash on
+    // the next get_Item / foreach, or a silent wrong value when the cell
+    // happened to look like an address), and for a 4-byte float cell an
+    // 8-byte over-read. Every family is re-boxed through its own listobj add
+    // at the cell's REAL width: ReadI8 for int64, ReadD for the float/double
+    // cells (it follows the array's elemSize, so an R4 cell widens exactly)
+    // and ReadI4(kind) for the narrow cells (1/2/4-byte read widened into the
+    // int32 slot the family add takes -- never a 4-byte over-read).
     switch (kind)
     {
+        case IL2CPP_LIST_KIND_I8:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_long(out, ReadI8(snap, i));
+            return out;
+        case IL2CPP_LIST_KIND_F:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_float(out, ReadD(snap, i));
+            return out;
+        case IL2CPP_LIST_KIND_D:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_double(out, ReadD(snap, i));
+            return out;
+        case IL2CPP_LIST_KIND_SBYTE:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_sbyte(out, ReadI4(snap, i, kind));
+            return out;
+        case IL2CPP_LIST_KIND_BYTE:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_byte(out, ReadI4(snap, i, kind));
+            return out;
+        case IL2CPP_LIST_KIND_BOOL:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_bool(out, ReadI4(snap, i, kind));
+            return out;
+        case IL2CPP_LIST_KIND_SHORT:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_short(out, ReadI4(snap, i, kind));
+            return out;
+        case IL2CPP_LIST_KIND_USHORT:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_ushort(out, ReadI4(snap, i, kind));
+            return out;
+        case IL2CPP_LIST_KIND_CHAR:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_char(out, ReadI4(snap, i, kind));
+            return out;
+        case IL2CPP_LIST_KIND_UINT:
+            for (int32_t i = 0; i < snap->length; ++i)
+                il2cpp_list_obj_add_uint(out, ReadI4(snap, i, kind));
+            return out;
         case IL2CPP_LIST_KIND_DEC:
             for (int32_t i = 0; i < snap->length; ++i)
             {
