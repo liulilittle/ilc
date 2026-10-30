@@ -492,12 +492,19 @@ Il2CppArray* il2cpp_linq_default_if_empty_family_dtoffset(
 // The fold is the (accumulator, element) seed matrix above; the result selector
 // then runs ONCE on the final accumulator. Its ABI depends ONLY on the
 // ACCUMULATOR family (it takes the accumulator) and the RESULT family decides
-// the carrier, so the entry set is the 6x6 fold matrix crossed with a 6-way
-// projection: 6 accumulator families x 6 element families x 6 result families
-// = 216 entries, all generated from the declaration macros below (the seed type
+// the carrier, so the entry set is the 6x6 fold matrix crossed with a 10-way
+// projection: 6 accumulator families x 6 element families x 10 result families
+// = 360 entries, all generated from the declaration macros below (the seed type
 // is the accumulator family's; the return is the RESULT family's).
 //
 // The entry name is il2cpp_linq_list_aggregate_seed_<acc>_<elem>_rs_<res>.
+//
+// impl-loudvalstruct (C): the BY-VALUE VALUE-STRUCT results (dt / ts / guid /
+// dtoffset) join the projection. They ride the same by-value return convention
+// the family element accessors already use (Il2CppDateTime / Il2CppTimeSpan /
+// Il2CppGuid / Il2CppDateTimeOffset returned in registers), so no new ABI is
+// needed -- only the entries. Before this they were a transpile-time LOUD even
+// though the selector leaf returns exactly that struct.
 //------------------------------------------------------------------------------
 #define IL2CPP_DECL_LST_AGG_RS(ACC, ELEM, SEEDTYPE)                                      \
     int32_t il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_i4(                       \
@@ -517,7 +524,20 @@ Il2CppArray* il2cpp_linq_default_if_empty_family_dtoffset(
         Il2CppObject* resSel, int32_t kind);                                              \
     void il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_dec(                         \
         runtime::Il2CppDecimal* result, Il2CppObject* list, SEEDTYPE seed,                \
-        Il2CppObject* func, Il2CppObject* resSel, int32_t kind);
+        Il2CppObject* func, Il2CppObject* resSel, int32_t kind);                          \
+    runtime::Il2CppDateTime il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_dt(       \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                            \
+        Il2CppObject* resSel, int32_t kind);                                              \
+    runtime::Il2CppTimeSpan il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_ts(       \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                            \
+        Il2CppObject* resSel, int32_t kind);                                              \
+    Il2CppGuid il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_guid(                  \
+        Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                            \
+        Il2CppObject* resSel, int32_t kind);                                              \
+    runtime::Il2CppDateTimeOffset                                                        \
+        il2cpp_linq_list_aggregate_seed_##ACC##_##ELEM##_rs_dtoffset(                     \
+            Il2CppObject* list, SEEDTYPE seed, Il2CppObject* func,                        \
+            Il2CppObject* resSel, int32_t kind);
 
 #define IL2CPP_DECL_LST_AGG_RS_ROW(ACC, SEEDTYPE)                                        \
     IL2CPP_DECL_LST_AGG_RS(ACC, i4, SEEDTYPE)                                            \

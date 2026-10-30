@@ -2874,13 +2874,40 @@ public static partial class MethodRefResolver
                         if (resByte == 0x11)
                         {
                             if (!IsDecimalGenArg(genArgNames, 2))
-                                throw new NotSupportedException(
-                                    "LOUD whitelist (no runtime descriptor for the TResult struct): " +
-                                    "Enumerable.Aggregate TResult " +
-                                    $"{(genArgNames is { Length: >= 3 } ? genArgNames[2] : "valuetype")} " +
-                                    "is not a supported result family -- the runtime projects the decimal " +
-                                    "accumulator to int32/int64/float/double/decimal/reference only " +
-                                    "[Reference Source System.Core/System/Linq/Enumerable.cs:1399]");
+                            {
+                                // impl-loudvalstruct (C): a by-value value-struct
+                                // TResult (DateTime / TimeSpan / Guid /
+                                // DateTimeOffset) now has a LIST projection
+                                // entry (il2cpp_linq_list_aggregate_seed_<acc>_
+                                // <elem>_rs_dt/_ts/_guid/_dtoffset); the ARRAY
+                                // surface still has none.
+                                //
+                                // The HINT-LESS first pass cannot tell the two
+                                // apart (the aggregate's arguments leave the
+                                // source below the stack top, so arg0Type is
+                                // the LAMBDA), so it must NOT throw -- it
+                                // answers the decimal-carrier entry and lets
+                                // StackFold's post-pop re-resolve dispatch the
+                                // List domain (the same deferral defect A
+                                // needed; without it the List shapes never
+                                // reached the list matrix). A source PROVEN to
+                                // be an array keeps the LOUD.
+                                string? resStructFam = LinqStructResultSuffix(genArgNames, 2);
+                                bool arrayProven = (receiverType ?? arg0Type) is { } an0
+                                    && an0.EndsWith("[]", StringComparison.Ordinal);
+                                if (resStructFam == null || arrayProven)
+                                    throw new NotSupportedException(
+                                        "LOUD whitelist (no runtime descriptor for the TResult struct): " +
+                                        "Enumerable.Aggregate TResult " +
+                                        $"{(genArgNames is { Length: >= 3 } ? genArgNames[2] : "valuetype")} " +
+                                        "is not a supported result family -- the runtime projects the decimal " +
+                                        "accumulator to int32/int64/float/double/decimal/reference and (over a " +
+                                        "List) the System.DateTime/System.TimeSpan/System.Guid/" +
+                                        "System.DateTimeOffset value structs only; the ARRAY surface has no " +
+                                        "value-struct result projection [Reference Source " +
+                                        "System.Core/System/Linq/Enumerable.cs:1399]");
+                                return I(decBase + "_dec", 4, true, false, false, decCasts, resultKind: "dec", appendLiterals: decLiterals);
+                            }
                             return I(decBase + "_dec", 4, true, false, false, decCasts, resultKind: "dec", appendLiterals: decLiterals);
                         }
                         switch (resByte)
@@ -4031,6 +4058,23 @@ public static partial class MethodRefResolver
         name is { Length: > 2 } && name.StartsWith("V:", StringComparison.Ordinal)
             ? name[2..] : name ?? "?";
 
+    // impl-loudvalstruct (C): the projection-matrix suffix of a by-value
+    // VALUE-STRUCT result (dt / ts / guid / dtoffset), or null when the 0x11
+    // byte names something with no result ABI (a user struct, decimal -- the
+    // caller tests decimal first).
+    private static string? LinqStructResultSuffix(string[]? genArgNames, int index)
+    {
+        if (genArgNames is not { Length: > 0 } || index >= genArgNames.Length) return null;
+        return LinqStructNameOf(genArgNames[index]) switch
+        {
+            "System.DateTime" => "dt",
+            "System.TimeSpan" => "ts",
+            "System.Guid" => "guid",
+            "System.DateTimeOffset" => "dtoffset",
+            _ => null,
+        };
+    }
+
     // The List<T> element-kind literal (linq_list.h IL2CPP_LIST_KIND_*) of an
     // element TYPE BYTE, or null when the byte is not a value family (a
     // reference element has no cell ABI of its own). This is the ONLY mapping
@@ -4729,7 +4773,14 @@ public static partial class MethodRefResolver
                         byte resByte = genArgs is { Length: >= 3 } ? genArgs[2] : (byte)0x08;
                         bool resDec = resByte == 0x11 && genArgNames is { Length: >= 3 } rn
                             && rn[2] is "System.Decimal" or "V:System.Decimal";
-                        string resFam = resDec ? "dec" : resByte switch
+                        // impl-loudvalstruct (C): a 0x11 TResult is every value
+                        // type. The four BY-VALUE struct families ride the same
+                        // register-return convention the element accessors use,
+                        // so the projection matrix carries them too (the LOUD
+                        // below used to reject every one of them).
+                        string? resStruct = resByte == 0x11
+                            ? LinqStructResultSuffix(genArgNames, 2) : null;
+                        string resFam = resDec ? "dec" : resStruct ?? resByte switch
                         {
                             0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
                             0x0A or 0x0B => "i8",
@@ -4744,8 +4795,10 @@ public static partial class MethodRefResolver
                                 "Enumerable.Aggregate TResult " +
                                 $"{GenericArgTypeName(resByte)} over a List is not a supported result " +
                                 "family -- the runtime projects the accumulator to int32/int64/float/" +
-                                "double/decimal/reference only (the ARRAY surface has the same limit) " +
-                                "[Reference Source System.Core/System/Linq/Enumerable.cs:1411]");
+                                "double/decimal/reference and the System.DateTime/System.TimeSpan/" +
+                                "System.Guid/System.DateTimeOffset value structs only (a USER struct " +
+                                "has no result ABI) [Reference Source " +
+                                "System.Core/System/Linq/Enumerable.cs:1411]");
                         string[] rsCasts = accFam switch
                         {
                             "dec" => new[] { "", "dec", "", "" },
@@ -4759,8 +4812,14 @@ public static partial class MethodRefResolver
                             4, true, resRef, false, rsCasts,
                             resultKind: resFam == "dec" ? "dec"
                                 : resFam == "i8" ? "l"
-                                : resFam is "f" or "d" ? "d" : null,
-                            appendLiterals: new[] { elemDec ? "12" : K });
+                                : resFam is "f" or "d" ? "d"
+                                : resFam is "dt" ? "dt"
+                                : resFam is "ts" ? "ts"
+                                : resFam is "guid" ? "guidv"
+                                : resFam is "dtoffset" ? "dto" : null,
+                            appendLiterals: new[] { elemDec ? "12" : K },
+                            returnTypeName: resStruct == null ? null : LinqArrayTypeNameExact(
+                                resByte, genArgNames, 2).TrimEnd('[', ']'));
                     }
                     // The float seed rides the double F stack; the decimal seed
                     // crosses as a const value-slot pointer (the T3 result-slot

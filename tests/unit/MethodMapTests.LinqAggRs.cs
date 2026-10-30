@@ -249,6 +249,63 @@ public class MethodMapTestsLinqAggRs
     }
 
     //--------------------------------------------------------------------------
+    // impl-loudvalstruct (C): a BY-VALUE VALUE-STRUCT TResult. The projection
+    // matrix used to carry only int32/int64/float/double/decimal/reference, so
+    // every List.Aggregate(seed, func, resultSelector) whose selector returned a
+    // DateTime/TimeSpan/Guid/DateTimeOffset was a transpile-time LOUD even
+    // though the selector leaf returns exactly that struct by value.
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("System.DateTime", "dt", "dt")]
+    [InlineData("System.TimeSpan", "ts", "ts")]
+    [InlineData("System.Guid", "guid", "guidv")]
+    [InlineData("System.DateTimeOffset", "dtoffset", "dto")]
+    public void Resolve_ListAggregate4_ValueStructResult(string typeName, string suffix, string kind)
+    {
+        var r = Resolve(SynthesizeAgg4NamedResult(0x08, 0x08, typeName),
+            "System.Collections.Generic.List`1_int");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_i4_i4_rs_" + suffix, r.CppName);
+        Assert.Equal(4, r.ParamCount);
+        Assert.Equal(new[] { "", "i", "", "" }, r.ParamTypeNames);
+        Assert.Equal(kind, r.ResultKind);
+        Assert.Equal(typeName, r.ReturnTypeName);
+        Assert.Equal(new[] { "0" }, r.AppendLiterals);
+    }
+
+    [Fact]
+    public void Resolve_ListAggregate4_DecimalAcc_ValueStructResult()
+    {
+        var r = Resolve(SynthesizeAgg4NamedResult(0x08, 0x11, "System.DateTime", decAcc: true),
+            "System.Collections.Generic.List`1_int");
+
+        Assert.Equal("il2cpp::il2cpp_linq_list_aggregate_seed_dec_i4_rs_dt", r.CppName);
+        Assert.Equal(new[] { "", "dec", "", "" }, r.ParamTypeNames);
+        Assert.Equal("dt", r.ResultKind);
+    }
+
+    [Fact]
+    public void Resolve_ListAggregate4_UserStructResult_StaysLoud()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            Resolve(SynthesizeAgg4NamedResult(0x08, 0x08, "Cases.Pair"),
+                "System.Collections.Generic.List`1_int"));
+        Assert.Contains("not a supported result family", ex.Message);
+    }
+
+    [Fact]
+    public void Resolve_ArrayAggregate4_DecimalAcc_ValueStructResult_StaysLoud()
+    {
+        // The ARRAY surface has no value-struct result projection; only the
+        // LIST matrix gained one. A source PROVEN to be an array keeps the LOUD
+        // (the hint-less pass defers to the post-pop re-resolve instead).
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            Resolve(SynthesizeAgg4NamedResult(0x08, 0x11, "System.DateTime", decAcc: true),
+                "System.Int32[]"));
+        Assert.Contains("not a supported result family", ex.Message);
+    }
+
+    //--------------------------------------------------------------------------
     // Helpers
     //--------------------------------------------------------------------------
     private static ResolvedMethod Resolve(MemoryStream pe, string? receiver)
@@ -313,6 +370,48 @@ public class MethodMapTestsLinqAggRs
         spec.WriteByte(0x0A);
         spec.WriteCompressedInteger(1);
         WriteSpecArg(spec, tSrc, decSrc, decCoded);
+        mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
+        return Serialize(mdb);
+    }
+
+    // Aggregate<TSource,TAccumulate,TResult> with a NAMED value-struct TResult.
+    // The 0x11 byte is shared by every value type, so the decoded full name is
+    // what tells the struct families apart (the same rule the DefaultIfEmpty
+    // form uses).
+    private static MemoryStream SynthesizeAgg4NamedResult(byte tSrc, byte tAcc, string resTypeName,
+        bool decAcc = false)
+    {
+        var (mdb, enumerableRef, decCoded) = NewMetadata();
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        string ns = resTypeName.Contains('.') ? resTypeName[..resTypeName.LastIndexOf('.')] : "System";
+        string simple = resTypeName.Contains('.') ? resTypeName[(resTypeName.LastIndexOf('.') + 1)..] : resTypeName;
+        var resRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ns), mdb.GetOrAddString(simple));
+        var resCoded = (MetadataTokens.GetRowNumber(resRef) << 2) | 1;
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x10);
+        sig.WriteByte(0x03);
+        sig.WriteByte(0x04);
+        sig.WriteByte(0x13); sig.WriteByte(0x02);                        // return TResult
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x09); sig.WriteByte(0x01);
+        sig.WriteByte(0x13); sig.WriteByte(0x00);                        //   IEnumerable<TSource>
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                        // TAccumulate
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x0D); sig.WriteByte(0x03);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                        //   Func<TAcc,TSource,TAcc>
+        sig.WriteByte(0x13); sig.WriteByte(0x00);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);
+        sig.WriteByte(0x15); sig.WriteByte(0x12); sig.WriteByte(0x11); sig.WriteByte(0x02);
+        sig.WriteByte(0x13); sig.WriteByte(0x01);                        //   Func<TAcc,TResult>
+        sig.WriteByte(0x13); sig.WriteByte(0x02);
+        var memberRef = mdb.AddMemberReference(enumerableRef, mdb.GetOrAddString("Aggregate"),
+            mdb.GetOrAddBlob(sig.ToArray()));
+        var spec = new BlobBuilder();
+        spec.WriteByte(0x0A);
+        spec.WriteCompressedInteger(3);
+        WriteSpecArg(spec, tSrc, false, decCoded);
+        WriteSpecArg(spec, tAcc, decAcc, decCoded);
+        spec.WriteByte(0x11);
+        spec.WriteCompressedInteger(resCoded);
         mdb.AddMethodSpecification(memberRef, mdb.GetOrAddBlob(spec.ToArray()));
         return Serialize(mdb);
     }

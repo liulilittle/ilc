@@ -3697,7 +3697,16 @@ Res LstAggProject(Il2CppDelegate* d, Acc acc)
         LstAggProject<double>(rd, ACCVAL))                                               \
     LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, Il2CppObject*, ref,           \
         LstAggProject<Il2CppObject*>(rd, ACCVAL))                                        \
-    LST_AGG_RS_ENTRY_DECRES(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL)
+    LST_AGG_RS_ENTRY_DECRES(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL)                        \
+    LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, runtime::Il2CppDateTime, dt,  \
+        LstAggProject<runtime::Il2CppDateTime>(rd, ACCVAL))                              \
+    LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, runtime::Il2CppTimeSpan, ts,  \
+        LstAggProject<runtime::Il2CppTimeSpan>(rd, ACCVAL))                              \
+    LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL, Il2CppGuid, guid,             \
+        LstAggProject<Il2CppGuid>(rd, ACCVAL))                                           \
+    LST_AGG_RS_ENTRY(ACC, ELEM, SEEDTYPE, ROOTACC, ACCVAL,                               \
+        runtime::Il2CppDateTimeOffset, dtoffset,                                         \
+        LstAggProject<runtime::Il2CppDateTimeOffset>(rd, ACCVAL))
 
 // DECIMAL accumulator: the fold writes the 16-byte accumulator into a local
 // slot (the T3 result-slot contract of the 3-parameter entry), then the
@@ -3738,6 +3747,14 @@ Res LstAggProject(Il2CppDelegate* d, Acc acc)
     LST_AGG_RS_DEC_ENTRY(ELEM, d, double, return LstAggProject<double>(rd, acc);)        \
     LST_AGG_RS_DEC_ENTRY(ELEM, ref, Il2CppObject*,                                       \
         return LstAggProject<Il2CppObject*>(rd, acc);)                                   \
+    LST_AGG_RS_DEC_ENTRY(ELEM, dt, runtime::Il2CppDateTime,                              \
+        return LstAggProject<runtime::Il2CppDateTime>(rd, acc);)                         \
+    LST_AGG_RS_DEC_ENTRY(ELEM, ts, runtime::Il2CppTimeSpan,                              \
+        return LstAggProject<runtime::Il2CppTimeSpan>(rd, acc);)                         \
+    LST_AGG_RS_DEC_ENTRY(ELEM, guid, Il2CppGuid,                                         \
+        return LstAggProject<Il2CppGuid>(rd, acc);)                                      \
+    LST_AGG_RS_DEC_ENTRY(ELEM, dtoffset, runtime::Il2CppDateTimeOffset,                  \
+        return LstAggProject<runtime::Il2CppDateTimeOffset>(rd, acc);)                   \
     LST_AGG_RS_DEC_ENTRY_DEC(ELEM)
 
 // int32 accumulator

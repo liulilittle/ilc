@@ -1857,3 +1857,55 @@ struct (no cell ABI).
   `loud-linq-die-listvt` + scripts/loud-gate.ps1. Defect D of this seat.
 - The same list value-struct element gap blocks the OTHER list operators over
   these families (Aggregate / Where / Select / ...). Same root cause.
+
+## 20. impl-loudvalstruct (C): the value-struct TResult of Aggregate(seed, func, resultSelector) over a List
+
+### 20.1 The defect (measured)
+
+The List 4-parameter projection matrix carried only int32 / int64 / float /
+double / decimal / reference results, so a result selector returning a BY-VALUE
+VALUE STRUCT was a transpile-time LOUD:
+
+```
+warning: method fold failed -> skipped (Cases.AuditD2i::Main:
+  System.Linq.Enumerable::Aggregate: LOUD whitelist (no runtime descriptor for
+  the TResult struct): Enumerable.Aggregate TResult value type over a List is
+  not a supported result family ...)
+```
+
+RED evidence: `audit-fix3-d2i` (9 records: DateTime / TimeSpan / Guid results
+across int32, int64, double, reference and decimal accumulators, plus the
+"selector runs once" call-count contract) -- runtime exit 1, 0 bytes, all 9
+records `<missing>` against a 298-byte net48 oracle.
+
+### 20.2 Fixed
+
+`linq_list.cpp` / `linq_list.h`: the projection macros (`LST_AGG_RS6`,
+`LST_AGG_RS_DEC6`, `IL2CPP_DECL_LST_AGG_RS`) now emit four more results per
+(accumulator, element) pair -- `_rs_dt` (Il2CppDateTime), `_rs_ts`
+(Il2CppTimeSpan), `_rs_guid` (Il2CppGuid), `_rs_dtoffset`
+(Il2CppDateTimeOffset). They ride the SAME by-value register return the family
+element accessors already use, so no new ABI was needed. The matrix is now
+6 accumulator families x 6 element families x 10 result families = 360 entries.
+
+`MethodMap.Linq.cs`: the 4-parameter arm resolves a 0x11 TResult through the
+decoded generic-argument NAME (decimal first, then the four structs) and binds
+the corresponding entry with the struct's result kind (`dt` / `ts` / `guidv` /
+`dto`). A USER struct still LOUDs (no result ABI).
+
+The ARRAY surface deliberately keeps its LOUD: it has no value-struct result
+projection, and adding one is a different (cell-matrix) surface. The HINT-LESS
+first pass of an aggregate cannot see the source type (its arguments leave the
+source below the stack top, so `arg0Type` is the LAMBDA), so it must not throw
+-- it answers the decimal-carrier entry and StackFold's post-pop re-resolve
+dispatches the List domain. A source PROVEN to be an array (`name[]`) keeps the
+LOUD. This is the same deferral defect A needed.
+
+### 20.3 e2e
+
+- `audit-fix3-d2i` GREEN: oracle sha == runtime sha = `f5d029ee`, 9 records.
+- Regressions byte-identical: probe-aggrs `fdac4fff`, probe-linqagg2
+  `eb49da63`, probe-arrayagg `875acf6e`, probe-floatelem `9245caa6`,
+  probe-aggvt2 `12a416bb`, zmatrix `24ba1e99`.
+- Unit 3960/3960 (baseline 3946 + 14 new resolver assertions). C0: il2cppc
+  Debug build 0 errors.
