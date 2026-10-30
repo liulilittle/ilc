@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Il2Cpp.Transpiler.Emit;
 using Il2Cpp.Transpiler.Il;
 using Il2Cpp.Transpiler.Model;
@@ -5054,7 +5054,7 @@ public static class StackFold
                 "il2cpp::il2cpp_linq_order_by_key_i4_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i4_d" => "_i4_d",
                 // impl-floatkey: the float-key primary entries (the float
-                // family has its own reader -- b5-gaps 鎼?4).
+                // family has its own reader -- b5-gaps 搂14).
                 "il2cpp::il2cpp_linq_order_by_key_i4_f"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_i4_f" => "_i4_f",
                 "il2cpp::il2cpp_linq_order_by_key_i8_i4"
@@ -5076,7 +5076,7 @@ public static class StackFold
                 "il2cpp::il2cpp_linq_order_by_key_dec_d"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_dec_d" => "src_dec_d",
                 // impl-orderfam: the DECIMAL-source FLOAT-key primaries (the
-                // float family has its own reader -- b5-gaps 鎼?4).
+                // float family has its own reader -- b5-gaps 搂14).
                 "il2cpp::il2cpp_linq_order_by_key_dec_f"
                     or "il2cpp::il2cpp_linq_order_by_key_desc_dec_f" => "src_dec_f",
                 "il2cpp::il2cpp_linq_order_by_key_dec_dec"
@@ -5210,7 +5210,7 @@ public static class StackFold
                         "dt" => "4",
                         "guid" => "5",
                         // impl-orderfam: the float family has its own reader
-                        // column on the runtime dec dispatch (b5-gaps 鎼?4).
+                        // column on the runtime dec dispatch (b5-gaps 搂14).
                         "f" => "6",
                         _ => "3",
                     };
@@ -7817,7 +7817,7 @@ public static class StackFold
                     // the MARKER as the coded index, so every TypeSpec-parent
                     // span call (ReadOnlySpan`1<char>::op_Implicit) resolved a
                     // garbage owner and the char[] carrier gate never matched
-                    // (P3-1闁?e2e red: "op_Implicit not wired in M5").
+                    // (P3-1閳?e2e red: "op_Implicit not wired in M5").
                     _ = sig.ReadByte();
                     var th = sig.ReadTypeHandle();
                     owner = th.Kind switch
@@ -7842,7 +7842,7 @@ public static class StackFold
         // parameter renders one segment), so the old
         // ParamCount==paramTypesShapes.Length precondition compared the CALL's
         // parameter count against the ALTERNATIVE COUNT -- every multi-shape
-        // gate with a 1-parameter call was structurally dead (P3-1闁?e2e red:
+        // gate with a 1-parameter call was structurally dead (P3-1閳?e2e red:
         // the char[] op_Implicit carrier never matched either shape).
         static bool SpanCarrierIdentitySig(MetadataReader md, int token, params string[] paramTypesShapes)
         {
