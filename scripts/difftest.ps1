@@ -81,6 +81,63 @@ function Resolve-ToolDir {
     foreach ($c in $Candidates) { if ($c -and (Test-Path (Join-Path $c $Exe))) { return $c } }
     return $null
 }
+
+# --- CONCURRENCY-FIX (2026-10-30): same-case parallel runs used to corrupt each other ---
+# Proven root cause (two independent seats hit it; reproduced 1/4 green with 4 concurrent
+# `-Case probe-aggrs`): the harness had three per-run resources under SHARED names --
+#   (1) <case>/out_stage_diff (shared staging, deleted+recreated per run),
+#   (2) <case>/gen_diff_<stamp> and <case>/build_diff_<compiler>_<stamp> (stamp = SECOND
+#       resolution, so two runs starting in the same second share one directory), and
+#   (3) .opencode/logs/<case>_diff.<stamp>.*.log (same second -> cmd /c cannot open the
+#       shared `>` redirect target: "The process cannot access the file because it is being
+#       used by another process", which is the failure the seats reported as a harness crash).
+# Fix = two independent layers, so correctness does not depend on either one alone:
+#   (a) every per-run path carries a unique run tag (timestamp + PID + GUID prefix) and is
+#       removed in a finally block (the pre-fix harness also leaked gen_diff_*/build_diff_*
+#       directories forever);
+#   (b) a per-case cross-process named Mutex serializes same-case runs. It is REQUIRED even
+#       with unique staging because `dotnet build` writes the case's shared `obj/`
+#       intermediate directory, and because cases that do relative file IO use the caller's
+#       CWD (difftest deliberately does NOT chdir: p-nb2-dir prints Directory.GetCurrentDirectory,
+#       so a per-run CWD would make its output non-deterministic). The mutex name is the same
+#       one run-tests.ps1 uses, so difftest and run-tests also exclude each other on a case.
+# Timeout semantics mirror run-tests.ps1: a live holder that outlasts the cap logs a warning
+# and the run proceeds unlocked (never a silent deadlock); the cap is env-tunable.
+function Enter-CaseLock {
+    param([string]$CaseName, [int]$TimeoutMs = 0)
+    if ($TimeoutMs -le 0) {
+        $TimeoutMs = 900000
+        if ($env:IL2CPP_DIFFTEST_LOCK_MS -match '^\d+$' -and [int]$env:IL2CPP_DIFFTEST_LOCK_MS -gt 0) {
+            $TimeoutMs = [int]$env:IL2CPP_DIFFTEST_LOCK_MS
+        }
+    }
+    foreach ($ns in @('Global', 'Local')) {
+        $m = $null
+        try {
+            $m = [System.Threading.Mutex]::new($false, "$ns\il2cpp_runtests_$CaseName")
+            $acquired = $false
+            try { $acquired = $m.WaitOne($TimeoutMs) }
+            catch [System.Threading.AbandonedMutexException] { $acquired = $true }
+            if (-not $acquired) {
+                Write-Warning "difftest case lock timeout after ${TimeoutMs}ms for $CaseName ($ns): proceeding WITHOUT the lock"
+                try { $m.Dispose() } catch { }
+                return [pscustomobject]@{ Mutex = $null; Acquired = $false; Namespace = $ns; TimedOut = $true }
+            }
+            return [pscustomobject]@{ Mutex = $m; Acquired = $true; Namespace = $ns; TimedOut = $false }
+        } catch {
+            if ($m) { try { $m.Dispose() } catch { } }
+        }
+    }
+    Write-Warning "difftest case lock unavailable for $CaseName; proceeding unlocked"
+    return [pscustomobject]@{ Mutex = $null; Acquired = $false; Namespace = $null; TimedOut = $false }
+}
+function Exit-CaseLock {
+    param($Lock)
+    if ($Lock -and $Lock.Acquired -and $Lock.Mutex) {
+        try { $Lock.Mutex.ReleaseMutex() } catch { Write-Warning "difftest case lock release failed: $_" }
+        try { $Lock.Mutex.Dispose() } catch { }
+    }
+}
 # Toolchain PATH injection: run-tests relies on the caller's environment having cmake/MinGW set up;
 # this harness carries its own detection so a single machine (without a CI shell) can reproduce in
 # one command, avoiding environment noise like "cmake not in PATH" polluting the diff conclusion.
@@ -93,15 +150,27 @@ $csproj   = "$caseDir/$Case.csproj"
 if (-not (Test-Path $csproj)) { throw "missing $csproj" }
 # Unique log name per round: a same-named log, when a previous invocation aborted and its
 # cmake/cmd child processes still hold the handle, makes the next redirect fail outright
-# (cmd cannot open > target -> a non-exit-code error, NativeCommandError).
+# (cmd cannot open > target -> a non-exit-code error, NativeCommandError). The run tag adds
+# PID + a GUID prefix to the timestamp: the second-resolution stamp alone collided for two
+# runs started in the same second (proven: 4 concurrent same-case runs all redirected into
+# one `<case>_diff.<stamp>.net48.log` and 3 of 4 died on the shared `>` target).
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$oracleDir = "$caseDir/out_stage_diff"
+$runTag = "$stamp-$PID-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+# Every per-run scratch path is unique per invocation (no cross-run sharing, no leftovers).
+$oracleDir = "$caseDir/out_stage_diff_$runTag"
+$gen       = "$caseDir/gen_diff_$runTag"
+$buildDir  = "$caseDir/build_diff_${Compiler}_$runTag"
 $logDir    = "$Root/.opencode/logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-Remove-Item $oracleDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $oracleDir | Out-Null
 
-$net48Log = "$logDir/${Case}_diff.$stamp.net48.log"
+$caseLock = Enter-CaseLock $Case
+$exitCode = 1
+# NOTE: the body below is intentionally left at the original indentation so the fix stays a
+# reviewable diff; everything between `try {` and `finally {` runs under the case lock.
+try {
+
+$net48Log = "$logDir/${Case}_diff.$runTag.net48.log"
+New-Item -ItemType Directory -Force -Path $oracleDir | Out-Null
 cmd /c "dotnet build `"$csproj`" -c Release -o `"$oracleDir`" > `"$net48Log`" 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "net48 build failed (see $net48Log)" }
 # Decide the transpile input BEFORE deploying native libs: a case-owned native dll (mylib/ etc.) must not be mistaken
@@ -122,7 +191,7 @@ foreach ($libDir in $nativeLibDirs) {
     if (-not $libName) { $libName = $libDir.Name }
     $libSrc = Get-ChildItem $libDir.FullName -Filter *.cpp | Select-Object -First 1
     if ($libSrc) {
-        $libBuildLog = "$logDir/${Case}_diff.$stamp.$libName.dll.log"
+        $libBuildLog = "$logDir/${Case}_diff.$runTag.$libName.dll.log"
         cmd /c "g++ -shared -o `"$oracleDir/$libName.dll`" `"$($libSrc.FullName)`" > `"$libBuildLog`" 2>&1"
         if ($LASTEXITCODE -ne 0) { throw "build $libName.dll for oracle $Case failed (see $libBuildLog)" }
     }
@@ -130,17 +199,14 @@ foreach ($libDir in $nativeLibDirs) {
 
 $exp = Invoke-RawRun $oracleExe $TimeoutMs $AppArgs
 
-$transpileLog = "$logDir/${Case}_diff.$stamp.transpile.log"
+$transpileLog = "$logDir/${Case}_diff.$runTag.transpile.log"
 $input = $transpileInput
-$gen = "$caseDir/gen_diff_$stamp"
-Remove-Item $gen -Recurse -Force -ErrorAction SilentlyContinue
 $transpilerDll = "$Root/src/il2cppc/bin/Debug/net8.0/il2cppc.dll"
 $transpileCmd = if (Test-Path $transpilerDll) { "dotnet exec `"$transpilerDll`"" } else { "dotnet run --project `"$Root/src/il2cppc`" --" }
 cmd /c "$transpileCmd `"$input`" `"$gen`" > `"$transpileLog`" 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "transpile failed/L3-loud-reject (see $transpileLog)" }
 
-$buildDir = "$caseDir/build_diff_${Compiler}_$stamp"
-$buildLog = "$logDir/${Case}_diff.$stamp.build.log"
+$buildLog = "$logDir/${Case}_diff.$runTag.build.log"
 $cfgRc = 1; $bldRc = 1
 for ($attempt = 1; $attempt -le 2; $attempt++) {
     Remove-Item $buildDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -209,4 +275,16 @@ foreach ($d in $diffIds) { $lines.Add("DIFF [$($d.Id)] expected=$($d.Expected) a
 $lines | Set-Content -Path $txtPath -Encoding UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $lines | ForEach-Object { Write-Host $_ }
-exit $(if ($ok) { 0 } else { 1 })
+$exitCode = if ($ok) { 0 } else { 1 }
+
+} finally {
+    # Always reclaim this run's private scratch (unique tag -> cannot hit a peer's directory).
+    # The pre-fix harness never cleaned these, so every run leaked gen_diff_*/build_diff_*/
+    # out_stage_diff under the case directory. Best-effort: a still-running child must not turn
+    # cleanup into a second failure.
+    foreach ($p in @($oracleDir, $gen, $buildDir)) {
+        if ($p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    Exit-CaseLock $caseLock
+}
+exit $exitCode
