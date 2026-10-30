@@ -2823,12 +2823,31 @@ public static partial class MethodRefResolver
                         // 3-parameter seed kernel here (the resultSelector was
                         // dropped and the emitter consumed one stack value too
                         // few -- a stack desync).
+                        // impl-count4fix: the decimal accumulator's FOLD must also
+                        // follow the SOURCE element family. The base
+                        // `seed_dec_rs` reads a 4-byte int32 out of every cell,
+                        // so a long[]/float[]/double[]/reference[] source folded
+                        // the low 32 bits (a SILENT wrong value). The cell matrix
+                        // reads the element at its REAL width and calls the
+                        // decimal leaf ABI. The decimal source and the
+                        // DateTime/TimeSpan/Guid cells keep their own kernels.
                         string decBase = vtBase != null
                             ? vtBase + "_rs"
                             : decSrc
                                 ? "il2cpp::il2cpp_linq_aggregate_seed_decsrc_rs"
                                 : "il2cpp::il2cpp_linq_aggregate_seed_dec_rs";
+                        string? decCell4 = null;
+                        if (vtBase == null && !decSrc)
+                        {
+                            string? dCell = LinqArrayCellCode(genArgs, genArgNames, receiverType, arg0Type);
+                            if (dCell is not null and not "7")
+                            {
+                                decBase = "il2cpp::il2cpp_linq_aggregate_seed_cell_dec_rs";
+                                decCell4 = dCell;
+                            }
+                        }
                         var decCasts = new[] { "a", "dec", "", "" };
+                        string[]? decLiterals = decCell4 == null ? null : new[] { decCell4 };
                         if (resByte == 0x11)
                         {
                             if (!IsDecimalGenArg(genArgNames, 2))
@@ -2839,20 +2858,20 @@ public static partial class MethodRefResolver
                                     "is not a supported result family -- the runtime projects the decimal " +
                                     "accumulator to int32/int64/float/double/decimal/reference only " +
                                     "[Reference Source System.Core/System/Linq/Enumerable.cs:1399]");
-                            return I(decBase + "_dec", 4, true, false, false, decCasts, resultKind: "dec");
+                            return I(decBase + "_dec", 4, true, false, false, decCasts, resultKind: "dec", appendLiterals: decLiterals);
                         }
                         switch (resByte)
                         {
                             case 0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09:
-                                return I(decBase + "_i4", 4, true, false, false, decCasts);
+                                return I(decBase + "_i4", 4, true, false, false, decCasts, appendLiterals: decLiterals);
                             case 0x0A or 0x0B:
-                                return I(decBase + "_i8", 4, true, false, false, decCasts, resultKind: "l");
+                                return I(decBase + "_i8", 4, true, false, false, decCasts, resultKind: "l", appendLiterals: decLiterals);
                             case 0x0C:
-                                return I(decBase + "_f", 4, true, false, false, decCasts, resultKind: "d");
+                                return I(decBase + "_f", 4, true, false, false, decCasts, resultKind: "d", appendLiterals: decLiterals);
                             case 0x0D:
-                                return I(decBase + "_d", 4, true, false, false, decCasts, resultKind: "d");
+                                return I(decBase + "_d", 4, true, false, false, decCasts, resultKind: "d", appendLiterals: decLiterals);
                             case 0x0E or 0x12 or 0x1C or 0x1D or 0x15 or 0x13 or 0x1E:
-                                return I(decBase + "_ref", 4, true, true, false, decCasts);
+                                return I(decBase + "_ref", 4, true, true, false, decCasts, appendLiterals: decLiterals);
                             default:
                                 throw new NotSupportedException(
                                     "LOUD whitelist (no runtime descriptor for the TResult struct): " +
@@ -3026,20 +3045,101 @@ public static partial class MethodRefResolver
                         : resByte == 0x0C ? "_rs_f"
                         : resByte == 0x0D ? "_rs_d"
                         : "_rs_i4";
-                    string cppBase = acc switch
+                    // impl-count4fix: the FOLD is picked from the SOURCE ELEMENT
+                    // family, exactly like the count==3 matrix -- only the int32
+                    // element (and the int64/double DIAGONAL) has a fixed-width
+                    // kernel. The old mapping picked it from the ACCUMULATOR
+                    // alone, so a float/double/int64/narrow/reference element was
+                    // consumed 4 bytes at a time: Aggregate(0.5f, (a,x)=>a+x,
+                    // sel) over Select(x=>(float)x) returned the SEED, and a
+                    // long[]/double[]/byte[]/string[] source folded the low
+                    // 32 bits of every cell -- a SILENT wrong value.
+                    string srcFamCell4 = LinqSourceFamily(genArgs, receiverType, arg0Type);
+                    string? cell4 = LinqArrayCellCode(genArgs, genArgNames, receiverType, arg0Type);
+                    string cppBase;
+                    string[]? cell4Literals = null;
+                    switch (acc)
                     {
-                        "i4" => "il2cpp::il2cpp_linq_aggregate_seed",
-                        "i8" => srcFam == "i8" ? "il2cpp::il2cpp_linq_aggregate_seed_i8_i8" : "il2cpp::il2cpp_linq_aggregate_seed_i8",
-                        "f" => "il2cpp::il2cpp_linq_aggregate_seed_f",
-                        "d" => srcFam == "d" ? "il2cpp::il2cpp_linq_aggregate_seed_d_d" : "il2cpp::il2cpp_linq_aggregate_seed_d",
-                        _ => "il2cpp::il2cpp_linq_aggregate_seed_ref" + AggRefSrcSuffix(srcFam),
-                    };
+                        case "i4":
+                            if (srcFamCell4 == "i4")
+                            {
+                                cppBase = "il2cpp::il2cpp_linq_aggregate_seed";
+                                break;
+                            }
+                            if (cell4 == null) goto NoCellAbi;
+                            cppBase = "il2cpp::il2cpp_linq_aggregate_seed_cell_i4";
+                            cell4Literals = new[] { cell4 };
+                            break;
+                        case "i8":
+                            if (srcFamCell4 == "i4")
+                            {
+                                cppBase = "il2cpp::il2cpp_linq_aggregate_seed_i8";
+                                break;
+                            }
+                            if (srcFamCell4 == "i8")
+                            {
+                                cppBase = "il2cpp::il2cpp_linq_aggregate_seed_i8_i8";
+                                break;
+                            }
+                            if (cell4 == null) goto NoCellAbi;
+                            cppBase = "il2cpp::il2cpp_linq_aggregate_seed_cell_i8";
+                            cell4Literals = new[] { cell4 };
+                            break;
+                        case "f":
+                            if (srcFamCell4 == "i4")
+                            {
+                                cppBase = "il2cpp::il2cpp_linq_aggregate_seed_f";
+                                break;
+                            }
+                            if (cell4 == null) goto NoCellAbi;
+                            cppBase = "il2cpp::il2cpp_linq_aggregate_seed_cell_f";
+                            cell4Literals = new[] { cell4 };
+                            break;
+                        case "d":
+                            if (srcFamCell4 == "i4")
+                            {
+                                cppBase = "il2cpp::il2cpp_linq_aggregate_seed_d";
+                                break;
+                            }
+                            if (srcFamCell4 == "d")
+                            {
+                                cppBase = "il2cpp::il2cpp_linq_aggregate_seed_d_d";
+                                break;
+                            }
+                            if (cell4 == null) goto NoCellAbi;
+                            cppBase = "il2cpp::il2cpp_linq_aggregate_seed_cell_d";
+                            cell4Literals = new[] { cell4 };
+                            break;
+                        default:
+                            // nb9 H-B6 / impl-arrayagg: the reference accumulator
+                            // reads the element by SOURCE family (ref pointer,
+                            // int64, double, float widened, int32). A NARROW
+                            // (1/2-byte) source needs the cell reader -- the
+                            // int32 read over-reads the cell.
+                            if (srcFamCell4 == "narrow")
+                            {
+                                if (cell4 == null) goto NoCellAbi;
+                                cppBase = "il2cpp::il2cpp_linq_aggregate_seed_cell_ref";
+                                cell4Literals = new[] { cell4 };
+                                break;
+                            }
+                            cppBase = "il2cpp::il2cpp_linq_aggregate_seed_ref" + AggRefSrcSuffix(srcFam);
+                            break;
+                    }
                     return I(cppBase + resSuffix, 4, true, resRef, false,
                         new[] { "a", seedCast, "", "" },
                         resultKind: resRef ? null
                             : (resByte is 0x0A or 0x0B ? "l"
                                : resByte is 0x0C or 0x0D ? "d" : null),
-                        returnTypeName: resByte == 0x0B ? "System.Int64" : null);
+                        returnTypeName: resByte == 0x0B ? "System.Int64" : null,
+                        appendLiterals: cell4Literals);
+                NoCellAbi:
+                    throw new NotSupportedException(
+                        "Enumerable.Aggregate(" + GenericArgTypeName(accByte) + " accumulator) over this " +
+                        "ARRAY element family is not wired: no cell ABI exists for the source element, so " +
+                        "the fold would read the cell at the wrong width (a silent wrong value). The " +
+                        "runtime covers int32/int64/float/double/narrow/reference cells " +
+                        "[Reference Source System.Core/System/Linq/Enumerable.cs:1411]");
                 }
                 return null;
             case "LongCount":

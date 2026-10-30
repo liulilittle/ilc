@@ -470,6 +470,71 @@ Il2CppObject* il2cpp_linq_aggregate_seed_cell_ref(Il2CppArray* src,
                                                   Il2CppObject* seed,
                                                   Il2CppObject* func, int32_t cell);
 
+//------------------------------------------------------------------------------
+// impl-count4fix: Aggregate(seed, func, resultSelector) over an ARRAY source of
+// ANY element family -- the cell-matrix fold crossed with the RESULT-family
+// projection. Same contract as the seed_cell_* entries above (the element is
+// read at the ARRAY's real cell width, the accumulator keeps its OWN family),
+// then the result selector runs ONCE on the final accumulator
+// (net48 Enumerable.Aggregate<TSource,TAccumulate,TResult> -- Enumerable.cs:1411).
+//
+// The pre-existing *_rs_ entries pick the fold from the ACCUMULATOR family only
+// (seed_i4/seed_i8/seed_f/seed_d read a fixed 4-byte int32 element;
+// seed_i8_i8/seed_d_d only cover the int64/double DIAGONAL), so every other
+// element family silently folded the raw bits of the wrong cell.
+//
+// TResult picks the return carrier exactly like the seed_*_rs_* family:
+// int32_t / int64_t / double (float -- the C++ float return is widened -- and
+// double) / Il2CppObject* / the 16-byte decimal result slot.
+//------------------------------------------------------------------------------
+#define NB9_DECL_AGG_CELL_RS(NAME, SEEDTYPE)                                         \
+int32_t NAME##_rs_i4(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,            \
+    Il2CppObject* resSel, int32_t cell);                                             \
+int64_t NAME##_rs_i8(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,            \
+    Il2CppObject* resSel, int32_t cell);                                             \
+double NAME##_rs_f(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,              \
+    Il2CppObject* resSel, int32_t cell);                                             \
+double NAME##_rs_d(Il2CppArray* src, SEEDTYPE seed, Il2CppObject* func,              \
+    Il2CppObject* resSel, int32_t cell);
+
+NB9_DECL_AGG_CELL_RS(il2cpp_linq_aggregate_seed_cell_i4, int32_t)
+NB9_DECL_AGG_CELL_RS(il2cpp_linq_aggregate_seed_cell_i8, int64_t)
+NB9_DECL_AGG_CELL_RS(il2cpp_linq_aggregate_seed_cell_f, double)
+NB9_DECL_AGG_CELL_RS(il2cpp_linq_aggregate_seed_cell_d, double)
+
+#undef NB9_DECL_AGG_CELL_RS
+
+int32_t       il2cpp_linq_aggregate_seed_cell_ref_rs_i4(Il2CppArray* src,
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel, int32_t cell);
+int64_t       il2cpp_linq_aggregate_seed_cell_ref_rs_i8(Il2CppArray* src,
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel, int32_t cell);
+double        il2cpp_linq_aggregate_seed_cell_ref_rs_f(Il2CppArray* src,
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel, int32_t cell);
+double        il2cpp_linq_aggregate_seed_cell_ref_rs_d(Il2CppArray* src,
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel, int32_t cell);
+Il2CppObject* il2cpp_linq_aggregate_seed_cell_ref_rs_ref(Il2CppArray* src,
+    Il2CppObject* seed, Il2CppObject* func, Il2CppObject* resSel, int32_t cell);
+
+int32_t       il2cpp_linq_aggregate_seed_cell_dec_rs_i4(Il2CppArray* src,
+    const runtime::Il2CppDecimal* seed, Il2CppObject* func,
+    Il2CppObject* resSel, int32_t cell);
+int64_t       il2cpp_linq_aggregate_seed_cell_dec_rs_i8(Il2CppArray* src,
+    const runtime::Il2CppDecimal* seed, Il2CppObject* func,
+    Il2CppObject* resSel, int32_t cell);
+double        il2cpp_linq_aggregate_seed_cell_dec_rs_f(Il2CppArray* src,
+    const runtime::Il2CppDecimal* seed, Il2CppObject* func,
+    Il2CppObject* resSel, int32_t cell);
+double        il2cpp_linq_aggregate_seed_cell_dec_rs_d(Il2CppArray* src,
+    const runtime::Il2CppDecimal* seed, Il2CppObject* func,
+    Il2CppObject* resSel, int32_t cell);
+Il2CppObject* il2cpp_linq_aggregate_seed_cell_dec_rs_ref(Il2CppArray* src,
+    const runtime::Il2CppDecimal* seed, Il2CppObject* func,
+    Il2CppObject* resSel, int32_t cell);
+void          il2cpp_linq_aggregate_seed_cell_dec_rs_dec(
+    runtime::Il2CppDecimal* result, Il2CppArray* src,
+    const runtime::Il2CppDecimal* seed, Il2CppObject* func,
+    Il2CppObject* resSel, int32_t cell);
+
 // nb9 fix P0-4: ToArray over ANY element family (clones by the source's own
 // elemSize / isRefElem).
 Il2CppArray* il2cpp_linq_to_array_family(Il2CppArray* src);
