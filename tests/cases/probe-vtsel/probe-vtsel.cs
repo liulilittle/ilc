@@ -1,4 +1,4 @@
-﻿// probe-vtsel.cs -- the STRUCT-TYPED selector / key-selector ABI over
+// probe-vtsel.cs -- the STRUCT-TYPED selector / key-selector ABI over
 // List<DateTime|TimeSpan|Guid|DateTimeOffset> (and the matching ARRAY face).
 //
 // Baseline (c96b737b) LOUDs every one of these:

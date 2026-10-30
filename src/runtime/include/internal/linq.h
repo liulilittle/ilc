@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 //------------------------------------------------------------------------------
 // linq.h -- System.Linq array-family runtime (LINQ domain, T1 card).
 //

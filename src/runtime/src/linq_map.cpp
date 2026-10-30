@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // linq_map.cpp -- System.Linq filtering / mapping icalls (LINQ T2 card).
 //
 // See linq_map.h for the domain contract. Implementation summary:

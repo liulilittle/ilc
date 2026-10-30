@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // linq_sort.cpp -- System.Linq OrderBy (linq_sort domain, see linq_sort.h).
 //
 // Implementation notes:
@@ -120,7 +120,7 @@ double InvokeKeyRefD(Il2CppDelegate* d, Il2CppObject* elem)
 // impl-orderfam: the FLOAT-key reader for a REFERENCE source (the
 // Func<TRef,float> ABI). A float leaf returns a 4-byte float per the MS x64
 // ABI (XMM0 low 32 bits), NOT a double; reading that return through KeyDRefFn
-// mixed the callee's XMM0 residue into every key (the b5-gaps 搂14 misread --
+// mixed the callee's XMM0 residue into every key (the b5-gaps §14 misread --
 // the thenby-refkey probe).
 using KeyFRefFn = float (*)(Il2CppObject* elem);
 using KeyFRefThisFn = float (*)(Il2CppObject* self, Il2CppObject* elem);
@@ -151,7 +151,7 @@ using KeyI8SrcDThisFn = double (*)(Il2CppObject* self, int64_t value);
 // impl-floatkey: the FLOAT-key reader for an int64 source. A Func<long,float>
 // leaf returns a 4-byte float per the MS x64 ABI; reading that return through
 // a double(*) fn-pointer mixes the callee's XMM0 residue into every key (the
-// b5-gaps 搂14 misread -- thenby-floatprobe).
+// b5-gaps §14 misread -- thenby-floatprobe).
 using KeyI8SrcFFn = float (*)(int64_t value);
 using KeyI8SrcFThisFn = float (*)(Il2CppObject* self, int64_t value);
 
@@ -195,7 +195,7 @@ using KeyI4DThisFn = double (*)(Il2CppObject* self, int32_t value);
 // impl-floatkey: the FLOAT-key reader for an int32 source (the Func<int,float>
 // ABI -- a 4-byte float return in the XMM0 low half, NOT a double; reading it
 // through KeyI4DFn mixed the callee's XMM0 residue into every key, the
-// b5-gaps 搂14 silent mis-order -- thenby-floatprobe).
+// b5-gaps §14 silent mis-order -- thenby-floatprobe).
 using KeyI4FFn = float (*)(int32_t value);
 using KeyI4FThisFn = float (*)(Il2CppObject* self, int32_t value);
 
@@ -348,7 +348,7 @@ double InvokeKeyDSrcD(Il2CppDelegate* d, double value)
 // int32 slot, int64 in the int64 slot, double in the F-stack slot, and a
 // FLOAT key through a float(*) reader (a 4-byte float return read through a
 // double(*) fn-pointer mixes the callee's XMM0 residue into every key -- the
-// impl-floatkey b5-gaps 搂14 misread, the orderwide-elem probe).
+// impl-floatkey b5-gaps §14 misread, the orderwide-elem probe).
 using KeyDSrcI4Fn = int32_t (*)(double value);
 using KeyDSrcI4ThisFn = int32_t (*)(Il2CppObject* self, double value);
 using KeyDSrcI8Fn = int64_t (*)(double value);
@@ -927,7 +927,7 @@ Il2CppArray* SortDecDecKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool de
 // impl-orderfam: the FLOAT-key reader for a DECIMAL source (the
 // Func<decimal,float> ABI). A float leaf returns a 4-byte float per the MS
 // x64 ABI, NOT a double; the old family-"2" fold read it through InvokeKeyDecD
-// and mixed the callee's XMM0 residue into every key (the b5-gaps 搂14
+// and mixed the callee's XMM0 residue into every key (the b5-gaps §14
 // misread -- the thenby-decfkey probe).
 static float InvokeKeyDecF(Il2CppDelegate* keySel, const runtime::Il2CppDecimal& v)
 {
@@ -1354,7 +1354,7 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_d(Il2CppArray* src, Il2CppObject*
 // impl-orderfam: the DECIMAL-source FLOAT-key counterparts (the
 // Func<decimal,float> ABI). Same cached-once / stable / fresh decimal[]
 // result contract; the key returns in the float slot and is read through
-// InvokeKeyDecF, never through the double reader (b5-gaps 搂14).
+// InvokeKeyDecF, never through the double reader (b5-gaps §14).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_order_by_key_dec_f(Il2CppArray* src, Il2CppObject* keySel)
 {
@@ -1658,7 +1658,7 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_d(Il2CppArray* src, Il2CppObject* keyS
 // impl-orderfam: the REFERENCE-source FLOAT-key counterpart (the
 // Func<TRef,float> ABI). Same cached-once / stable / fresh reference-array
 // result contract; the key returns in the float slot and is read through
-// InvokeKeyRefF, never through the double reader (b5-gaps 搂14).
+// InvokeKeyRefF, never through the double reader (b5-gaps §14).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_order_by_key_ref_f(Il2CppArray* src, Il2CppObject* keySel,
                                             int32_t desc)
@@ -1793,7 +1793,7 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_d(Il2CppArray* src, Il2CppObject* key
 // key family the element ABI carries: the element crosses to the selector in
 // the F-stack slot (a float element WIDENS to double -- the InvokePredF /
 // FPredFn convention, linq.cpp) and the key returns in its own family slot
-// (a float key through the float(*) reader -- impl-floatkey, b5-gaps 搂14).
+// (a float key through the float(*) reader -- impl-floatkey, b5-gaps §14).
 // Same cached-once / stable / fresh-source-family result contract as
 // SortInt32KeyCopyT / SortInt64KeyCopyT: the elements are snapshotted before
 // any selector call, the delegate is rooted across the key phase, and the
@@ -2082,7 +2082,7 @@ Il2CppArray* SortInt32TwoKeysFamDispatch(Il2CppArray* s, Il2CppDelegate* d1,
 {
 // impl-floatkey: family 3 = float (the Func<TSource,float> ABI) -- a float
 // key MUST be read through a float(*) reader, never through the double
-// KeyI4D reader (b5-gaps 搂14). 4 x 4 = 16 (k1fam, k2fam) combinations.
+// KeyI4D reader (b5-gaps §14). 4 x 4 = 16 (k1fam, k2fam) combinations.
 #define I4SRC_K1_CASES(K1TYPE, K1INV, K1CMP)                                                \
     case 0: return SortInt32TwoKeysCopyT<K1TYPE, int32_t>(s, d1, d2, k1Desc, k2Desc, K1INV, \
         InvokeKeyI4, K1CMP, CmpKeyValue<int32_t>);                                          \
@@ -2136,7 +2136,7 @@ Il2CppArray* SortInt64TwoKeysFamDispatch(Il2CppArray* s, Il2CppDelegate* d1,
                                          bool k2Desc, int32_t k1fam, int32_t k2fam)
 {
 // impl-floatkey: family 3 = float (read through InvokeKeyI8SrcF, b5-gaps
-// 搂14). 4 x 4 = 16 (k1fam, k2fam) combinations.
+// §14). 4 x 4 = 16 (k1fam, k2fam) combinations.
 #define I8SRC_K1_CASES(K1TYPE, K1INV, K1CMP)                                                \
     case 0: return SortInt64TwoKeysCopy<K1TYPE, int32_t>(s, d1, d2, k1Desc, k2Desc, K1INV,  \
         InvokeKeyI8SrcI4, K1CMP, CmpKeyValue<int32_t>);                                     \
@@ -2343,7 +2343,7 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_dec_guid(Il2CppArray* src, Il2CppObje
 // surface supports. Family codes: 0=int32, 1=int64, 2=double, 3=decimal,
 // 4=System.DateTime, 5=System.Guid, 6=float (impl-orderfam: the float family
 // has its own float(*) reader -- a 4-byte float return read through a double
-// fn-pointer mixes the callee's XMM0 residue into every key, the b5-gaps 搂14
+// fn-pointer mixes the callee's XMM0 residue into every key, the b5-gaps §14
 // misread; the numeric code column mirrors the impl-floatkey LinqValKeyFamily
 // split while the pre-existing 0..5 codes keep their meaning). Each selector
 // is cached EXACTLY ONCE.

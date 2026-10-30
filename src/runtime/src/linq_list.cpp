@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // linq_list.cpp -- System.Linq over a List<T> receiver (nb15 B5 FIX, D-2).
 //
 // See linq_list.h. Every entry:
@@ -3609,7 +3609,7 @@ Il2CppArray* il2cpp_linq_list_order_by_key_ref_d(Il2CppObject* list, Il2CppObjec
 // impl-orderfam: the List REFERENCE-element FLOAT-key face (the
 // Func<TRef,float> ABI). The snapshot rides the array ref_f entry, whose
 // float(*) reader keeps the 4-byte float return out of the double misread
-// (b5-gaps 搂14).
+// (b5-gaps §14).
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_f(Il2CppObject* list, Il2CppObject* keySel,
                                                  int32_t desc, int32_t kind)
 {
@@ -3663,7 +3663,7 @@ Il2CppArray* il2cpp_linq_list_order_by_key_desc_d(Il2CppObject* list, Il2CppObje
 // impl-orderfam: the DOUBLE-element list FLOAT-key entries (the
 // Func<double,float> ABI). The snapshot is a double array (8-byte cells) and
 // the key returns in the float slot -- il2cpp_linq_order_by_key_d_f reads it
-// through the float(*) reader, never through the double reader (b5-gaps 搂14).
+// through the float(*) reader, never through the double reader (b5-gaps §14).
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_list_order_by_key_f(Il2CppObject* list, Il2CppObject* keySel,
                                              int32_t kind)

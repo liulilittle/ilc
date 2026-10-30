@@ -1,4 +1,4 @@
-﻿using System.Reflection.Metadata;
+using System.Reflection.Metadata;
 
 namespace Il2Cpp.Transpiler.Emit;
 
@@ -766,7 +766,7 @@ public static partial class MethodRefResolver
                         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
                         0x0A or 0x0B => "i8",
                         // impl-orderfam: float gets its OWN entry (b5-gaps
-                        // 搂14 -- the 4-byte float return is never read
+                        // §14 -- the 4-byte float return is never read
                         // through the double reader).
                         0x0C => "f",
                         0x0D => "d",
@@ -1193,7 +1193,7 @@ public static partial class MethodRefResolver
                     // Func<decimal,float> leaf returns a 4-byte float per the
                     // MS x64 ABI; the shared _dec_d entry read it through a
                     // double(*) fn-pointer and mixed the callee's XMM0 residue
-                    // into every key -- b5-gaps 搂14, thenby-decfkey).
+                    // into every key -- b5-gaps §14, thenby-decfkey).
                     0x0C => "f",
                     0x0D => "d",
                     // 0x11 is every value type; a real System.Decimal key has
@@ -1990,7 +1990,7 @@ public static partial class MethodRefResolver
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                         throw new NotSupportedException(
                             "Enumerable.OrderBy with a (element, index) key selector over a reference-element " +
-                            "source is not wired: LOUD whitelist 锟?-- net48 has no (element, index) key " +
+                            "source is not wired: LOUD whitelist �?-- net48 has no (element, index) key " +
                             "selector overload. MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the " +
                             "net48 Reference Source System.Core/System/Linq/Enumerable.cs list only " +
                             "OrderBy<TSource,TKey>(IEnumerable<TSource>, Func<TSource,TKey>) and " +
@@ -3677,7 +3677,7 @@ public static partial class MethodRefResolver
     // 0x11 byte covers every value type, so the decoded MethodSpec FULL NAME is
     // the authority -- the same rule LinqFamilyAggregate applies.
     //
-    // impl-linq-0x11 (audit loud-inv 搂3.1 螖0): an UNDECODABLE name must never be
+    // impl-linq-0x11 (audit loud-inv §3.1 Δ0): an UNDECODABLE name must never be
     // assumed to be decimal. The old fallback treated genArgNames == "?" (the
     // decoder's placeholder for a VALUETYPE generic argument whose TypeDefOrRef
     // was not resolvable) as System.Decimal, so ANY 0x11 source with a lost name
@@ -3846,7 +3846,7 @@ public static partial class MethodRefResolver
     // impl-orderfam: float (0x0C) is deliberately SEPARATE from double (0x0D)
     // -- a Func<decimal,float> leaf returns a 4-byte float per the MS x64 ABI,
     // and the old "2" fold read it through the double(*) reader, mixing the
-    // callee's XMM0 residue into every key (the b5-gaps 搂14 misread,
+    // callee's XMM0 residue into every key (the b5-gaps §14 misread,
     // thenby-decfkey). The pre-existing 0..5 codes keep their meaning; the
     // float column mirrors the impl-floatkey LinqValKeyFamilyCode split on the
     // runtime SortDecTwoKeysDispatch matrix (code 6).
@@ -3869,7 +3869,7 @@ public static partial class MethodRefResolver
     // float (0x0C) is deliberately SEPARATE from double (0x02): a
     // Func<TSource,float> leaf returns a 4-byte float per the MS x64 ABI, and
     // reading that return through a double(*) fn-pointer mixes the callee's
-    // XMM0 residue into every key -- the silent mis-order b5-gaps 搂14
+    // XMM0 residue into every key -- the silent mis-order b5-gaps §14
     // measured (thenby-floatprobe). This code space is disjoint from the
     // DECIMAL composite's LinqKeyFamilyCode (which also assigns 3=decimal,
     // 4=DateTime, 5=Guid on its own runtime dispatch).
@@ -3952,7 +3952,7 @@ public static partial class MethodRefResolver
             // dt/ts/gd Min/Max compile failures. Keep those LOUD.
             // An UNKNOWN name (the synthetic "?" the name table emits for a
             // VALUETYPE arg with no resolvable TypeRef) is NOT decimal any more
-            // (impl-linq-0x11 / audit loud-inv 搂3.1 螖0): the old code kept the
+            // (impl-linq-0x11 / audit loud-inv §3.1 Δ0): the old code kept the
             // historical decimal-kernel answer for "?", so a DateTime/TimeSpan/
             // Guid source whose name was lost bound the 16-byte dec kernel -- a
             // SILENT wrong value. The single authority is IsDecimalSourceNamed
@@ -4320,7 +4320,7 @@ public static partial class MethodRefResolver
     // rides its OWN f entry (impl-orderfam: a Func<T,float> leaf returns a
     // 4-byte float per the MS x64 ABI; the shared _ref_d entry read it through
     // a double(*) fn-pointer and mixed the callee's XMM0 residue into every
-    // key -- the b5-gaps 搂14 misread, the thenby-refkey probe).
+    // key -- the b5-gaps §14 misread, the thenby-refkey probe).
     private static string LinqKeyFamilySuffix(byte b) => b switch
     {
         0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
@@ -4405,7 +4405,7 @@ public static partial class MethodRefResolver
             // leaf returns a 4-byte float per the MS x64 ABI, so the entry
             // must read the key through a float(*) reader (the shared _i4_d
             // entry read it as a double and mixed the callee's XMM0 residue
-            // into every key -- b5-gaps 搂14, thenby-floatprobe).
+            // into every key -- b5-gaps §14, thenby-floatprobe).
             0x0C
                 => desc ? "il2cpp::il2cpp_linq_order_by_key_desc_i4_f"
                          : "il2cpp::il2cpp_linq_order_by_key_i4_f",
@@ -5551,7 +5551,7 @@ public static partial class MethodRefResolver
                     // Func<double,float> leaf returns a 4-byte float per the
                     // MS x64 ABI, and the shared _d entry read it through a
                     // double(*) fn-pointer, mixing the callee's XMM0 residue
-                    // into every key -- b5-gaps 搂14, list-orderkey-float). A
+                    // into every key -- b5-gaps §14, list-orderkey-float). A
                     // non-double/float key over a double list has no list
                     // kernel.
                     if (genArgs is not { Length: >= 2 })
@@ -6142,7 +6142,7 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over an int64-element source with an (element, index) key selector " +
-                        "is not wired: LOUD whitelist 锟?-- net48 has no (element, index) key selector overload. " +
+                        "is not wired: LOUD whitelist �?-- net48 has no (element, index) key selector overload. " +
                         "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
@@ -6161,7 +6161,7 @@ public static partial class MethodRefResolver
                     0x0A or 0x0B => "i8",
                     // impl-floatkey: float gets its OWN entry (a 4-byte float
                     // return read through a double(*) fn-pointer mixes the
-                    // callee's XMM0 residue into every key -- b5-gaps 搂14).
+                    // callee's XMM0 residue into every key -- b5-gaps §14).
                     0x0C => "f",
                     0x0D => "d",
                     _ => null,
@@ -6188,7 +6188,7 @@ public static partial class MethodRefResolver
             // F-stack slot (a float element widens to double -- the
             // InvokePredF / FPredFn convention) and the key returns in its own
             // family slot (a float key through the float(*) reader --
-            // impl-floatkey, b5-gaps 搂14). The source NAME gates the surface:
+            // impl-floatkey, b5-gaps §14). The source NAME gates the surface:
             // ONLY System.Double[] / System.Single[] sources are wired here;
             // every other element family keeps its own gate.
             case "OrderBy" when (srcFam == "d" || srcFam == "f") && count >= 2:
@@ -6197,7 +6197,7 @@ public static partial class MethodRefResolver
                 if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a double/float-element source with an (element, index) key selector " +
-                        "is not wired: LOUD whitelist 锟?-- net48 has no (element, index) key selector overload. " +
+                        "is not wired: LOUD whitelist �?-- net48 has no (element, index) key selector overload. " +
                         "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +

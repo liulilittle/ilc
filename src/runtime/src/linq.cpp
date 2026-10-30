@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // linq.cpp -- System.Linq array-family icalls (LINQ domain, T1 card).
 //
 // See linq.h for the contract. Implementation notes:
