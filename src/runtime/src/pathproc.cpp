@@ -152,6 +152,16 @@ struct ProcessSlot
     bool timesCached;
     int64_t startTicks;
     int64_t exitTicks;
+    // nb4 PROC-DIAG procname: the ProcessName stem (wchar_t == UTF-16 on
+    // Windows) captured by the FIRST successful read while the process was
+    // still queryable. net48 stores the name in its Process object's
+    // ProcessInfo, so a later read (after the process exited) answers from
+    // that copy; a process that was NEVER read while alive keeps ProcessInfo
+    // empty and net48 raises InvalidOperationException instead. The value is
+    // held as NON-managed text on purpose (see the getter for the GC
+    // reasoning); the managed string is materialized per read.
+    bool nameCached;
+    std::wstring nameCache;
 };
 
 std::unordered_map<int32_t, ProcessSlot>& g_processes()
@@ -919,6 +929,8 @@ static int32_t LaunchChild(const std::vector<wchar_t>& app, const std::vector<wc
     slot.timesCached = false;
     slot.startTicks = 0;
     slot.exitTicks = 0;
+    slot.nameCached = false;
+    slot.nameCache.clear();
     g_processes()[pid] = std::move(slot);
     return pid;
 }
@@ -1289,42 +1301,25 @@ int32_t il2cpp_process_get_current_process_id()
 // pid is NOT in the table, so the PID is opened directly).
 //------------------------------------------------------------------------------
 
-Il2CppObject* il2cpp_process_get_name(int32_t pid)
-{
 #if defined(_WIN32)
-    // Prefer the tracked handle when the child is still alive (no extra
-    // open); the direct PID open covers the current process and every other
-    // queryable process. An opened handle is always closed by the caller.
-    HANDLE owned = nullptr;
-    const auto it = g_processes().find(pid);
-    HANDLE h = (it != g_processes().end() && it->second.process != nullptr)
-        ? it->second.process
-        : nullptr;
-    if (h == nullptr)
-    {
-        h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
-                          FALSE, static_cast<DWORD>(pid));
-        owned = h;
-    }
-    if (h == nullptr)
-    {
-        return nullptr; // unopenable PID (already exited, access denied)
-    }
+
+// Query the image stem of a process through a LIVE handle: "cmd" for
+// cmd.exe (no directory, case-insensitive ".exe" stripped -- the net48
+// ProcessName contract). Returns false when the handle no longer resolves the
+// image: a TERMINATED process object answers ERROR_GEN_FAILURE (31) for
+// QueryFullProcessImageNameW (measured; a retained duplicate handle does not
+// help), so the caller must have cached the name while the child was alive.
+static bool QueryProcessStem(HANDLE h, std::wstring* out)
+{
     wchar_t image[MAX_PATH];
     DWORD size = MAX_PATH;
-    const BOOL ok = ::QueryFullProcessImageNameW(h, 0, image, &size);
-    if (owned != nullptr)
+    if (::QueryFullProcessImageNameW(h, 0, image, &size) == 0)
     {
-        ::CloseHandle(owned);
-    }
-    if (!ok)
-    {
-        return nullptr;
+        return false;
     }
     const std::wstring path(image, image + static_cast<size_t>(size));
     const size_t sep = path.find_last_of(L"\\/");
     std::wstring name = (sep == std::wstring::npos) ? path : path.substr(sep + 1);
-    // net48 ProcessName has no extension: strip a case-insensitive ".exe".
     if (name.size() >= 4)
     {
         const wchar_t* tail = name.data() + name.size() - 4;
@@ -1335,9 +1330,89 @@ Il2CppObject* il2cpp_process_get_name(int32_t pid)
             name.resize(name.size() - 4);
         }
     }
+    *out = name;
+    return true;
+}
+
+// Materialize the cached stem as a fresh managed string. wchar_t is UTF-16 on
+// Windows, so the cast is the same 1:1 unit pass-through the direct path used.
+static Il2CppObject* StringFromStem(const std::wstring& stem)
+{
     return reinterpret_cast<Il2CppObject*>(
-        il2cpp_string_new(reinterpret_cast<const char16_t*>(name.data()),
-                          static_cast<int32_t>(name.size())));
+        il2cpp_string_new(reinterpret_cast<const char16_t*>(stem.data()),
+                          static_cast<int32_t>(stem.size())));
+}
+
+#endif // _WIN32
+
+Il2CppObject* il2cpp_process_get_name(int32_t pid)
+{
+#if defined(_WIN32)
+    // A tracked child answers from its name cache when the property was read
+    // while the process was alive (net48 stores it in ProcessInfo). A tracked
+    // child that was NEVER read while alive has no cache and no queryable
+    // object left once it exited: net48 raises InvalidOperationException, so
+    // the runtime does the same (probe-procname [g]/[h]/[i]).
+    //
+    // GC NOTE (why the cache is a std::wstring, not an Il2CppObject*): the
+    // slot table is a static C++ map, so a managed string parked in a slot
+    // would need a GC root. Registering one root per slot collides with the
+    // collector's fixed kMaxStaticRoots budget (gc.cpp: 128 entries, overflow
+    // aborts), and the slots are std::unordered_map values -- a rehash MOVES
+    // them, which would leave a registered root pointing at dead storage
+    // (the il2cpp_gc.h "root storage must stay valid" contract). Interning
+    // instead and keeping the raw pointer would go stale: the Gen0 compaction
+    // rewrites only registered roots/weak/pinned slots (gc.cpp
+    // UpdateReferencesAfterCompaction), never an arbitrary map field. Holding
+    // the TEXT and materializing a fresh string per read sidesteps all three;
+    // net48's instance identity (ReferenceEquals) is not part of the pinned
+    // contract.
+    const auto it = g_processes().find(pid);
+    if (it != g_processes().end())
+    {
+        ProcessSlot& slot = it->second;
+        if (slot.nameCached)
+        {
+            return StringFromStem(slot.nameCache);
+        }
+        if (slot.process == nullptr)
+        {
+            // Wait/kill already folded the slot and no name was captured.
+            il2cpp_throw_invalid_operation_exception(
+                "Cannot process request because the process has exited.");
+        }
+        if (::WaitForSingleObject(slot.process, 0) == WAIT_OBJECT_0)
+        {
+            // Exited on its own, handle not folded yet: the object is already
+            // terminated, so the query below would fail anyway.
+            il2cpp_throw_invalid_operation_exception(
+                "Cannot process request because the process has exited.");
+        }
+        std::wstring stem;
+        if (!QueryProcessStem(slot.process, &stem))
+        {
+            return nullptr;
+        }
+        slot.nameCache = stem;
+        slot.nameCached = true;
+        return StringFromStem(slot.nameCache);
+    }
+    // Untracked PID (the current process and every other queryable process):
+    // the direct PID open, closed by the caller.
+    HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                             FALSE, static_cast<DWORD>(pid));
+    if (h == nullptr)
+    {
+        return nullptr; // unopenable PID (already exited, access denied)
+    }
+    std::wstring stem;
+    const bool ok = QueryProcessStem(h, &stem);
+    ::CloseHandle(h);
+    if (!ok)
+    {
+        return nullptr;
+    }
+    return StringFromStem(stem);
 #else
     (void)pid;
     return nullptr; // unsupported on POSIX

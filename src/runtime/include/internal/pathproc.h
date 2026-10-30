@@ -193,10 +193,15 @@ int32_t il2cpp_process_get_current_thread_id();
 
 // Process.ProcessName(pid) (nb3 PROC-GAP): the FILE STEM of the process
 // image -- no directory, no ".exe" (net48 ProcessName semantics:
-// "cmd.exe" -> "cmd"). Non-null for a process that can be queried
-// (the tracked table handle is preferred, otherwise the PID is opened
-// directly -- the current process included); null when the PID cannot be
-// opened or on POSIX (unsupported).
+// "cmd.exe" -> "cmd"). net48 reads it through ProcessInfo and KEEPS that copy
+// in the Process object, so a read performed while the process was alive is
+// still answerable after it exited; the runtime mirrors this with a per-slot
+// name cache filled by the first successful alive read. A process that was
+// NEVER read while alive has no cached name and no queryable image once it
+// exited (QueryFullProcessImageNameW answers ERROR_GEN_FAILURE on a terminated
+// object), so the getter raises InvalidOperationException exactly like net48.
+// Non-null for an untracked but queryable PID (the current process included);
+// null when an untracked PID cannot be opened or on POSIX (unsupported).
 Il2CppObject* il2cpp_process_get_name(int32_t pid);
 
 // Process.HasExited(pid) (nb3 PROC-GAP): 1 when the process has terminated,
