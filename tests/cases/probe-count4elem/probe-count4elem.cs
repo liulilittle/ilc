@@ -16,10 +16,12 @@
 //   result:  int32 / float / double
 // plus the unseeded (count==2) narrow diagonal.
 //
-// NOTE the runtime GC static-root table holds 128 slots and every cached
-// lambda consumes two, so this probe keeps the lambda count below 64 (a larger
-// matrix aborts with "static root table overflow" on net48 AND the runtime --
-// a harness limit, not a LINQ defect).
+// NOTE on probe size: every cached lambda is a static reference field and thus
+// a runtime GC static root. The runtime's static-root table was ORIGINALLY 128
+// slots, which forced this probe to stay below ~64 lambdas; it has since been
+// raised to 4096 (gc.cpp), so the matrix below is no longer constrained. The
+// limit was always OUR runtime's artificial ceiling -- net48 has no such table
+// and never aborted on a large matrix.
 //
 // Every float/double is printed with its raw bit pattern so a width/ABI
 // misread is visible byte-for-byte against the net48 oracle.

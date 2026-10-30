@@ -191,6 +191,59 @@ public static partial class MethodRefResolver
             "and the listobj reference/value-box instantiations (listobj.h) have a runtime domain " +
             "[Reference Source: net48 mscorlib System.Collections.Generic.List`1]");
 
+        // impl-listrange: the IL2CPP_LIST_KIND_* element-kind literal of this
+        // receiver's family (the linq_list.h numbering:
+        // 0 int32, 1 reference, 2 int64, 3 float, 4 double, 5 sbyte, 6 byte,
+        // 7 bool, 8 short, 9 ushort, 10 char, 11 uint, 12 decimal,
+        // 13 DateTime, 14 TimeSpan, 15 Guid, 16 DateTimeOffset).
+        // Null for the int32 AOT expansion (listi4 domain) and for a user
+        // struct / tuple element (those ride the by-value templates).
+        var listKind = objReceiver ? "1"
+            : longReceiver ? "2"
+            : floatReceiver ? "3"
+            : doubleReceiver ? "4"
+            : decReceiver ? "12"
+            : dtReceiver ? "13"
+            : tsReceiver ? "14"
+            : guidReceiver ? "15"
+            : dtoReceiver ? "16"
+            : byteLike ? ListValKind(instTag) switch
+            {
+                "bool" => "7", "char" => "10", "sbyte" => "5", "byte" => "6",
+                "short" => "8", "ushort" => "9", "uint" => "11", _ => null,
+            }
+            : null;
+        // The value carrier suffix of the comparison operators (IndexOf /
+        // LastIndexOf / BinarySearch): the runtime entry reads the value in
+        // the family's own ABI. Null for int32 / struct / tuple.
+        var searchSuffix = longReceiver ? "i8"
+            : doubleReceiver || floatReceiver ? "d"
+            : byteLike ? "i4"
+            : decReceiver ? "dec"
+            : dtReceiver ? "dt"
+            : tsReceiver ? "ts"
+            : guidReceiver ? "guid"
+            : dtoReceiver ? "dto"
+            : objReceiver ? "ref"
+            : null;
+        var searchCast = longReceiver ? "l"
+            : doubleReceiver || floatReceiver ? "d"
+            : byteLike ? "i"
+            : decReceiver ? "dec"
+            : guidReceiver ? "g"
+            : "";
+        // Find / FindLast: the C++ return ABI of the family. A null resultKind
+        // means the default (int32 for the byte-like families, a plain managed
+        // reference for a reference element).
+        var findResultKind = longReceiver ? "l"
+            : doubleReceiver || floatReceiver ? "d"
+            : decReceiver ? "dec"
+            : dtReceiver ? "dt"
+            : tsReceiver ? "ts"
+            : guidReceiver ? "guid"
+            : dtoReceiver ? "dto"
+            : null;
+
         switch (name)
         {
             case ".ctor":
@@ -556,6 +609,56 @@ public static partial class MethodRefResolver
             case "IndexOf":
                 // D-LISTOBJ-6: int32 IndexOf(T) -- the T parameter arrives as
                 // VAR (0x13). int32 is a value return on both domains.
+                // impl-listrange: the range overloads IndexOf(T, startIndex)
+                // and IndexOf(T, startIndex, count) ride the A-side
+                // il2cpp_list_obj_index_of_range_* carriers; the omitted
+                // count rides the "through the end" bound marker.
+                if (count == 2 && ps.Length == 2 && (ps[0] == 0x13 || ps[0] == 0x15) && ps[1] == 0x08)
+                {
+                    if (i4Receiver) return Loud();
+                    if (searchSuffix != null)
+                        return I($"il2cpp::il2cpp_list_obj_index_of_range_{searchSuffix}", 2,
+                            true, false, true, new[] { "", searchCast, "i" },
+                            appendLiterals: new[] { "-2147483647 - 1", listKind! },
+                            argOrder: new[] { 0, 1, 2 });
+                    // impl-listrange: the by-value struct / tuple element
+                    // rides the same range carrier through the template
+                    // (value BY ADDRESS, klass + payload size appended).
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_index_of_struct_range_t<{structCpp}>", 2,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:&{structCpp}_class", "i" },
+                            appendLiterals: new[] { "-2147483647 - 1" },
+                            argOrder: new[] { 0, 1, 0, 2 });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_index_of_struct_range_t<{tupleCpp}>", 2,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:{tupleKlassExpr}", "i" },
+                            appendLiterals: new[] { "-2147483647 - 1" },
+                            argOrder: new[] { 0, 1, 0, 2 });
+                    return Loud();
+                }
+                if (count == 3 && ps.Length == 3 && (ps[0] == 0x13 || ps[0] == 0x15)
+                    && ps[1] == 0x08 && ps[2] == 0x08)
+                {
+                    if (i4Receiver) return Loud();
+                    if (searchSuffix != null)
+                        return I($"il2cpp::il2cpp_list_obj_index_of_range_{searchSuffix}", 3,
+                            true, false, true, new[] { "", searchCast, "i", "i" },
+                            appendLiterals: new[] { listKind! },
+                            argOrder: new[] { 0, 1, 2, 3 });
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_index_of_struct_range_t<{structCpp}>", 3,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:&{structCpp}_class", "i", "i" },
+                            argOrder: new[] { 0, 1, 0, 2, 3 });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_index_of_struct_range_t<{tupleCpp}>", 3,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:{tupleKlassExpr}", "i", "i" },
+                            argOrder: new[] { 0, 1, 0, 2, 3 });
+                    return Loud();
+                }
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
                 if (doubleReceiver)
                     return I("il2cpp::il2cpp_list_obj_index_of_double", 1, true, false, true, new[] { "", "d" });
@@ -656,24 +759,53 @@ public static partial class MethodRefResolver
                 // Sort(Comparison<int>) (the T parameter is VAR 0x13) and
                 // Sort(int32 index, int32 count, IComparer<int> comparer).
                 if (count == 1 && ps.Length == 1 && (ps[0] == 0x13 || ps[0] == 0x15))
-                    return i4Receiver
-                        ? I("il2cpp::il2cpp_list_i4_sort_comparison", 1, false, false, true, new[] { "", "" })
-                        : Loud();
+                {
+                    if (i4Receiver)
+                        return I("il2cpp::il2cpp_list_i4_sort_comparison", 1, false, false, true, new[] { "", "" });
+                    // impl-listrange: Sort(Comparison<T>) for every listobj
+                    // element family -- the comparison delegate receives the
+                    // elements in the family's own ABI (the kind literal).
+                    if (listKind != null)
+                        return I("il2cpp::il2cpp_list_obj_sort_comparison", 1, false, false, true,
+                            new[] { "", "" }, appendLiterals: new[] { listKind });
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_sort_comparison_struct_t<{structCpp}>", 1,
+                            false, false, true, new[] { "", "" });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_sort_comparison_struct_t<{tupleCpp}>", 1,
+                            false, false, true, new[] { "", "" });
+                    return Loud();
+                }
                 if (count == 3 && ps.Length == 3 && ps[0] == 0x08 && ps[1] == 0x08)
-                    return i4Receiver
-                        ? I("il2cpp::il2cpp_list_i4_sort_range_comparer", 3, false, false, true, new[] { "", "i", "i", "" })
-                        : Loud();
+                {
+                    if (i4Receiver)
+                        return I("il2cpp::il2cpp_list_i4_sort_range_comparer", 3, false, false, true, new[] { "", "i", "i", "" });
+                    if (listKind != null)
+                        return I("il2cpp::il2cpp_list_obj_sort_range_comparer", 3, false, false, true,
+                            new[] { "", "i", "i", "" }, appendLiterals: new[] { listKind });
+                    return Loud();
+                }
                 return Loud();
             case "CopyTo":
                 // D-LISTOBJ-10: void CopyTo(T[] array, int32 arrayIndex) --
                 // the array is a reference ("" passthrough), the index is
                 // int32 ("i") on both domains.
+                // impl-listrange: the listobj family was LOUD here even though
+                // il2cpp_list_obj_copy_to is family-agnostic; the element now
+                // crosses at the family's own destination cell width.
                 if (count != 2) return Loud();
-                return objReceiver
-                    ? I("il2cpp::il2cpp_list_obj_copy_to", 2, false, false, true, new[] { "", "", "i" })
-                    : i4Receiver
-                        ? I("il2cpp::il2cpp_list_i4_copy_to", 2, false, false, true, new[] { "", "", "i" })
-                        : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_copy_to", 2, false, false, true, new[] { "", "", "i" });
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_copy_to_kind", 2, false, false, true,
+                        new[] { "", "", "i" }, appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_copy_to_struct_t<{structCpp}>", 2,
+                        false, false, true, new[] { "", "", "i" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_copy_to_struct_t<{tupleCpp}>", 2,
+                        false, false, true, new[] { "", "", "i" });
+                return Loud();
             //------------------------------------------------------------------
             // listb1: the range / predicate / reverse / binary-search / sort
             // overload surface. The int32 AOT expansion (List<int>) rides the
@@ -682,102 +814,356 @@ public static partial class MethodRefResolver
             // added deliberately, never silently mis-mapped).
             //------------------------------------------------------------------
             case "AddRange":
-                // void AddRange(IEnumerable<int> collection): the collection is a
-                // managed reference slot ("" passthrough).
+                // void AddRange(IEnumerable<T> collection): the collection is a
+                // managed reference slot ("" passthrough). The runtime copies the
+                // elements through the listobj / array / ienum carriers; the
+                // element kind drives the box/unbox.
                 if (count != 1 || ps.Length != 1) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_add_range", 1, false, false, true, new[] { "", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_add_range", 1, false, false, true, new[] { "", "" });
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_add_range", 1, false, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_add_range_struct_t<{structCpp}>", 1,
+                        false, false, true, new[] { "", "" },
+                        appendLiterals: new[] { $"&{structCpp}_class" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_add_range_struct_t<{tupleCpp}>", 1,
+                        false, false, true, new[] { "", "" },
+                        appendLiterals: new[] { tupleKlassExpr! });
+                return Loud();
             case "InsertRange":
-                // void InsertRange(int32 index, IEnumerable<int> collection).
+                // void InsertRange(int32 index, IEnumerable<T> collection).
                 if (count != 2 || ps.Length != 2 || ps[0] != 0x08) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_insert_range", 2, false, false, true, new[] { "", "i", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_insert_range", 2, false, false, true, new[] { "", "i", "" });
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_insert_range", 2, false, false, true,
+                        new[] { "", "i", "" }, appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_insert_range_struct_t<{structCpp}>", 2,
+                        false, false, true, new[] { "", "i", "" },
+                        appendLiterals: new[] { $"&{structCpp}_class" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_insert_range_struct_t<{tupleCpp}>", 2,
+                        false, false, true, new[] { "", "i", "" },
+                        appendLiterals: new[] { tupleKlassExpr! });
+                return Loud();
             case "RemoveRange":
-                // void RemoveRange(int32 index, int32 count).
+                // void RemoveRange(int32 index, int32 count): pure slot move, the
+                // element family is irrelevant.
                 if (count != 2 || ps.Length != 2 || ps[0] != 0x08 || ps[1] != 0x08) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_remove_range", 2, false, false, true, new[] { "", "i", "i" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_remove_range", 2, false, false, true, new[] { "", "i", "i" });
+                return I("il2cpp::il2cpp_list_obj_remove_range", 2, false, false, true, new[] { "", "i", "i" });
             case "GetRange":
-                // List<int> GetRange(int32 index, int32 count): a NEW list; the
-                // result tracks List`1_int so the downstream Count/indexer
-                // resolve.
+                // List<T> GetRange(int32 index, int32 count): a NEW list; the
+                // result tracks the SAME instantiation so the downstream
+                // Count/indexer resolve.
                 if (count != 2 || ps.Length != 2 || ps[0] != 0x08 || ps[1] != 0x08) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_get_range", 2, true, true, true, new[] { "", "i", "i" },
-                        returnTypeName: "System.Collections.Generic.List`1_int")
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_get_range", 2, true, true, true, new[] { "", "i", "i" },
+                        returnTypeName: "System.Collections.Generic.List`1_int");
+                return I("il2cpp::il2cpp_list_obj_get_range", 2, true, true, true, new[] { "", "i", "i" },
+                    returnTypeName: instTag);
             case "RemoveAll":
-                // int32 RemoveAll(Predicate<int> match): the T parameter is VAR
+                // int32 RemoveAll(Predicate<T> match): the T parameter is VAR
                 // (0x13), the delegate rides a managed reference slot.
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_remove_all", 1, true, false, true, new[] { "", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_remove_all", 1, true, false, true, new[] { "", "" });
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_remove_all", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{structCpp}>", 1,
+                        true, false, true, new[] { "", "" }, appendLiterals: new[] { "4" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{tupleCpp}>", 1,
+                        true, false, true, new[] { "", "" }, appendLiterals: new[] { "4" });
+                return Loud();
             case "LastIndexOf":
-                // int32 LastIndexOf(T value): the value is VAR (0x13).
-                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_last_index_of", 1, true, false, true, new[] { "", "i" })
-                    : Loud();
+                // int32 LastIndexOf(T value)
+                // int32 LastIndexOf(T value, int32 index)
+                // int32 LastIndexOf(T value, int32 index, int32 count)
+                // The omitted bounds ride the kLrToBound sentinel
+                // (INT32_MIN) the runtime reads as "through the end".
+                if (count == 1 && ps.Length == 1 && (ps[0] == 0x13 || ps[0] == 0x15))
+                {
+                    if (i4Receiver)
+                        return I("il2cpp::il2cpp_list_i4_last_index_of", 1, true, false, true, new[] { "", "i" });
+                    if (searchSuffix != null)
+                        return I($"il2cpp::il2cpp_list_obj_last_index_of_range_{searchSuffix}", 1,
+                            true, false, true, new[] { "", searchCast },
+                            appendLiterals: new[] { "-2147483647 - 1", "-2147483647 - 1", listKind! });
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_last_index_of_struct_range_t<{structCpp}>", 1,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:&{structCpp}_class" },
+                            appendLiterals: new[] { "-2147483647 - 1", "-2147483647 - 1" },
+                            argOrder: new[] { 0, 1, 0 });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_last_index_of_struct_range_t<{tupleCpp}>", 1,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:{tupleKlassExpr}" },
+                            appendLiterals: new[] { "-2147483647 - 1", "-2147483647 - 1" },
+                            argOrder: new[] { 0, 1, 0 });
+                    return Loud();
+                }
+                if (count == 2 && ps.Length == 2 && (ps[0] == 0x13 || ps[0] == 0x15) && ps[1] == 0x08)
+                {
+                    if (i4Receiver) return Loud();
+                    if (searchSuffix != null)
+                        return I($"il2cpp::il2cpp_list_obj_last_index_of_range_{searchSuffix}", 2,
+                            true, false, true, new[] { "", searchCast, "i" },
+                            appendLiterals: new[] { "-2147483647 - 1", listKind! });
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_last_index_of_struct_range_t<{structCpp}>", 2,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:&{structCpp}_class", "i" },
+                            appendLiterals: new[] { "-2147483647 - 1" },
+                            argOrder: new[] { 0, 1, 0, 2 });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_last_index_of_struct_range_t<{tupleCpp}>", 2,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:{tupleKlassExpr}", "i" },
+                            appendLiterals: new[] { "-2147483647 - 1" },
+                            argOrder: new[] { 0, 1, 0, 2 });
+                    return Loud();
+                }
+                if (count == 3 && ps.Length == 3 && (ps[0] == 0x13 || ps[0] == 0x15)
+                    && ps[1] == 0x08 && ps[2] == 0x08)
+                {
+                    if (i4Receiver) return Loud();
+                    if (searchSuffix != null)
+                        return I($"il2cpp::il2cpp_list_obj_last_index_of_range_{searchSuffix}", 3,
+                            true, false, true, new[] { "", searchCast, "i", "i" },
+                            appendLiterals: new[] { listKind! });
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_last_index_of_struct_range_t<{structCpp}>", 3,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:&{structCpp}_class", "i", "i" },
+                            argOrder: new[] { 0, 1, 0, 2, 3 });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_last_index_of_struct_range_t<{tupleCpp}>", 3,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:{tupleKlassExpr}", "i", "i" },
+                            argOrder: new[] { 0, 1, 0, 2, 3 });
+                    return Loud();
+                }
+                return Loud();
             case "Find":
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_find", 1, true, false, true, new[] { "", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_find", 1, true, false, true, new[] { "", "" });
+                if (searchSuffix != null)
+                    // impl-listrange: the reference carrier returns the element
+                    // as a managed reference (Il2CppObject*), so the result
+                    // temp must be a reference -- the value families keep the
+                    // value slot (rr = false) and select it through
+                    // findResultKind.
+                    return I($"il2cpp::il2cpp_list_obj_find_{searchSuffix}", 1, true,
+                        searchSuffix == "ref", true,
+                        new[] { "", "" }, resultKind: findResultKind,
+                        appendLiterals: new[] { listKind! });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_find_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "" }, resultKind: "us:" + structCpp,
+                        returnTypeName: structDef!.FullName, appendLiterals: new[] { "0" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_find_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "", "" }, resultKind: "us:" + tupleCpp,
+                        returnTypeName: tupleElemName, appendLiterals: new[] { "0" });
+                return Loud();
             case "FindLast":
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_find_last", 1, true, false, true, new[] { "", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_find_last", 1, true, false, true, new[] { "", "" });
+                if (searchSuffix != null)
+                    return I($"il2cpp::il2cpp_list_obj_find_last_{searchSuffix}", 1, true,
+                        searchSuffix == "ref", true,
+                        new[] { "", "" }, resultKind: findResultKind,
+                        appendLiterals: new[] { listKind! });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_find_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "" }, resultKind: "us:" + structCpp,
+                        returnTypeName: structDef!.FullName, appendLiterals: new[] { "1" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_find_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "", "" }, resultKind: "us:" + tupleCpp,
+                        returnTypeName: tupleElemName, appendLiterals: new[] { "1" });
+                return Loud();
             case "FindIndex":
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_find_index", 1, true, false, true, new[] { "", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_find_index", 1, true, false, true, new[] { "", "" });
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_find_index", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { "0" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "" , "" }, appendLiterals: new[] { "0" });
+                return Loud();
             case "FindLastIndex":
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_find_last_index", 1, true, false, true, new[] { "", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_find_last_index", 1, true, false, true, new[] { "", "" });
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_find_last_index", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { "1" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { "1" });
+                return Loud();
             case "Exists":
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_exists", 1, true, false, true, new[] { "", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_exists", 1, true, false, true, new[] { "", "" });
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_exists", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { "2" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { "2" });
+                return Loud();
             case "TrueForAll":
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_true_for_all", 1, true, false, true, new[] { "", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_true_for_all", 1, true, false, true, new[] { "", "" });
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_true_for_all", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{structCpp}>", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { "3" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_scan_struct_t<{tupleCpp}>", 1, true, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { "3" });
+                return Loud();
             case "ForEach":
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_for_each", 1, false, false, true, new[] { "", "" })
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_for_each", 1, false, false, true, new[] { "", "" });
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_for_each", 1, false, false, true,
+                        new[] { "", "" }, appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_for_each_struct_t<{structCpp}>", 1,
+                        false, false, true, new[] { "", "" });
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_for_each_struct_t<{tupleCpp}>", 1,
+                        false, false, true, new[] { "", "" });
+                return Loud();
             case "FindAll":
                 if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_find_all", 1, true, true, true, new[] { "", "" },
-                        returnTypeName: "System.Collections.Generic.List`1_int")
-                    : Loud();
+                if (i4Receiver)
+                    return I("il2cpp::il2cpp_list_i4_find_all", 1, true, true, true, new[] { "", "" },
+                        returnTypeName: "System.Collections.Generic.List`1_int");
+                if (listKind != null)
+                    return I("il2cpp::il2cpp_list_obj_find_all", 1, true, true, true,
+                        new[] { "", "" }, returnTypeName: instTag,
+                        appendLiterals: new[] { listKind });
+                if (structCpp != null)
+                    return I($"il2cpp::il2cpp_list_obj_find_all_struct_t<{structCpp}>", 1,
+                        true, true, true, new[] { "", "" }, returnTypeName: instTag);
+                if (tupleReceiver)
+                    return I($"il2cpp::il2cpp_list_obj_find_all_struct_t<{tupleCpp}>", 1,
+                        true, true, true, new[] { "", "" }, returnTypeName: instTag);
+                return Loud();
             case "Reverse":
+                // impl-listrange: Reverse() / Reverse(index, count) are pure
+                // slot moves, so every listobj element family shares them.
                 if (count == 0)
                     return i4Receiver
                         ? I("il2cpp::il2cpp_list_i4_reverse", 0, false, false, true)
-                        : Loud();
+                        : I("il2cpp::il2cpp_list_obj_reverse", 0, false, false, true);
                 if (count != 2 || ps.Length != 2 || ps[0] != 0x08 || ps[1] != 0x08) return Loud();
                 return i4Receiver
                     ? I("il2cpp::il2cpp_list_i4_reverse_range", 2, false, false, true, new[] { "", "i", "i" })
-                    : Loud();
+                    : I("il2cpp::il2cpp_list_obj_reverse_range", 2, false, false, true, new[] { "", "i", "i" });
             case "BinarySearch":
-                // int32 BinarySearch(T value): the value is VAR (0x13).
-                if (count != 1 || ps.Length != 1 || (ps[0] != 0x13 && ps[0] != 0x15)) return Loud();
-                return i4Receiver
-                    ? I("il2cpp::il2cpp_list_i4_binary_search", 1, true, false, true, new[] { "", "i" })
-                    : Loud();
+                // int32 BinarySearch(T value)
+                // int32 BinarySearch(T value, IComparer<T> comparer)
+                // int32 BinarySearch(int32 index, int32 count, T item,
+                //                    IComparer<T> comparer)
+                // The runtime entry is (self, value, comparer, start, count,
+                // kind); the omitted comparer is a null literal (= Comparer<
+                // T>.Default) and the omitted bounds ride the "through the
+                // end" marker. The value crosses in the family's own ABI.
+                if (count == 1 && ps.Length == 1 && (ps[0] == 0x13 || ps[0] == 0x15))
+                {
+                    if (i4Receiver)
+                        return I("il2cpp::il2cpp_list_i4_binary_search", 1, true, false, true, new[] { "", "i" });
+                    if (searchSuffix != null)
+                        return I($"il2cpp::il2cpp_list_obj_binary_search_{searchSuffix}", 1,
+                            true, false, true, new[] { "", searchCast },
+                            appendLiterals: new[] { "nullptr", "0", "-2147483647 - 1", listKind! });
+                    // impl-listrange: the struct / tuple default-order search
+                    // rides the template (1-arg = through the end, null
+                    // comparer).
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_binary_search_struct_t<{structCpp}>", 1,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:&{structCpp}_class" },
+                            appendLiterals: new[] { "nullptr", "0", "-2147483647 - 1" });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_binary_search_struct_t<{tupleCpp}>", 1,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:{tupleKlassExpr}" },
+                            appendLiterals: new[] { "nullptr", "0", "-2147483647 - 1" });
+                    return Loud();
+                }
+                if (count == 2 && ps.Length == 2 && (ps[0] == 0x13 || ps[0] == 0x15))
+                {
+                    if (i4Receiver) return Loud();
+                    if (searchSuffix != null)
+                        return I($"il2cpp::il2cpp_list_obj_binary_search_{searchSuffix}", 2,
+                            true, false, true, new[] { "", searchCast, "" },
+                            appendLiterals: new[] { "0", "-2147483647 - 1", listKind! });
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_binary_search_struct_t<{structCpp}>", 2,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:&{structCpp}_class", "" },
+                            appendLiterals: new[] { "0", "-2147483647 - 1" });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_binary_search_struct_t<{tupleCpp}>", 2,
+                            true, false, true,
+                            new[] { "", "addr:v", $"lit:{tupleKlassExpr}", "" },
+                            appendLiterals: new[] { "0", "-2147483647 - 1" });
+                    return Loud();
+                }
+                if (count == 4 && ps.Length == 4 && ps[0] == 0x08 && ps[1] == 0x08
+                    && (ps[2] == 0x13 || ps[2] == 0x15))
+                {
+                    if (i4Receiver) return Loud();
+                    if (searchSuffix != null)
+                        return I($"il2cpp::il2cpp_list_obj_binary_search_{searchSuffix}", 4,
+                            true, false, true, new[] { "", searchCast, "", "i", "i" },
+                            appendLiterals: new[] { listKind! },
+                            argOrder: new[] { 0, 3, 4, 1, 2 });
+                    if (structCpp != null)
+                        return I($"il2cpp::il2cpp_list_obj_binary_search_struct_t<{structCpp}>", 4,
+                            true, false, true,
+                            new[] { "", "i", "i", "addr:v", $"lit:&{structCpp}_class" },
+                            argOrder: new[] { 0, 3, 4, 1, 2 });
+                    if (tupleReceiver)
+                        return I($"il2cpp::il2cpp_list_obj_binary_search_struct_t<{tupleCpp}>", 4,
+                            true, false, true,
+                            new[] { "", "i", "i", "addr:v", $"lit:{tupleKlassExpr}" },
+                            argOrder: new[] { 0, 3, 4, 1, 2 });
+                    return Loud();
+                }
+                return Loud();
             default: return null;
         }
     }

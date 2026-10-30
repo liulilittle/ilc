@@ -11,8 +11,10 @@
 #include "guid.h"         // p0linq4 (D1): Il2CppGuid (List<Guid> elements)
 #include "il2cpp_dtoffset.h" // delta 2: Il2CppDateTimeOffset (List<DateTimeOffset>)
 #include "il2cpp_time.h"  // p0linq4 (D1): Il2CppDateTime / Il2CppTimeSpan
+#include "il2cpp_delegate.h" // impl-listrange: by-value struct/tuple predicate leaves
 #include <cstddef>
 #include <cstdint>
+#include <cstring>        // impl-listrange: by-value struct/tuple payload copies
 
 namespace il2cpp {
 
@@ -409,6 +411,380 @@ template <typename T>
 inline Il2CppObject* il2cpp_list_obj_to_array_struct_t(Il2CppObject* self)
 {
     return il2cpp_list_obj_to_array_struct(self, static_cast<int32_t>(sizeof(T)));
+}
+
+//------------------------------------------------------------------------------
+// impl-listrange: the RANGE / SEARCH / PREDICATE operator surface of the
+// listobj reference storage -- EVERY non-int32 List<T> family.
+//
+// The storage is a reference array of BOXED elements, so the operations split
+// into three classes:
+//   * SLOT MOVES (Reverse / RemoveRange / GetRange / FindAll / the AddRange and
+//     InsertRange slot copy): family-agnostic -- the element Il2CppObject* is
+//     moved verbatim, never re-boxed;
+//   * PREDICATE / ELEMENT-RETURN: the delegate is invoked through the ELEMENT
+//     FAMILY'S OWN ABI (narrow cells widen to int32, float widens to double,
+//     decimal and the BCL value structs cross BY VALUE, a user struct / tuple
+//     crosses as its own C++ type);
+//   * COMPARISON (IndexOf with startIndex/count, LastIndexOf, BinarySearch):
+//     the boxed scan compares through the family's own equality / ordering
+//     authority. System.DateTime compares TICKS ONLY (net48 DateTime.Equals /
+//     CompareTo ignore DateTimeKind; the list stores the 62-bit ticks + 2-bit
+//     kind ARRAY image boxed in an Int64, so a raw payload compare would let
+//     the Kind bits decide -- a silent wrong value).
+//
+// The element-kind literal is the linq_list.h IL2CPP_LIST_KIND_* code:
+//   0 int32   1 reference  2 int64   3 float   4 double   5 sbyte   6 byte
+//   7 bool    8 short      9 ushort  10 char   11 uint    12 decimal
+//   13 DateTime  14 TimeSpan  15 Guid  16 DateTimeOffset
+//------------------------------------------------------------------------------
+void il2cpp_list_obj_reverse(Il2CppObject* self);
+void il2cpp_list_obj_reverse_range(Il2CppObject* self, int32_t index, int32_t count);
+void il2cpp_list_obj_remove_range(Il2CppObject* self, int32_t index, int32_t count);
+Il2CppObject* il2cpp_list_obj_get_range(Il2CppObject* self, int32_t index, int32_t count);
+
+// AddRange(IEnumerable<T>) / InsertRange(int, IEnumerable<T>): the source is
+// enumerated at the element family's own cell width and each element is boxed
+// into the destination storage (a listobj source copies its slots directly; an
+// array source reads the cell of the family; anything else walks the shared
+// IEnumerator<T> dispatcher).
+void il2cpp_list_obj_add_range(Il2CppObject* self, Il2CppObject* collection, int32_t kind);
+void il2cpp_list_obj_insert_range(Il2CppObject* self, int32_t index, Il2CppObject* collection,
+                                  int32_t kind);
+
+// Predicate operators (the callback's element argument crosses per `kind`).
+int32_t il2cpp_list_obj_remove_all(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+int32_t il2cpp_list_obj_find_index(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+int32_t il2cpp_list_obj_find_last_index(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+// bool results ride the int32 slot.
+int32_t il2cpp_list_obj_exists(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+int32_t il2cpp_list_obj_true_for_all(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+void il2cpp_list_obj_for_each(Il2CppObject* self, Il2CppObject* action, int32_t kind);
+Il2CppObject* il2cpp_list_obj_find_all(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+
+// Find / FindLast: the element RESULT follows the carrier suffix.
+//   _i4   int32-slot families (int32 + the seven narrow kinds)
+//   _i8   int64   _d double (float widens)   _ref reference element
+//   _dec  decimal (result slot FIRST)        _dt DateTime (BY VALUE, ticks)
+//   _ts   TimeSpan (BY VALUE)                _guid Guid (result slot LAST)
+//   _dto  DateTimeOffset (BY VALUE)
+// A miss answers default(T).
+int32_t il2cpp_list_obj_find_i4(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+int64_t il2cpp_list_obj_find_i8(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+double il2cpp_list_obj_find_d(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+Il2CppObject* il2cpp_list_obj_find_ref(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+void il2cpp_list_obj_find_dec(runtime::Il2CppDecimal* result, Il2CppObject* self,
+                              Il2CppObject* match, int32_t kind);
+runtime::Il2CppDateTime il2cpp_list_obj_find_dt(Il2CppObject* self, Il2CppObject* match,
+                                                int32_t kind);
+runtime::Il2CppTimeSpan il2cpp_list_obj_find_ts(Il2CppObject* self, Il2CppObject* match,
+                                                int32_t kind);
+void il2cpp_list_obj_find_guid(Il2CppObject* self, Il2CppObject* match, int32_t kind,
+                               uint8_t* result);
+runtime::Il2CppDateTimeOffset il2cpp_list_obj_find_dto(Il2CppObject* self, Il2CppObject* match,
+                                                       int32_t kind);
+int32_t il2cpp_list_obj_find_last_i4(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+int64_t il2cpp_list_obj_find_last_i8(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+double il2cpp_list_obj_find_last_d(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+Il2CppObject* il2cpp_list_obj_find_last_ref(Il2CppObject* self, Il2CppObject* match, int32_t kind);
+void il2cpp_list_obj_find_last_dec(runtime::Il2CppDecimal* result, Il2CppObject* self,
+                                   Il2CppObject* match, int32_t kind);
+runtime::Il2CppDateTime il2cpp_list_obj_find_last_dt(Il2CppObject* self, Il2CppObject* match,
+                                                     int32_t kind);
+runtime::Il2CppTimeSpan il2cpp_list_obj_find_last_ts(Il2CppObject* self, Il2CppObject* match,
+                                                     int32_t kind);
+void il2cpp_list_obj_find_last_guid(Il2CppObject* self, Il2CppObject* match, int32_t kind,
+                                    uint8_t* result);
+runtime::Il2CppDateTimeOffset il2cpp_list_obj_find_last_dto(Il2CppObject* self,
+                                                            Il2CppObject* match, int32_t kind);
+// The boxed core shared by the carriers and the struct templates (fromEnd != 0
+// scans backwards). Null when no element matches.
+Il2CppObject* il2cpp_list_obj_find_box(Il2CppObject* self, Il2CppObject* match, int32_t kind,
+                                       int32_t fromEnd);
+
+// IndexOf(T, [startIndex, [count]]) -- the value crosses in the family's own
+// parameter ABI. `count < 0` means "through the end" (the 1/2-arg overloads).
+int32_t il2cpp_list_obj_index_of_range_i4(Il2CppObject* self, int32_t value, int32_t start,
+                                          int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_index_of_range_i8(Il2CppObject* self, int64_t value, int32_t start,
+                                          int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_index_of_range_d(Il2CppObject* self, double value, int32_t start,
+                                         int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_index_of_range_ref(Il2CppObject* self, Il2CppObject* value,
+                                           int32_t start, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_index_of_range_dec(Il2CppObject* self,
+                                           const runtime::Il2CppDecimal* value, int32_t start,
+                                           int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_index_of_range_dt(Il2CppObject* self, runtime::Il2CppDateTime value,
+                                          int32_t start, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_index_of_range_ts(Il2CppObject* self, runtime::Il2CppTimeSpan value,
+                                          int32_t start, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_index_of_range_guid(Il2CppObject* self, const uint8_t* value,
+                                            int32_t start, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_index_of_range_dto(Il2CppObject* self,
+                                           runtime::Il2CppDateTimeOffset value, int32_t start,
+                                           int32_t count, int32_t kind);
+
+// LastIndexOf(T, [index, [count]]): `count < 0` means "through the beginning"
+// (the 1/2-arg overloads); `index` is the INCLUSIVE start position.
+int32_t il2cpp_list_obj_last_index_of_range_i4(Il2CppObject* self, int32_t value,
+                                               int32_t index, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_last_index_of_range_i8(Il2CppObject* self, int64_t value,
+                                               int32_t index, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_last_index_of_range_d(Il2CppObject* self, double value, int32_t index,
+                                              int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_last_index_of_range_ref(Il2CppObject* self, Il2CppObject* value,
+                                                int32_t index, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_last_index_of_range_dec(Il2CppObject* self,
+                                                const runtime::Il2CppDecimal* value,
+                                                int32_t index, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_last_index_of_range_dt(Il2CppObject* self,
+                                               runtime::Il2CppDateTime value, int32_t index,
+                                               int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_last_index_of_range_ts(Il2CppObject* self,
+                                               runtime::Il2CppTimeSpan value, int32_t index,
+                                               int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_last_index_of_range_guid(Il2CppObject* self, const uint8_t* value,
+                                                 int32_t index, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_last_index_of_range_dto(Il2CppObject* self,
+                                                runtime::Il2CppDateTimeOffset value,
+                                                int32_t index, int32_t count, int32_t kind);
+
+// BinarySearch(T, [comparer]) / BinarySearch(index, count, T, comparer). A null
+// comparer means Comparer<T>.Default (per-family ordering; DateTime orders by
+// ticks). A miss answers the complement of the insertion point.
+int32_t il2cpp_list_obj_binary_search_i4(Il2CppObject* self, int32_t value,
+                                         Il2CppObject* comparer, int32_t start, int32_t count,
+                                         int32_t kind);
+int32_t il2cpp_list_obj_binary_search_i8(Il2CppObject* self, int64_t value,
+                                         Il2CppObject* comparer, int32_t start, int32_t count,
+                                         int32_t kind);
+int32_t il2cpp_list_obj_binary_search_d(Il2CppObject* self, double value,
+                                        Il2CppObject* comparer, int32_t start, int32_t count,
+                                        int32_t kind);
+int32_t il2cpp_list_obj_binary_search_ref(Il2CppObject* self, Il2CppObject* value,
+                                          Il2CppObject* comparer, int32_t start, int32_t count,
+                                          int32_t kind);
+int32_t il2cpp_list_obj_binary_search_dec(Il2CppObject* self,
+                                          const runtime::Il2CppDecimal* value,
+                                          Il2CppObject* comparer, int32_t start, int32_t count,
+                                          int32_t kind);
+int32_t il2cpp_list_obj_binary_search_dt(Il2CppObject* self, runtime::Il2CppDateTime value,
+                                         Il2CppObject* comparer, int32_t start, int32_t count,
+                                         int32_t kind);
+int32_t il2cpp_list_obj_binary_search_ts(Il2CppObject* self, runtime::Il2CppTimeSpan value,
+                                         Il2CppObject* comparer, int32_t start, int32_t count,
+                                         int32_t kind);
+int32_t il2cpp_list_obj_binary_search_guid(Il2CppObject* self, const uint8_t* value,
+                                           Il2CppObject* comparer, int32_t start, int32_t count,
+                                           int32_t kind);
+int32_t il2cpp_list_obj_binary_search_dto(Il2CppObject* self,
+                                          runtime::Il2CppDateTimeOffset value,
+                                          Il2CppObject* comparer, int32_t start, int32_t count,
+                                          int32_t kind);
+
+// The boxed comparison cores (used by the carriers above and by the struct
+// templates below).
+int32_t il2cpp_list_obj_index_of_box_range(Il2CppObject* self, Il2CppObject* valueBox,
+                                           int32_t start, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_last_index_of_box_range(Il2CppObject* self, Il2CppObject* valueBox,
+                                                int32_t index, int32_t count, int32_t kind);
+int32_t il2cpp_list_obj_binary_search_box(Il2CppObject* self, Il2CppObject* valueBox,
+                                          Il2CppObject* comparer, int32_t start, int32_t count,
+                                          int32_t kind);
+
+// CopyTo(T[] array, int arrayIndex): the destination array carries the
+// family's own cell width, so the copy writes the cell of `kind` (a reference
+// array store for kind 1). Validation: null array, negative index, and
+// index + Count over the destination length.
+void il2cpp_list_obj_copy_to_kind(Il2CppObject* self, Il2CppObject* array, int32_t arrayIndex,
+                                  int32_t kind);
+
+// Sort(Comparison<T>): the comparison delegate receives the elements in the
+// family's own ABI (`kind`); a null comparison throws ArgumentNullException.
+void il2cpp_list_obj_sort_comparison(Il2CppObject* self, Il2CppObject* comparison, int32_t kind);
+
+// Sort(int index, int count, IComparer<T> comparer): only the range is
+// ordered. A null comparer means Comparer<T>.Default (per-family ordering).
+void il2cpp_list_obj_sort_range_comparer(Il2CppObject* self, int32_t index, int32_t count,
+                                         Il2CppObject* comparer, int32_t kind);
+
+// USER-STRUCT / TUPLE element forms (the box payload is a T; the generated
+// delegate leaf takes T BY VALUE, so these templates state T once).
+typedef bool (*Il2CppListObjStructPredFn)(Il2CppObject* delegateObj, const void* payload,
+                                          int32_t index);
+typedef void (*Il2CppListObjStructActionFn)(Il2CppObject* delegateObj, const void* payload,
+                                            int32_t index);
+typedef int32_t (*Il2CppListObjStructCmpFn)(Il2CppObject* delegateObj, const void* a,
+                                            const void* b);
+constexpr int32_t IL2CPP_LIST_OBJ_SCAN_FIND_INDEX = 0;
+constexpr int32_t IL2CPP_LIST_OBJ_SCAN_FIND_LAST_INDEX = 1;
+constexpr int32_t IL2CPP_LIST_OBJ_SCAN_EXISTS = 2;
+constexpr int32_t IL2CPP_LIST_OBJ_SCAN_TRUE_FOR_ALL = 3;
+constexpr int32_t IL2CPP_LIST_OBJ_SCAN_REMOVE_ALL = 4;
+
+Il2CppObject* il2cpp_list_obj_find_struct_core(Il2CppObject* self, Il2CppObject* match,
+                                               Il2CppListObjStructPredFn pred, int32_t fromEnd);
+int32_t il2cpp_list_obj_scan_struct_core(Il2CppObject* self, Il2CppObject* match,
+                                         Il2CppListObjStructPredFn pred, int32_t mode);
+Il2CppObject* il2cpp_list_obj_find_all_struct_core(Il2CppObject* self, Il2CppObject* match,
+                                                   Il2CppListObjStructPredFn pred);
+void il2cpp_list_obj_for_each_struct_core(Il2CppObject* self, Il2CppObject* action,
+                                          Il2CppListObjStructActionFn fn);
+void il2cpp_list_obj_add_range_struct(Il2CppObject* self, Il2CppObject* collection,
+                                      Il2CppClass* klass, int32_t payloadSize);
+void il2cpp_list_obj_insert_range_struct(Il2CppObject* self, int32_t index,
+                                         Il2CppObject* collection, Il2CppClass* klass,
+                                         int32_t payloadSize);
+int32_t il2cpp_list_obj_index_of_struct_ex(Il2CppObject* self, const void* value,
+                                           Il2CppClass* klass, int32_t payloadSize,
+                                           int32_t start, int32_t count);
+int32_t il2cpp_list_obj_last_index_of_struct_ex(Il2CppObject* self, const void* value,
+                                                Il2CppClass* klass, int32_t payloadSize,
+                                                int32_t index, int32_t count);
+int32_t il2cpp_list_obj_binary_search_struct_ex(Il2CppObject* self, const void* value,
+                                                Il2CppClass* klass, int32_t payloadSize,
+                                                Il2CppObject* comparer, int32_t start,
+                                                int32_t count);
+
+template <typename T>
+inline bool il2cpp_list_obj_struct_pred_t(Il2CppObject* d, const void* payload, int32_t)
+{
+    const Il2CppDelegate* del = reinterpret_cast<const Il2CppDelegate*>(d);
+    const T* v = reinterpret_cast<const T*>(payload);
+    typedef bool (*Fn)(T);
+    typedef bool (*ThisFn)(Il2CppObject*, T);
+    return del->target != nullptr
+        ? reinterpret_cast<ThisFn>(del->methodPtr)(del->target, *v)
+        : reinterpret_cast<Fn>(del->methodPtr)(*v);
+}
+
+template <typename T>
+inline void il2cpp_list_obj_struct_action_t(Il2CppObject* d, const void* payload, int32_t)
+{
+    const Il2CppDelegate* del = reinterpret_cast<const Il2CppDelegate*>(d);
+    const T* v = reinterpret_cast<const T*>(payload);
+    typedef void (*Fn)(T);
+    typedef void (*ThisFn)(Il2CppObject*, T);
+    if (del->target != nullptr)
+        reinterpret_cast<ThisFn>(del->methodPtr)(del->target, *v);
+    else
+        reinterpret_cast<Fn>(del->methodPtr)(*v);
+}
+
+template <typename T>
+inline T il2cpp_list_obj_find_struct_t(Il2CppObject* self, Il2CppObject* match, int32_t fromEnd)
+{
+    Il2CppObject* box = il2cpp_list_obj_find_struct_core(
+        self, match, &il2cpp_list_obj_struct_pred_t<T>, fromEnd);
+    T out;
+    if (box != nullptr)
+        std::memcpy(&out, reinterpret_cast<const char*>(box) + 8, sizeof(T));
+    else
+        std::memset(&out, 0, sizeof(T));
+    return out;
+}
+
+template <typename T>
+inline int32_t il2cpp_list_obj_scan_struct_t(Il2CppObject* self, Il2CppObject* match,
+                                             int32_t mode)
+{
+    return il2cpp_list_obj_scan_struct_core(self, match, &il2cpp_list_obj_struct_pred_t<T>, mode);
+}
+
+template <typename T>
+inline Il2CppObject* il2cpp_list_obj_find_all_struct_t(Il2CppObject* self, Il2CppObject* match)
+{
+    return il2cpp_list_obj_find_all_struct_core(self, match, &il2cpp_list_obj_struct_pred_t<T>);
+}
+
+template <typename T>
+inline void il2cpp_list_obj_for_each_struct_t(Il2CppObject* self, Il2CppObject* action)
+{
+    il2cpp_list_obj_for_each_struct_core(self, action, &il2cpp_list_obj_struct_action_t<T>);
+}
+
+template <typename T>
+inline void il2cpp_list_obj_add_range_struct_t(Il2CppObject* self, Il2CppObject* collection,
+                                               Il2CppClass* klass)
+{
+    il2cpp_list_obj_add_range_struct(self, collection, klass,
+                                     static_cast<int32_t>(sizeof(T)));
+}
+
+template <typename T>
+inline void il2cpp_list_obj_insert_range_struct_t(Il2CppObject* self, int32_t index,
+                                                  Il2CppObject* collection, Il2CppClass* klass)
+{
+    il2cpp_list_obj_insert_range_struct(self, index, collection, klass,
+                                        static_cast<int32_t>(sizeof(T)));
+}
+
+template <typename T>
+inline int32_t il2cpp_list_obj_index_of_struct_range_t(Il2CppObject* self, const T* value,
+                                                       Il2CppClass* klass, int32_t start,
+                                                       int32_t count)
+{
+    return il2cpp_list_obj_index_of_struct_ex(self, value, klass,
+                                              static_cast<int32_t>(sizeof(T)), start, count);
+}
+
+template <typename T>
+inline int32_t il2cpp_list_obj_last_index_of_struct_range_t(Il2CppObject* self, const T* value,
+                                                            Il2CppClass* klass, int32_t index,
+                                                            int32_t count)
+{
+    return il2cpp_list_obj_last_index_of_struct_ex(self, value, klass,
+                                                   static_cast<int32_t>(sizeof(T)), index, count);
+}
+
+template <typename T>
+inline int32_t il2cpp_list_obj_binary_search_struct_t(Il2CppObject* self, const T* value,
+                                                      Il2CppClass* klass,
+                                                      Il2CppObject* comparer, int32_t start,
+                                                      int32_t count)
+{
+    return il2cpp_list_obj_binary_search_struct_ex(self, value, klass,
+                                                   static_cast<int32_t>(sizeof(T)), comparer,
+                                                   start, count);
+}
+
+// CopyTo for a user-struct / tuple element: the destination array holds the
+// raw T cells, so a boxed element is copied out as its payload.
+void il2cpp_list_obj_copy_to_struct(Il2CppObject* self, Il2CppObject* array, int32_t arrayIndex,
+                                    int32_t payloadSize);
+
+template <typename T>
+inline void il2cpp_list_obj_copy_to_struct_t(Il2CppObject* self, Il2CppObject* array,
+                                             int32_t arrayIndex)
+{
+    il2cpp_list_obj_copy_to_struct(self, array, arrayIndex,
+                                   static_cast<int32_t>(sizeof(T)));
+}
+
+// Sort(Comparison<T>) for a user-struct / tuple element: the comparison
+// delegate leaf takes T BY VALUE.
+template <typename T>
+inline int32_t il2cpp_list_obj_struct_cmp_t(Il2CppObject* d, const void* a, const void* b)
+{
+    const Il2CppDelegate* del = reinterpret_cast<const Il2CppDelegate*>(d);
+    const T* x = reinterpret_cast<const T*>(a);
+    const T* y = reinterpret_cast<const T*>(b);
+    typedef int32_t (*Fn)(T, T);
+    typedef int32_t (*ThisFn)(Il2CppObject*, T, T);
+    return del->target != nullptr
+        ? reinterpret_cast<ThisFn>(del->methodPtr)(del->target, *x, *y)
+        : reinterpret_cast<Fn>(del->methodPtr)(*x, *y);
+}
+
+void il2cpp_list_obj_sort_comparison_struct(Il2CppObject* self, Il2CppObject* comparison,
+                                            Il2CppListObjStructCmpFn cmp);
+
+template <typename T>
+inline void il2cpp_list_obj_sort_comparison_struct_t(Il2CppObject* self,
+                                                     Il2CppObject* comparison)
+{
+    il2cpp_list_obj_sort_comparison_struct(self, comparison, &il2cpp_list_obj_struct_cmp_t<T>);
 }
 
 } // namespace il2cpp

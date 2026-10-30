@@ -328,9 +328,19 @@ int32_t SizeBucket(size_t size)
     return b;
 }
 
-// Root registrations: fixed-size arrays with a running count (constraint #12).
-constexpr int32_t kMaxStaticRoots = 128;
-constexpr int32_t kMaxRootRanges  = 64;
+// Root registrations: fixed-size arrays with a running count (constraint #12:
+// STATIC storage, never malloc / never a dynamic container). The capacity is a
+// compile-time bound on how many roots a program may register; it is NOT a
+// .NET semantic (net48 has no such table).
+//
+// The earlier 128/64 were an artificial ceiling: every CACHED lambda
+// (the Roslyn `<>c` display-class singleton) is one static reference field and
+// therefore one static root, so a real program that caches 129 lambdas aborted
+// the process with "il2cpp_gc: static root table overflow". Raised to 4096 /
+// 1024 (32 KB + 16 KB of .bss) so ordinary programs never hit it; the overflow
+// branch below still FAILS LOUD rather than silently dropping a root.
+constexpr int32_t kMaxStaticRoots = 4096;
+constexpr int32_t kMaxRootRanges  = 1024;
 
 void**      g_staticRoots[kMaxStaticRoots];
 int32_t     g_staticRootCount = 0;

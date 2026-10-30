@@ -35,6 +35,7 @@
 // (the Nullable<T> representation boxes the underlying T).
 #include "guid.h"
 #include "il2cpp_time.h"
+#include "il2cpp_dtoffset.h" // Il2CppDateTimeOffset / icall_dtoffset_equals (the DateTimeOffset box)
 #include "il2cpp_valuetuple.h" // il2cpp_tuple_box_hash / il2cpp_tuple_box_equals (tuple key boxes)
 
 // decimal_format.h owns the il2cpp::runtime::Il2CppDecimal definition AND the
@@ -268,6 +269,19 @@ bool BoxedValueEquals(const Il2CppObject* a, const Il2CppObject* b)
         const Il2CppGuid ga = BoxedGuidValue(a);
         const Il2CppGuid gb = BoxedGuidValue(b);
         return std::memcmp(ga.b, gb.b, sizeof(ga.b)) == 0;
+    }
+    // impl-listrange: the DateTimeOffset box was missing here, so
+    // List<DateTimeOffset>.IndexOf(item) fell through to `false` for two
+    // value-equal-but-distinct boxes (probe: dto.indexof expected 0, got -1).
+    // net48 DateTimeOffset.Equals compares the UTC INSTANT (the offsets may
+    // differ), which is exactly icall_dtoffset_equals.
+    if (HasKlassName(a, "System.DateTimeOffset"))
+    {
+        Il2CppDateTimeOffset da;
+        Il2CppDateTimeOffset db;
+        std::memcpy(&da, reinterpret_cast<const char*>(a) + kBoxPayloadOffset, sizeof(da));
+        std::memcpy(&db, reinterpret_cast<const char*>(b) + kBoxPayloadOffset, sizeof(db));
+        return icall_dtoffset_equals(da, db);
     }
     // Boxed enums (icall_box_enum stamps the enum's own name-bearing
     // descriptor): net48 object.Equals on two boxed enums of the SAME type

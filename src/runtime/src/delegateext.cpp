@@ -67,10 +67,19 @@ void EnsureMulticastRegistered()
 //------------------------------------------------------------------------------
 // Method-name registry (see il2cpp_delegate_ext.h): methodPtr -> SHORT method
 // name. A delegate stores only a raw code address, so Delegate.Method.Name
-// resolves through this table. Bounded flat static storage (constraint #12),
-// keyed by methodPtr (identity key); last registration of a pointer wins.
+// resolves through this table. Bounded flat static storage (constraint #12:
+// STATIC array, never malloc / never a dynamic container), keyed by methodPtr
+// (identity key); last registration of a pointer wins.
+//
+// CAPACITY: 8192 entries (16 B each -> 128 KB of .bss). The earlier 256 was an
+// artificial ceiling -- every DISTINCT delegate leaf the transpiler emits
+// registers here (one entry per lambda / method group), so a real program with
+// 257 lambdas aborted at startup with
+//   "il2cpp_delegate_register_method: registry overflow (256 methods)".
+// That is a harness bound, not a .NET semantic. The overflow branch below
+// still FAILS LOUD (a programming error is never silently truncated).
 //------------------------------------------------------------------------------
-constexpr int32_t kMaxRegisteredMethods = 256;
+constexpr int32_t kMaxRegisteredMethods = 8192;
 
 struct MethodNameEntry
 {
