@@ -61,7 +61,7 @@ internalcalls=4
 | 1.10 | 入口名 A/W 后缀探测（`ExactSpelling=false`） | **缺**（本审计新发现，影响 174 条） | `src/runtime/src/pinvoke.cpp:153`（`il2cpp_pinvoke_resolve` 只用传入的字面 entry 名，无后缀探测） | **运行时** `EntryPointNotFoundException: Unable to find an entry point named 'GetWindowText'` |
 | 1.11 | 委托 → 函数指针回调 | 已有（旧文档「施工中」**已落地**） | `src/il2cppc/Emit/CodeGenerator.cs:9128`（`DelegateGfpForPinvokeParam` → `intptr_t`）；`src/il2cppc/Emit/MethodRefResolver.cs:3227`；运行时 `src/runtime/src/pinvokeext.cpp:278` | TRANSPILE-PASS + C++-BUILD-OK（`il2cpp_delegate_gfp_...` 分发器） |
 | 1.12 | `SetLastError` 捕获 / 读取 | 已有 | 捕获 `src/runtime/src/pinvoke.cpp:278`；读取 `:291`；发射点 `src/il2cppc/Emit/CodeGenerator.cs:4623`；折叠点 `src/il2cppc/Ir/StackFold.cs:2560`；`Marshal.GetLastWin32Error` → `src/il2cppc/Emit/MethodMap.Marshal.cs:95` | 生成代码含 `il2cpp_pinvoke_capture_last_error();` |
-| 1.13 | `SetLastError` **调用前清零** | **缺**（header 声称有、实现无） | `src/runtime/src/pinvokeext.cpp:329` 定义了 `clear_last_error`，但 `src/il2cppc` 全文 grep **0 个发射点**（只有 `capture_last_error` 被发射） | 生成代码**没有** `il2cpp_pinvoke_clear_last_error();`（可复现：见 §9 步骤 3） |
+| 1.13 | `SetLastError` **调用前清零** | **非缺口（net48 语义就是不清零）** | net48 oracle 实测：`SetLastError(126)` → `GetCurrentProcess()`（`SetLastError=true`、成功且不改错）→ `Marshal.GetLastWin32Error()` = **126**（陈旧值保留），原生 `GetLastError()` 也是 126；预置 0 时读回 0。**清零是 .NET Core 3.0+ 行为**（`reference/coreclr` 与 `reference/netcore` 均有 `StubHelpers::ClearLastError`，netfx 无）。运行时 `src/runtime/src/pinvokeext.cpp:329` 的 `il2cpp_pinvoke_clear_last_error` 属**无人调用的死代码** | 转译输出**不含** `il2cpp_pinvoke_clear_last_error()`，且必须继续不含：`tests/cases/probe-lasterror`（10 records，`ok=True`，oracle sha = runtime sha = `86c8e322…`）钉住该语义 |
 | 1.14 | 返回值：`IntPtr` / 宽度 / `void` | 已有 | `src/il2cppc/Emit/CodeGenerator.cs:8986`（`PinvokeReturnTypeCpp`）；结果 kind `src/il2cppc/Emit/MethodRefResolver.cs:712` | TRANSPILE-PASS + C++-BUILD-OK |
 | 1.15 | 返回值：字符串 | **缺**（native `char*`/`char16_t*` 返回没有回填） | `src/il2cppc/Emit/CodeGenerator.cs:8986` 尾部注释（「STRING-typed return ... out of P0 scope」） | 本次未单列 probe（签名里没有这样的 net48 P/Invoke，见 §1 备注） |
 | 1.16 | 嵌入资源解码（`ManifestResource` / `ResourceManager`） | 已有（旧文档「转译器 0 匹配」**不成立**） | 计数 `src/il2cppc/Emit/CodeGenerator.cs:9167`（`ResourceCount`）→ 头文件 `:2084`（`resource-pool.h`）→ 填充 `:13499`（`il2cpp_resource_pool_fill()`）；读取 `src/il2cppc/Emit/MethodMap.Resources.cs:54`；`ResourceManager` 接线 `src/il2cppc/Emit/MethodMap.Resource.cs:58` | Forms 227 个资源全部被枚举（`resources.tsv`），实际 223 + Drawing 4 |
@@ -81,7 +81,7 @@ internalcalls=4
 | #10 委托→函数指针 | 可接（施工中） | **已落地**（1.11），另有未记录的 `HandleRef` 缺口（1.9） |
 | #15 嵌入资源 | 大缺口（转译器 0 匹配） | **已作废**：资源池 + ResourceManager 全链（1.16） |
 | #18 COM 全量 | 大缺口（M8 远期） | **部分作废**：运行时有 RCW/CCW/IDispatch 骨架（1.17），但 ComImport 接口的 vtable 调用/参数 marshal 仍缺 |
-| #2 SetLastError | 已覆盖 | **半对**：捕获与读取有，**调用前清零没有**（1.13） |
+| #2 SetLastError | 已覆盖 | **正确**（非半对）：捕获/读取已有，且 net48 **本就不清零**（1.13）；清零是 .NET Core 3.0+ 语义 |
 | — 入口名后缀 | 未提及 | **新增缺口**：174 条（1.10） |
 
 ## 2. P/Invoke 逐 DLL 汇总
@@ -1038,7 +1038,7 @@ BFS 结果：**327 个**不同 EntryPoint 可达（529 条声明）。按跳数�
 | **W5** | `StringBuilder` 缓冲 | 同上（按 `Capacity` 分配 native 缓冲，调用后回填） | 21 条 / 直接闭环 3 条 | probe 的 `StringBuilder buffer param` |
 | **W6** | 结构体名与 SDK typedef 冲突 | `src/il2cppc/Emit/TypeEmitter.cs`（结构体 C++ 名加前缀，如 `Wf_LOGFONTW`）或 `generated.h` 的 forward declaration 改为不撞 typedef 的形式 | 11 条 | probe 的 `LOGFONTW by-ref` → `C++-BUILD-OK` |
 | **W7** | by-value 结构体返回 | `src/il2cppc/Emit/CodeGenerator.cs:9153`（注册表按完整名解析，而不是只认三个） | 9 条 | probe 的 `struct by-value return` → `C++-BUILD-OK` |
-| **W8** | `SetLastError` 调用前清零 | `src/il2cppc/Ir/StackFold.cs`（在 `SetLastError=true` 的调用**之前** 插 `clear_last_error`，与已有 `:2560` 的 capture 对称）+ `src/il2cppc/Emit/CodeGenerator.cs:4620` 同名分支 | 879 条 SetLastError 声明 | `Marshal.GetLastWin32Error()` 在成功调用后返回 0 |
+| ~~**W8**~~ | ~~`SetLastError` 调用前清零~~ | **撤销该项：net48 不清零（§1.13），实施即偏离 byte-exact**。已用 `tests/cases/probe-lasterror` 钉住 net48 语义；`il2cpp_pinvoke_clear_last_error` 保留为未来 Core 模式的死代码 | 0 条（原估 879 条错误） | `probe-lasterror` `ok=True`；若有人发射 clear 该 probe 立即 DIFF |
 
 经 W1~W8 后，阶段 1 可达集里剩下的只有 C/D 类（§4.4）。建议按 **W1 → W2 → W3** 的顺序开工：这三步合计闭环 678 条，且互不依赖。
 
