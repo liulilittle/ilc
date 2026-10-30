@@ -922,10 +922,13 @@ ILC 不是 Redhawk：`Rh*`/`Rhp*` 是 NativeAOT/Redhawk 的运行时 ABI，本�
 ### 5.1 本仓参考树里**根本没有源码**的域
 
 按 QCall 表的 owner 统计（owner 取自 `reference/coreclr` 的 C# 声明；
-`no-decl` 行取 EntryPoint 前缀），下列域在 **netcore 子集**里没有对应实现文件，
-只能靠 coreclr 侧增量或完全无源码：
+`no-decl` 行取 EntryPoint 前缀）。最后一列的含义是：
+**netcore 裁剪子集里是否存在该 owner 的 QCall 声明**（`否` = 该域的 QCall 面
+只能从 coreclr 侧增量读到，或完全无源码）。注意“该类型在 netcore 子集里存在”
+不等于“该类型有 QCall 声明”（如 `System.Threading.Thread` 在 netcore 里有
+InternalCall 声明，但没有 QCall 声明）。
 
-| owner | QCall 条数 | netcore 子集有声明 |
+| owner | QCall 条数 | netcore 子集有该 owner 的 QCall 声明 |
 |---|---|---|
 | `System.RuntimeTypeHandle` | 34 | **否** |
 | `System.Runtime.InteropServices.Marshal` | 29 | **否** |

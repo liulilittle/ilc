@@ -1333,10 +1333,13 @@ def write_report(path, data, f_rows, q_rows, ref_root):
     w("### 5.1 本仓参考树里**根本没有源码**的域")
     w("")
     w("按 QCall 表的 owner 统计（owner 取自 `reference/coreclr` 的 C# 声明；")
-    w("`no-decl` 行取 EntryPoint 前缀），下列域在 **netcore 子集**里没有对应实现文件，")
-    w("只能靠 coreclr 侧增量或完全无源码：")
+    w("`no-decl` 行取 EntryPoint 前缀）。最后一列的含义是：")
+    w("**netcore 裁剪子集里是否存在该 owner 的 QCall 声明**（`否` = 该域的 QCall 面")
+    w("只能从 coreclr 侧增量读到，或完全无源码）。注意“该类型在 netcore 子集里存在”")
+    w("不等于“该类型有 QCall 声明”（如 `System.Threading.Thread` 在 netcore 里有")
+    w("InternalCall 声明，但没有 QCall 声明）。")
     w("")
-    w("| owner | QCall 条数 | netcore 子集有声明 |")
+    w("| owner | QCall 条数 | netcore 子集有该 owner 的 QCall 声明 |")
     w("|---|---|---|")
     nc_owners = {r["owner"] for r in data["netcore_qcalls"]}
     for owner in sorted(q_owner_status, key=lambda o: -sum(q_owner_status[o].values()))[:24]:
