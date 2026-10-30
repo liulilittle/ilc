@@ -143,12 +143,55 @@ struct ProcessSlot
     // instead of throwing (net48 semantics, probe-pinned).
     bool wsCached;
     int64_t wsCache;
+    // nb4 PROC-DIAG proctime: the creation/exit times (DateTime ticks) are
+    // captured while the slot still owns a live process handle. wait_for_exit
+    // closes that handle, and re-opening the PID after the child object is
+    // recycled fails, so a post-exit StartTime / ExitTime read would silently
+    // degrade to a zero DateTime. Same lifetime rule as exitCode (net48 keeps
+    // the retained SafeProcessHandle and stays exact).
+    bool timesCached;
+    int64_t startTicks;
+    int64_t exitTicks;
 };
 
 std::unordered_map<int32_t, ProcessSlot>& g_processes()
 {
     static std::unordered_map<int32_t, ProcessSlot> table;
     return table;
+}
+
+// The FILETIME <-> DateTime ticks epoch shift: a FILETIME counts 100 ns
+// intervals since 1601-01-01 UTC; DateTime ticks count since 0001-01-01.
+constexpr int64_t kFileTimeToTicks = 116444736000000000LL;
+
+// FILETIME (1601 epoch, 100 ns) -> DateTime ticks (0001 epoch, 100 ns).
+int64_t FileTimeToDateTimeTicks(const FILETIME& ft)
+{
+    const uint64_t raw = (static_cast<uint64_t>(ft.dwHighDateTime) << 32)
+                       | static_cast<uint64_t>(ft.dwLowDateTime);
+    return static_cast<int64_t>(raw) + kFileTimeToTicks;
+}
+
+// Capture the process creation / exit times while the slot still owns a valid
+// handle. This is the ONE authoritative point (called just before CloseHandle
+// in wait_for_exit and the Kill fold): afterwards the PID-only fallback may
+// no longer resolve the recycled child object. A GetProcessTimes failure
+// leaves any previously cached values untouched (the getters then keep their
+// documented zero/fallback behavior).
+void CacheProcessTimes(ProcessSlot& slot)
+{
+    if (slot.process == nullptr)
+    {
+        return;
+    }
+    FILETIME ct, et, kt, ut;
+    if (::GetProcessTimes(slot.process, &ct, &et, &kt, &ut) == 0)
+    {
+        return;
+    }
+    slot.startTicks = FileTimeToDateTimeTicks(ct);
+    slot.exitTicks = FileTimeToDateTimeTicks(et);
+    slot.timesCached = true;
 }
 
 #endif // _WIN32
@@ -873,6 +916,9 @@ static int32_t LaunchChild(const std::vector<wchar_t>& app, const std::vector<wc
     slot.waited = false;
     slot.wsCached = false;
     slot.wsCache = 0;
+    slot.timesCached = false;
+    slot.startTicks = 0;
+    slot.exitTicks = 0;
     g_processes()[pid] = std::move(slot);
     return pid;
 }
@@ -1005,6 +1051,8 @@ int32_t il2cpp_process_wait_for_exit(int32_t pid)
             code = static_cast<DWORD>(-1); // no exit code available
         }
         slot.exitCode = code;
+        // The authoritative proctime capture: the handle is still open here.
+        CacheProcessTimes(slot);
         ::CloseHandle(slot.process);
         slot.process = nullptr;
         slot.waited = true;
@@ -1346,6 +1394,8 @@ int32_t il2cpp_process_kill(int32_t pid)
                 code = static_cast<DWORD>(-1);
             }
             it->second.exitCode = code;
+            // Same authoritative point as wait_for_exit: the handle is live.
+            CacheProcessTimes(it->second);
             ::CloseHandle(it->second.process);
             it->second.process = nullptr;
             it->second.waited = true;
@@ -1394,10 +1444,6 @@ void il2cpp_process_exit(int32_t code)
 
 namespace {
 
-// The FILETIME <-> DateTime ticks epoch shift: a FILETIME counts 100 ns
-// intervals since 1601-01-01 UTC; DateTime ticks count since 0001-01-01.
-constexpr int64_t kFileTimeToTicks = 116444736000000000LL;
-
 // The child slot's process handle (alive) or a fresh direct PID open. The
 // caller closes 'owned' when non-null.
 HANDLE ResolveProcessHandle(int32_t pid, HANDLE* owned)
@@ -1414,14 +1460,6 @@ HANDLE ResolveProcessHandle(int32_t pid, HANDLE* owned)
     return h;
 }
 
-// FILETIME (1601 epoch, 100 ns) -> DateTime ticks (0001 epoch, 100 ns).
-int64_t FileTimeToDateTimeTicks(const FILETIME& ft)
-{
-    const uint64_t raw = (static_cast<uint64_t>(ft.dwHighDateTime) << 32)
-                       | static_cast<uint64_t>(ft.dwLowDateTime);
-    return static_cast<int64_t>(raw) + kFileTimeToTicks;
-}
-
 } // namespace
 
 #endif // _WIN32
@@ -1430,6 +1468,14 @@ int64_t FileTimeToDateTimeTicks(const FILETIME& ft)
 
 Il2CppDateTime il2cpp_process_get_start_time(int32_t pid)
 {
+    // A waited tracked child has no handle left: answer from the times cached
+    // at the authoritative wait/kill point. A cached miss (GetProcessTimes
+    // failed there) keeps the documented zero/fallback behavior.
+    const auto it = g_processes().find(pid);
+    if (it != g_processes().end() && it->second.waited && it->second.timesCached)
+    {
+        return Il2CppDateTime(it->second.startTicks);
+    }
     HANDLE owned = nullptr;
     const HANDLE h = ResolveProcessHandle(pid, &owned);
     if (h == nullptr)
@@ -1451,11 +1497,30 @@ Il2CppDateTime il2cpp_process_get_start_time(int32_t pid)
 
 Il2CppDateTime il2cpp_process_get_exit_time(int32_t pid)
 {
+    // Same cache-first rule as StartTime (see above).
+    const auto it = g_processes().find(pid);
+    if (it != g_processes().end() && it->second.waited && it->second.timesCached)
+    {
+        return Il2CppDateTime(it->second.exitTicks);
+    }
     HANDLE owned = nullptr;
     const HANDLE h = ResolveProcessHandle(pid, &owned);
     if (h == nullptr)
     {
         return Il2CppDateTime(0);
+    }
+    // net48 only exposes ExitTime after the process exited: a live process
+    // raises InvalidOperationException (oracle-pinned by probe-proctime).
+    // GetProcessTimes on a live process would otherwise report an all-zero
+    // exit FILETIME, which the epoch shift turns into a bogus 1601 DateTime.
+    if (::WaitForSingleObject(h, 0) == WAIT_TIMEOUT)
+    {
+        if (owned != nullptr)
+        {
+            ::CloseHandle(owned);
+        }
+        il2cpp_throw_invalid_operation_exception(
+            "Process must exit before requested information can be determined.");
     }
     FILETIME ct, et, kt, ut;
     const BOOL ok = ::GetProcessTimes(h, &ct, &et, &kt, &ut);

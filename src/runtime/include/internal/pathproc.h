@@ -224,17 +224,20 @@ int32_t il2cpp_process_kill(int32_t pid);
 
 // Process.StartTime(pid): the process CREATION time (GetProcessTimesW -> the
 // FILETIME converted to a DateTime ticks value, 1601->0001 epoch shift).
+// A tracked child's creation/exit times are captured while its handle is
+// still open (wait_for_exit / the Kill fold) and the getters answer from that
+// cache once the slot is waited: the handle is closed there and re-opening
+// the PID after the child object is recycled fails (the pre-cache behavior
+// silently returned a zero DateTime -- net48 keeps its SafeProcessHandle).
 // Returns a zero DateTime for an unopenable PID / query failure (net48: the
 // same lookups throw -- null/zero is the simplified-domain convention).
-// net48 semantics caveat: reading StartTime on an EXITED process throws
-// InvalidOperationException; the runtime documents the tracked-slot shape
-// (waited) as the same guard where the observation is deterministic.
 il2cpp::runtime::Il2CppDateTime il2cpp_process_get_start_time(int32_t pid);
 
 // Process.ExitTime(pid): the process EXIT time (GetProcessTimesW exit
-// FILETIME -> DateTime ticks). net48: only readable after the process exited
-// (reading it while alive throws InvalidOperationException); a zero DateTime
-// signals an unqueryable PID.
+// FILETIME -> DateTime ticks), cached at the same authoritative point as
+// StartTime. net48: only readable after the process exited -- reading it
+// while the process is alive throws InvalidOperationException, which the
+// runtime mirrors; a zero DateTime signals an unqueryable PID.
 il2cpp::runtime::Il2CppDateTime il2cpp_process_get_exit_time(int32_t pid);
 
 // Process.WorkingSet64(pid): the process working-set size in bytes

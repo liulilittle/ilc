@@ -465,6 +465,48 @@ int main()
     // UseShellExecute=true + a redirect raises InvalidOperationException
     // through the managed transport (uncaught here would abort the test), so
     // that negative path is exercised only by the transpiled p-nb7-psi probe.
+
+    // 7e. nb4 PROC-DIAG proctime: StartTime / ExitTime must survive
+    // wait_for_exit. The slot closes its process handle there, and re-opening
+    // the PID after the child object is recycled fails, so the times are
+    // cached at the same authoritative point as the exit code (net48 keeps
+    // the retained SafeProcessHandle and stays exact). RED before the cache:
+    // a post-wait read fell back to OpenProcess and silently yielded 0 ticks.
+    const int32_t pidTimes = il2cpp_process_start(Cs("cmd.exe"), Cs("/c ping 127.0.0.1 -n 2"));
+    Expect(pidTimes > 0, "Process.Start returns a positive PID (proctime case)");
+    const int64_t startAlive = il2cpp_process_get_start_time(pidTimes).ticks;
+    Expect(startAlive > 0, "StartTime is readable while the child is alive");
+    // net48 raises InvalidOperationException for ExitTime on a live process
+    // (oracle-pinned by probe-proctime); the runtime mirrors the throw.
+    bool aliveExitThrew = false;
+    try { (void)il2cpp_process_get_exit_time(pidTimes); }
+    catch (...) { aliveExitThrew = true; }
+    Expect(aliveExitThrew, "ExitTime on a live child raises (net48 InvalidOperationException)");
+    Expect(il2cpp_process_wait_for_exit(pidTimes) == 0,
+           "WaitForExit succeeds for the proctime child");
+    const int64_t startAfter = il2cpp_process_get_start_time(pidTimes).ticks;
+    Expect(startAfter == startAlive,
+           "StartTime survives wait_for_exit (cached at the authoritative point)");
+    const int64_t exitAfter = il2cpp_process_get_exit_time(pidTimes).ticks;
+    Expect(exitAfter > 0, "ExitTime is readable after wait_for_exit");
+    Expect(exitAfter >= startAfter, "ExitTime is not earlier than StartTime");
+    Expect(il2cpp_process_get_start_time(pidTimes).ticks == startAlive,
+           "StartTime repeated post-wait reads are stable");
+    Expect(il2cpp_process_get_exit_time(pidTimes).ticks == exitAfter,
+           "ExitTime repeated post-wait reads are stable");
+
+    // The Kill fold closes the handle the same way: its cached times must
+    // survive too (net48 Kill + WaitForExit keeps both getters readable).
+    const int32_t pidKillTimes = il2cpp_process_start(Cs("ping.exe"), Cs("-n 30 127.0.0.1"));
+    Expect(pidKillTimes > 0, "Process.Start returns a positive PID (kill proctime case)");
+    Expect(il2cpp_process_kill(pidKillTimes) == 0, "Kill terminates the tracked child");
+    Expect(il2cpp_process_wait_for_exit(pidKillTimes) == 0,
+           "WaitForExit is idempotent after Kill");
+    const int64_t killStart = il2cpp_process_get_start_time(pidKillTimes).ticks;
+    const int64_t killExit = il2cpp_process_get_exit_time(pidKillTimes).ticks;
+    Expect(killStart > 0, "StartTime survives the Kill fold");
+    Expect(killExit > 0, "ExitTime survives the Kill fold");
+    Expect(killExit >= killStart, "Kill-fold ExitTime is not earlier than StartTime");
 #endif
     // --- Report ---
     if (g_failures != 0)
