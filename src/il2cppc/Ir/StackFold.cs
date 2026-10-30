@@ -2698,8 +2698,13 @@ public static class StackFold
         // -- the List gate prefix-matches "System.Collections.Generic.List`1"
         // -- or List LINQ operators on the call result fall to the array
         // family (the MakeFloatList().Aggregate funnel).
-        static string? BareManagedName(string? name) =>
-            name != null && name.StartsWith("r:", StringComparison.Ordinal) ? name[2..] : name;
+        // The strip is only meaningful for a NON-NULL name: every caller
+        // guards ReturnTypeName != null first, and the objTypes map stores
+        // non-null values. The non-nullable signature states that contract
+        // (a null name would have to be handled by the caller, never
+        // silently propagated into the type-hint map).
+        static string BareManagedName(string name) =>
+            name.StartsWith("r:", StringComparison.Ordinal) ? name[2..] : name;
 
         // M5-JOIN (A2 review): a REUSED join slot must not keep a stale hint
         // -- if any arm's value type disagrees with the recorded one the join
