@@ -25,7 +25,6 @@ loud-p0-18-strmin-loud   # LOUD contract: string Min/Max requires culture-aware 
 # --- Incomplete WIP case assets (added by the 2026-10-23 wip commit with only a
 # --- .csproj; the .cs source was never committed, so the net48 oracle build fails
 # --- with CS5001 "no static Main"). Excluded until the source is supplied.
-convboolchar1
 convchange1
 convround1
 convstr1
