@@ -733,30 +733,19 @@ int32_t icall_assembly_load_context_is_tracing_enabled()
     return 0; // false
 }
 
-// System.Diagnostics.StackTrace ctors (GN-20 P1/D2): the runtime has no
-// StackTrace object model -- frame content is the W7 live-stack enumeration.
-// Construction is a documented no-op over the plain-object allocation
-// (CodeGenerator BclAllocExpr routes `new StackTrace()` to
-// il2cpp_object_new(&System_Object_class)); every ctor arity
-// ((), (bool), (int), (int,bool), (Exception[,bool|int][,bool]),
-// (StackFrame[] [,bool])) lands here and does nothing. Frame READS still
-// fold as not-wired (W7).
-void icall_stacktrace_ctor(Il2CppObject*)
-{
-    // no-op (W7)
-}
-
 // System.Diagnostics.StackTrace.GetStackFramesInternal
 // net48 ABI: static void (StackFrameHelper sfh, int iSkip, bool fNeedFileInfo,
-// Exception e) -- fills sfh with the LIVE managed stack frames. The ILC
-// runtime has no CLR-internal stack walker; the net48 frame text (method
-// names, absolute PDB source paths, line/col, zh-CN locale markers) depends
-// on the live call stack + PDB, recorded as W7 (p-stacktrace GAPS.md). The
-// stub leaves sfh empty (0 frames) -- a clean, deterministic whitelist
-// placeholder so user methods calling StackTrace do not LOUD-reject.
+// Exception e) -- fills sfh with the LIVE managed stack frames. This is the
+// mscorlib-internal enumerator the FRAMEWORK's own StackTrace implementation
+// calls; user code cannot reach it directly, and the transpiled StackTrace
+// ctors do not route through it either (they capture the shadow frame stack
+// themselves -- il2cpp_stacktrace.h). The runtime has no StackFrameHelper
+// object model, so the entry stays a deterministic no-op: a sfh handed in
+// here keeps whatever frame list it already had (none). NOT a user-visible
+// gap -- StackTrace.FrameCount/GetFrames/ToString are REAL (stacktrace.cpp).
 void icall_stack_trace_get_stack_frames_internal(Il2CppObject*, int32_t, int32_t, Il2CppObject*)
 {
-    // no-op: no frame enumeration available (W7)
+    // no-op: the managed StackTrace surface does not call this entry
 }
 
 // Number formatting stubs

@@ -178,3 +178,10 @@ extern il2cpp::Il2CppClass System_TimeSpan_class;
 extern il2cpp::Il2CppClass System_Guid_class;
 // dtoffset (delta 2): the System.DateTimeOffset box identity (List<T> carrier).
 extern il2cpp::Il2CppClass System_DateTimeOffset_class;
+// stacktrace-real: the System.Diagnostics.StackTrace / StackFrame object model
+// (defined in stacktrace.cpp). `new StackTrace()` / `new StackFrame()` allocate
+// through these descriptors (CodeGenerator BclAllocExpr), so the instances
+// carry a real klass and the collector scans them through their bitmaps; the
+// runtime itself allocates the captured frame objects.
+extern il2cpp::Il2CppClass System_Diagnostics_StackTrace_class;
+extern il2cpp::Il2CppClass System_Diagnostics_StackFrame_class;

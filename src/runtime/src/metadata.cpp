@@ -852,6 +852,13 @@ void il2cpp_ensure_builtin_system_classes()
         // resolve them before any instance exists (WebClient precedent).
         il2cpp_class_register(&System_Resources_ResourceManager_class);
         il2cpp_class_register(&System_Globalization_CultureInfo_class);
+        // stacktrace-real: the StackTrace/StackFrame descriptors (defined in
+        // stacktrace.cpp). Registered up front so the plain-object allocation
+        // `new StackTrace()` -- and the frame objects the runtime builds --
+        // always stamp the REAL descriptor, and any later isinst/castclass /
+        // class_by_name query on a StackTrace hits the same identity.
+        il2cpp_class_register(&System_Diagnostics_StackTrace_class);
+        il2cpp_class_register(&System_Diagnostics_StackFrame_class);
     });
 }
 

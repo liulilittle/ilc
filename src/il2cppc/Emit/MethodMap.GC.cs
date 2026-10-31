@@ -9,6 +9,14 @@ public static partial class MethodRefResolver
     private static ResolvedMethod? TryMapGC(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {
+        // stacktrace-real: System.Diagnostics.StackTrace / StackFrame now have a
+        // REAL runtime object model (il2cpp_stacktrace.h + stacktrace.cpp), so
+        // their managed surface resolves here instead of folding as a
+        // "not wired in M5" gap. Guarded by owner at the TOP so the generic
+        // names (ToString/GetFrameCount/GetFileName/...) can never capture
+        // another owner's member that happens to share the name.
+        if (owner is "System.Diagnostics.StackTrace" or "System.Diagnostics.StackFrame")
+            return TryMapStackTraceDiagnostics(owner, name, ps, count);
         switch (name)
         {
             case "Collect":
@@ -326,37 +334,10 @@ public static partial class MethodRefResolver
             // (owner routed here): ETW callback payload -- instances are
             // constructed only by the runtime during ETW callbacks, which
             // never fire; ctor no-op + tracing-disabled defaults.
-            // System.Diagnostics.StackTrace ctors (D2 audit regression): with
-            // StackTrace routed to TryMapGC, the bare `new StackTrace()`
-            // previously returned null from the generic arm -> BclAlloc phantom
-            // &System_Diagnostics_StackTrace_class -> cmake FAIL. The runtime
-            // has no StackTrace object model (frame content = the W7 live-stack
-            // enumeration), so construction is a documented no-op over the
-            // plain-object allocation (BclAllocExpr); any frame READ
-            // (get_FrameCount/ToString/GetFrames/...) still folds as not-wired
-            // (W7). net48 ctors: (), (bool), (int), (int,bool),
-            // (Exception[,bool|int][,bool]), (StackFrame[] [,bool]).
+            // (The System.Diagnostics.StackTrace ctor arm that used to live
+            // here moved to TryMapStackTraceDiagnostics: the class has a real
+            // object model now, so its ctors capture the frame stack.)
             case ".ctor":
-                if (owner == "System.Diagnostics.StackTrace")
-                {
-                    // A generic no-op for every arity: the argument payload
-                    // (exception / skipFrames / needFileInfo / frames source)
-                    // is meaningless without a frame model. Inst=true (the
-                    // receiver is the newobj allocation). The stub signature
-                    // is icall_stacktrace_ctor(Il2CppObject*) -- ONE param,
-                    // `this`. D2-r: arity>0 previously emitted the extra
-                    // ctor args raw (""-cast slots) -> cmake FAIL "too many
-                    // arguments to function"; the explicit args are now
-                    // "drop"-cast (slot0 = receiver passthrough, the args are
-                    // skipped at emission) so the generated call stays
-                    // `icall_stacktrace_ctor(t0)` for EVERY arity.
-                    if (count == 0)
-                        return I("il2cpp::runtime::icall_stacktrace_ctor", 0, false, false, true);
-                    var dropCasts = new string[count + 1];
-                    dropCasts[0] = "";
-                    for (var di = 1; di <= count; di++) dropCasts[di] = "drop";
-                    return I("il2cpp::runtime::icall_stacktrace_ctor", count, false, false, true, dropCasts);
-                }
                 if (count == 0 && owner.EndsWith("TracingStatusChangedEventArgs", StringComparison.Ordinal))
                     return I("il2cpp::runtime::icall_tracing_status_changed_ctor", 0, false, false, true);
                 return null;
@@ -370,5 +351,169 @@ public static partial class MethodRefResolver
                 return null;
             default: return null;
         }
+    }
+
+    //--------------------------------------------------------------------------
+    // TryMapStackTraceDiagnostics -- System.Diagnostics.StackTrace /
+    // StackFrame managed surface (stacktrace-real).
+    //
+    // WHY IT IS REAL: net48's stack trace is NOT undocumented CLR state for
+    // this runtime -- il2cpp_frame.h keeps a per-thread shadow stack with one
+    // record per live managed call (the emitter fills each record's managed
+    // spelling, CodeGenerator.WrapFrameRoots). So the net48 frame text is
+    // reproducible from that stack; what cannot be reproduced is the PDB
+    // (file/line) and the CLR-internal helper frames -- a FORMAT divergence,
+    // not a reason to reject the caller. Rejecting here used to delete the
+    // WHOLE enclosing method from the output (one Console.WriteLine(env.
+    // StackTrace) made an entire program untranspilable).
+    //
+    // ctors -- capture the shadow stack (net48 captures at construction):
+    //   ()                      icall_stacktrace_ctor
+    //   (bool needFileInfo)     same (needFileInfo dropped: no PDB)
+    //   (int skipFrames)        icall_stacktrace_ctor_skip
+    //   (int, bool)             icall_stacktrace_ctor_skip (bool dropped)
+    //   (Exception e)           icall_stacktrace_ctor_exception (live stack;
+    //   (Exception, bool)       this runtime's exception object carries no
+    //   (Exception, int)        throw-time frame list -- b5-gaps.md)
+    //   (Exception, int, bool)
+    //   (StackFrame[] frames)   icall_stacktrace_ctor_frames (adopts the array)
+    //   (StackFrame[], bool)
+    // ps codes: 0x02 bool, 0x08 int32, 0x12 class (Exception), 0x1D SZARRAY.
+    // An unmodelled shape falls back to the plain live snapshot (dropped
+    // arguments) rather than rejecting the caller.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapStackTraceDiagnostics(string owner, string name, byte[] ps, int count)
+    {
+        const string stackTraceCtor = "il2cpp::runtime::icall_stacktrace_ctor";
+        const string stackTraceCtorSkip = "il2cpp::runtime::icall_stacktrace_ctor_skip";
+        const string stackTraceCtorEx = "il2cpp::runtime::icall_stacktrace_ctor_exception";
+        const string stackTraceCtorExSkip = "il2cpp::runtime::icall_stacktrace_ctor_exception_skip";
+        const string stackTraceCtorFrames = "il2cpp::runtime::icall_stacktrace_ctor_frames";
+
+        if (name == ".ctor")
+        {
+            if (owner == "System.Diagnostics.StackFrame")
+            {
+                // net48 StackFrame ctors ((int), (bool), (int,bool), (Thread,
+                // bool), ...): every arity builds a frame with no method --
+                // the frame selector arguments describe a CLR stack pointer
+                // this build does not have. GetMethod() then answers null,
+                // exactly like net48's `new StackFrame()`.
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_stacktrace_frame_ctor", 0, false, false, true);
+                var frameDrops = new string[count + 1];
+                frameDrops[0] = "";
+                for (var di = 1; di <= count; di++) frameDrops[di] = "drop";
+                return I("il2cpp::runtime::icall_stacktrace_frame_ctor", count, false, false, true, frameDrops);
+            }
+            // System.Diagnostics.StackTrace -- see the shape table above.
+            switch (count)
+            {
+                case 0:
+                    return I(stackTraceCtor, 0, false, false, true);
+                case 1:
+                    if (ps.Length == 1 && ps[0] == 0x08)
+                        return I(stackTraceCtorSkip, 1, false, false, true, new[] { "", "i" });
+                    if (ps.Length == 1 && ps[0] == 0x02)
+                        return I(stackTraceCtor, 1, false, false, true, new[] { "", "drop" });
+                    if (ps.Length == 1 && ps[0] == 0x12)
+                        return I(stackTraceCtorEx, 1, false, false, true, new[] { "", "" });
+                    if (ps.Length == 1 && ps[0] == 0x1D)
+                        return I(stackTraceCtorFrames, 1, false, false, true, new[] { "", "a" });
+                    break;
+                case 2:
+                    if (ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x02)
+                        return I(stackTraceCtorSkip, 2, false, false, true, new[] { "", "i", "drop" });
+                    if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x02)
+                        return I(stackTraceCtorEx, 2, false, false, true, new[] { "", "", "drop" });
+                    if (ps.Length == 2 && ps[0] == 0x12 && ps[1] == 0x08)
+                        return I(stackTraceCtorExSkip, 2, false, false, true, new[] { "", "", "i" });
+                    if (ps.Length == 2 && ps[0] == 0x1D && ps[1] == 0x02)
+                        return I(stackTraceCtorFrames, 2, false, false, true, new[] { "", "a", "drop" });
+                    break;
+                case 3:
+                    if (ps.Length == 3 && ps[0] == 0x12 && ps[1] == 0x08 && ps[2] == 0x02)
+                        return I(stackTraceCtorExSkip, 3, false, false, true, new[] { "", "", "i", "drop" });
+                    break;
+            }
+            // Unmodelled ctor shape: still a real capture (live stack, no
+            // skip), arguments dropped at emission. Never a rejection.
+            var drops = new string[count + 1];
+            drops[0] = "";
+            for (var di = 1; di <= count; di++) drops[di] = "drop";
+            return I(stackTraceCtor, count, false, false, true, drops);
+        }
+
+        if (owner == "System.Diagnostics.StackTrace")
+        {
+            switch (name)
+            {
+                case "get_FrameCount":
+                    if (count == 0)
+                        return I("il2cpp::runtime::icall_stacktrace_get_frame_count", 0, true, false, true);
+                    return null;
+                case "GetFrames":
+                    if (count == 0)
+                        return I("il2cpp::runtime::icall_stacktrace_get_frames", 0, true, true, true,
+                            returnTypeName: "System.Diagnostics.StackFrame[]");
+                    return null;
+                case "GetFrame":
+                    // net48 StackFrame GetFrame(int index): null for an
+                    // out-of-range index.
+                    if (count == 1 && ps.Length == 1 && ps[0] == 0x08)
+                        return I("il2cpp::runtime::icall_stacktrace_get_frame", 1, true, true, true,
+                            new[] { "", "i" }, returnTypeName: "System.Diagnostics.StackFrame");
+                    return null;
+                case "ToString":
+                    if (count == 0)
+                        return I("il2cpp::runtime::icall_stacktrace_to_string", 0, true, true, true,
+                            returnTypeName: "System.String");
+                    return null;
+            }
+            return null;
+        }
+
+        // System.Diagnostics.StackFrame
+        switch (name)
+        {
+            case "GetMethod":
+                // MethodBase VALUE: the method's SIMPLE managed name (the
+                // simplified member model the reflection surface resolves --
+                // MemberInfo.get_Name / get_DeclaringType / GetParameters).
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_stackframe_get_method", 0, true, true, true,
+                        returnTypeName: "System.Reflection.MethodBase");
+                return null;
+            case "GetFileName":
+                // No PDB in an AOT build: net48's own answer for a frame built
+                // without file info. The net48 " in <path>:line N" suffix is a
+                // FORMAT divergence (b5-gaps.md), never a rejection.
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_stackframe_get_file_name", 0, true, true, true,
+                        returnTypeName: "System.String");
+                return null;
+            case "GetFileLineNumber":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_stackframe_get_file_line_number", 0, true, false, true);
+                return null;
+            case "GetFileColumnNumber":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_stackframe_get_file_column_number", 0, true, false, true);
+                return null;
+            case "GetILOffset":
+            case "GetNativeOffset":
+                // net48 answers -1 for a frame with no offset information
+                // (both offsets are CLR code-layout state an AOT build does
+                // not carry). A REAL answer, not a rejection.
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_stackframe_get_unknown_offset", 0, true, false, true);
+                return null;
+            case "ToString":
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_stackframe_to_string", 0, true, true, true,
+                        returnTypeName: "System.String");
+                return null;
+        }
+        return null;
     }
 }

@@ -1788,6 +1788,12 @@ public static partial class MethodRefResolver
             // the icall STILL must map so user methods calling `new StackTrace()`
             // do not LOUD-reject/fold-skip.)
             case "System.Diagnostics.StackTrace":
+            // stacktrace-real: System.Diagnostics.StackFrame is dispatched to
+            // the same map. Without this case the owner fell to the external-
+            // BCL phantom gate, which THROWS -> the whole enclosing method
+            // (Probe/OnPeek in p-stacktrace) fold-skipped even though every
+            // member it calls is now a REAL runtime icall (il2cpp_stacktrace.h).
+            case "System.Diagnostics.StackFrame":
                 return TryMapGC(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // netcore21/31 audit surfaces routed into the GC map (the
             // GetMemoryInfo out-fills, the Number formatting PNSE entries,
