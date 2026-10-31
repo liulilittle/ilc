@@ -1,7 +1,10 @@
 param(
     [ValidateSet("msvc","mingw","wsl","clang")][string]$Compiler = "mingw",
     [string]$Case = "",
-    [string]$Cases = "",
+    # [string[]] so BOTH `-Cases a,b` (PowerShell binds a 2-element array) and
+    # `-Cases "a,b"` (one string) work: a [string] declaration would join the array with
+    # spaces ("a b") before the comma split, silently breaking the unquoted form.
+    [string[]]$Cases = @(),
     [switch]$ContinueOnError,
     [string]$ResultsFile = "",
     [string]$Arch = ""
@@ -193,8 +196,11 @@ if ($Case) {
 }
 # -Cases: comma-separated subset of the directory pool (used to validate a mixed batch --
 # e.g. one excluded case plus several normal ones -- without sweeping the whole pool).
-if ($Cases) {
-    $wanted = @($Cases -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+# Handles both binding shapes: an array of names (`-Cases a,b`) and one comma-joined
+# string (`-Cases "a,b"`), so each element is split on ',' again.
+if ($Cases -and $Cases.Count -gt 0) {
+    $wanted = @($Cases | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($wanted.Count -eq 0) { throw "-Cases was given but contained no case name" }
     $missing = @($wanted | Where-Object { -not ($caseDirs | Where-Object Name -eq $_) })
     if ($missing.Count -gt 0) { throw "case(s) not found under tests/cases: $($missing -join ', ')" }
     $caseDirs = @($caseDirs | Where-Object { $wanted -contains $_.Name })

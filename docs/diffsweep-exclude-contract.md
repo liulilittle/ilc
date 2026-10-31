@@ -38,7 +38,10 @@ regression gets hidden behind a permanently red case.
 - Skipping is never silent: every consumer prints the reason. Adding/removing a case means
   editing one line in `sweep-exclude.txt`, so a reviewer sees the waiver in the diff.
 - `scripts/run-tests.ps1` also accepts `-Cases a,b,c` (comma-separated subset of the
-  directory pool) so a mixed batch can be verified without sweeping all cases.
+  directory pool) so a mixed batch can be verified without sweeping all cases. The
+  parameter is `[string[]]`, so both `-Cases a,b` (PowerShell binds a two-element array)
+  and `-Cases "a,b"` (one string) are accepted; a `[string]` declaration would have joined
+  the array with spaces and silently broken the unquoted form.
 
 ## Regression guard
 
