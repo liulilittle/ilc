@@ -80,9 +80,13 @@ int32_t icall_convert_to_uint16_string_base(Il2CppString* value, int32_t fromBas
 uint32_t icall_convert_to_uint32_string_base(Il2CppString* value, int32_t fromBase);
 uint64_t icall_convert_to_uint64_string_base(Il2CppString* value, int32_t fromBase);
 
-// Convert.ToInt32(long): CHECKED truncation -- in-range values truncate to
-// int32; out-of-range -> OverflowException (net48 contract).
+// Convert.ToInt32(long/uint): CHECKED -- in-range values convert to int32;
+// out-of-range -> OverflowException (net48 contract). The uint source must be
+// zero-extended by the caller (the int32 slot carries the bit pattern); the
+// ulong source has its own uint64-aware helper because 2^64-1 does not fit an
+// int64 carrier.
 int32_t icall_convert_to_int32_i8(int64_t value);
+int32_t icall_convert_to_int32_u8(uint64_t value);
 
 // Convert.ToInt32(double): ROUNDS half-to-even (Math.Round semantics -- NOT
 // truncation) then range-checks the rounded value against [int32.MinValue,
@@ -95,8 +99,9 @@ int32_t icall_convert_to_int32_d(double value);
 // conv.ovf truncation), then range-check the ROUNDED value against the
 // destination: int64 [-2^63, 2^63), uint32 [0, 2^32), uint64 [0, 2^64),
 // byte [0, 256), sbyte [-128, 128), ushort [0, 65536), short [-32768, 32768).
-// NaN / +-Infinity -> OverflowException; unsigned targets also throw for ANY
-// negative input (even fractions rounding to -0.0), -0.0 itself yields 0.
+// NaN / +-Infinity -> OverflowException. Unsigned targets range-check the
+// ROUNDED value, so a negative fraction that rounds to -0.0 (-0.5 -> -0.0)
+// yields 0; only values that round to < 0 (-0.6 -> -1) throw OverflowException.
 // Narrow widths ride int32 carriers
 // (M2 slot model); float sources widen to double at the call site.
 int64_t icall_convert_to_int64_d(double value);

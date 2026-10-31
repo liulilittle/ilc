@@ -13,11 +13,12 @@
 // il2cpp_conv.h:
 //   * int-family sources (sbyte..uint) ride int32 slots; long/ulong ride
 //     int64 slots; float rides a double slot holding the exact float value.
-//   * Widening/identity integer sources reuse the CHECKED int64 helpers via
-//     the "l" sign-extending cast: every int-family value survives a
-//     sign-extension unchanged, and a uint bit pattern >= 2^31 goes negative,
-//     which fails any [0, max] range test -- exactly the OverflowException
-//     net48 throws for those inputs.
+//   * Signed int-family sources (sbyte/short/int/long) reuse the CHECKED
+//     int64 helpers via the "l" sign-extending cast: every in-range value
+//     survives unchanged and out-of-range values throw OverflowException.
+//     The wide unsigned sources are never sign-extended: uint is re-read as
+//     uint32_t ("u4"), ulong as uint64_t ("q"), so the checked helper tests
+//     their true magnitude (uint.MaxValue -> OverflowException, never -1).
 //   * ulong sources use the "q" reinterpret cast into uint64_t params (the
 //     batch 154b contract: negative bit patterns fail the checked test).
 //   * Zero-extension sources (byte/ushort/char/bool/uint -> 64-bit) use the
@@ -58,15 +59,27 @@ public static partial class MethodRefResolver
                                 // icall_decimal_to_int32 is the EXPLICIT-CAST
                                 // semantics and must NOT be used here.
                                 0x11 => I("il2cpp::runtime::icall_decimal_to_int32_round", 1, true, false, false, new[] { "dec" }),
-                                // Sweep: ALL int-family sources (sbyte/byte/short/
-                                // ushort/int/uint/long/ulong) through the checked
-                                // int64 helper. "l" sign-extends the slot value;
-                                // in-range inputs pass unchanged (identity/widening),
-                                // out-of-range (incl. uint >= 2^31, whose bit
-                                // pattern reads negative) throw OverflowException --
-                                // the exact net48 contract for every one of these.
-                                0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 or 0x0A or 0x0B
+                                // Sweep: the sources whose int32 slot already
+                                // carries the exact value (sbyte/byte/short/
+                                // ushort/int/long). "l" sign-extends the slot;
+                                // in-range inputs pass unchanged (identity/
+                                // widening); out-of-range -> OverflowException.
+                                // uint (0x09) must NOT ride this arm: its slot
+                                // holds the int32 BIT PATTERN, so "l" would turn
+                                // 2^31..2^32-1 negative and let it pass (net48
+                                // throws OverflowException -- probe: 3000000000u).
+                                0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x0A
                                     => I("il2cpp::runtime::icall_convert_to_int32_i8", 1, true, false, false, new[] { "l" }),
+                                // uint source: re-read the slot as uint32_t FIRST
+                                // ("u4"), so the checked int64 helper tests the
+                                // true unsigned magnitude (uint.MaxValue ->
+                                // OverflowException, not -1).
+                                0x09 => I("il2cpp::runtime::icall_convert_to_int32_i8", 1, true, false, false, new[] { "u4" }),
+                                // ulong source: "q" feeds the raw 64-bit pattern
+                                // to the CHECKED uint64 helper -- 2^64-1 must not
+                                // be reinterpreted as -1 (net48 throws for any
+                                // value > int32.MaxValue).
+                                0x0B => I("il2cpp::runtime::icall_convert_to_int32_u8", 1, true, false, false, new[] { "q" }),
                                 0x0D => I("il2cpp::runtime::icall_convert_to_int32_d", 1, true, false, false, new[] { "d" }),
                                 // Sweep: float rides a double slot carrying the exact
                                 // float value; the rounding icall's half-to-even on

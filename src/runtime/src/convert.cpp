@@ -829,6 +829,18 @@ int32_t icall_convert_to_int32_i8(int64_t value)
     return static_cast<int32_t>(value);
 }
 
+// Convert.ToInt32(ulong): the checked conversion over the FULL uint64 magnitude.
+// An int64 carrier cannot represent 2^64-1 (it would read as -1 and pass the
+// int32 range test), so the unsigned source is range-checked as uint64_t.
+int32_t icall_convert_to_int32_u8(uint64_t value)
+{
+    if (value > static_cast<uint64_t>(INT32_MAX))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for an Int32.");
+    }
+    return static_cast<int32_t>(value);
+}
+
 int32_t icall_convert_to_int32_d(double value)
 {
     // NaN / infinities have no int32 representation; net48 throws
@@ -855,9 +867,9 @@ int32_t icall_convert_to_int32_d(double value)
 // NaN/inf throw, nearbyint (FE_TONEAREST == half-to-even) rounds FIRST, the
 // ROUNDED value is range-checked, and the final cast is strictly defined
 // C++ (the guards leave an exact integer inside the destination range).
-// Unsigned targets test the ORIGINAL value for negativity (net48 throws for
-// ANY negative input, even fractions that would round to -0.0); -0.0 itself
-// passes through to 0.
+// Unsigned targets range-check the ROUNDED value against [0, max): net48
+// rounds first too (Convert.ToByte(-0.5) == 0 -- -0.5 rounds to -0.0), so
+// only inputs whose rounded value is < 0 overflow (-0.6 -> -1 throws).
 int64_t icall_convert_to_int64_d(double value)
 {
     if (std::isnan(value) || std::isinf(value))
@@ -879,7 +891,7 @@ uint32_t icall_convert_to_uint32_d(double value)
         il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt32.");
     }
     const double rounded = std::nearbyint(value);
-    if (rounded >= 4294967296.0 || value < 0.0)
+    if (rounded >= 4294967296.0 || rounded < 0.0)
     {
         il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt32.");
     }
@@ -893,7 +905,7 @@ uint64_t icall_convert_to_uint64_d(double value)
         il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt64.");
     }
     const double rounded = std::nearbyint(value);
-    if (rounded >= 18446744073709551616.0 || value < 0.0)
+    if (rounded >= 18446744073709551616.0 || rounded < 0.0)
     {
         il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt64.");
     }
@@ -907,7 +919,7 @@ int32_t icall_convert_to_byte_d(double value)
         il2cpp_throw_overflow_exception("Value was either too large or too small for a Byte.");
     }
     const double rounded = std::nearbyint(value);
-    if (rounded >= 256.0 || value < 0.0)
+    if (rounded >= 256.0 || rounded < 0.0)
     {
         il2cpp_throw_overflow_exception("Value was either too large or too small for a Byte.");
     }
@@ -935,7 +947,7 @@ int32_t icall_convert_to_uint16_d(double value)
         il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt16.");
     }
     const double rounded = std::nearbyint(value);
-    if (rounded >= 65536.0 || value < 0.0)
+    if (rounded >= 65536.0 || rounded < 0.0)
     {
         il2cpp_throw_overflow_exception("Value was either too large or too small for a UInt16.");
     }
@@ -1238,15 +1250,18 @@ bool IsIntFamilyKind(BoxKind kind)
     il2cpp_throw_overflow_exception("Value was either too large or too small for a Char.");
 }
 
-// The int64 carrier for the int-family boxes: sign/zero-extended exactly as
-// the value-source "l"/"q" casts would (a boxed uint >= 2^31 stays positive, so
-// a checked conversion range-checks it out).
+// The int64 carrier for the int-family boxes whose value fits in int64:
+// sign/zero-extended exactly as the value-source "l" casts would (a boxed uint
+// >= 2^31 stays positive, so a checked conversion range-checks it out).
+// BoxKind::UInt64 is DELIBERATELY absent: 2^64-1 has no int64 representation
+// (static_cast<int64_t> would yield -1 and pass an int32 range test). Callers
+// that accept a boxed ulong must range-check BoxedU64 through a uint64-aware
+// helper (icall_convert_to_int32_u8 / icall_conv_ovf_*_u8).
 int64_t BoxedIntFamilyCarrier(Il2CppObject* v, BoxKind kind)
 {
     switch (kind)
     {
         case BoxKind::Int64:   return BoxedI64(v);
-        case BoxKind::UInt64:  return static_cast<int64_t>(BoxedU64(v));
         case BoxKind::UInt32:  return static_cast<int64_t>(static_cast<uint32_t>(BoxedI32(v)));
         case BoxKind::UInt16:  return static_cast<int64_t>(static_cast<uint16_t>(BoxedI32(v)));
         case BoxKind::Byte:    return static_cast<int64_t>(BoxedI32(v) & 0xFF);
@@ -1279,8 +1294,8 @@ int32_t icall_convert_to_int32_obj(Il2CppObject* value)
         case BoxKind::Byte:    return BoxedI32(value) & 0xFF;
         case BoxKind::UInt16:  return BoxedI32(value) & 0xFFFF;
         case BoxKind::UInt32:
-        case BoxKind::Int64:
-        case BoxKind::UInt64:  return icall_convert_to_int32_i8(BoxedIntFamilyCarrier(value, kind));
+        case BoxKind::Int64:   return icall_convert_to_int32_i8(BoxedIntFamilyCarrier(value, kind));
+        case BoxKind::UInt64:  return icall_convert_to_int32_u8(BoxedU64(value));
         default: break;
     }
     ThrowConvertObjectInvalidCast();
