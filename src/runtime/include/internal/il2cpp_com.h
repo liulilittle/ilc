@@ -765,8 +765,9 @@ Il2CppClass* il2cpp_com_rcw_class();
 
 // IUnknown::QueryInterface: dispatch 'iid' (16 bytes, .NET Guid layout) on
 // the interface 'pUnk'. On S_OK writes the requested interface pointer to
-// '*ppv' (AddRef'd -- COM QI always returns a reference); on failure leaves
-// *ppv untouched (verify-then-mutate) and returns the HRESULT.
+// '*ppv' (AddRef'd -- COM QI always returns a reference); on failure writes 0
+// to *ppv (net48 Marshal.QueryInterface zeroes the out slot -- measured on the
+// x64 oracle, tests/cases/probe-p0b) and returns the HRESULT.
 // pUnk == 0 -> ArgumentNullException (net48 Marshal.QueryInterface semantics).
 int32_t icall_com_query_interface(intptr_t pUnk, const uint8_t iid[16], intptr_t* ppv);
 

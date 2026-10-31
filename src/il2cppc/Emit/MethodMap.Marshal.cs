@@ -522,6 +522,43 @@ public static partial class MethodRefResolver
                 if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
                 return I("il2cpp::runtime::icall_com_release_com_object", 1, true, false, false,
                     new[] { "" });
+            // ---- com7 (impl-p0b G1): the RAW IUnknown primitive surface --
+            // AddRef / Release / QueryInterface. REMOVED from
+            // kComMarshalMembers (the COM LOUD set): the runtime icalls have
+            // existed since the com2/com3 phase (il2cpp_com.h:775-776
+            // icall_com_add_ref / icall_com_release, :771
+            // icall_com_query_interface) -- this is pure WIRING, no new COM
+            // logic. net48 semantics measured on the x64 oracle
+            // (tests/cases/probe-p0b):
+            //   * int AddRef(IntPtr pUnk) / int Release(IntPtr pUnk): return
+            //     the NEW reference count (CreateStreamOnHGlobal stream:
+            //     AddRef -> 2, Release -> 1; a CCW from
+            //     GetIUnknownForObject: AddRef -> 2, Release -> 1). A zero
+            //     pUnk -> ArgumentNullException (both).
+            //   * int QueryInterface(IntPtr pUnk, ref Guid iid, out IntPtr
+            //     ppv): returns the HRESULT -- it does NOT throw on failure
+            //     (S_OK = 0; an unknown IID -> 0x80004002 E_NOINTERFACE).
+            //     net48 ZEROES the out ppv when the QI fails (measured: a
+            //     pre-set 0x1234 slot reads back 0), so the runtime icall now
+            //     clears *ppv before the dispatch (com.cpp). A zero pUnk ->
+            //     ArgumentNullException.
+            // ps: [IntPtr] / [IntPtr] / [IntPtr, Guid (0x11 VALUETYPE),
+            // IntPtr]. Casts: "n" (static_cast<intptr_t>), "g" (uint8_t* --
+            // the ref Guid address), "addr:v" (the out IntPtr local's
+            // address, intptr_t*).
+            case "AddRef":
+                if (ps.Length != 1 || !IsIntPtrByte(ps[0])) return null;
+                return I("il2cpp::runtime::icall_com_add_ref", 1, true, false, false,
+                    new[] { "n" });
+            case "Release":
+                if (ps.Length != 1 || !IsIntPtrByte(ps[0])) return null;
+                return I("il2cpp::runtime::icall_com_release", 1, true, false, false,
+                    new[] { "n" });
+            case "QueryInterface":
+                if (ps.Length != 3 || !IsIntPtrByte(ps[0]) || ps[1] != 0x11 || !IsIntPtrByte(ps[2]))
+                    return null;
+                return I("il2cpp::runtime::icall_com_query_interface", 3, true, false, false,
+                    new[] { "n", "g", "addr:v" });
             // ---- com6: GetTypeFromProgID / CreateObject -- the C1 (A1) split
             // from the r127 PNSE stubs to the REAL COM runtime (net48:
             // Marshal.GetTypeFromProgID == Type.GetTypeFromProgID, and
@@ -646,7 +683,10 @@ public static partial class MethodRefResolver
     private static readonly HashSet<string> kComMarshalMembers = new(StringComparer.Ordinal)
     {
         // Public COM surface
-        "AddRef",
+        // NOTE (impl-p0b G1): "AddRef", "Release" and "QueryInterface" were
+        // REMOVED from this LOUD set -- they are WIRED to the pre-existing
+        // raw IUnknown icalls (il2cpp_com.h:771-776, com.cpp) by the com7
+        // case block above. Oracle: tests/cases/probe-p0b.
         "AreComObjectsAvailableForCleanup",
         "BindToMoniker",
         "ChangeWrapperHandleStrength",
@@ -671,7 +711,6 @@ public static partial class MethodRefResolver
         "GetTypedObjectForIUnknown",
         "InitWrapper",
         "IsTypeVisibleFromCom",
-        "Release",
         // Internal *Native/*Internal icall variants (public wrappers in parentheses)
         "FCallGenerateGuidForType",
         "FCallGetTypeInfoGuid",

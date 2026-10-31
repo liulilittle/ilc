@@ -7934,6 +7934,11 @@ int32_t icall_com_query_interface(intptr_t pUnk, const uint8_t iid[16], intptr_t
     const QueryInterfaceFn qi = reinterpret_cast<QueryInterfaceFn>(
         const_cast<void*>(VtableSlot(self, 0)));
     void* out = nullptr;
+    // impl-p0b G1: net48 Marshal.QueryInterface ZEROES the out ppv slot when
+    // the QI fails (measured on the x64 oracle: a pre-set 0x1234 slot reads
+    // back 0 after an E_NOINTERFACE result). Clear it before the dispatch so
+    // both the success and the failure path match net48 byte-for-byte.
+    *ppv = 0;
     const int32_t hr = qi(self, iid, &out);
     if (hr == kComHrOk)
     {
