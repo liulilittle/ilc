@@ -537,11 +537,19 @@ public static class MetadataLoader
     // ComVisibleAttributeValue / InterfaceTypeAttributeValue (impl-p0b G2) --
     // TARGETED reads of the two COM attributes Marshal's metadata surface
     // needs. The generic DecodeCustomAttributes walks EVERY attribute row and
-    // throws on a named-arg tag it does not model (0x54 PROPERTY -- e.g. the
-    // compiler-emitted [assembly: TargetFramework(..., FrameworkDisplayName=)]
-    // row), so it cannot be used for the ASSEMBLY-level scan. These walk the
-    // ctor handle to its parent type name and decode ONLY that row's fixed
-    // argument (the HasFlagsAttribute precedent). null = attribute absent.
+    // decodes each row's full blob (fixed + named args), so one unmodelled
+    // blob anywhere in the assembly fails the whole read. These walk the ctor
+    // handle to its parent type name and decode ONLY that row's fixed argument
+    // (the HasFlagsAttribute precedent). null = attribute absent.
+    //
+    // HISTORICAL CORRECTION: the earlier rationale here claimed the generic
+    // decoder throws on named-arg tag 0x54 (PROPERTY, e.g. the compiler-emitted
+    // [assembly: TargetFramework(..., FrameworkDisplayName=)] row). That is
+    // false on current code -- ReadNamedArgs at :1007 reads
+    // `var isField = blob.ReadByte() == 0x53;` so 0x54 decodes as a property
+    // named arg, covered by MetadataLoaderTests.Audit.cs:168-171
+    // (LoadCustomAttributes_DecodesFixedAndNamedArgs). The targeted readers
+    // stay for the narrower reason above (blast-radius isolation per row).
     //--------------------------------------------------------------------------
     private static string? AttributeClassOf(MetadataReader md, CustomAttribute ca)
     {
