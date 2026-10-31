@@ -34,9 +34,35 @@ public static class MethodSignatureCoder
     public static (int ParamCount, SignatureTypeCode ReturnType, string ParamTypes, string ReturnTypeName) Decode(
         MetadataReader md, BlobHandle sigHandle)
     {
+        // varargs (ECMA-335 II.23.2.2): a call-site (MemberRef) signature is
+        //   [callconv VARARG][ParamCount][ret][fixed types...][SENTINEL 0x41][vararg types...]
+        // where ParamCount counts the fixed AND vararg parameters (the sentinel
+        // is NOT a parameter). The method-name hash channel must see the FIXED
+        // parameters ONLY -- the callee's MethodDef signature carries exactly
+        // those (a definition has no sentinel), so hashing the call-site vararg
+        // types here would never match the generated symbol. DecodeVarArgs
+        // returns the split; Decode stays the historical fixed-only view.
+        var v = DecodeVarArgs(md, sigHandle);
+        return (v.FixedCount, v.ReturnType, v.FixedParamTypes, v.ReturnTypeName);
+    }
+
+    /// <summary>
+    /// varargs-aware signature decode (ECMA-335 II.23.2.2 / III.3.9).
+    /// Returns the calling-convention varargs flag, the FIXED parameter count
+    /// and encoded types (the hash/ABI channel), and the optional (vararg)
+    /// parameter types in call-site order. The sentinel (ELEMENT_TYPE_SENTINEL,
+    /// 0x41) is a separator, not a parameter: it is consumed without taking a
+    /// slot. For a method DEFINITION the signature is
+    /// `[callconv VARARG][count][ret][fixed types...]` (no sentinel), so
+    /// IsVarArgs is true while VarArgTypes is empty.
+    /// </summary>
+    public static (bool IsVarArgs, int FixedCount, SignatureTypeCode ReturnType,
+        string FixedParamTypes, string ReturnTypeName, string[] VarArgTypes) DecodeVarArgs(
+        MetadataReader md, BlobHandle sigHandle)
+    {
         var sig = md.GetBlobReader(sigHandle);
         var header = sig.ReadSignatureHeader();
-        if (header.IsGeneric) sig.ReadCompressedInteger(); // M2 has no generics, just skip
+        if (header.IsGeneric) sig.ReadCompressedInteger(); // M2 has no method-level generics, just skip
         var paramCount = sig.ReadCompressedInteger();
         // The return type is also read as a raw byte, consuming its trailing TypeDefOrRef
         // (class/value-type returns); otherwise the param loop would start parsing at the
@@ -44,10 +70,30 @@ public static class MethodSignatureCoder
         var returnByte = SkipCustomModifiers(ref sig, sig.ReadByte());
         var returnType = (SignatureTypeCode)returnByte;
         var returnTypeName = EncodeReturn(md, ref sig, returnByte);
-        var parts = new string[paramCount];
-        for (var i = 0; i < paramCount; i++)
-            parts[i] = EncodeType(md, ref sig);
-        return (paramCount, returnType, string.Join(",", parts), returnTypeName);
+        var fixedParts = new List<string>();
+        var varParts = new List<string>();
+        var inVarArgs = false;
+        while (fixedParts.Count + varParts.Count < paramCount)
+        {
+            if (sig.RemainingBytes == 0)
+                throw new NotSupportedException(
+                    $"signature ended after {fixedParts.Count + varParts.Count} of {paramCount} parameters (malformed signature blob)");
+            var first = sig.ReadByte();
+            if (first == 0x41)
+            {
+                // ELEMENT_TYPE_SENTINEL: the fixed/optional boundary. Legal at
+                // most once and only for a VARARG signature; a repeat/late
+                // sentinel is malformed metadata.
+                if (inVarArgs)
+                    throw new NotSupportedException("signature carries more than one ELEMENT_TYPE_SENTINEL (malformed vararg signature)");
+                inVarArgs = true;
+                continue;
+            }
+            var encoded = EncodeTypeFromByte(md, ref sig, first);
+            (inVarArgs ? varParts : fixedParts).Add(encoded);
+        }
+        return (header.CallingConvention == SignatureCallingConvention.VarArgs,
+            fixedParts.Count, returnType, string.Join(",", fixedParts), returnTypeName, varParts.ToArray());
     }
 
     /// <summary>
@@ -327,8 +373,14 @@ public static class MethodSignatureCoder
     // int64_t slots ("l"/"q"); float/double in double slots ("f"/"d"); arrays are managed
     // references ("r:...[]").
     private static string EncodeType(MetadataReader md, ref BlobReader sig)
+        => EncodeTypeFromByte(md, ref sig, sig.ReadByte());
+
+    // Encode one type whose FIRST byte was already read by the caller (the
+    // varargs decoder needs to peek for the 0x41 separator without consuming a
+    // parameter slot; the blob reader has no un-read).
+    private static string EncodeTypeFromByte(MetadataReader md, ref BlobReader sig, byte firstByte)
     {
-        var tb = SkipCustomModifiers(ref sig, sig.ReadByte());
+        var tb = SkipCustomModifiers(ref sig, firstByte);
         return tb switch
     {
         0x01 => "v",                                    // ELEMENT_TYPE_VOID

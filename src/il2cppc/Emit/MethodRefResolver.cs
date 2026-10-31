@@ -1024,6 +1024,16 @@ public static partial class MethodRefResolver
     {
         var mr2 = md.GetMemberReference(handle);
         var mrName = md.GetString(mr2.Name);
+        // varargs call site (ECMA-335 II.23.2.2): a MemberRef whose PARENT is a
+        // MethodDefinition describes a CALL-SITE signature for that method (the
+        // vararg call-site signature differs from the definition, so the IL
+        // cannot use the MethodDef token directly -- e.g. `call vararg void
+        // M(..., int32, string)`). The target identity is the definition, so
+        // resolve it by MethodDef: the generated C++ name/ABI are the
+        // definition's (fixed parameters only), while the fold and the emitter
+        // read THIS MemberRef signature for the fixed/vararg split.
+        if (mr2.Parent.Kind == HandleKind.MethodDefinition)
+            return ResolveMethodDefinition(md, (MethodDefinitionHandle)mr2.Parent);
         var owner2 = ResolveOwnerFullName(md, mr2.Parent);
         var (pc, retType, pt, retTypeName) = MethodSignatureCoder.Decode(md, mr2.Signature);
 

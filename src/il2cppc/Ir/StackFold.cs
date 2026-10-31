@@ -2298,15 +2298,19 @@ public static class StackFold
                     }
                     break;
                 case ILOpCode.Arglist:
-                    // arglist (0xFE00, ECMA-335 III.3.9 -- varargs): pushes a
-                    // runtime varargs handle (System.RuntimeArgumentHandle) for
-                    // the C# __arglist / __arglist_reference varargs protocol.
-                    // The transpiler has no vararg calling-convention model
-                    // (the generated C++ functions have fixed signatures), so
-                    // the fold stays LOUD (research + decision in the ilop2
-                    // report).
-                    throw new NotSupportedException(
-                        $"arglist at offset 0x{ins.Offset:X4}: varargs (System.RuntimeArgumentHandle) has no transpiler model (research + decision in the ilop2 report)");
+                    // arglist (0xFE00, ECMA-335 III.3.9 -- varargs): pushes the
+                    // runtime varargs handle (System.RuntimeArgumentHandle) of
+                    // the CURRENT method. The handle is modelled as an
+                    // intptr_t: every varargs method receives one trailing
+                    // `intptr_t va_frame` parameter (the caller-built typed
+                    // frame: {types[], values[], count}), and the handle is
+                    // exactly that parameter. The vararg CALLER packs the
+                    // frame at the call site (the call-site signature carries
+                    // the declared element types -- see
+                    // MethodSignatureCoder.DecodeVarArgs), the callee's
+                    // ArgIterator walks it (il2cpp_argiterator.h).
+                    Push(new LocExpr { Name = "va_frame" }, ins);
+                    break;
                 case ILOpCode.Endfilter:
                     // endfilter (0xFE11, ECMA-335 III.3.21 -- end a filter
                     // clause): pops the int32 filter result and transfers to the
@@ -3980,14 +3984,32 @@ public static class StackFold
                 ? MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(), null, arg0IsAddr, arg0Type, arg1Type)
                 : null;
             var paramCount = resolved?.ParamCount ?? 0;
+            // varargs (ECMA-335 II.23.2.2): the call-site MemberRef signature
+            // is [fixed types...][SENTINEL 0x41][vararg types...], and
+            // ParamCount counts BOTH groups. MethodSignatureCoder.Decode
+            // returns the FIXED count only (the hash/ABI channel), so the
+            // fold must add the call-site vararg count back before popping --
+            // otherwise every vararg element stays stranded on the IL stack.
+            var varArgCount = 0;
+            var varArgTypes = Array.Empty<string>();
+            if (md != null && MetadataTokens.Handle((int)ins.Operand).Kind == HandleKind.MemberReference)
+            {
+                var mrSig = md.GetMemberReference((MemberReferenceHandle)MetadataTokens.Handle((int)ins.Operand)).Signature;
+                var varArgSig = MethodSignatureCoder.DecodeVarArgs(md, mrSig);
+                if (varArgSig.IsVarArgs)
+                {
+                    varArgTypes = varArgSig.VarArgTypes;
+                    varArgCount = varArgTypes.Length;
+                }
+            }
             var args = new List<Expr>();
             try
             {
-                for (var i = 0; i < paramCount; i++) args.Insert(0, stack.Pop());
+                for (var i = 0; i < paramCount + varArgCount; i++) args.Insert(0, stack.Pop());
             }
             catch (InvalidOperationException)
             {
-                throw new NotSupportedException($"call at offset 0x{ins.Offset:X4} pops {paramCount} args but the stack has only {stack.Count} (resolved={resolved?.CppName ?? "null"})");
+                throw new NotSupportedException($"call at offset 0x{ins.Offset:X4} pops {paramCount + varArgCount} args but the stack has only {stack.Count} (resolved={resolved?.CppName ?? "null"})");
             }
 
             // delechain: delegate == / != -- System.Delegate::op_Equality /
@@ -6078,6 +6100,13 @@ public static class StackFold
                 // P/Invoke bridge decays it to .Handle (see
                 // src/runtime/include/internal/il2cpp_handleref.h).
                 || typeFullName is "System.Runtime.InteropServices.HandleRef"
+                // varargs: System.ArgIterator is a BCL value type. `new
+                // ArgIterator(__arglist)` initializes the struct IN PLACE; the
+                // ctor icall takes the slot address + the frame handle
+                // (il2cpp_argiterator.h). Without this arm the newobj took the
+                // reference-allocation path and emitted object_new on a
+                // nonexistent descriptor.
+                || typeFullName is "System.ArgIterator"
                 // tuple1 (ValueTuple): System.ValueTuple`N is an ordinary BCL
                 // VALUE type (a struct with Item1..ItemN + a .ctor). It has no
                 // TypeDef here, so without this arm the ctor took the

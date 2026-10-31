@@ -292,10 +292,69 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     $"{name} is part of System.Runtime.Remoting.ObjectHandle -- only the CreateInstance wrapper carrier (Unwrap) is wired in the adm1 closure: LOUD whitelist (runtime descriptor: the ObjectHandle carrier object has no runtime model beyond the Unwrap arm, the rest of the remoting surface is rejected per the net48 audit section 3) [Reference Source mscorlib/system/runtime/remoting/objecthandle.cs:32,49]");
             case "System.ArgIterator":
-                // impl-tz2: whitelist 3 -- varargs reflection (__arglist) has
-                // no runtime support/descriptor in the M3 model.
+                // varargs (__arglist): the public surface is a managed wrapper
+                // over internal icalls; mscorlib is never translated, so the
+                // PUBLIC members are the resolution targets (the p0c
+                // ReaderWriterLock precedent). Runtime model: il2cpp_argiterator.h.
+                // Both ctors/GetNextArg shapes and the boundary behaviour are
+                // net48-measured (NOTES.md): GetRemainingCount decrements and
+                // validates the handle cookie; GetNextArg past the end throws
+                // InvalidOperationException; the RuntimeTypeHandle overload
+                // consumes then requires the EXACT declared type
+                // (InvalidCastException on mismatch); GetNextArgType peeks
+                // without consuming.
+                switch (name)
+                {
+                    case ".ctor":
+                        // ArgIterator(RuntimeArgumentHandle): initialize the
+                        // value slot from the caller-built frame handle. The
+                        // newobj fold passes the slot as arg0 (vctor path) and
+                        // the emitter addresses it for the icall.
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_argiterator_ctor", 1, false, false, true);
+                        // ArgIterator(RuntimeArgumentHandle, void*) carries an
+                        // unmanaged signature pointer -- not modelled (the frame
+                        // already carries the declared types).
+                        throw new NotSupportedException(
+                            $"{name} is part of System.ArgIterator -- only the ArgIterator(RuntimeArgumentHandle) ctor is wired (the unmanaged void* signature-pointer ctor is not modelled; the typed frame carries the declared types) [Reference Source mscorlib/system/argiterator.cs:18,44]");
+                    case "GetRemainingCount":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_argiterator_get_remaining_count", 1, true, false, false,
+                                new[] { "ai" }, "i");
+                        break;
+                    case "GetNextArg":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_argiterator_get_next_arg", 1, true, false, false,
+                                new[] { "ai" }, "tr");
+                        if (count == 1 && ps.Length == 1)
+                            return I("il2cpp::runtime::icall_argiterator_get_next_arg_typed", 2, true, false, false,
+                                new[] { "ai", "" }, "tr");
+                        break;
+                    case "GetNextArgType":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_argiterator_get_next_arg_type", 1, true, false, false,
+                                new[] { "ai" }, "ptr");
+                        break;
+                    case "End":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_argiterator_end", 1, false, false, false,
+                                new[] { "ai" });
+                        break;
+                    case "GetHashCode":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_argiterator_get_hash_code", 1, true, false, false,
+                                new[] { "ai" }, "i");
+                        break;
+                    case "Equals":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_argiterator_equals", 2, true, false, false,
+                                new[] { "ai", "" }, "i");
+                        break;
+                }
+                // Any other member of the type stays LOUD (no silent
+                // generated-name symbol).
                 throw new NotSupportedException(
-                    $"{name} is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3): LOUD whitelist (runtime descriptor: __arglist is not in the M3 model, the ArgIterator frame has no runtime support) [Reference Source mscorlib/system/argiterator.cs:18,29]");
+                    $"{name} is part of System.ArgIterator -- only the varargs-consumption surface (ctors/GetRemainingCount/GetNextArg/GetNextArgType/End/GetHashCode/Equals) is wired: LOUD whitelist for the remaining members [Reference Source mscorlib/system/argiterator.cs:18,29]");
             case "System.Threading.ReaderWriterLock":
                 // p0c D37: the legacy lock now HAS an object model
                 // (il2cpp_rwlock.h, rwlock.cpp). The PUBLIC members below are
