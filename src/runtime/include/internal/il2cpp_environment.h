@@ -218,4 +218,16 @@ Il2CppObject* icall_environment_get_user_domain_name();
 // host answers true; oracle probe pins [env.ui]=True).
 int32_t icall_environment_get_user_interactive();
 
+// Environment.StackTrace -> string. net48 implements this as
+// `new StackTrace(true).ToString()`: the CURRENT managed call stack, one
+// "   at Ns.Type.Method(params)" line per frame, innermost first, CRLF
+// separated. The transpiled runtime keeps a per-thread shadow frame stack
+// with every live method's managed spelling (il2cpp_frame.h), so this is a
+// formatter over that stack (stacktrace.cpp). The net48 output additionally
+// carries PDB file/line info and the CLR-internal Environment/StackTrace
+// helper frames; an AOT build has neither, which is a FORMAT divergence
+// (docs/audit/b5-gaps.md), NOT a missing implementation. net48: no leading
+// newline before the first frame.
+Il2CppObject* icall_environment_get_stack_trace();
+
 }} // namespace il2cpp::runtime

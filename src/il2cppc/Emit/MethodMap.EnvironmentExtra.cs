@@ -52,15 +52,30 @@ public static partial class MethodRefResolver
             //     shapes. MethodMap.Environment.cs now arity-guards these
             //     names and returns null for the uncovered overloads, which
             //     lands here (the correct-arity shapes never reach this gate).
-            //   * get_Version is now REACHABLE: the base file no longer wires
-            //     it to the int32_t stubs.h symbol (Version-object shape
-            //     mismatch -- needs-new-icall).
+            //   * get_Version was gated here while the base file had no wiring;
+            //     it is WIRED unconditionally by MethodMap.Environment.cs now,
+            //     so its gate arm was dead code (removed 2026-11-01 with
+            //     get_HasShutdownStarted, same situation).
             // nb1 ENV-SPOT (2026-10-17): GetCommandLineArgs / GetLogicalDrives
             // / ExpandEnvironmentVariables / get_SystemDirectory /
             // get_UserDomainName / get_UserInteractive are now WIRED in the
             // base file (new environment.cpp icalls); their LOUD-gate cases
-            // were REMOVED from the set below. get_StackTrace (Environment.
-            // StackTrace) stays gated here.
+            // were REMOVED from the set below.
+            //
+            // stacktrace-real (2026-11-01): get_StackTrace (Environment.
+            // StackTrace) is now a REAL wired member -- net48 has it (it is
+            // what `Environment.StackTrace` IS, and the net48 oracle's own
+            // output prints "at System.Environment.get_StackTrace()"), and the
+            // runtime can produce it: Environment.StackTrace is
+            // `new StackTrace(true).ToString()`, and the transpiled runtime
+            // keeps a per-thread shadow frame stack with every live method's
+            // managed spelling (il2cpp_frame.h), so the text is formattable.
+            // It NEVER belonged in a LOUD gate:
+            // the old arm deleted the whole enclosing method, so one
+            // `Console.WriteLine(Environment.StackTrace)` made an entire
+            // program untranspilable.
+            case "get_StackTrace":
+                return I("il2cpp::runtime::icall_environment_get_stack_trace", 0, true, true, false);
             // net9/10 E2E campaign: the 64-bit probes now have runtime
             // icalls (stubs.cpp) -- wired BEFORE the LOUD gate. NOTE: these
             // two arms MUST precede the fall-through chain -- a return
@@ -79,20 +94,32 @@ public static partial class MethodRefResolver
                 if (count == 1)
                     return I("il2cpp::runtime::icall_environment_exit", 1, false, false, false, new[] { "i" });
                 return null;
-            // The known-unwireable surface rejects LOUD (the arity-guarded
-            // base-file overloads land here; BclResolve prefixes
-            // "{owner}::{name}").
+            // The unimplemented overload shapes reject LOUD: the base file
+            // arity-guards these names and returns null for the shapes it does
+            // not serve, which land here (a phantom generated-name call would
+            // never link).
+            //
+            // MESSAGE CORRECTION (stacktrace-real): the old text claimed
+            // "LOUD whitelist (net48 has no such member)" for EVERY member in
+            // this set. That is false for all of them -- net48 has
+            // FailFast(string, Exception), GetEnvironmentVariable(string,
+            // EnvironmentVariableTarget), GetEnvironmentVariables,
+            // GetFolderPath(SpecialFolder, SpecialFolderOption) and
+            // SetEnvironmentVariable(string, string,
+            // EnvironmentVariableTarget). The TRUE reason is "the runtime has
+            // no icall for this overload yet", which is what the message says
+            // now. (get_Version and get_HasShutdownStarted used to sit here
+            // too -- both are WIRED unconditionally by the base file now, so
+            // their arms were dead code and are gone.)
             case "FailFast":
             case "GetEnvironmentVariable":
             case "GetEnvironmentVariables":
             case "GetFolderPath":
             case "SetEnvironmentVariable":
-            case "get_Version":
-            case "get_HasShutdownStarted":
-            case "get_StackTrace":
                 throw new NotSupportedException(
-                    $"LOUD whitelist (net48 has no such member): System.Environment.{name} -- the runtime has no matching icall in " +
-                    "il2cpp_environment.h [Reference Source: net48 mscorlib System.Environment]");
+                    $"the runtime has no System.Environment.{name} icall for this parameter shape yet -- " +
+                    "the wired overloads are arity-guarded in MethodMap.Environment.cs, so only the uncovered " +
+                    "net48 overloads reach this gate [Reference Source: net48 mscorlib System.Environment]");
             default: return null;
         }
     }
