@@ -172,6 +172,9 @@ public static class CodeGenerator
         // TypedReference carrier (mkrefany/refanyval/refanytype): the
         // Il2CppTypedReference layout + its only accessors.
         generatedHeader.Line("#include \"il2cpp_typedref.h\"");
+        // varargs (__arglist): the caller-built typed arg frame the callee's
+        // ArgIterator walks (il2cpp_argiterator.h).
+        generatedHeader.Line("#include \"il2cpp_argiterator.h\"");
     generatedHeader.Line("#include \"il2cpp_array_ext.h\"");
     generatedHeader.Line("#include \"il2cpp_array_ext2.h\"");
     // b5-gaps 13: the value-element multidim accessors (dt/ts/dec/guid/dto
@@ -1284,8 +1287,10 @@ public static class CodeGenerator
                                    MethodBodyInfo info, string ret)
         {
             var cppMethodName = MethodCppName(t, m);
+            var varArgsStub = IsVarArgsMethod(md, m);
             var paramNames = Enumerable.Range(0, info.ArgCount).Select(i => $"arg{i}").ToArray();
-            var paramTypes = ParamTypesCpp(m, info);
+            if (varArgsStub) paramNames = paramNames.Append("va_frame").ToArray();
+            var paramTypes = ParamTypesCpp(m, info, md);
             var stubId = $"{t.FullName}::{m.Name}";
             var reportLine = StubReportLine(t, m, info.ArgCount, null);
             if (stubKeys.Add(reportLine)) notTranspiled.Add(reportLine);
@@ -1861,7 +1866,8 @@ public static class CodeGenerator
                 List<string> structFieldRoots;
                 try
                 {
-                    (body, refLocals, rootAnalysis, structFieldRoots) = EmitBody(md, types, bodyInfo, stmts, symMap, m.ParamTypes);
+                    (body, refLocals, rootAnalysis, structFieldRoots) = EmitBody(md, types, bodyInfo, stmts, symMap, m.ParamTypes,
+                        IsVarArgsMethod(md, m) ? "va_frame" : "");
                 }
                 finally
                 {
@@ -1894,8 +1900,10 @@ public static class CodeGenerator
         var cppMethodName = MethodCppName(t, m);
         // F2: managedRetStruct/returnType computed before Fold (StructReturnCpp
         // seeding); returnType here reuses that computation for the declaration.
+        var varArgsMethod = IsVarArgsMethod(md, m);
         var paramNames = Enumerable.Range(0, bodyInfo.ArgCount).Select(i => $"arg{i}").ToArray();
-        var paramTypes = ParamTypesCpp(m, bodyInfo);
+        if (varArgsMethod) paramNames = paramNames.Append("va_frame").ToArray();
+        var paramTypes = ParamTypesCpp(m, bodyInfo, md);
         // Silence unused this/parameter warnings (-Wall -Wextra quality gate): if an instance method
         // body never references arg0 (empty ctor), emit `(void)arg0;` to mark it used -- a semantic
         // no-op that silences the compiler. Extended to any unreferenced parameter (e.g. an empty setter's value).
@@ -1906,6 +1914,10 @@ public static class CodeGenerator
                 body = $"\n    static_cast<void>(arg{ai}); // parameter arg{ai} is unused by this method body (silences -Wunused-parameter)\n" + body;
             }
         }
+        // varargs: the trailing frame handle is unused by a body that never
+        // executes `arglist` -- mark it used so -Wunused-parameter stays clean.
+        if (varArgsMethod && !body.Contains("va_frame"))
+            body = "\n    static_cast<void>(va_frame); // varargs frame handle unused by this body (silences -Wunused-parameter)\n" + body;
         // Task 10: managed frame roots -- the method's reference locals are GC
         // roots while the method is on the call stack. The prologue registers
         // them (one slot per ref local); every 'return' unregisters them.
@@ -2246,7 +2258,7 @@ public static class CodeGenerator
         return count;
     }
 
-    private static (string Body, List<string> RefLocals, RootSlotPass.Analysis RootAnalysis, List<string> StructFieldRoots) EmitBody(MetadataReader md, IReadOnlyList<TypeDef> types, MethodBodyInfo bodyInfo, List<Stmt> stmts, SequencePointMap? symMap, string paramTypes = "")
+    private static (string Body, List<string> RefLocals, RootSlotPass.Analysis RootAnalysis, List<string> StructFieldRoots) EmitBody(MetadataReader md, IReadOnlyList<TypeDef> types, MethodBodyInfo bodyInfo, List<Stmt> stmts, SequencePointMap? symMap, string paramTypes = "", string extraParamName = "")
     {
         _curReturnType = bodyInfo.ReturnType;
         // perf2 str_concat: fold the net48 `"v" + i` IL shape
@@ -2413,6 +2425,10 @@ public static class CodeGenerator
         // result slots (locN) -- the emitted C++ referenced undeclared locals
         // and the cmake build failed.
         var paramSet = Enumerable.Range(0, bodyInfo.ArgCount).Select(i => $"arg{i}").ToHashSet();
+        // varargs: the trailing frame handle is a real function parameter even
+        // though it has no IL argument slot -- keep the `arglist` opcode's
+        // LocExpr from being declared as a shadowing local.
+        if (extraParamName.Length > 0) paramSet.Add(extraParamName);
         var declared = new List<string>();
         void Declare(string name)
         {
@@ -4715,7 +4731,10 @@ public static class CodeGenerator
                     // convert to the pointer param.
                     if (resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_decimal", StringComparison.Ordinal)
                         || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_biginteger", StringComparison.Ordinal)
-                        || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_dtoffset", StringComparison.Ordinal))
+                        || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_dtoffset", StringComparison.Ordinal)
+                        // varargs: the ArgIterator ctor takes the struct slot's
+                        // ADDRESS (Il2CppArgIterator*) + the frame handle.
+                        || resolvedVc.CppName.StartsWith("il2cpp::runtime::icall_argiterator", StringComparison.Ordinal))
                         thisCode = $"(&{thisCode})";
                     // Guid ctors (il2cpp_guid_ctor_string) take the 16-byte
                     // output slot as a raw `uint8_t bytes[16]` -- the receiver
@@ -5086,6 +5105,12 @@ public static class CodeGenerator
                 // icall arg-cast codes; user-method calls resolve by token.
                 // "fcap" collapses the call to a field read (no function call).
                 var resolvedStmt = c.Resolved ?? ResolveByToken(c.Function, md, types);
+                if (resolvedStmt != null && TryEmitVarArgCall(c.Function, c.Args, resolvedStmt, md, types) is { } varArgStmt)
+                {
+                    w.LineAligned($"{varArgStmt};",
+                        $"IL {At(c.SourceOpName, c.SourceOffset)} -- varargs call (typed frame passed to the callee)");
+                    break;
+                }
                 var callArgsStmt = resolvedStmt != null
                     ? EmitIcallCallArgs(resolvedStmt, c.Args, md, types)
                     : string.Join(", ", c.Args.Select(a => EmitExpr(a, md, types)));
@@ -9517,6 +9542,14 @@ default: return false;                           // primitives/VAR(handled by ca
         "System.Numerics.BigInteger" => "il2cpp::runtime::Il2CppBigInteger",
         // decimal-domain T3: the 16-byte runtime value struct (decimal.h).
         "System.Decimal" => "il2cpp::runtime::Il2CppDecimal",
+        // varargs: System.ArgIterator is a sequential BCL value type whose
+        // public surface is replaced by the runtime object model
+        // (il2cpp_argiterator.h) -- locals/temps declare that struct.
+        "System.ArgIterator" => "il2cpp::runtime::Il2CppArgIterator",
+        // varargs: System.RuntimeArgumentHandle is a pointer-sized handle
+        // (net48: a struct wrapping IntPtr); the IR carrier is the intptr_t
+        // slot the `arglist` opcode pushes.
+        "System.RuntimeArgumentHandle" => "intptr_t",
         // M6 wiring: GCHandle is a single int32 handle value (the M2 value
         // carrier, same slot model as IntPtr -- il2cpp_gchandle.h). Without
         // this entry a GCHandle local falls to the default
@@ -10905,6 +10938,8 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         if (resolved2?.CppName.StartsWith("System_Object_ToString_", StringComparison.Ordinal) == true
             && c.Args.Count > 0)
             return $"static_cast<Il2CppObject*>(il2cpp::runtime::icall_object_to_string({EmitExpr(c.Args[0], md, types)}))";
+        if (resolved2 != null && TryEmitVarArgCall(c.Function, c.Args, resolved2, md, types) is { } varArgExpr)
+            return varArgExpr;
         var callArgs2 = resolved2 != null
             ? EmitIcallCallArgs(resolved2, c.Args, md, types)
             : string.Join(", ", c.Args.Select(a => EmitExpr(a, md, types)));
@@ -10972,6 +11007,157 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             return MethodRefResolver.Resolve(md, token, types);
         return null;
     }
+
+    //--------------------------------------------------------------------------
+    // Varargs call-site emission (ECMA-335 II.23.2.2 / III.3.9).
+    //
+    // The call-site MemberRef signature carries the DECLARED type of every
+    // optional (vararg) argument: `05 <fixed+vararg count> <ret> <fixed> 41
+    // <vararg types>` (sentinel 0x41 is not counted). The callee is a generated
+    // function with a trailing `intptr_t va_frame`; the handle must describe
+    // { declared type descriptor, storage address } per element so the callee's
+    // ArgIterator can hand out TypedReferences with the real declared type
+    // (net48 `__reftype` parity -- a C `...` list cannot carry that).
+    //
+    // Emission: an immediately-invoked lambda owns the argument copies (the
+    // caller-side vararg storage), builds the parallel type/value arrays, and
+    // passes the frame to the callee:
+    //   ([](auto a0, int32_t a1, Il2CppObject* a2) {
+    //        const Il2CppClass* __vat[2] = { &System_Int32_class, &System_String_class };
+    //        void* __vav[2] = { (void*)&a1, (void*)&a2 };
+    //        Il2CppArgFrame __vaf = { __vat, __vav, 2 };
+    //        return Callee(a0, a1, a2, reinterpret_cast<intptr_t>(&__vaf));
+    //    })(arg0, arg1, arg2)
+    // The fixed slots use `auto`: the lambda parameter is exactly the type the
+    // direct (pre-varargs) call would have passed to the callee, so the ABI is
+    // unchanged; only the vararg slots need their declared slot type (the
+    // TypedReference storage contract). Returns null for non-varargs calls.
+    //--------------------------------------------------------------------------
+    private static string? TryEmitVarArgCall(string function, List<Expr> args, ResolvedMethod resolved,
+        MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        if (resolved.CppName.StartsWith("il2cpp::", StringComparison.Ordinal)) return null;
+        if (!function.StartsWith("call_", StringComparison.Ordinal)) return null;
+        if (!int.TryParse(function.AsSpan(5), out var token)) return null;
+        // The call-site token is a MemberRef carrying the call-site signature
+        // (sentinel + vararg types) whenever optional arguments exist. For an
+        // EMPTY `__arglist()` the call-site signature equals the definition's
+        // (Roslyn emits the MethodDef token -- measured: `call vararg void
+        // ...::ShowEmpty()` is (06)000005), so the definition's VARARG header
+        // is the varargs marker there.
+        var handle = MetadataTokens.Handle(token);
+        var info = handle.Kind == HandleKind.MemberReference
+            ? MethodSignatureCoder.DecodeVarArgs(md, md.GetMemberReference((MemberReferenceHandle)handle).Signature)
+            : handle.Kind == HandleKind.MethodDefinition
+                ? MethodSignatureCoder.DecodeVarArgs(md, md.GetMethodDefinition((MethodDefinitionHandle)handle).Signature)
+                : default;
+        if (!info.IsVarArgs) return null;
+        var varCount = info.VarArgTypes.Length;
+        var fixedCount = info.FixedCount + (resolved.IsInstance ? 1 : 0);
+        if (args.Count != fixedCount + varCount)
+            throw new NotSupportedException(
+                $"varargs call to {resolved.CppName}: {args.Count} argument(s) on the stack but the call-site signature describes {fixedCount} fixed + {varCount} vararg");
+        var names = Enumerable.Range(0, args.Count).Select(i => $"a{i}").ToArray();
+        var varEnc = info.VarArgTypes;
+        var paramDecls = new List<string>(args.Count);
+        for (var i = 0; i < args.Count; i++)
+            paramDecls.Add(i < fixedCount ? $"auto {names[i]}" : $"{VarArgSlotCpp(varEnc[i - fixedCount], types)} {names[i]}");
+        // An ENUM vararg rides the int32 carrier (the generated enum struct is
+        // { Il2CppObject _obj; int32_t value__; } -- pointing the TypedReference
+        // at the struct would make __refvalue read the _obj header). The
+        // descriptor still names the ENUM, so __reftype answers Cases.VaColor
+        // (net48 parity); the storage is its int32 value.
+        var argCodes = string.Join(", ", args.Select((a, i) =>
+        {
+            var code = EmitExpr(a, md, types);
+            return i >= fixedCount && VarArgIsEnumSlot(varEnc[i - fixedCount], types)
+                ? $"static_cast<int32_t>({code})"
+                : code;
+        }));
+        var stmts = new List<string>();
+        if (varCount == 0)
+        {
+            stmts.Add("il2cpp::runtime::Il2CppArgFrame __vaf = { nullptr, nullptr, 0 };");
+        }
+        else
+        {
+            var descs = new List<string>(varCount);
+            var addrs = new List<string>(varCount);
+            for (var i = 0; i < varCount; i++)
+            {
+                descs.Add(TypedRefClassDescriptorCpp(VarArgTypeName(varEnc[i]), types));
+                addrs.Add($"static_cast<void*>(&{names[fixedCount + i]})");
+            }
+            stmts.Add($"const Il2CppClass* __vat[{varCount}] = {{ {string.Join(", ", descs)} }};");
+            stmts.Add($"void* __vav[{varCount}] = {{ {string.Join(", ", addrs)} }};");
+            stmts.Add($"il2cpp::runtime::Il2CppArgFrame __vaf = {{ __vat, __vav, {varCount} }};");
+        }
+        // The callee signature is (fixed params..., intptr_t va_frame): the
+        // vararg arguments are NOT C++ parameters -- they live in the frame.
+        var calleeArgs = string.Join(", ", names.Take(fixedCount).Append("reinterpret_cast<intptr_t>(&__vaf)"));
+        return $"([]({string.Join(", ", paramDecls)}) {{ {string.Join(" ", stmts)} return {resolved.CppName}({calleeArgs}); }})({argCodes})";
+    }
+
+    // Declared C++ storage slot for one call-site vararg encoding (the slot the
+    // TypedReference points at, so `__refvalue(tr,T)` reads the declared T).
+    // A float vararg is a true 4-byte float cell (net48 passes the declared
+    // width; the generated ABI otherwise widens float to the double carrier, so
+    // the caller copy is narrowed here on purpose). BCL AND user enums both ride
+    // the int32 carrier (never the enum struct -- see the call site).
+    private static string VarArgSlotCpp(string enc, IReadOnlyList<TypeDef> types)
+    {
+        if (VarArgIsEnumSlot(enc, types)) return "int32_t";
+        return enc switch
+        {
+            "i" or "b" or "c" or "i1" or "u1" or "i2" or "u2" => "int32_t",
+            "l" or "q" => "int64_t",
+            "d" => "double",
+            "f" => "float",
+            "n" => "intptr_t",
+            "u" => "uintptr_t",
+            "tr" => "Il2CppTypedReference",
+            var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
+            var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
+            var b when b.StartsWith("B:", StringComparison.Ordinal) => CalliParamCpp(b),
+            var p when p.StartsWith("P:", StringComparison.Ordinal) => "void*",
+            var f when f.StartsWith("F:", StringComparison.Ordinal) => "void*",
+            _ => throw new NotSupportedException($"varargs argument type encoding '{enc}' has no C++ storage slot"),
+        };
+    }
+
+    // Whether a vararg value-type encoding names an ENUM (BCL whitelist or a
+    // translated user enum) -- those store their int32 value, not a struct.
+    private static bool VarArgIsEnumSlot(string enc, IReadOnlyList<TypeDef> types)
+    {
+        if (!enc.StartsWith("V:", StringComparison.Ordinal)) return false;
+        var name = enc[2..];
+        if (IsKnownBclEnumName(name)) return true;
+        return TypeLookup.Find(types, name) is { BaseTypeName: "System.Enum" };
+    }
+
+    // Declared managed full name for one call-site vararg encoding (the
+    // descriptor identity ArgIterator reports through __reftype / GetNextArgType;
+    // the SAME identity TypedReference/typeof use).
+    private static string VarArgTypeName(string enc) => enc switch
+    {
+        "i" => "System.Int32",
+        "b" => "System.Boolean",
+        "c" => "System.Char",
+        "i1" => "System.SByte",
+        "u1" => "System.Byte",
+        "i2" => "System.Int16",
+        "u2" => "System.UInt16",
+        "l" => "System.Int64",
+        "q" => "System.UInt64",
+        "f" => "System.Single",
+        "d" => "System.Double",
+        "n" => "System.IntPtr",
+        "u" => "System.UIntPtr",
+        "tr" => "System.TypedReference",
+        var r when r.StartsWith("r:", StringComparison.Ordinal) => r[2..],
+        var v when v.StartsWith("V:", StringComparison.Ordinal) => v[2..],
+        _ => throw new NotSupportedException($"varargs argument type encoding '{enc}' has no managed type name"),
+    };
 
     //--------------------------------------------------------------------------
     // EmitCalliCall -- calli (0x29, fnptr domain b23) indirect call emission.
@@ -11850,6 +12036,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     ? $"reinterpret_cast<il2cpp::Il2CppHandleRef*>({code})"
                     : $"reinterpret_cast<il2cpp::Il2CppHandleRef*>(&({code}))",
                 "hrp2" => $"reinterpret_cast<const il2cpp::Il2CppHandleRef*>({code})",
+                // varargs: "ai" -- the ArgIterator receiver. The IL method is an
+                // instance method on the BCL value type, so the fold passes the
+                // ldloca ADDRESS as arg 0; a value operand (a temp) is addressed
+                // here. The runtime icalls all take Il2CppArgIterator*.
+                "ai" => IsAddressExpr(args[srcIdx])
+                    ? $"reinterpret_cast<il2cpp::runtime::Il2CppArgIterator*>({code})"
+                    : $"reinterpret_cast<il2cpp::runtime::Il2CppArgIterator*>(&({code}))",
                 // P/Invoke string params (sprint worklist #28/#29 next-gap):
                 // the P/Invoke branch of MethodRefResolver carries the RAW
                 // signature encodings as cast codes -- they double as the
@@ -13246,7 +13439,21 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         return idx >= 0 && idx < _curArgAddress.Length && _curArgAddress[idx];
     }
 
-    private static string[] ParamTypesCpp(MethodDef m, MethodBodyInfo info)
+    // varargs (ECMA-335 II.23.2.2): a variadic method definition carries the
+    // VARARG calling convention in its signature header (its ParamCount is the
+    // FIXED count; the definition has no sentinel). The generated C++ function
+    // gets ONE trailing `intptr_t va_frame` parameter -- the caller-built typed
+    // frame handle (System.RuntimeArgumentHandle / the `arglist` opcode value).
+    private static bool IsVarArgsMethod(MetadataReader? md, MethodDef m)
+    {
+        if (md == null || m.MetadataToken == 0) return false;
+        var handle = MetadataTokens.Handle(m.MetadataToken);
+        if (handle.Kind != HandleKind.MethodDefinition) return false;
+        var sig = md.GetBlobReader(md.GetMethodDefinition((MethodDefinitionHandle)handle).Signature);
+        return sig.ReadSignatureHeader().CallingConvention == SignatureCallingConvention.VarArgs;
+    }
+
+    private static string[] ParamTypesCpp(MethodDef m, MethodBodyInfo info, MetadataReader? md = null)
     {
         var types = new List<string>();
         if (!m.IsStatic)
@@ -13343,6 +13550,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 });
             }
         }
+        // varargs: the trailing typed-frame handle (RuntimeArgumentHandle). The
+        // `arglist` opcode value and ArgIterator::.ctor both consume it.
+        if (IsVarArgsMethod(md, m)) types.Add("intptr_t");
         return types.ToArray();
     }
 
