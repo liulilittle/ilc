@@ -1796,6 +1796,22 @@ void il2cpp_gc_remove_root_range(void** begin)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_gc_get_root_range_count / il2cpp_gc_get_root_range_capacity --
+// test/diagnostic accessors for the root-range table (same role as
+// il2cpp_gc_is_card_marked): the unit tests assert that add/remove pairing
+// leaves the table balanced and that a realistic nesting fits the capacity.
+//------------------------------------------------------------------------------
+int32_t il2cpp_gc_get_root_range_count()
+{
+    return g_rootRangeCount;
+}
+
+int32_t il2cpp_gc_get_root_range_capacity()
+{
+    return kMaxRootRanges;
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_gc_get_total_memory -- sum of the sizes of all LIVE blocks in the
 // block table (bytes of managed heap currently occupied by live objects,
 // INCLUDING blocks retained for pending finalization -- their memory is

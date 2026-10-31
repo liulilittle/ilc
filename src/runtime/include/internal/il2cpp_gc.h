@@ -86,6 +86,13 @@ void il2cpp_gc_add_root_range(void** begin, int32_t count);
 // already removed) is a no-op. Passing null is a caller bug and is ignored.
 void il2cpp_gc_remove_root_range(void** begin);
 
+// Test/diagnostic accessors for the root-range table (same role as
+// il2cpp_gc_is_card_marked). The unit tests use them to assert that add/remove
+// pairing leaves the table balanced and that a realistic nesting depth fits
+// the compile-time capacity. Not part of the managed contract.
+int32_t il2cpp_gc_get_root_range_count();
+int32_t il2cpp_gc_get_root_range_capacity();
+
 //------------------------------------------------------------------------------
 // Generational GC (M3).
 //
