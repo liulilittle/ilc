@@ -54,6 +54,17 @@ public static partial class MethodRefResolver
                         ? "il2cpp::runtime::il2cpp_intptr_add"
                         : "il2cpp::runtime::il2cpp_intptr_subtract",
                     2, true, false, false);
+            // static UIntPtr op_Addition/op_Subtraction(UIntPtr, int): the
+            // operator forms of Add/Subtract (see MethodMap.IntPtr.cs).
+            case "op_Addition":
+            case "op_Subtraction":
+                if (ps.Length != 2 || !IsUIntPtrByte(ps[0])) return null;
+                if (ps[1] != 0x08 && !IsUIntPtrByte(ps[1])) return null;
+                return I(name == "op_Addition"
+                        ? "il2cpp::runtime::il2cpp_intptr_add"
+                        : "il2cpp::runtime::il2cpp_intptr_subtract",
+                    2, true, false, false,
+                    ps[1] == 0x08 ? null : new[] { "", "i" });
             // static bool op_Equality(UIntPtr, UIntPtr): raw bit-pattern equality.
             case "op_Equality":
                 if (ps.Length != 2 || !IsUIntPtrByte(ps[0]) || !IsUIntPtrByte(ps[1])) return null;
@@ -94,6 +105,19 @@ public static partial class MethodRefResolver
                 if (ps.Length != 0) return null;
                 return I("il2cpp::runtime::il2cpp_uintptr_get_hash_code", 0, true, false, true,
                     new[] { receiverIsAddress ? "deref:v" : "" });
+            // instance bool Equals(object): same contract as IntPtr.Equals
+            // (net48: `obj is UIntPtr && ...`), false for null / any other
+            // object, never throws.
+            case "Equals":
+                if (ps.Length != 1 || ps[0] != 0x1C) return null;
+                return I("il2cpp::runtime::il2cpp_uintptr_equals_object", 1, true, false, true,
+                    new[] { receiverIsAddress ? "deref:v" : "", "" });
+            // instance void* ToPointer(): UIntPtr HAS this member in net48
+            // (reflection: `M ToPointer() : Void*`), same identity contract.
+            case "ToPointer":
+                if (ps.Length != 0) return null;
+                return I("il2cpp::runtime::il2cpp_uintptr_to_pointer", 0, true, true, true,
+                    new[] { receiverIsAddress ? "deref:v" : "" }, "p");
             // G8: op_Explicit -- BOTH directions of the explicit operators.
             // (UIntPtr)uint/ulong -> carrier (ret = native uint 0x19).
             case "op_Explicit":

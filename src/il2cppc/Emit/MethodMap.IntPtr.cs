@@ -58,6 +58,20 @@ public static partial class MethodRefResolver
                         ? "il2cpp::runtime::il2cpp_intptr_add"
                         : "il2cpp::runtime::il2cpp_intptr_subtract",
                     2, true, false, false);
+            // static IntPtr op_Addition/op_Subtraction(IntPtr, int): the
+            // operator forms of Add/Subtract (`IntPtr + 5` / `IntPtr - 5`).
+            // Same helper and same sign-extended int32 offset contract; the
+            // offset is 0x08 in the Roslyn/mscorlib blobs but a native-int
+            // encoding (0x18) is accepted and narrowed with the "i" cast.
+            case "op_Addition":
+            case "op_Subtraction":
+                if (ps.Length != 2 || !IsIntPtrByte(ps[0])) return null;
+                if (ps[1] != 0x08 && !IsIntPtrByte(ps[1])) return null;
+                return I(name == "op_Addition"
+                        ? "il2cpp::runtime::il2cpp_intptr_add"
+                        : "il2cpp::runtime::il2cpp_intptr_subtract",
+                    2, true, false, false,
+                    ps[1] == 0x08 ? null : new[] { "", "i" });
             // static bool op_Equality(IntPtr, IntPtr): raw bit-pattern equality.
             case "op_Equality":
                 if (ps.Length != 2 || !IsIntPtrByte(ps[0]) || !IsIntPtrByte(ps[1])) return null;
@@ -97,9 +111,18 @@ public static partial class MethodRefResolver
                     new[] { receiverIsAddress ? "deref:v" : "", "" });
             // instance string ToString(): SIGNED DECIMAL of the pointer value
             // ("255" / "-1" / "78187493520") -- net48 prints decimal here, NOT
-            // hex (probe-intptrapi oracle). ToString(string format) is NOT an
-            // IntPtr overload in net48.
+            // hex (probe-intptrapi oracle).
             case "ToString":
+                // ToString(string format): net48's IntPtr delegates to the
+                // INT64 formatter -- probe (or3.txt) compared 4 receivers x 38
+                // format strings and IntPtr.ToString(f) is byte-identical to
+                // ((long)value).ToString(f) for every specifier except "C"/"P"
+                // (IntPtr uses the invariant currency/percent fallback). The
+                // existing int64 engine already covers X/x/D/G/N/F/E, widths
+                // ("X8", "D10", "X20"), null/empty and the FormatException cases.
+                if (ps.Length == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_format_int64_custom", 1, true, true, true,
+                        new[] { receiverIsAddress ? "deref:v" : "", "" });
                 if (ps.Length != 0) return null;
                 return I("il2cpp::runtime::il2cpp_intptr_to_string", 0, true, true, true,
                     new[] { receiverIsAddress ? "deref:v" : "" });
@@ -109,6 +132,22 @@ public static partial class MethodRefResolver
                 if (ps.Length != 0) return null;
                 return I("il2cpp::runtime::il2cpp_intptr_get_hash_code", 0, true, false, true,
                     new[] { receiverIsAddress ? "deref:v" : "" });
+            // instance bool Equals(object): net48 has ONLY Equals(object) on
+            // IntPtr (`obj is IntPtr && m_value == ...`), and it answers false
+            // -- without throwing -- for null, a string and every other
+            // object. The argument arrives as a managed object reference
+            // (0x1C), so the cast is a plain pass-through; the receiver keeps
+            // the usual address/value convention.
+            case "Equals":
+                if (ps.Length != 1 || ps[0] != 0x1C) return null;
+                return I("il2cpp::runtime::il2cpp_intptr_equals_object", 1, true, false, true,
+                    new[] { receiverIsAddress ? "deref:v" : "", "" });
+            // instance void* ToPointer(): pure reinterpretation of the same
+            // bits (IntPtr.Zero -> null, (IntPtr)(-1) -> (void*)-1).
+            case "ToPointer":
+                if (ps.Length != 0) return null;
+                return I("il2cpp::runtime::il2cpp_intptr_to_pointer", 0, true, true, true,
+                    new[] { receiverIsAddress ? "deref:v" : "" }, "p");
             // batch 177 (intptrret probe): `(IntPtr)long` / `(IntPtr)int`
             // explicit conversion calls IntPtr::op_Explicit -- the int64/int32
             // value IS the pointer carrier (same semantics as the IntPtr ctor:

@@ -114,4 +114,18 @@ Il2CppString* il2cpp_intptr_to_string(intptr_t value);
 // (UIntPtr(ulong.MaxValue) -> "18446744073709551615").
 Il2CppString* il2cpp_uintptr_to_string(intptr_t value);
 
+// IntPtr.Equals(object): TRUE only for a boxed System.IntPtr carrying the
+// same bit pattern; null, a string, a boxed Int64 and every other object
+// answer FALSE. It NEVER throws (net48 IntPtr.Equals is `obj is IntPtr &&
+// ...`, not a type-checked compare).
+bool il2cpp_intptr_equals_object(intptr_t value, Il2CppObject* other);
+
+// UIntPtr.Equals(object): the same contract on the unsigned bit pattern.
+bool il2cpp_uintptr_equals_object(intptr_t value, Il2CppObject* other);
+
+// IntPtr.ToPointer(): the pointer value as void* -- a pure reinterpretation
+// of the bit pattern (no dereference, no conversion).
+void* il2cpp_intptr_to_pointer(intptr_t value);
+void* il2cpp_uintptr_to_pointer(intptr_t value);
+
 }} // namespace il2cpp::runtime

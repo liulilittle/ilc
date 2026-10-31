@@ -1,6 +1,7 @@
-#include "intptr.h"
+﻿#include "intptr.h"
 #include "il2cpp_exception.h"
 #include "il2cpp_format.h"
+#include "il2cpp_metadata.h" // System_IntPtr_class / System_UIntPtr_class (box identity)
 
 namespace il2cpp { namespace runtime {
 
@@ -200,6 +201,59 @@ Il2CppString* il2cpp_intptr_to_string(intptr_t value)
 Il2CppString* il2cpp_uintptr_to_string(intptr_t value)
 {
     return icall_uint64_to_string(static_cast<uint64_t>(static_cast<uintptr_t>(value)));
+}
+
+//------------------------------------------------------------------------------
+// IntPtr.Equals(object) / UIntPtr.Equals(object) -- TRUE only for a boxed
+// pointer of the SAME type carrying the same bit pattern.
+//
+// net48 implements this as `obj is IntPtr && m_value == ((IntPtr)obj).m_value`
+// (Reference Source), so every other object -- including null, a string and a
+// boxed Int64 -- answers false and the call never throws. The runtime has no
+// reachable IntPtr box (the transpiler rejects `(object)IntPtr` with "box of
+// System.IntPtr not supported"), but the identity-only System_IntPtr_class
+// descriptor does exist and remoting's net48 default-stub singleton IS an
+// instance of it, so the type test is a real klass compare and the payload is
+// read at the standard box layout (sizeof(Il2CppObject)).
+//------------------------------------------------------------------------------
+namespace {
+
+bool BoxedPointerEquals(Il2CppClass* expected, intptr_t value, Il2CppObject* other)
+{
+    if (other == nullptr) return false;
+    if (other->klass != expected) return false;
+    const intptr_t payload = *reinterpret_cast<const intptr_t*>(
+        reinterpret_cast<const char*>(other) + sizeof(Il2CppObject));
+    return payload == value;
+}
+
+} // namespace
+
+bool il2cpp_intptr_equals_object(intptr_t value, Il2CppObject* other)
+{
+    return BoxedPointerEquals(&System_IntPtr_class, value, other);
+}
+
+bool il2cpp_uintptr_equals_object(intptr_t value, Il2CppObject* other)
+{
+    return BoxedPointerEquals(&System_UIntPtr_class, value, other);
+}
+
+//------------------------------------------------------------------------------
+// IntPtr.ToPointer() / UIntPtr.ToPointer() -- the pointer value as void*.
+//
+// Pure reinterpretation of the same bits (the value IS an address); no
+// dereference and no widening, so IntPtr(-1).ToPointer() is (void*)-1 and
+// IntPtr.Zero.ToPointer() is the null pointer.
+//------------------------------------------------------------------------------
+void* il2cpp_intptr_to_pointer(intptr_t value)
+{
+    return reinterpret_cast<void*>(value);
+}
+
+void* il2cpp_uintptr_to_pointer(intptr_t value)
+{
+    return reinterpret_cast<void*>(static_cast<uintptr_t>(value));
 }
 
 }} // namespace il2cpp::runtime
