@@ -34,7 +34,45 @@
 namespace il2cpp {
 
 // Resolve a native symbol (see header). Returns a function/object pointer.
+//
+// This is the ORIGINAL two-argument form: it resolves `entry` verbatim (no
+// A/W suffix probing) and keeps every pre-existing call site compiling and
+// behaving exactly as before. New call sites that carry the [DllImport]
+// CharSet/ExactSpelling flags use il2cpp_pinvoke_resolve_probe below.
 void* il2cpp_pinvoke_resolve(const char* dll, const char* entry);
+
+//------------------------------------------------------------------------------
+// Entry-point suffix probing (net48 parity, CharSet A/W).
+//
+//   void* il2cpp_pinvoke_resolve_probe(const char* dll, const char* entry,
+//                                      int32_t charSet, int32_t exactSpelling);
+//
+// net48 never binds a [DllImport] at link time: it LoadLibrary's the module and
+// probes GetProcAddress with a candidate list derived from the import
+// attributes (measured against Framework64 v4.0.30319):
+//
+//   exactSpelling != 0                      -> [entry]
+//   charSet in {0x00 None, 0x02 Ansi}       -> [entry, entry+"A", entry+"W"]
+//   charSet in {0x04 Unicode, 0x06 Auto}    -> [entry, entry+"W"]
+//
+// The first candidate that resolves wins and is cached. When every candidate
+// misses, the thrown EntryPointNotFoundException quotes the ORIGINAL `entry`
+// (measured: the net48 message names "MessageBox", never "MessageBoxW").
+//
+// On POSIX the suffix candidates are still probed (the bare name is tried
+// first, so a library that exports the exact name resolves as before).
+//
+// The cache is keyed on (dll, entry, charSet, exactSpelling): two imports that
+// share dll+entry but differ in ExactSpelling/CharSet resolve INDEPENDENTLY, so
+// the result never depends on which import runs first.
+//
+// A/W PROBE ORDER: not verified on this machine (the audit measured 0 `only-A`
+// exports, so the order is unobservable with the shipped system DLLs). The
+// implementation tries "A" before "W"; see .opencode/tmp/impl-entrypoint-suffix/
+// NOTES.md for the verification command.
+//------------------------------------------------------------------------------
+void* il2cpp_pinvoke_resolve_probe(const char* dll, const char* entry,
+                                   int32_t charSet, int32_t exactSpelling);
 
 //------------------------------------------------------------------------------
 // String marshalling (M4 Task 3).

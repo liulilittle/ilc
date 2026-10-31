@@ -1,11 +1,12 @@
 //------------------------------------------------------------------------------
 // pinvoke.cpp -- P/Invoke dynamic resolution (see il2cpp_pinvoke.h).
 //
-// Cache: a flat static table of {dll, entry, symbol} triples. Static storage
-// (constraint #12 -- no global-constructor allocation); the table is small
-// (bounded by the number of distinct P/Invoke entries the transpiler emits).
-// The symbol pointer is a void* (cast to the calling convention by the
-// generated call site).
+// Cache: a flat static table of {dll, entry, charSet, exactSpelling, symbol}
+// records. Static storage (constraint #12 -- no global-constructor allocation);
+// the table is bounded by the number of distinct P/Invoke entries the
+// transpiler emits. The symbol pointer is a void* (cast to the calling
+// convention by the generated call site). All table access is serialized by a
+// function-local std::mutex: every generated thread can reach a call site.
 //
 // Platform split: library loading and symbol resolution are delegated to the
 // platform layer (plat_dl_open / plat_dl_sym -- platform.h), which owns the
@@ -26,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 
 #if defined(_WIN32)
     // Windows last-error capture (il2cpp_pinvoke_capture_last_error) reads
@@ -39,18 +41,36 @@ namespace il2cpp {
 
 namespace {
 
-// Flat cache: bounded static table (constraint #12). Overflow aborts.
-constexpr int32_t kMaxPinvokeEntries = 256;
+// Flat cache: bounded static table (constraint #12). Overflow is NOT fatal --
+// the resolved symbol is simply not cached (see StoreCached).
+//
+// Capacity: every Windows system-DLL [DllImport] now routes through the
+// resolver (the CharSet/A-W probe needs GetProcAddress, exactly like net48),
+// so the WinForms surface alone contributes ~360 distinct entries. 4096 leaves
+// generous headroom for an app that imports from several modules.
+constexpr int32_t kMaxPinvokeEntries = 4096;
 
 struct PinvokeEntry
 {
     const char* dll;   // library name ("mylib")
-    const char* entry; // symbol name ("add_ints")
+    const char* entry; // ORIGINAL [DllImport] entry name ("MessageBox")
+    int32_t     charSet;       // MethodImportAttributes CharSet mask (0x00/0x02/0x04/0x06)
+    int32_t     exactSpelling; // 0 = probe suffixes, 1 = resolve verbatim
     void*       symbol; // resolved pointer (null until resolved)
 };
 
 PinvokeEntry g_pinvokeCache[kMaxPinvokeEntries];
 int32_t      g_pinvokeCount = 0;
+
+// The tables are touched from every generated thread (a P/Invoke call site can
+// run on any thread), so every read/modify of g_pinvokeCount and of an entry
+// happens under this lock. Function-local static: no global-constructor
+// allocation (constraint #12) and thread-safe lazy initialization.
+std::mutex& PinvokeLock()
+{
+    static std::mutex s_lock;
+    return s_lock;
+}
 
 // Captured OS error code (SetLastError support, M4 Task 4).
 // net48 semantics: Marshal.GetLastWin32Error is PER-THREAD (.NET keeps the
@@ -109,23 +129,84 @@ char* ComposeResolveMessage(const char* prefix, const char* name, const char* su
     return g_resolveMessage;
 }
 
-// Look up a cached symbol; returns null when not cached.
-void* LookupCached(const char* dll, const char* entry)
+// Look up a cached symbol; returns null when not cached. The key is
+// (dll, entry, charSet, exactSpelling) -- see the D1 note in the header: two
+// imports that differ only in the import flags must never share an entry.
+void* LookupCached(const char* dll, const char* entry, int32_t charSet, int32_t exactSpelling)
 {
+    std::lock_guard<std::mutex> guard(PinvokeLock());
     for (int32_t i = 0; i < g_pinvokeCount; ++i)
     {
-        if (std::strcmp(g_pinvokeCache[i].dll, dll) == 0
-            && std::strcmp(g_pinvokeCache[i].entry, entry) == 0)
+        const PinvokeEntry& e = g_pinvokeCache[i];
+        if (e.charSet == charSet && e.exactSpelling == exactSpelling
+            && std::strcmp(e.dll, dll) == 0 && std::strcmp(e.entry, entry) == 0)
         {
-            return g_pinvokeCache[i].symbol;
+            return e.symbol;
         }
     }
     return nullptr;
 }
 
-// Load (or fetch cached) a library handle.
+// One-shot overflow diagnostics (guarded by PinvokeLock).
+bool g_pinvokeCacheOverflowReported = false;
+bool g_libraryTableOverflowReported = false;
+
+// Cache a resolved symbol and return the value every caller must use: a
+// concurrent caller that stored this key first wins, so the whole process
+// observes a single symbol per key. A FULL table degrades to "resolved but
+// uncached" -- aborting here would turn a successful resolution into a crash
+// (the old behaviour), which no net48 scenario has.
+void* StoreCached(const char* dll, const char* entry, int32_t charSet, int32_t exactSpelling, void* symbol)
+{
+    std::lock_guard<std::mutex> guard(PinvokeLock());
+    for (int32_t i = 0; i < g_pinvokeCount; ++i)
+    {
+        const PinvokeEntry& e = g_pinvokeCache[i];
+        if (e.charSet == charSet && e.exactSpelling == exactSpelling
+            && std::strcmp(e.dll, dll) == 0 && std::strcmp(e.entry, entry) == 0)
+        {
+            return e.symbol;
+        }
+    }
+    if (g_pinvokeCount >= kMaxPinvokeEntries)
+    {
+        if (!g_pinvokeCacheOverflowReported)
+        {
+            g_pinvokeCacheOverflowReported = true;
+            std::fprintf(stderr,
+                         "il2cpp_pinvoke_resolve: cache full (%d entries) -- further symbols resolve "
+                         "uncached (call still succeeds)\n",
+                         static_cast<int>(kMaxPinvokeEntries));
+        }
+        return symbol;
+    }
+    PinvokeEntry& slot = g_pinvokeCache[g_pinvokeCount];
+    slot.dll = dll;
+    slot.entry = entry;
+    slot.charSet = charSet;
+    slot.exactSpelling = exactSpelling;
+    slot.symbol = symbol;
+    ++g_pinvokeCount;
+    return symbol;
+}
+
+// Load (or fetch cached) a library handle. plat_dl_open runs OUTSIDE the lock
+// (it can block on the loader); the table update re-checks under the lock so a
+// racing loader does not duplicate the entry.
 void* GetLibraryHandle(const char* dll)
 {
+    {
+        std::lock_guard<std::mutex> guard(PinvokeLock());
+        for (int32_t i = 0; i < g_libraryCount; ++i)
+        {
+            if (std::strcmp(g_libraryHandles[i].dll, dll) == 0)
+            {
+                return g_libraryHandles[i].handle;
+            }
+        }
+    }
+    void* h = runtime::plat_dl_open(dll);
+    std::lock_guard<std::mutex> guard(PinvokeLock());
     for (int32_t i = 0; i < g_libraryCount; ++i)
     {
         if (std::strcmp(g_libraryHandles[i].dll, dll) == 0)
@@ -133,11 +214,17 @@ void* GetLibraryHandle(const char* dll)
             return g_libraryHandles[i].handle;
         }
     }
-    void* h = runtime::plat_dl_open(dll);
     if (g_libraryCount >= kMaxPinvokeEntries)
     {
-        std::fprintf(stderr, "il2cpp_pinvoke_resolve: library handle table overflow\n");
-        std::abort();
+        if (!g_libraryTableOverflowReported)
+        {
+            g_libraryTableOverflowReported = true;
+            std::fprintf(stderr,
+                         "il2cpp_pinvoke_resolve: library handle table full (%d entries) -- "
+                         "further libraries load uncached\n",
+                         static_cast<int>(kMaxPinvokeEntries));
+        }
+        return h;
     }
     g_libraryHandles[g_libraryCount].dll = dll;
     g_libraryHandles[g_libraryCount].handle = h;
@@ -145,12 +232,24 @@ void* GetLibraryHandle(const char* dll)
     return h;
 }
 
-} // namespace
+// `entry` + one suffix character, into a bounded stack buffer. An over-long
+// entry name yields no suffixed candidate (the bare name was already tried).
+void* TrySuffixedSymbol(void* handle, const char* entry, char suffix)
+{
+    char buffer[512];
+    const size_t n = std::strlen(entry);
+    if (n + 2 > sizeof(buffer))
+    {
+        return nullptr;
+    }
+    std::memcpy(buffer, entry, n);
+    buffer[n] = suffix;
+    buffer[n + 1] = '\0';
+    return runtime::plat_dl_sym(handle, buffer);
+}
 
-//------------------------------------------------------------------------------
-// il2cpp_pinvoke_resolve -- resolve a native symbol (see header).
-//------------------------------------------------------------------------------
-void* il2cpp_pinvoke_resolve(const char* dll, const char* entry)
+// Shared resolution body (no lock held across a throw).
+void* ResolveCore(const char* dll, const char* entry, int32_t charSet, int32_t exactSpelling)
 {
     // Null dll/entry: an internal/programming error (the transpiler always
     // emits literals) -- no net48 scenario; abort is intentional.
@@ -159,7 +258,7 @@ void* il2cpp_pinvoke_resolve(const char* dll, const char* entry)
         std::fprintf(stderr, "il2cpp_pinvoke_resolve: null dll/entry\n");
         std::abort();
     }
-    void* cached = LookupCached(dll, entry);
+    void* cached = LookupCached(dll, entry, charSet, exactSpelling);
     if (cached != nullptr)
     {
         return cached;
@@ -172,25 +271,52 @@ void* il2cpp_pinvoke_resolve(const char* dll, const char* entry)
         il2cpp_throw_new(kDllNotFoundChain,
                          ComposeResolveMessage("Unable to load DLL '", dll, "'."));
     }
+    // net48 candidate list (see the header): the exact-spelling flag disables
+    // probing entirely; otherwise the CharSet decides whether the "A" arm is
+    // part of the chain. The bare name is always tried first.
     void* symbol = runtime::plat_dl_sym(handle, entry);
+    if (symbol == nullptr && exactSpelling == 0)
+    {
+        const bool ansiFamily = charSet == 0x00 || charSet == 0x02;
+        if (ansiFamily)
+        {
+            symbol = TrySuffixedSymbol(handle, entry, 'A');
+        }
+        if (symbol == nullptr)
+        {
+            symbol = TrySuffixedSymbol(handle, entry, 'W');
+        }
+    }
     if (symbol == nullptr)
     {
         // P-D4: a missing symbol is a managed EntryPointNotFoundException.
+        // The message quotes the ORIGINAL entry name -- net48 never reports the
+        // probed name (measured: "...named 'MessageBox'", not 'MessageBoxW').
         il2cpp_throw_new(kEntryPointNotFoundChain,
                          ComposeResolveMessage("Unable to find an entry point named '", entry, "'."));
     }
-    // Table overflow: an internal capacity error (the 256-entry flat cache);
-    // no net48 scenario -- abort is intentional.
-    if (g_pinvokeCount >= kMaxPinvokeEntries)
-    {
-        std::fprintf(stderr, "il2cpp_pinvoke_resolve: cache overflow\n");
-        std::abort();
-    }
-    g_pinvokeCache[g_pinvokeCount].dll = dll;
-    g_pinvokeCache[g_pinvokeCount].entry = entry;
-    g_pinvokeCache[g_pinvokeCount].symbol = symbol;
-    ++g_pinvokeCount;
-    return symbol;
+    return StoreCached(dll, entry, charSet, exactSpelling, symbol);
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------
+// il2cpp_pinvoke_resolve -- resolve a native symbol (see header).
+//------------------------------------------------------------------------------
+void* il2cpp_pinvoke_resolve(const char* dll, const char* entry)
+{
+    // Legacy two-argument form: verbatim resolution (exactSpelling = 1), i.e.
+    // exactly the pre-probing behaviour those call sites were written for.
+    return ResolveCore(dll, entry, 0x02, 1);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_pinvoke_resolve_probe -- CharSet/ExactSpelling-aware resolution.
+//------------------------------------------------------------------------------
+void* il2cpp_pinvoke_resolve_probe(const char* dll, const char* entry, int32_t charSet,
+                                   int32_t exactSpelling)
+{
+    return ResolveCore(dll, entry, charSet, exactSpelling != 0 ? 1 : 0);
 }
 
 //------------------------------------------------------------------------------
