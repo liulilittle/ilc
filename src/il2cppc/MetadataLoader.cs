@@ -590,6 +590,54 @@ public static class MetadataLoader
     }
 
     //--------------------------------------------------------------------------
+    // GuidAttributeValue (impl-p0b G3) -- the type's [Guid] as the 16 IID bytes
+    // in the .NET Guid byte layout (Data1 LE / Data2 LE / Data3 LE / Data4 in
+    // order -- the il2cpp_com.h kComIidIUnknown contract). Both [Guid] ctor
+    // shapes are handled: (int,short,short,8 bytes) and (string). null = no
+    // [Guid] on the type. Targeted read (see ComVisibleAttributeValue): the
+    // generic decoder would trip over unrelated attribute rows.
+    //--------------------------------------------------------------------------
+    public static byte[]? GuidAttributeValue(MetadataReader md, CustomAttributeHandleCollection handles)
+    {
+        foreach (var cah in handles)
+        {
+            var ca = md.GetCustomAttribute(cah);
+            if (AttributeClassOf(md, ca) != "System.Runtime.InteropServices.GuidAttribute") continue;
+            BlobHandle sigHandle;
+            if (ca.Constructor.Kind == HandleKind.MemberReference)
+                sigHandle = md.GetMemberReference((MemberReferenceHandle)ca.Constructor).Signature;
+            else if (ca.Constructor.Kind == HandleKind.MethodDefinition)
+                sigHandle = md.GetMethodDefinition((MethodDefinitionHandle)ca.Constructor).Signature;
+            else
+                return null;
+            var sig = md.GetBlobReader(sigHandle);
+            sig.ReadByte();                       // calling convention
+            var paramCount = sig.ReadCompressedInteger();
+            var blob = md.GetBlobReader(ca.Value);
+            if (blob.Length < 3) return null;
+            blob.ReadUInt16();                    // 0x0001 prolog
+            if (paramCount == 1)
+            {
+                // [Guid(string)]: a SerString holding the textual GUID.
+                if (blob.ReadByte() == 0xFF) return null; // null string
+                var text = blob.ReadUTF8(blob.ReadCompressedInteger());
+                return Guid.TryParse(text, out var g) ? g.ToByteArray() : null;
+            }
+            if (paramCount != 11) return null;
+            var bytes = new byte[16];
+            var d1 = blob.ReadInt32();
+            var d2 = blob.ReadInt16();
+            var d3 = blob.ReadInt16();
+            bytes[0] = (byte)d1; bytes[1] = (byte)(d1 >> 8); bytes[2] = (byte)(d1 >> 16); bytes[3] = (byte)(d1 >> 24);
+            bytes[4] = (byte)d2; bytes[5] = (byte)(d2 >> 8);
+            bytes[6] = (byte)d3; bytes[7] = (byte)(d3 >> 8);
+            for (var i = 8; i < 16; i++) bytes[i] = blob.ReadByte();
+            return bytes;
+        }
+        return null;
+    }
+
+    //--------------------------------------------------------------------------
     // LoadAllCustomAttributes -- EVERY type's CustomAttribute rows (the
     // D-ATTR-1 item c batch surface the code generator consumes). Returns the
     // metadata full name of each annotated type (GetFullName on a

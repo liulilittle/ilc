@@ -44,6 +44,14 @@ public class HiddenBase { }
 
 public class DerivedFromHidden : HiddenBase { }
 
+// G3 fixtures: a [Guid]-annotated ComImport interface (the typed-object IID
+// path) and a COM-visible class (the aggregation path).
+[ComImport, Guid("71111111-2222-3333-4444-555555555551"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ITyped { }
+
+[ComVisible(true), Guid("71111111-2222-3333-4444-555555555552")]
+public class VisibleAgg { }
+
 namespace Cases
 {
     public static class ProbeP0b
@@ -89,8 +97,8 @@ namespace Cases
             try
             {
                 Guid g = Guid.Empty;
-                IntPtr q = (IntPtr)0;
-                Marshal.QueryInterface(IntPtr.Zero, ref g, out q);
+                IntPtr qn = (IntPtr)0;
+                Marshal.QueryInterface(IntPtr.Zero, ref g, out qn);
             }
             catch (Exception e) { Console.WriteLine("[g1.qi.null]=" + e.GetType().Name); }
 
@@ -114,6 +122,47 @@ namespace Cases
             Console.WriteLine("[g2.vis.hiddenclass]=" + Marshal.IsTypeVisibleFromCom(typeof(HiddenClass)));
             Console.WriteLine("[g2.vis.noattr]=" + Marshal.IsTypeVisibleFromCom(typeof(NoAttrClass)));
             Console.WriteLine("[g2.vis.derivedhidden]=" + Marshal.IsTypeVisibleFromCom(typeof(DerivedFromHidden)));
+
+            // ---- G3: the RCW lifecycle surface (real runtime state) ----
+            // A FRESH IUnknown: the G1 section already released 'p' to 0.
+            IntPtr q = Marshal.GetIUnknownForObject(o);
+            Console.WriteLine("[g3.cleanup.avail]=" + Marshal.AreComObjectsAvailableForCleanup());
+            Marshal.CleanupUnusedObjectsInCurrentContext();
+            Console.WriteLine("[g3.cleanup.run]=ok");
+            Console.WriteLine("[g3.cleanup.avail2]=" + Marshal.AreComObjectsAvailableForCleanup());
+
+            object typed1 = Marshal.GetTypedObjectForIUnknown(q, typeof(object));
+            object typed2 = Marshal.GetTypedObjectForIUnknown(q, typeof(object));
+            Console.WriteLine("[g3.typed.identity]=" + object.ReferenceEquals(typed1, typed2));
+            Console.WriteLine("[g3.typed.iscom]=" + Marshal.IsComObject(typed1));
+
+            object unique1 = Marshal.GetUniqueObjectForIUnknown(q);
+            object unique2 = Marshal.GetUniqueObjectForIUnknown(q);
+            Console.WriteLine("[g3.unique.iscom]=" + Marshal.IsComObject(unique1));
+            Console.WriteLine("[g3.unique.ccw.managed]=" + object.ReferenceEquals(unique1, o));
+            Console.WriteLine("[g3.unique.same]=" + object.ReferenceEquals(unique1, unique2));
+
+            object chs = new object();
+            Marshal.ChangeWrapperHandleStrength(chs, true);
+            Marshal.ChangeWrapperHandleStrength(chs, false);
+            Console.WriteLine("[g3.chs.ok]=True");
+            try { Marshal.ChangeWrapperHandleStrength(null, true); }
+            catch (Exception e) { Console.WriteLine("[g3.chs.null]=" + e.GetType().Name); }
+
+            IntPtr agg = Marshal.CreateAggregatedObject(q, new VisibleAgg());
+            Console.WriteLine("[g3.agg.nonzero]=" + ((long)agg != 0));
+            IntPtr aggUnk = (IntPtr)0;
+            int aggHr = Marshal.QueryInterface(agg, ref iidUnk, out aggUnk);
+            Console.WriteLine("[g3.agg.qi.hr]=" + aggHr.ToString("X8"));
+            Console.WriteLine("[g3.agg.qi.nonzero]=" + ((long)aggUnk != 0));
+            if ((long)aggUnk != 0) Marshal.Release(aggUnk);
+            Marshal.Release(agg);
+            try { Marshal.CreateAggregatedObject(IntPtr.Zero, chs); }
+            catch (Exception e) { Console.WriteLine("[g3.agg.nullouter]=" + e.GetType().Name); }
+            try { Marshal.CreateAggregatedObject(q, null); }
+            catch (Exception e) { Console.WriteLine("[g3.agg.nullobj]=" + e.GetType().Name); }
+
+            Marshal.Release(q);
         }
     }
 }

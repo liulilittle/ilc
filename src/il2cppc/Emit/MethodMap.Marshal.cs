@@ -590,6 +590,53 @@ public static partial class MethodRefResolver
             case "IsTypeVisibleFromCom":
                 if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
                 return I(ResolvedMethod.ComTypeVisibleMarker, 1, true, false, false);
+            // ---- com9 (impl-p0b G3): the Marshal RCW lifecycle surface. All
+            // six have REAL runtime implementations (com.cpp, il2cpp_com.h) --
+            // the RCW identity cache + the CCW aggregation `outer` link.
+            // net48 x64 oracle (tests/cases/probe-p0b G3 section):
+            //   * GetTypedObjectForIUnknown(pUnk, t): SAME pUnk -> SAME RCW;
+            //     ADDS a reference (the caller keeps its own); a failed QI ->
+            //     InvalidCastException; pUnk == 0 -> ArgumentNullException.
+            //     The managed Type -> IID resolution is TRANSPILE time (the
+            //     GetComInterfaceForObject precedent), so the resolver emits
+            //     the marker and StackFold supplies the IID literal (or NULL
+            //     for the typeof(object) form, which does no QI).
+            //   * GetUniqueObjectForIUnknown(pUnk): a FRESH wrapper every time;
+            //     a CCW's IUnknown returns the wrapped MANAGED object (net48).
+            //   * AreComObjectsAvailableForCleanup(): bool.
+            //   * CleanupUnusedObjectsInCurrentContext(): void.
+            //   * ChangeWrapperHandleStrength(object, bool): void; null ->
+            //     ArgumentNullException; a non-RCW is a no-op (net48 accepts
+            //     any object).
+            //   * CreateAggregatedObject(IntPtr pOuter, object): IntPtr (the
+            //     inner IUnknown*; QI(IUnknown) answers the OUTER pointer);
+            //     pOuter == 0 / o == null -> ArgumentNullException.
+            case "GetTypedObjectForIUnknown":
+                if (ps.Length != 2 || !IsIntPtrByte(ps[0]) || ps[1] is not (0x12 or 0x1C)) return null;
+                return I(ResolvedMethod.ComTypedObjectMarker, 2, true, true, false,
+                    new[] { "n", "g" }, "ref");
+            case "GetUniqueObjectForIUnknown":
+                if (ps.Length != 1 || !IsIntPtrByte(ps[0])) return null;
+                return I("il2cpp::runtime::icall_com_get_unique_object_for_iunknown", 1, true, true, false,
+                    new[] { "n" });
+            case "AreComObjectsAvailableForCleanup":
+                if (ps.Length != 0) return null;
+                return I("il2cpp::runtime::icall_com_are_objects_available_for_cleanup", 0, true, false, false);
+            case "CleanupUnusedObjectsInCurrentContext":
+                if (ps.Length != 0) return null;
+                return I("il2cpp::runtime::icall_com_cleanup_unused_objects_in_current_context", 0, false, false, false);
+            case "ChangeWrapperHandleStrength":
+                if (ps.Length != 2 || ps[0] is not (0x12 or 0x1C) || ps[1] != 0x02) return null;
+                return I("il2cpp::runtime::icall_com_change_wrapper_handle_strength", 2, false, false, false,
+                    new[] { "", "i" });
+            case "CreateAggregatedObject":
+                // net48 declares CreateAggregatedObject<T>(IntPtr pOuter, T o):
+                // the call site is a MethodSpec whose second parameter is the
+                // generic slot (VAR 0x13 / MVAR 0x1E), so accept that byte
+                // alongside the concrete object encodings.
+                if (ps.Length != 2 || !IsIntPtrByte(ps[0]) || ps[1] is not (0x12 or 0x1C or 0x13 or 0x1E)) return null;
+                return I("il2cpp::runtime::icall_com_create_aggregated_object", 2, true, false, false,
+                    new[] { "n", "" }, "ptr");
             // ---- com6: GetTypeFromProgID / CreateObject -- the C1 (A1) split
             // from the r127 PNSE stubs to the REAL COM runtime (net48:
             // Marshal.GetTypeFromProgID == Type.GetTypeFromProgID, and
@@ -718,11 +765,7 @@ public static partial class MethodRefResolver
         // REMOVED from this LOUD set -- they are WIRED to the pre-existing
         // raw IUnknown icalls (il2cpp_com.h:771-776, com.cpp) by the com7
         // case block above. Oracle: tests/cases/probe-p0b.
-        "AreComObjectsAvailableForCleanup",
         "BindToMoniker",
-        "ChangeWrapperHandleStrength",
-        "CleanupUnusedObjectsInCurrentContext",
-        "CreateAggregatedObject",
         "CreateWrapperOfType",
         "FinalReleaseComObject",
         "GetComInterfaceForObjectInContext",
@@ -741,7 +784,6 @@ public static partial class MethodRefResolver
         "GetTypeLibGuidForAssembly",
         "GetTypeLibLcid",
         "GetTypeLibVersion",
-        "GetTypedObjectForIUnknown",
         "InitWrapper",
         // Internal *Native/*Internal icall variants (public wrappers in parentheses)
         "FCallGenerateGuidForType",

@@ -5084,6 +5084,71 @@ public static class StackFold
                 Push(new IntConstExpr { Value = comStart + comOwn - 1 }, ins);
                 return;
             }
+            // impl-p0b G3: Marshal.GetTypedObjectForIUnknown(pUnk, Type) -- the
+            // Type argument becomes the IID literal (transpile-time resolution,
+            // the GetComInterfaceForObject precedent). typeof(object) keeps the
+            // NULL iid (net48 performs no QI for it); any other type must be an
+            // interface DEFINED in this assembly carrying [Guid], whose 16
+            // bytes are emitted as a byte-escaped string literal (the .NET
+            // Guid byte layout the runtime compares). Everything else is LOUD.
+            if (resolved != null && resolved.CppName == ResolvedMethod.ComTypedObjectMarker)
+            {
+                if (args.Count != 2)
+                    throw new NotSupportedException(
+                        $"GetTypedObjectForIUnknown with {args.Count} arg(s) not supported (expected 2: IntPtr + Type)");
+                string iidExpr;
+                if (args[1] is StringConstExpr typedTypeValue)
+                {
+                    if (typedTypeValue.Value == "System.Object")
+                    {
+                        iidExpr = "nullptr";
+                    }
+                    else if (typedTypeValue.TypeToken is int typedTok
+                             && md != null && MetadataTokens.Handle(typedTok).Kind == HandleKind.TypeDefinition)
+                    {
+                        var typedTd = (TypeDefinitionHandle)MetadataTokens.Handle(typedTok);
+                        if ((md.GetTypeDefinition(typedTd).Attributes & System.Reflection.TypeAttributes.Interface) == 0)
+                            throw new NotSupportedException(
+                                $"GetTypedObjectForIUnknown(typeof({md.GetFullName(typedTd)})): only typeof(object) and a " +
+                                "[Guid]-annotated interface defined in the transpiled assembly are supported");
+                        var typedIid = MetadataLoader.GuidAttributeValue(
+                            md, md.GetTypeDefinition(typedTd).GetCustomAttributes());
+                        if (typedIid == null)
+                            throw new NotSupportedException(
+                                $"GetTypedObjectForIUnknown(typeof({md.GetFullName(typedTd)})): the interface carries no " +
+                                "[Guid] attribute, so its IID cannot be resolved at transpile time");
+                        var sb = new System.Text.StringBuilder("reinterpret_cast<const uint8_t*>(\"");
+                        foreach (var by in typedIid) sb.Append("\\x").Append(by.ToString("x2"));
+                        sb.Append("\")");
+                        iidExpr = sb.ToString();
+                    }
+                    else
+                    {
+                        throw new NotSupportedException(
+                            "GetTypedObjectForIUnknown requires a constant typeof(T) whose type is defined in the " +
+                            "transpiled assembly (an external-assembly TypeRef has no readable metadata here)");
+                    }
+                }
+                else
+                {
+                    throw new NotSupportedException(
+                        "GetTypedObjectForIUnknown requires a CONSTANT typeof(T) Type argument " +
+                        "(the runtime Type object cannot be resolved to an IID at transpile time)");
+                }
+                var typedCall = new CallExpr
+                {
+                    Function = $"call_{ins.Operand}",
+                    ReturnsRef = true,
+                    Resolved = new ResolvedMethod(
+                        "il2cpp::runtime::icall_com_get_typed_object_for_iunknown", 2, false, true, false,
+                        new[] { false, false }, false,
+                        ParamTypeNames: new[] { "n" },
+                        AppendLiterals: new[] { iidExpr }),
+                };
+                typedCall.Args.Add(args[0]); // the IntPtr (the Type arg is replaced by the IID literal)
+                Push(typedCall, ins);
+                return;
+            }
             // Work order #24 (3-arg) + nb2 IO-PATH2 (4-arg): Path.Combine(
             // string, string, string[, string]) -- the params-array form.
             // The resolver emits the NestedCombineMarker (the runtime icall

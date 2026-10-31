@@ -266,6 +266,12 @@ public sealed record ResolvedMethod(
     public const string ComStartSlotMarker = "::com_start_slot::";
     public const string ComEndSlotMarker = "::com_end_slot::";
     public const string ComTypeVisibleMarker = "::com_type_visible::";
+    // impl-p0b G3: Marshal.GetTypedObjectForIUnknown(IntPtr, Type) -- the
+    // managed Type -> IID resolution is transpile-time (the
+    // GetComInterfaceForObject precedent), so the resolver emits this marker
+    // and StackFold replaces the Type argument with the IID literal (or a
+    // nullptr for the typeof(object) form, which performs no QI).
+    public const string ComTypedObjectMarker = "::com_typed_object::";
 }
 
 public static partial class MethodRefResolver
@@ -606,6 +612,19 @@ public static partial class MethodRefResolver
                 EnsureInt32DefaultInstantiation(owner, name, genArgs);
                 return ResolveMemberReference(md, (MemberReferenceHandle)ms.Method, knownTypes,
                     receiverType, receiverIsAddress, arg0Type, arg1Type, defIsStatic);
+            }
+            // impl-p0b G3: the GENERIC Marshal COM members (net48 declares
+            // CreateAggregatedObject<T>(IntPtr, T)) reach this MethodSpec path,
+            // which has no generic BCL arm -- route them back through the
+            // Marshal domain table. The ps bytes come from the MethodSpec
+            // signature; a VAR/MVAR parameter (0x13/0x1E) is the generic
+            // argument slot and is accepted by the arm.
+            if (owner == "System.Runtime.InteropServices.Marshal")
+            {
+                var (comCount, _, comPs) = RawSignature(md, mr.Signature);
+                var comResolved = TryMapMarshal(owner, name, comPs, comCount, genArgs,
+                    receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames);
+                if (comResolved != null) return comResolved;
             }
             throw new NotSupportedException($"generic instantiation of {owner}.{name} has no BCL mapping in M5");
         }

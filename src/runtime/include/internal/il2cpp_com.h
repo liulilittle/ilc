@@ -885,6 +885,42 @@ intptr_t icall_com_get_iunknown_for_object(Il2CppObject* o);
 // ArgumentNullException.
 Il2CppObject* icall_com_get_object_for_iunknown(intptr_t pUnk);
 
+//------------------------------------------------------------------------------
+// impl-p0b G3 -- the Marshal RCW lifecycle surface (net48 x64 semantics
+// measured with tests/cases/probe-p0b, G3 section).
+//------------------------------------------------------------------------------
+
+// Marshal.GetTypedObjectForIUnknown(IntPtr pUnk, Type t): wrap 'pUnk' into an
+// RCW for the interface 'iid' (16 bytes, .NET Guid layout; NULL = the
+// typeof(object) form, which performs no QI). The SAME pUnk yields the SAME
+// RCW on every call (the identity cache), and the call ADDS a reference (the
+// caller's own reference is NOT consumed). A QI failure -> InvalidCastException
+// (net48). pUnk == 0 -> ArgumentNullException.
+Il2CppObject* icall_com_get_typed_object_for_iunknown(intptr_t pUnk, const uint8_t* iid);
+
+// Marshal.GetUniqueObjectForIUnknown(IntPtr pUnk): always a FRESH wrapper (no
+// cache). net48 shortcut: an IUnknown owned by a CCW returns the wrapped
+// MANAGED object itself. Adds a reference. pUnk == 0 -> ArgumentNullException.
+Il2CppObject* icall_com_get_unique_object_for_iunknown(intptr_t pUnk);
+
+// Marshal.AreComObjectsAvailableForCleanup(): 1 iff a cached RCW's managed
+// wrapper has been collected while its native reference is still pending.
+int32_t icall_com_are_objects_available_for_cleanup();
+
+// Marshal.CleanupUnusedObjectsInCurrentContext(): release the pending native
+// references and drop the collected cache entries.
+void icall_com_cleanup_unused_objects_in_current_context();
+
+// Marshal.ChangeWrapperHandleStrength(object o, bool fIsWeak): switch the RCW's
+// cache handle between weak (fIsWeak != 0) and strong. A non-RCW is a no-op
+// (net48 accepts any object). null -> ArgumentNullException.
+void icall_com_change_wrapper_handle_strength(Il2CppObject* o, int32_t fIsWeak);
+
+// Marshal.CreateAggregatedObject(IntPtr pOuter, object o): the inner IUnknown*
+// of a CCW aggregated behind 'pOuter' (its QI(IUnknown) answers the outer
+// pointer). pOuter == 0 or o == null -> ArgumentNullException.
+intptr_t icall_com_create_aggregated_object(intptr_t pOuter, Il2CppObject* o);
+
 // Marshal.IsComObject(object o): true iff the object is an RCW (its klass is
 // the RCW descriptor). Null -> ArgumentNullException (net48).
 bool icall_com_is_com_object(Il2CppObject* obj);

@@ -1350,6 +1350,12 @@ struct Il2CppComCcw
     void*    enumOwned[kCcwMaxEnumItems];        // stage-11: the OWNED BSTR master per item (null = not a BSTR item)
     int32_t  enumOwnedLen[kCcwMaxEnumItems];     // stage-11: the owned BSTR's char count (the SysAllocStringLen source)
     int32_t  enumCount;                          // number of registered enumeration items
+    // impl-p0b G3 (Marshal.CreateAggregatedObject): the OUTER IUnknown* of a
+    // COM-aggregated CCW (null = a plain, non-aggregated CCW). When set, the
+    // CCW's QI(IUnknown) answers the OUTER pointer (the aggregation contract:
+    // the outer object controls the lifetime) while every other interface is
+    // served by the inner managed object.
+    void*    outer;
     ~Il2CppComCcw();
 };
 
@@ -1429,6 +1435,9 @@ void CcwCacheRemove(Il2CppComCcw* ccw)
 // Release an IUnknown reference through its vtable (defined later -- the CCW
 // destructor releases connected sinks on teardown).
 void ReleaseInterface(void* iface);
+// impl-p0b G3: the CCW aggregation QI answers the OUTER pointer, so the
+// identity QI needs the vtable AddRef before its definition.
+void AddRefInterface(void* iface);
 
 // ole32 dynamic-resolution API shape (the LoadOle32 implementation lives
 // later; the CCW destructor and the stage-11 BSTR Next path need the COMPLETE
@@ -1634,6 +1643,17 @@ int32_t IL2CPP_COM_CALL CcwQueryInterface(void* self, const void* riid, void** p
     if (std::memcmp(iid, kComIidIUnknown, 16) == 0 ||
         std::memcmp(iid, kComIidIDispatch, 16) == 0)
     {
+        // impl-p0b G3 (COM aggregation): a CCW created by
+        // Marshal.CreateAggregatedObject answers IUnknown with the OUTER
+        // pointer (the aggregation contract -- the outer owns the lifetime
+        // and the inner must never hand out its own identity IUnknown). The
+        // IDispatch view stays with the inner object.
+        if (ccw->outer != nullptr && std::memcmp(iid, kComIidIUnknown, 16) == 0)
+        {
+            *ppv = ccw->outer;
+            AddRefInterface(ccw->outer);
+            return kComHrOk;
+        }
         *ppv = self; // the identity interface pointer (same address, AddRef'd)
         ++ccw->refCount;
         return kComHrOk;
@@ -8308,6 +8328,259 @@ Il2CppObject* icall_com_get_object_for_iunknown(intptr_t pUnk)
 }
 
 //------------------------------------------------------------------------------
+// impl-p0b G3 -- the RCW identity cache + the typed/unique/cleanup surface.
+//
+// net48 semantics measured on the x64 oracle (tests/cases/probe-p0b G3):
+//   * GetTypedObjectForIUnknown(pUnk, t) returns the SAME RCW for the same
+//     pUnk on every call, and it ADDS a reference (the caller keeps its own);
+//   * GetUniqueObjectForIUnknown(pUnk) always builds a FRESH wrapper;
+//   * AreComObjectsAvailableForCleanup() reports whether any wrapped RCW is
+//     awaiting cleanup (false in a steady state);
+//   * CleanupUnusedObjectsInCurrentContext() runs that cleanup;
+//   * ChangeWrapperHandleStrength(o, fIsWeak) switches an RCW's GC handle
+//     between strong and weak (null -> ArgumentNullException);
+//   * CreateAggregatedObject(pOuter, o) returns the inner IUnknown* of a
+//     COM-aggregated CCW (pOuter == 0 or o == null -> ArgumentNullException).
+//
+// The cache keys on the wrapped interface pointer and holds a WEAK GCHandle
+// to the managed RCW, so a collected RCW leaves a dead entry (its native
+// reference is still owned by the entry -- that is exactly the "available for
+// cleanup" state) which CleanupUnusedObjectsInCurrentContext prunes by
+// releasing the native reference and freeing the handle.
+//------------------------------------------------------------------------------
+namespace
+{
+constexpr int32_t kComRcwCacheMax = 64;
+
+struct ComRcwCacheEntry
+{
+    void*    iface;   // the wrapped interface pointer (cache key)
+    int32_t  handle;  // GCHandle to the managed RCW (0 = free slot)
+};
+
+ComRcwCacheEntry g_comRcwCache[kComRcwCacheMax];
+
+int32_t ComRcwCacheFind(void* iface)
+{
+    for (int32_t i = 0; i < kComRcwCacheMax; ++i)
+    {
+        if (g_comRcwCache[i].handle == 0 || g_comRcwCache[i].iface != iface) continue;
+        if (icall_gchandle_get_target(g_comRcwCache[i].handle) != nullptr) return i;
+    }
+    return -1;
+}
+
+// A slot whose handle is live but whose target died == pending cleanup.
+bool ComRcwCacheEntryDead(int32_t i)
+{
+    return g_comRcwCache[i].handle != 0
+        && icall_gchandle_get_target(g_comRcwCache[i].handle) == nullptr;
+}
+
+int32_t ComRcwCacheInsert(void* iface, Il2CppObject* rcw)
+{
+    // Reuse a dead slot first (its native reference is released by the caller
+    // of this helper -- see ComRcwCachePrune).
+    for (int32_t i = 0; i < kComRcwCacheMax; ++i)
+    {
+        if (g_comRcwCache[i].handle != 0) continue;
+        g_comRcwCache[i].iface = iface;
+        g_comRcwCache[i].handle = icall_gchandle_alloc(rcw, kGCHandleTypeWeak);
+        return i;
+    }
+    return -1; // full: the RCW is simply not cached (identity falls back to
+               // a fresh wrapper, never a wrong answer)
+}
+
+void ComRcwCachePrune()
+{
+    for (int32_t i = 0; i < kComRcwCacheMax; ++i)
+    {
+        if (!ComRcwCacheEntryDead(i)) continue;
+        ReleaseInterface(g_comRcwCache[i].iface);
+        icall_gchandle_free(g_comRcwCache[i].handle);
+        g_comRcwCache[i].handle = 0;
+        g_comRcwCache[i].iface = nullptr;
+    }
+}
+
+// impl-p0b G3: is 'iface' the identity pointer of a live CCW? The CCW vtable
+// pointers are file-scope statics; the CCW identity view's vtable pointer is
+// kCcwVtable, so a plain vtbl compare identifies it on every platform.
+bool IsCcwIdentity(void* iface)
+{
+    if (iface == nullptr) return false;
+    void* const* vtbl = *static_cast<void* const* const*>(iface);
+    return vtbl == reinterpret_cast<void* const*>(&kCcwVtable);
+}
+
+Il2CppObject* CcwManagedObject(void* iface)
+{
+    auto* ccw = static_cast<Il2CppComCcw*>(iface);
+    return icall_gchandle_get_target(ccw->gcHandle);
+}
+} // namespace
+
+//------------------------------------------------------------------------------
+// icall_com_get_typed_object_for_iunknown -- Marshal.GetTypedObjectForIUnknown.
+// 'iid' (may be null = the typeof(object) form, which performs no QI) selects
+// the interface to wrap. A failed QI -> InvalidCastException (net48 measured:
+// a ComImport interface the object does not implement throws
+// InvalidCastException, NOT COMException). The caller's reference is NOT
+// consumed -- the wrap AddRefs.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_com_get_typed_object_for_iunknown(intptr_t pUnk, const uint8_t* iid)
+{
+    if (pUnk == 0)
+    {
+        il2cpp_throw_argument_null_exception("pUnk");
+    }
+    void* iface = reinterpret_cast<void*>(pUnk);
+    if (iid != nullptr)
+    {
+        intptr_t out = 0;
+        const int32_t hr = icall_com_query_interface(pUnk, iid, &out);
+        if (hr == kComHrNoInterface)
+        {
+            il2cpp_throw_new(
+                "System.InvalidCastException,System.InvalidCastException,"
+                "System.SystemException,System.Exception",
+                "The COM object does not implement the requested interface.");
+        }
+        if (hr != kComHrOk)
+        {
+            ThrowComException(hr);
+        }
+        iface = reinterpret_cast<void*>(out);
+    }
+    // net48 shortcut (measured): an IUnknown owned by a CCW resolves back to
+    // the wrapped MANAGED object (no RCW is built -- IsComObject is false and
+    // the identity is the object itself).
+    if (IsCcwIdentity(iface))
+    {
+        Il2CppObject* managed = CcwManagedObject(iface);
+        if (managed != nullptr) return managed;
+    }
+    const int32_t slot = ComRcwCacheFind(iface);
+    if (slot >= 0)
+    {
+        // Identity hit: net48 hands back the SAME RCW and adds a reference.
+        AddRefInterface(iface);
+        return icall_gchandle_get_target(g_comRcwCache[slot].handle);
+    }
+    AddRefInterface(iface); // the wrap owns this reference (net48 AddRefs)
+    Il2CppObject* rcw = WrapUnknown(iface);
+    ComRcwCacheInsert(iface, rcw);
+    return rcw;
+}
+
+//------------------------------------------------------------------------------
+// icall_com_get_unique_object_for_iunknown -- Marshal.GetUniqueObjectForIUnknown.
+// Always a FRESH wrapper (no cache lookup, no cache insert). net48 shortcut
+// (measured): an IUnknown that belongs to a CCW returns the MANAGED object
+// itself (identity -- IsComObject false, ReleaseComObject throws).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_com_get_unique_object_for_iunknown(intptr_t pUnk)
+{
+    if (pUnk == 0)
+    {
+        il2cpp_throw_argument_null_exception("pUnk");
+    }
+    void* iface = reinterpret_cast<void*>(pUnk);
+    if (IsCcwIdentity(iface))
+    {
+        Il2CppObject* managed = CcwManagedObject(iface);
+        if (managed != nullptr) return managed;
+    }
+    AddRefInterface(iface);
+    return WrapUnknown(iface);
+}
+
+//------------------------------------------------------------------------------
+// icall_com_are_objects_available_for_cleanup -- Marshal.
+// AreComObjectsAvailableForCleanup. True iff a cached RCW's managed wrapper is
+// gone while its native reference is still owned by the cache.
+//------------------------------------------------------------------------------
+int32_t icall_com_are_objects_available_for_cleanup()
+{
+    for (int32_t i = 0; i < kComRcwCacheMax; ++i)
+    {
+        if (ComRcwCacheEntryDead(i)) return 1;
+    }
+    return 0;
+}
+
+//------------------------------------------------------------------------------
+// icall_com_cleanup_unused_objects_in_current_context -- Marshal.
+// CleanupUnusedObjectsInCurrentContext: release the native references of the
+// collected RCWs and drop their cache entries.
+//------------------------------------------------------------------------------
+void icall_com_cleanup_unused_objects_in_current_context()
+{
+    ComRcwCachePrune();
+}
+
+//------------------------------------------------------------------------------
+// icall_com_change_wrapper_handle_strength -- Marshal.
+// ChangeWrapperHandleStrength: switch the RCW's CACHE handle between weak
+// (fIsWeak != 0) and strong (fIsWeak == 0). A non-RCW object is a no-op
+// (net48 accepts any object); null -> ArgumentNullException.
+//------------------------------------------------------------------------------
+void icall_com_change_wrapper_handle_strength(Il2CppObject* o, int32_t fIsWeak)
+{
+    if (o == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("o");
+    }
+    if (o->klass != RcwClass()) return;
+    auto* r = reinterpret_cast<Il2CppComRcw*>(o);
+    if (r->unknown == nullptr) return;
+    int32_t slot = ComRcwCacheFind(r->unknown);
+    const int32_t newType = fIsWeak != 0 ? kGCHandleTypeWeak : kGCHandleTypeNormal;
+    if (slot < 0)
+    {
+        slot = ComRcwCacheInsert(r->unknown, o);
+        if (slot < 0) return;
+    }
+    else if (icall_gchandle_get_handle_type(g_comRcwCache[slot].handle) == newType)
+    {
+        return;
+    }
+    else
+    {
+        // GCHandle strength is fixed at allocation -- re-alloc with the new
+        // type (the entry keeps the same key).
+        icall_gchandle_free(g_comRcwCache[slot].handle);
+        g_comRcwCache[slot].handle = 0;
+    }
+    g_comRcwCache[slot].handle = icall_gchandle_alloc(o, newType);
+}
+
+//------------------------------------------------------------------------------
+// icall_com_create_aggregated_object -- Marshal.CreateAggregatedObject.
+// Returns the inner IUnknown* of a CCW created with 'pOuter' as its outer
+// unknown: the CCW's QI(IUnknown) answers the OUTER pointer (the COM
+// aggregation contract -- the outer controls the lifetime) while every other
+// interface is served by the inner managed object.
+//------------------------------------------------------------------------------
+intptr_t icall_com_create_aggregated_object(intptr_t pOuter, Il2CppObject* o)
+{
+    if (pOuter == 0)
+    {
+        il2cpp_throw_argument_null_exception("pOuter");
+    }
+    if (o == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("o");
+    }
+    const intptr_t ccw = icall_com_ccw_create(o);
+    auto* c = reinterpret_cast<Il2CppComCcw*>(ccw);
+    c->outer = reinterpret_cast<void*>(pOuter);
+    return ccw;
+}
+
+
+//------------------------------------------------------------------------------
 // icall_com_get_idispatch_for_object -- Marshal.GetIDispatchForObject (net48
 // semantics, coreclr GetComIPFromObjectRef with IID_IDispatch -- the ActiveX /
 // automation hosting entry point). A NON-RCW managed object is wrapped behind
@@ -8885,6 +9158,7 @@ intptr_t icall_com_ccw_create(Il2CppObject* managed)
     }
     auto* ccw = new Il2CppComCcw;
     ccw->vtbl = &kCcwVtable;
+    ccw->outer = nullptr; // impl-p0b G3: not aggregated unless CreateAggregatedObject set it
 #if defined(_WIN32)
     ccw->oleVtbl = &kOleVtable;
     ccw->siteVtbl = &kSiteVtable;
