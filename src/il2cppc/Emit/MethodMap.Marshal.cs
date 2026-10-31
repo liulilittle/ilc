@@ -1,4 +1,4 @@
-﻿namespace Il2Cpp.Transpiler.Emit;
+namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.Marshal -- System.Runtime.InteropServices.Marshal static-method
@@ -559,6 +559,37 @@ public static partial class MethodRefResolver
                     return null;
                 return I("il2cpp::runtime::icall_com_query_interface", 3, true, false, false,
                     new[] { "n", "g", "addr:v" });
+            // ---- com8 (impl-p0b G2): the COM METADATA surface -- GetStartComSlot /
+            // GetEndComSlot / IsTypeVisibleFromCom. Every answer is a pure function
+            // of the type's metadata, so all three fold to an int CONSTANT at
+            // transpile time (no runtime icall, no runtime cost). The resolver
+            // cannot compute it (the signature bytes carry only "System.Type"),
+            // so it emits a marker and StackFold inspects the FOLDED typeof
+            // argument -- the GetComInterfaceForObject precedent above.
+            //   net48 x64 oracle (tests/cases/probe-p0b, G2 section):
+            //     GetStartComSlot(interface) = 3 + (4 unless [InterfaceType(
+            //       InterfaceIsIUnknown)]; the CLR default is InterfaceIsDual);
+            //     GetEndComSlot = start + own instance-method count - 1 (a
+            //       0-method IUnknown interface answers 2; INHERITED interface
+            //       methods are NOT counted; property get/set and event
+            //       add/remove are ordinary MethodDefs and ARE counted);
+            //     a NON-interface type answers -1 from both (no throw);
+            //     IsTypeVisibleFromCom = the [ComVisible] attribute on the type,
+            //       else the ASSEMBLY-level [ComVisible], else true; the
+            //       attribute is NOT inherited.
+            // The non-constant-Type / external-TypeRef / not-visible cases stay
+            // LOUD (StackFold throws) -- a runtime constant fold cannot throw
+            // net48's ArgumentException/ArgumentNullException.
+            // ps[0] = Type (0x12 CLASS System.Type / 0x1C object).
+            case "GetStartComSlot":
+                if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
+                return I(ResolvedMethod.ComStartSlotMarker, 1, true, false, false);
+            case "GetEndComSlot":
+                if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
+                return I(ResolvedMethod.ComEndSlotMarker, 1, true, false, false);
+            case "IsTypeVisibleFromCom":
+                if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
+                return I(ResolvedMethod.ComTypeVisibleMarker, 1, true, false, false);
             // ---- com6: GetTypeFromProgID / CreateObject -- the C1 (A1) split
             // from the r127 PNSE stubs to the REAL COM runtime (net48:
             // Marshal.GetTypeFromProgID == Type.GetTypeFromProgID, and
@@ -701,8 +732,10 @@ public static partial class MethodRefResolver
         "GetLoadedTypeForGUID",
         "GetMethodInfoForComSlot",
         "GetRawIUnknownForComObjectNoAddRef",
-        "GetStartComSlot",
-        "GetEndComSlot",
+        // NOTE (impl-p0b G2): "GetStartComSlot", "GetEndComSlot" and
+        // "IsTypeVisibleFromCom" were REMOVED from this LOUD set -- they fold to
+        // an int CONSTANT from the type metadata (com8 block above; oracle:
+        // tests/cases/probe-p0b G2 section).
         "GetTypeInfoForType",
         "GetTypeLibGuid",
         "GetTypeLibGuidForAssembly",
@@ -710,7 +743,6 @@ public static partial class MethodRefResolver
         "GetTypeLibVersion",
         "GetTypedObjectForIUnknown",
         "InitWrapper",
-        "IsTypeVisibleFromCom",
         // Internal *Native/*Internal icall variants (public wrappers in parentheses)
         "FCallGenerateGuidForType",
         "FCallGetTypeInfoGuid",

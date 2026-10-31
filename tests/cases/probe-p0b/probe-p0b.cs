@@ -14,6 +14,36 @@
 using System;
 using System.Runtime.InteropServices;
 
+//------------------------------------------------------------------------------
+// G2 metadata fixtures (the slot / visibility surface).
+//------------------------------------------------------------------------------
+[ComImport, Guid("41111111-2222-3333-4444-555555555551"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IZero { }
+
+[ComImport, Guid("41111111-2222-3333-4444-555555555552"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IOne { void A(); }
+
+[ComImport, Guid("41111111-2222-3333-4444-555555555553"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IThree { void A(); int B(int x); string C { get; } }
+
+[ComImport, Guid("41111111-2222-3333-4444-555555555554"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IDerived : IOne { void D(); }
+
+public interface IPlain { void A(); }
+
+[ComVisible(true), Guid("41111111-2222-3333-4444-555555555555")]
+public class VisibleClass { }
+
+[ComVisible(false), Guid("41111111-2222-3333-4444-555555555556")]
+public class HiddenClass { }
+
+public class NoAttrClass { }
+
+[ComVisible(false)]
+public class HiddenBase { }
+
+public class DerivedFromHidden : HiddenBase { }
+
 namespace Cases
 {
     public static class ProbeP0b
@@ -63,6 +93,27 @@ namespace Cases
                 Marshal.QueryInterface(IntPtr.Zero, ref g, out q);
             }
             catch (Exception e) { Console.WriteLine("[g1.qi.null]=" + e.GetType().Name); }
+
+            // ---- G2: COM slot / visibility metadata (transpile-time fold) ----
+            Console.WriteLine("[g2.zero.start]=" + Marshal.GetStartComSlot(typeof(IZero)));
+            Console.WriteLine("[g2.zero.end]=" + Marshal.GetEndComSlot(typeof(IZero)));
+            Console.WriteLine("[g2.one.start]=" + Marshal.GetStartComSlot(typeof(IOne)));
+            Console.WriteLine("[g2.one.end]=" + Marshal.GetEndComSlot(typeof(IOne)));
+            Console.WriteLine("[g2.three.start]=" + Marshal.GetStartComSlot(typeof(IThree)));
+            Console.WriteLine("[g2.three.end]=" + Marshal.GetEndComSlot(typeof(IThree)));
+            Console.WriteLine("[g2.derived.start]=" + Marshal.GetStartComSlot(typeof(IDerived)));
+            Console.WriteLine("[g2.derived.end]=" + Marshal.GetEndComSlot(typeof(IDerived)));
+            Console.WriteLine("[g2.plain.start]=" + Marshal.GetStartComSlot(typeof(IPlain)));
+            Console.WriteLine("[g2.plain.end]=" + Marshal.GetEndComSlot(typeof(IPlain)));
+            Console.WriteLine("[g2.class.start]=" + Marshal.GetStartComSlot(typeof(VisibleClass)));
+            Console.WriteLine("[g2.class.end]=" + Marshal.GetEndComSlot(typeof(VisibleClass)));
+            Console.WriteLine("[g2.vis.zero]=" + Marshal.IsTypeVisibleFromCom(typeof(IZero)));
+            Console.WriteLine("[g2.vis.one]=" + Marshal.IsTypeVisibleFromCom(typeof(IOne)));
+            Console.WriteLine("[g2.vis.plain]=" + Marshal.IsTypeVisibleFromCom(typeof(IPlain)));
+            Console.WriteLine("[g2.vis.visibleclass]=" + Marshal.IsTypeVisibleFromCom(typeof(VisibleClass)));
+            Console.WriteLine("[g2.vis.hiddenclass]=" + Marshal.IsTypeVisibleFromCom(typeof(HiddenClass)));
+            Console.WriteLine("[g2.vis.noattr]=" + Marshal.IsTypeVisibleFromCom(typeof(NoAttrClass)));
+            Console.WriteLine("[g2.vis.derivedhidden]=" + Marshal.IsTypeVisibleFromCom(typeof(DerivedFromHidden)));
         }
     }
 }

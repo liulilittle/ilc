@@ -534,6 +534,62 @@ public static class MetadataLoader
     }
 
     //--------------------------------------------------------------------------
+    // ComVisibleAttributeValue / InterfaceTypeAttributeValue (impl-p0b G2) --
+    // TARGETED reads of the two COM attributes Marshal's metadata surface
+    // needs. The generic DecodeCustomAttributes walks EVERY attribute row and
+    // throws on a named-arg tag it does not model (0x54 PROPERTY -- e.g. the
+    // compiler-emitted [assembly: TargetFramework(..., FrameworkDisplayName=)]
+    // row), so it cannot be used for the ASSEMBLY-level scan. These walk the
+    // ctor handle to its parent type name and decode ONLY that row's fixed
+    // argument (the HasFlagsAttribute precedent). null = attribute absent.
+    //--------------------------------------------------------------------------
+    private static string? AttributeClassOf(MetadataReader md, CustomAttribute ca)
+    {
+        EntityHandle parent;
+        if (ca.Constructor.Kind == HandleKind.MemberReference)
+            parent = md.GetMemberReference((MemberReferenceHandle)ca.Constructor).Parent;
+        else if (ca.Constructor.Kind == HandleKind.MethodDefinition)
+            parent = md.GetMethodDefinition((MethodDefinitionHandle)ca.Constructor).GetDeclaringType();
+        else
+            return null;
+        if (parent.IsNil) return null;
+        return parent.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)parent),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)parent),
+            _ => null,
+        };
+    }
+
+    public static bool? ComVisibleAttributeValue(MetadataReader md, CustomAttributeHandleCollection handles)
+    {
+        foreach (var cah in handles)
+        {
+            var ca = md.GetCustomAttribute(cah);
+            if (AttributeClassOf(md, ca) != "System.Runtime.InteropServices.ComVisibleAttribute") continue;
+            var blob = md.GetBlobReader(ca.Value);
+            if (blob.Length < 3) return null;
+            blob.ReadUInt16(); // 0x0001 prolog
+            return blob.ReadByte() != 0;
+        }
+        return null;
+    }
+
+    public static int? InterfaceTypeAttributeValue(MetadataReader md, CustomAttributeHandleCollection handles)
+    {
+        foreach (var cah in handles)
+        {
+            var ca = md.GetCustomAttribute(cah);
+            if (AttributeClassOf(md, ca) != "System.Runtime.InteropServices.InterfaceTypeAttribute") continue;
+            var blob = md.GetBlobReader(ca.Value);
+            if (blob.Length < 6) return null;
+            blob.ReadUInt16(); // 0x0001 prolog
+            return blob.ReadInt32();
+        }
+        return null;
+    }
+
+    //--------------------------------------------------------------------------
     // LoadAllCustomAttributes -- EVERY type's CustomAttribute rows (the
     // D-ATTR-1 item c batch surface the code generator consumes). Returns the
     // metadata full name of each annotated type (GetFullName on a

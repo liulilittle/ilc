@@ -257,6 +257,15 @@ public sealed record ResolvedMethod(
     // the FOLDED Type argument (a typeof(IUnknown)/typeof(IDispatch) constant
     // StringConstExpr) and emits the icall with the matching IID constant.
     public const string ComGetInterfaceMarker = "::com_get_interface::";
+    // impl-p0b G2: the Marshal COM METADATA members (GetStartComSlot /
+    // GetEndComSlot / IsTypeVisibleFromCom). Their answers are pure metadata
+    // (the type's [InterfaceType] / [ComVisible] attributes + its own method
+    // table), which the resolver cannot see from the signature bytes -- it
+    // emits these markers and StackFold folds the FOLDED typeof argument into
+    // an int constant (StackFold.cs ComStartSlotMarker handling).
+    public const string ComStartSlotMarker = "::com_start_slot::";
+    public const string ComEndSlotMarker = "::com_end_slot::";
+    public const string ComTypeVisibleMarker = "::com_type_visible::";
 }
 
 public static partial class MethodRefResolver

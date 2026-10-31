@@ -4999,6 +4999,91 @@ public static class StackFold
                 Push(comCall, ins);
                 return;
             }
+            // impl-p0b G2: the Marshal COM METADATA folds -- GetStartComSlot /
+            // GetEndComSlot / IsTypeVisibleFromCom. Every answer is a pure
+            // function of the type's metadata, so the fold pushes an int
+            // CONSTANT (no runtime icall, no runtime cost). Oracle: net48 x64,
+            // tests/cases/probe-p0b G2 section.
+            //   GetStartComSlot(interface) = 3 + (4 unless the interface is
+            //     [InterfaceType(InterfaceIsIUnknown)] -- the CLR default is
+            //     InterfaceIsDual, so an attribute-less interface answers 7);
+            //   GetEndComSlot = start + OWN instance-method count - 1 (a
+            //     0-method IUnknown interface answers 2; INHERITED interface
+            //     methods are NOT counted; property accessors and event
+            //     add/remove are ordinary MethodDefs and ARE counted);
+            //   a non-interface type answers -1 from BOTH members;
+            //   a type hidden from COM ([ComVisible(false)] on the type, else
+            //     on the assembly, else visible) makes BOTH slot members throw
+            //     ArgumentException -- including a CLASS (measured: the
+            //     visibility check runs BEFORE the -1 answer). A constant fold
+            //     cannot throw at runtime, so that shape is rejected LOUD here
+            //     (never a silently wrong constant).
+            //   IsTypeVisibleFromCom = the same predicate as a bool constant.
+            //     [ComVisible] is NOT inherited (a type deriving from a hidden
+            //     base answers True).
+            if (resolved != null && resolved.CppName is ResolvedMethod.ComStartSlotMarker
+                                    or ResolvedMethod.ComEndSlotMarker
+                                    or ResolvedMethod.ComTypeVisibleMarker)
+            {
+                string ComMemberName() => resolved!.CppName == ResolvedMethod.ComStartSlotMarker
+                    ? "GetStartComSlot"
+                    : resolved!.CppName == ResolvedMethod.ComEndSlotMarker ? "GetEndComSlot" : "IsTypeVisibleFromCom";
+                if (args.Count != 1 || args[0] is not StringConstExpr comTypeValue
+                    || comTypeValue.TypeToken is not int comToken)
+                    throw new NotSupportedException(
+                        $"Marshal.{ComMemberName()} requires a CONSTANT typeof(T) Type argument " +
+                        "(the runtime Type object cannot be resolved to metadata at transpile time)");
+                var comHandle = MetadataTokens.Handle(comToken);
+                if (md == null || comHandle.Kind != HandleKind.TypeDefinition)
+                    throw new NotSupportedException(
+                        $"Marshal.{ComMemberName()}: only a type DEFINED in the transpiled assembly is " +
+                        "supported (an external-assembly TypeRef or a generic/array TypeSpec has no " +
+                        "readable metadata in this reader)");
+                var comTdHandle = (TypeDefinitionHandle)comHandle;
+                var comTd = md.GetTypeDefinition(comTdHandle);
+                // net48 [ComVisible] resolution: type-level attribute wins, then
+                // the ASSEMBLY-level one, then the CLR default (visible).
+                // ComVisibleAttribute is NOT inherited (measured: a type
+                // deriving from a hidden base answers True).
+                var comVisible = MetadataLoader.ComVisibleAttributeValue(md, comTd.GetCustomAttributes())
+                    ?? (md.IsAssembly
+                        ? MetadataLoader.ComVisibleAttributeValue(
+                            md, md.GetAssemblyDefinition().GetCustomAttributes())
+                        : null);
+                var comVisibleFinal = comVisible ?? true;
+                if (resolved.CppName == ResolvedMethod.ComTypeVisibleMarker)
+                {
+                    Push(new IntConstExpr { Value = comVisibleFinal ? 1 : 0 }, ins);
+                    return;
+                }
+                if (!comVisibleFinal)
+                    throw new NotSupportedException(
+                        $"Marshal.{ComMemberName()}(typeof({md.GetFullName(comTdHandle)})): the type is not visible " +
+                        "from COM ([ComVisible(false)]), which net48 answers with ArgumentException -- a " +
+                        "transpile-time constant fold cannot throw at runtime, so this call site is rejected LOUD");
+                if ((comTd.Attributes & System.Reflection.TypeAttributes.Interface) == 0)
+                {
+                    Push(new IntConstExpr { Value = -1 }, ins);
+                    return;
+                }
+                var comIfaceType = MetadataLoader.InterfaceTypeAttributeValue(md, comTd.GetCustomAttributes());
+                // InterfaceType values: 1 = InterfaceIsIUnknown, 2 = InterfaceIsIDispatch,
+                // 3 = InterfaceIsDual; absent = the CLR default (dual).
+                var comStart = 3 + (comIfaceType == 1 ? 0 : 4);
+                if (resolved.CppName == ResolvedMethod.ComStartSlotMarker)
+                {
+                    Push(new IntConstExpr { Value = comStart }, ins);
+                    return;
+                }
+                var comOwn = 0;
+                foreach (var comMh in comTd.GetMethods())
+                {
+                    var comMd = md.GetMethodDefinition(comMh);
+                    if ((comMd.Attributes & System.Reflection.MethodAttributes.Static) == 0) comOwn++;
+                }
+                Push(new IntConstExpr { Value = comStart + comOwn - 1 }, ins);
+                return;
+            }
             // Work order #24 (3-arg) + nb2 IO-PATH2 (4-arg): Path.Combine(
             // string, string, string[, string]) -- the params-array form.
             // The resolver emits the NestedCombineMarker (the runtime icall
