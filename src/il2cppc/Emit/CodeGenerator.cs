@@ -169,6 +169,9 @@ public static class CodeGenerator
         // TimeSpan/Guid box icalls (il2cpp_nullable.h).
         generatedHeader.Line("#include \"il2cpp_nullable.h\"");
         generatedHeader.Line("#include \"il2cpp_exception_ext.h\"");
+        // TypedReference carrier (mkrefany/refanyval/refanytype): the
+        // Il2CppTypedReference layout + its only accessors.
+        generatedHeader.Line("#include \"il2cpp_typedref.h\"");
     generatedHeader.Line("#include \"il2cpp_array_ext.h\"");
     generatedHeader.Line("#include \"il2cpp_array_ext2.h\"");
     // b5-gaps 13: the value-element multidim accessors (dt/ts/dec/guid/dto
@@ -2518,6 +2521,12 @@ public static class CodeGenerator
                     // the shared-clone arg bridger into boxing the pointer.
                     else if (TypeSpecGenericInstDefName(md, ioTok) == "System.Nullable`1")
                         locKind[laCtor.Name] = "ref";
+                    // TypedReference: `default(TypedReference)` lowers to
+                    // ldloca + initobj. The slot is the two-pointer carrier
+                    // (kind "tr"), not a TypeCppName (System_TypedReference is
+                    // not a generated struct).
+                    else if (TypeTokenFullName(md, ioTok) == "System.TypedReference")
+                        locKind[laCtor.Name] = "tr";
                     else
                         locKind[laCtor.Name] = TypeCppName(TypeTokenFullName(md, ioTok));
                 }
@@ -3253,6 +3262,16 @@ public static class CodeGenerator
                 // store would scan the garbage slot contents (known
                 // ScanObject(0x9) AV class). nullptr is a safe scan.
                 w.Line($"Il2CppObject* {d} = nullptr;");
+                continue;
+            }
+            // TypedReference carrier (mkrefany result / TypedReference local):
+            // the two-pointer Il2CppTypedReference value. Deliberately NOT a
+            // GC root -- the carrier holds a raw storage address + a type
+            // descriptor, neither of which the collector scans (this runtime's
+            // collector never moves objects).
+            if (kind == "tr")
+            {
+                w.Line($"{MuPrefix(d)}Il2CppTypedReference {d};");
                 continue;
             }
             // M3 Task 11: a value-type temp (kind = the type name, e.g.
@@ -5022,6 +5041,16 @@ public static class CodeGenerator
                             $"IL {At(c.SourceOpName, c.SourceOffset)} -- zero-initialize SpinLock ref carrier");
                         break;
                     }
+                    // TypedReference: zero the two-pointer carrier. The
+                    // all-zero value IS default(TypedReference) -- __reftype
+                    // then answers a null handle (null System.Type) and
+                    // __refvalue throws InvalidCastException (net48 measured).
+                    if (TypeTokenFullName(md, initobjTok) == "System.TypedReference")
+                    {
+                        w.LineAligned($"std::memset({initobjAddr}, 0, sizeof(Il2CppTypedReference));",
+                            $"IL {At(c.SourceOpName, c.SourceOffset)} -- zero-initialize the TypedReference carrier");
+                        break;
+                    }
                     w.LineAligned($"std::memset({initobjAddr}, 0, sizeof({TypeCppName(TypeTokenFullName(md, initobjTok))}));",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- zero-initialize value type at address");
                     break;
@@ -5929,6 +5958,10 @@ public static class CodeGenerator
         // carrier FuncPtrExpr/LocAddrExpr use. Without this arm the result
         // temp collapsed to int32_t and truncated the x64 address.
         CallExpr c when c.ResultKind == "p" => "p",
+        // TypedReference triple: the mkrefany carrier is the two-pointer
+        // Il2CppTypedReference value (declaration arm "tr" in the temp/local
+        // declaration switch), never an int32/ref slot.
+        CallExpr c when c.ResultKind == "tr" => "tr",
         // P25b (user struct box): the unbox of a user value type carries
         // "us:{CppName}" (StackFold.UnboxUserStructKind) -- strip the prefix to
         // the C++ struct type so the result temp is declared `{T} t;` and the
@@ -7873,6 +7906,12 @@ default: return false;                           // primitives/VAR(handled by ca
     // through ->value__ (which requires an enum struct base).
     private static bool IsInt32Slot(string name) =>
         !_curLocKinds.TryGetValue(name, out var k) || k is "val" or "i" or "int";
+
+    // A generic ADDRESS slot: "p" (void*, LocAddrExpr / a refanyval result) or
+    // "ptr" (intptr_t, the ldelema carrier). Consumers that need the VALUE at
+    // an address (the enumval cast) dereference through these.
+    private static bool IsAddressSlot(string name) =>
+        _curLocKinds.TryGetValue(name, out var k) && (k == "p" || k == "ptr");
 
     // B4-1 (D2/D8): does this call argument hold a VALUE of an ALLOWED slot
     // family (never a boxed object)? Used by the "unbox:*" cast codes to read a
@@ -10625,6 +10664,31 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 _ => $"(*reinterpret_cast<int32_t*>({stelemPtr}) = static_cast<int32_t>({EmitExpr(c.Args[2], md, types)}))",
             };
         }
+        // TypedReference triple (mkrefany 0xC6 / refanyval 0xC2 /
+        // refanytype 0xFE1D, ECMA-335 III.4.22/III.4.26/III.4.23): the carrier
+        // accessors from il2cpp_typedref.h. The type token embedded in the
+        // Function name resolves to the SAME descriptor identity the runtime
+        // registry / typeof chain uses (see TypedRefClassDescriptorCpp), so
+        // the refanyval exact-identity check and the __reftype name agree.
+        if (c.Function.StartsWith("typedref_make_", StringComparison.Ordinal)
+            && int.TryParse(c.Function["typedref_make_".Length..], out var trMakeTok))
+        {
+            var trMakeClass = TypedRefClassDescriptorCpp(TypeTokenFullName(md, trMakeTok), types);
+            return $"il2cpp::il2cpp_typedref_make({trMakeClass}, reinterpret_cast<void*>({EmitExpr(c.Args[0], md, types)}))";
+        }
+        if (c.Function.StartsWith("typedref_value_", StringComparison.Ordinal)
+            && int.TryParse(c.Function["typedref_value_".Length..], out var trValTok))
+        {
+            var trValClass = TypedRefClassDescriptorCpp(TypeTokenFullName(md, trValTok), types);
+            var trValCall = $"il2cpp::il2cpp_typedref_value({EmitExpr(c.Args[0], md, types)}, {trValClass})";
+            return c.ResultKind?.StartsWith("sp:", StringComparison.Ordinal) == true
+                ? $"reinterpret_cast<{c.ResultKind["sp:".Length..]}*>({trValCall})"
+                : trValCall;
+        }
+        if (c.Function == "typedref_handle")
+        {
+            return $"reinterpret_cast<intptr_t>(il2cpp::il2cpp_typedref_type({EmitExpr(c.Args[0], md, types)}))";
+        }
         // ILOP-2 P1: ldind_{op} -- pointer dereference by opcode width
         // (Ldind_i1/i2/i4/i8/i/u1/u2/u4/r4/r8/ref). The opcode is the Function
         // suffix; the address is Args[0]. The dereference is a typed load
@@ -12036,6 +12100,12 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     ? $"(*({code}))"
                     : args[srcIdx] is LocExpr leVal && IsInt32Slot(leVal.Name)
                     ? $"{code}"
+                    // TypedReference (refanyval) / ldelema: a generic ADDRESS
+                    // slot ("p" void* / "ptr" intptr_t). The enum cell lives AT
+                    // that address, so read the int32 carrier through it (a
+                    // `->value__` member read needs a typed enum base).
+                    : args[srcIdx] is LocExpr leAddr && IsAddressSlot(leAddr.Name)
+                    ? $"(*reinterpret_cast<int32_t*>({code}))"
                     : args[srcIdx] is LocAddrExpr or StaticFieldAddrExpr
                     ? $"({code})->value__"
                     : $"({code}).value__",
@@ -12363,6 +12433,45 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             return true;
         }
         return false;
+    }
+
+    // TypedReference declared-type descriptor (mkrefany/refanyval operand
+    // type): the SAME descriptor identity the runtime registry and the typeof
+    // chain use. mkrefany and refanyval resolve their token through this
+    // helper, so the refanyval EXACT-identity check (net48: no assignability)
+    // compares one descriptor with itself.
+    //   * translated type with a generated descriptor -> the global symbol
+    //     ({T}_class), pointer-identical to the descriptor entry.cpp registers;
+    //   * value types with NO descriptor (fieldless/ctorless structs), custom
+    //     delegates and every other BCL name -> il2cpp_class_by_name, which
+    //     resolves the builtin / BCL-enum / user-type registry at runtime (a
+    //     miss answers nullptr -- the refanytype null-type contract).
+    private static string TypedRefClassDescriptorCpp(string typeName, IReadOnlyList<TypeDef> types)
+    {
+        if (TypeLookup.Find(types, typeName) is { } td
+            && (td.InstanceFields.Count > 0 || td.Methods.Any(m => m.Name == ".ctor"))
+            && !IsDelegateTypeDef(td))
+            return $"&{TypeEmitter.TypeCppName(td)}_class";
+        return typeName switch
+        {
+            "System.Int32" => "&System_Int32_class",
+            "System.UInt32" => "&System_UInt32_class",
+            "System.Int64" => "&System_Int64_class",
+            "System.UInt64" => "&System_UInt64_class",
+            "System.Int16" => "&System_Int16_class",
+            "System.UInt16" => "&System_UInt16_class",
+            "System.Byte" => "&System_Byte_class",
+            "System.SByte" => "&System_SByte_class",
+            "System.Boolean" => "&System_Boolean_class",
+            "System.Char" => "&System_Char_class",
+            "System.Single" => "&System_Single_class",
+            "System.Double" => "&System_Double_class",
+            "System.Decimal" => "&System_Decimal_class",
+            "System.Object" => "&System_Object_class",
+            "System.String" => "&System_String_class",
+            "System.Exception" => "&System_Exception_class",
+            _ => $"il2cpp::il2cpp_class_by_name(\"{typeName}\")",
+        };
     }
 
     // GN-2 (Nullable): the generic DEFINITION full name of a GENERICINST (0x15)
@@ -13385,7 +13494,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     //--------------------------------------------------------------------------
-    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section �?
+    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section 锟?
     // RF-N6): construct the MEMBER-level custom attribute instances (methods /
     // fields / properties) and register each annotated member's array in the
     // RF-N6 member registry (attribute.h) under the "FullName::memberName"
@@ -13819,7 +13928,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         h.Open();
         h.Line("return il2cpp::il2cpp_report_unhandled_exception(__il2cpp_unhandled.message_text());");
         h.Close();
-        // GN-17 (鏂规涔?: a native std::exception or any other C++ escape that
+        // GN-17 (閺傝顢嶆稊?: a native std::exception or any other C++ escape that
         // slips past the P/Invoke boundary wrap (il2cpp_pinvoke_call) must NOT
         // reach std::terminate/abort -- report and exit non-zero (the .NET
         // process contract: an uncaught native exception is a reported,

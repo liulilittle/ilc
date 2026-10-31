@@ -266,7 +266,10 @@ public static class TempSlotPass
             // or the temp falls to "val", shares an int32/other-struct slot
             // and the emitter's single declaration breaks on the second use.
             CallExpr c when c.ResultKind is "l" or "d" or "dt" or "ts" or "guid" or "ptr"
-                or "dec" or "dec2" or "decv" or "guidv" or "ip4" or "bi" or "dto" or "p" => c.ResultKind,
+                or "dec" or "dec2" or "decv" or "guidv" or "ip4" or "bi" or "dto" or "p"
+                // TypedReference carrier: a two-pointer struct -- never share
+                // an int32/ref slot (the "val" default would merge it).
+                or "tr" => c.ResultKind,
         // tuple1 (ValueTuple): a user call returning a tuple ("vt:<name>")
         // carries the struct type -- a struct temp must never share an int32
         // slot (the store would truncate / not compile).

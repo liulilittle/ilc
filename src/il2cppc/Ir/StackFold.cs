@@ -2316,17 +2316,68 @@ public static class StackFold
                     throw new NotSupportedException(
                         $"endfilter at offset 0x{ins.Offset:X4}: filter exception clauses have no EH model (VB-only IL; research + decision in the ilop2 report)");
                 case ILOpCode.Mkrefany:
+                    // mkrefany <token> (0xC6, ECMA-335 III.4.22): pop the
+                    // ADDRESS of the referenced storage and push the
+                    // TypedReference carrier { declared type, storage address }.
+                    // The address producers are the existing ldloca/ldarga/
+                    // ldsflda/ldflda/ldelema expressions -- mkrefany records
+                    // the address, never a value copy (net48 alias semantics,
+                    // probe-measured: writing the variable after __makeref is
+                    // visible through __refvalue).
+                    // ResultKind "tr" -> an Il2CppTypedReference slot.
+                    {
+                        _ = RequireTypeName(ins);
+                        var mkrefAddr = stack.Pop();
+                        Push(new CallExpr
+                        {
+                            Function = $"typedref_make_{ins.Operand}",
+                            ResultKind = "tr",
+                            Args = { mkrefAddr },
+                        }, ins);
+                    }
+                    break;
                 case ILOpCode.Refanyval:
+                    // refanyval <token> (0xC2, ECMA-335 III.4.26): pop the
+                    // carrier and push the storage ADDRESS presented as the
+                    // token type. The result rides the existing address model
+                    // (ldind/ldobj/ldfld/stind all reinterpret_cast their
+                    // address operand): a translated user struct gets the
+                    // typed "sp:<Cpp>" pointer kind (the ldelema precedent);
+                    // everything else -- primitives, enums (the int32 carrier),
+                    // reference types -- is the generic "p" void* slot.
+                    // The runtime accessor enforces net48's EXACT type identity
+                    // and throws System.InvalidCastException on a mismatch.
+                    {
+                        _ = RequireTypeName(ins);
+                        var rvTr = stack.Pop();
+                        Push(new CallExpr
+                        {
+                            Function = $"typedref_value_{ins.Operand}",
+                            ResultKind = UserStructElementCpp(md, (int)ins.Operand, types) is { } rvCpp
+                                ? "sp:" + rvCpp
+                                : "p",
+                            Args = { rvTr },
+                        }, ins);
+                    }
+                    break;
                 case ILOpCode.Refanytype:
-                    // TypedReference triple (mkrefany 0xC6 / refanyval 0xC2 /
-                    // refanytype 0xFE1D, ECMA-335 III.4.22/III.4.26/III.4.23):
-                    // a typed reference (16 bytes on net48: RuntimeType type +
-                    // IntPtr value) has no IR/runtime representation -- no
-                    // carrier exists for the 2-slot value the instructions
-                    // pass. The fold stays LOUD (net48 TypedReference research +
-                    // minimal-design proposal in the ilop2 report).
-                    throw new NotSupportedException(
-                        $"{OpName(ins.OpCode)} at offset 0x{ins.Offset:X4}: TypedReference (mkrefany/refanyval/refanytype) has no IR/runtime representation (net48 semantics research + design in the ilop2 report)");
+                    // refanytype (0xFE1D, ECMA-335 III.4.23): pop the carrier
+                    // and push the declared type's HANDLE (the descriptor
+                    // address as an intptr_t). C# always consumes it with
+                    // System.Type::GetTypeFromHandle, so the handle flows into
+                    // the EXISTING type-handle path and comes out as the same
+                    // full-name-string System.Type the typeof chain produces
+                    // (R3 -- no second type object).
+                    {
+                        var rtTr = stack.Pop();
+                        Push(new CallExpr
+                        {
+                            Function = "typedref_handle",
+                            ResultKind = "ptr",
+                            Args = { rtTr },
+                        }, ins);
+                    }
+                    break;
                 case ILOpCode.Ldtoken:
                     // typeof(T) support (reflection audit F1): ldtoken's
                     // operand is a metadata token of TypeDefOrRef / FieldDef /
@@ -3314,7 +3365,15 @@ public static class StackFold
                     //   il2cpp_unbox_int32(static_cast<Il2CppObject*>(t15))
                     // on the intptr_t address -- "cannot cast from type
                     // 'intptr_t' to 'Il2CppObject*'" build abort.
-                    || first is LocExpr ptrTemp && LocWidth(ptrTemp.Name, ctx, tempWidths) == "ptr";
+                    //
+                    // TypedReference (refanyval): a "p" temp (void*) is the
+                    // SAME generic-address shape (the refanyval storage
+                    // address / ldloca spill). Without this arm the boxed
+                    // caller (`__refvalue(tr,int)` -> ldind + box) resolved to
+                    // the "unbox:i" arm and read the ADDRESS as a boxed object
+                    // (access violation).
+                    || first is LocExpr ptrTemp
+                        && LocWidth(ptrTemp.Name, ctx, tempWidths) is "ptr" or "p";
                 // M5 wiring: the SECOND stack value's tracked type dispatches
                 // String.Concat(object, object) numeric conveniences (the
                 // second argument is the boxed number).
@@ -4224,7 +4283,8 @@ public static class StackFold
                         // intptr_t->Il2CppObject* cast). Same doctrine as
                         // D-RND2-2 (line 2279) but for the by-the-time-args-known
                         // re-resolve.
-                        || (args[0] is LocExpr ptrRecv && LocWidth(ptrRecv.Name, ctx, tempWidths) == "ptr")
+                        || (args[0] is LocExpr ptrRecv
+                            && LocWidth(ptrRecv.Name, ctx, tempWidths) is "ptr" or "p")
                         // icallwide: the Object::ToString/GetHashCode default
                         // arms are receiver-agnostic first-pass results -- a
                         // tracked typed receiver (Version/TimeSpan/...) must

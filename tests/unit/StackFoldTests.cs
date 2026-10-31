@@ -1760,12 +1760,20 @@ public class StackFoldTests
     }
 
     [Fact]
-    public void Fold_Refanytype_ThrowsNotSupported()
+    public void Fold_Refanytype_PushesTypeHandleCall()
     {
-        // ldc.i4.0; refanytype (TypedReference family): LOUD.
-        Assert.Throws<NotSupportedException>(() => StackFold.Fold(
-            IlDecoder.DecodeMethod(new byte[] { 0x16, 0xFE, 0x1D, 0x2A }),
-            new MethodContext { ArgCount = 0 }));
+        // ldloc.0 (TypedReference); refanytype; ret -- the fold pushes the
+        // DECLARED-TYPE HANDLE call (the descriptor address as an intptr_t);
+        // the C# `__reftype` shape consumes it with
+        // System.Type::GetTypeFromHandle, which yields the same
+        // full-name-string Type value the typeof chain produces.
+        var stmts = StackFold.Fold(
+            IlDecoder.DecodeMethod(new byte[] { 0x06, 0xFE, 0x1D, 0x2A }),
+            new MethodContext { ArgCount = 0, LocNames = new[] { "loc0" }, LocalKinds = new[] { "tr" } });
+        var call = Assert.IsType<CallExpr>(Assert.IsType<RetStmt>(Assert.Single(stmts)).Value);
+        Assert.Equal("typedref_handle", call.Function);
+        Assert.Equal("ptr", call.ResultKind);
+        Assert.Equal("loc0", Assert.IsType<LocExpr>(Assert.Single(call.Args)).Name);
     }
 
     [Fact]
