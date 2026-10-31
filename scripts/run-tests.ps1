@@ -1,6 +1,7 @@
 param(
     [ValidateSet("msvc","mingw","wsl","clang")][string]$Compiler = "mingw",
     [string]$Case = "",
+    [string]$Cases = "",
     [switch]$ContinueOnError,
     [string]$ResultsFile = "",
     [string]$Arch = ""
@@ -190,7 +191,22 @@ if ($Case) {
     }
     $caseDirs = @($match)
 }
+# -Cases: comma-separated subset of the directory pool (used to validate a mixed batch --
+# e.g. one excluded case plus several normal ones -- without sweeping the whole pool).
+if ($Cases) {
+    $wanted = @($Cases -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $missing = @($wanted | Where-Object { -not ($caseDirs | Where-Object Name -eq $_) })
+    if ($missing.Count -gt 0) { throw "case(s) not found under tests/cases: $($missing -join ', ')" }
+    $caseDirs = @($caseDirs | Where-Object { $wanted -contains $_.Name })
+}
 $total = $caseDirs.Count
+# R1: cases listed in scripts/sweep-exclude.txt are not byte-exact difftest cases; they are
+# skipped and counted SEPARATELY -- "PASS: 1050 FAIL: 3" must never absorb them, otherwise a
+# real regression hides behind a permanently red case. The list is read through the shared
+# scripts/sweep-exclude.ps1 parser (the same one sweep-cases.ps1 and difftest.ps1 use).
+. (Join-Path $PSScriptRoot "sweep-exclude.ps1")
+$excludePath = Join-Path $PSScriptRoot "sweep-exclude.txt"
+$skipped = 0
 
 foreach ($caseDir in $caseDirs) {
     # When a variant is named, the record uses the project name (the directory name only locates shared paths); for the main case/full pool the two are identical.
@@ -201,6 +217,19 @@ foreach ($caseDir in $caseDirs) {
     $name = if ($projName) { $projName } else { $caseDir.Name }
     $dirName = $caseDir.Name
     Write-Host "=== case: $name ($Compiler) ==="
+    # R1: an entry in scripts/sweep-exclude.txt means this case is NOT a byte-exact difftest
+    # (W7 whitelist / RUNTIME-CONTRACT probe / LOUD contract / incomplete WIP asset), so a
+    # byte-exact oracle-vs-runtime diff is red by construction. Skipping is NEVER silent: the
+    # reason (the entry's '# ...' comment) is printed here, the SKIP count is separated from
+    # PASS/FAIL in the summary, and the full skipped list is written to -ResultsFile.
+    $excludeEntry = Find-SweepExcludeEntry -Case $dirName -Path $excludePath
+    if ($excludeEntry) {
+        $skipReason = if ($excludeEntry.Reason) { $excludeEntry.Reason } else { "(no reason recorded in $excludePath)" }
+        $skipped++
+        $results.Add([pscustomobject]@{ Case = $name; Status = "SKIP"; Stage = $skipReason })
+        Write-Host "SKIP: $name ($skipReason)"
+        continue
+    }
     # RT-fix: serialize the same case across channels (mutual exclusion on shared out/gen reads+writes); reclaim residual processes while holding the lock.
     $caseLock = Enter-CaseLock $dirName
     try {
@@ -470,9 +499,13 @@ foreach ($caseDir in $caseDirs) {
     }
     } finally { Exit-CaseLock $caseLock }
 }
-$passed = $total - $failures
-Write-Host "=== results: $passed/$total passed ($Compiler) ==="
-Write-Host "PASS: $passed  FAIL: $failures  TOTAL: $total"
+$passed = $total - $failures - $skipped
+Write-Host "=== results: $passed/$total passed, $skipped skipped ($Compiler) ==="
+Write-Host "PASS: $passed  FAIL: $failures  SKIP: $skipped  TOTAL: $total"
+if ($skipped -gt 0) {
+    Write-Host "Skipped cases (runtime-contract, NOT counted as PASS/FAIL):"
+    $results | Where-Object Status -eq "SKIP" | ForEach-Object { Write-Host "  - $($_.Case): $($_.Stage)" }
+}
 if ($failures -gt 0) {
     Write-Host "Failed cases:"
     $results | Where-Object Status -eq "FAIL" | ForEach-Object { Write-Host "  - $($_.Case): $($_.Stage)" }
@@ -481,6 +514,7 @@ if ($ResultsFile) {
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add("compiler=$Compiler")
     $lines.Add("passed=$passed failed=$failures total=$total")
+    $lines.Add("skipped=$skipped")
     foreach ($r in $results) { $lines.Add("$($r.Status)`t$($r.Case)`t$($r.Stage)") }
     Set-Content -Path $ResultsFile -Value $lines -Encoding utf8
     Write-Host "results written to $ResultsFile"

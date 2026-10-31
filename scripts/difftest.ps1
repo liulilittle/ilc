@@ -148,6 +148,48 @@ foreach ($d in @($cmakeDir, $mingwDir)) { if ($d -and ($env:PATH -notlike "*$d*"
 $caseDir  = "$Root/tests/cases/$Case"
 $csproj   = "$caseDir/$Case.csproj"
 if (-not (Test-Path $csproj)) { throw "missing $csproj" }
+
+# --- NON BYTE-EXACT CASE SKIP (R1) -------------------------------------------------
+# scripts/sweep-exclude.txt is the repo's single source of truth for case directories that
+# are NOT byte-exact difftest cases: W7 whitelist cases, RUNTIME-CONTRACT probes (net48
+# deliberately diverges, e.g. it returns localized text where the runtime must THROW), LOUD
+# contract cases and incomplete WIP assets. sweep-cases.ps1 already filtered the full-pool
+# sweep with it, but difftest.ps1 did not, so a direct `difftest.ps1 -Case <excluded>` was
+# a PERMANENT ok=False that hides real regressions.
+# The list is read through scripts/sweep-exclude.ps1 -- the SAME parser sweep-cases.ps1 uses
+# (Trim / drop empty and '^#' / first token of -split '\s+'), so the three consumers can
+# never drift. A SKIP is never silent: the reason is the entry's trailing '# ...' comment,
+# printed here and written to the report files; exit code stays 0 because SKIP != failure.
+# (loud-gate.ps1 deliberately relies on excluded cases still exiting non-zero; it filters
+# its own 'LOUD contract' subset out of this list and is unaffected by this early return.)
+# LOUD contract rows are the exception: their non-zero exit + documented exception text IS
+# the assertion, and scripts/loud-gate.ps1 drives difftest.ps1 on exactly those rows
+# (`if ($line -notmatch "LOUD contract") { continue }`, loud-gate.ps1:47) treating a zero
+# exit as "the LOUD contract was lost". They must therefore keep running the normal path
+# here; loud-gate is their verifier, the byte-exact suite is not.
+. (Join-Path $PSScriptRoot "sweep-exclude.ps1")
+$excludePath = Join-Path $PSScriptRoot "sweep-exclude.txt"
+$excludeEntry = Find-SweepExcludeEntry -Case $Case -Path $excludePath
+if ($excludeEntry -and $excludeEntry.Line -notmatch 'LOUD contract') {
+    $skipReason = if ($excludeEntry.Reason) { $excludeEntry.Reason } else { "(no reason recorded in $excludePath)" }
+    $jsonPath = "$ReportDir/$Case.$Compiler.diffreport.json"
+    $txtPath  = "$ReportDir/$Case.$Compiler.diffreport.txt"
+    ([ordered]@{
+        case = $Case; compiler = $Compiler; ok = "SKIP"; skipped = $true
+        reason = $skipReason; excludeList = $excludePath; excludeLine = $excludeEntry.Line
+        note = "listed as non byte-exact in sweep-exclude.txt: oracle-vs-runtime comparison not run"
+    } | ConvertTo-Json -Depth 4) | Set-Content -Path $jsonPath -Encoding UTF8
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add("case=$Case compiler=$Compiler ok=SKIP")
+    $lines.Add("skip reason=$skipReason")
+    $lines.Add("skip source=$excludePath")
+    $lines.Add("skip note=listed as non byte-exact in sweep-exclude.txt; oracle-vs-runtime comparison not run")
+    $lines | Set-Content -Path $txtPath -Encoding UTF8
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $lines | ForEach-Object { Write-Host $_ }
+    [Console]::OutputEncoding = $origOutputEncoding
+    exit 0
+}
 # Unique log name per round: a same-named log, when a previous invocation aborted and its
 # cmake/cmd child processes still hold the handle, makes the next redirect fail outright
 # (cmd cannot open > target -> a non-exit-code error, NativeCommandError). The run tag adds

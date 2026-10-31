@@ -36,14 +36,11 @@ $outDir = Split-Path -Parent $Out
 if ($outDir) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
 # Non byte-exact cases (W7 whitelist / runtime-contract probes / nondeterministic cases)
 # are listed in sweep-exclude.txt next to this script and filtered out of every shard.
+# The reader is shared with difftest.ps1 / run-tests.ps1 (scripts/sweep-exclude.ps1) so all
+# three consumers parse the list identically.
 $excludeFile = Join-Path $PSScriptRoot "sweep-exclude.txt"
-$excludedCases = @()
-if (Test-Path -LiteralPath $excludeFile) {
-    $excludedCases = Get-Content -LiteralPath $excludeFile |
-        ForEach-Object { $_.Trim() } |
-        Where-Object { $_ -and $_ -notmatch '^#' } |
-        ForEach-Object { ($_ -split '\s+')[0] }
-}
+. (Join-Path $PSScriptRoot "sweep-exclude.ps1")
+$excludedCases = @(Get-SweepExcludedCaseNames -Path $excludeFile)
 $cases = Get-Content -LiteralPath $List | ForEach-Object { $_.Trim() } | Where-Object { $_ } |
     Where-Object { $excludedCases -notcontains $_ }
 function Write-ResultRecord {
