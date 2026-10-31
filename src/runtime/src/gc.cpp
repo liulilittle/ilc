@@ -394,6 +394,10 @@ int32_t     g_rootRangeCount = 0;
 //     the lock is taken), no I/O. It never acquires another runtime lock; the
 //     only lock that can be taken underneath is the CRT malloc lock in
 //     AllocSegment, which is a leaf (malloc never calls back into the runtime).
+//     The only I/O reachable while the lock is held is FailLoud's stderr write
+//     on a fatal invariant violation (immediately followed by abort(), so it
+//     cannot participate in a lock cycle); il2cpp_gc_add_root_range reports its
+//     own overflow AFTER releasing the lock (see below).
 //   * Callers of add/remove hold no runtime lock at the call site (verified at
 //     every caller listed above), so no thread acquires this mutex while
 //     holding another runtime lock.
@@ -1822,14 +1826,27 @@ void il2cpp_gc_add_root_range(void** begin, int32_t count)
     {
         return;
     }
-    std::lock_guard<std::mutex> lock(g_rootRangeMutex);
-    if (g_rootRangeCount >= kMaxRootRanges)
+    bool overflow = false;
+    {
+        std::lock_guard<std::mutex> lock(g_rootRangeMutex);
+        if (g_rootRangeCount >= kMaxRootRanges)
+        {
+            overflow = true;
+        }
+        else
+        {
+            g_rootRanges[g_rootRangeCount].begin = begin;
+            g_rootRanges[g_rootRangeCount].count = count;
+            ++g_rootRangeCount;
+        }
+    }
+    // Report OUTSIDE the lock: FailLoud writes to stderr, and no I/O may run
+    // while the root-range mutex is held (D11). The overflow decision was made
+    // atomically above, so this cannot race another registration.
+    if (overflow)
     {
         FailLoud("root range table overflow");
     }
-    g_rootRanges[g_rootRangeCount].begin = begin;
-    g_rootRanges[g_rootRangeCount].count = count;
-    ++g_rootRangeCount;
 }
 
 //------------------------------------------------------------------------------
