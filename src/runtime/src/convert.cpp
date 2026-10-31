@@ -25,6 +25,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib> // BoxedIntFamilyCarrier's UInt64 guard: std::abort
 #include <cstring>
 
 namespace il2cpp { namespace runtime {
@@ -1221,6 +1222,10 @@ BoxKind ClassifyBoxed(Il2CppObject* v)
     return BoxKind::Other;
 }
 
+// True for every boxed integer INCLUDING UInt64. BoxedIntFamilyCarrier does
+// NOT accept UInt64 (2^64-1 has no int64 representation); the narrow object
+// conversions rely on this predicate only AFTER their own UInt64 case, so that
+// order is a contract -- violating it hits the carrier's loud UInt64 guard.
 bool IsIntFamilyKind(BoxKind kind)
 {
     switch (kind)
@@ -1256,12 +1261,16 @@ bool IsIntFamilyKind(BoxKind kind)
 // BoxKind::UInt64 is DELIBERATELY absent: 2^64-1 has no int64 representation
 // (static_cast<int64_t> would yield -1 and pass an int32 range test). Callers
 // that accept a boxed ulong must range-check BoxedU64 through a uint64-aware
-// helper (icall_convert_to_int32_u8 / icall_conv_ovf_*_u8).
+// helper (icall_convert_to_int32_u8 / icall_conv_ovf_*_u8). The explicit
+// UInt64 case below is UNREACHABLE through every current caller and aborts:
+// without it the default would read the low 32 bits of the box and silently
+// truncate if a future caller forgot its own UInt64 arm.
 int64_t BoxedIntFamilyCarrier(Il2CppObject* v, BoxKind kind)
 {
     switch (kind)
     {
         case BoxKind::Int64:   return BoxedI64(v);
+        case BoxKind::UInt64:  std::abort();
         case BoxKind::UInt32:  return static_cast<int64_t>(static_cast<uint32_t>(BoxedI32(v)));
         case BoxKind::UInt16:  return static_cast<int64_t>(static_cast<uint16_t>(BoxedI32(v)));
         case BoxKind::Byte:    return static_cast<int64_t>(BoxedI32(v) & 0xFF);
