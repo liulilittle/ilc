@@ -3578,7 +3578,29 @@ var userRecvLike = receiverType ?? arg0Type;
     // StackFold's ReadM3Arg (field owners / newobj type names). Callers
     // outside a body pass (load time, non-generic contexts) see null and
     // keep the historical "int" encoding.
-    public static string? InstantiationSuffixHint { get; set; }
+    //
+    // THREAD-AFFINE STORAGE IS LOAD-BEARING, not an optimization: this is
+    // ambient "current body" context, not global configuration. Emission of a
+    // body is synchronous on one thread, and the readers above are reached
+    // deep in folding without a body parameter, so the value must be ambient
+    // to that thread only. The call sites save the previous value, set the
+    // current clone's suffix, and restore in `finally`; that save/set/restore
+    // is sound exactly when the storage is per-thread. With a process-wide
+    // static, two threads (xUnit parallel collections, or two parallel emit
+    // passes) race on one slot: each may restore the other's `prev`, and a
+    // body then silently resolves typeof(T) / generic clone field types with a
+    // FOREIGN instantiation suffix (observed: "System.Int32" instead of
+    // "System.String"). A global lock was rejected: it serializes a hot
+    // single-threaded path and still cannot make interleaved save/restore
+    // blocks on one thread correct. AsyncLocal was rejected as unnecessary
+    // and misleading: there is no `await` between set and use (the pass is
+    // synchronous), so async-flow capture buys nothing over thread affinity.
+    [ThreadStatic] private static string? _instantiationSuffixHint;
+    public static string? InstantiationSuffixHint
+    {
+        get => _instantiationSuffixHint;
+        set => _instantiationSuffixHint = value;
+    }
 
     // GN-13 fix4: the per-argument components of the current clone's
     // InstantiationSuffix (see TypeDef.InstantiationSuffixParts). Set in
@@ -3587,7 +3609,14 @@ var userRecvLike = receiverType ?? arg0Type;
     // through InstantiationVarSuffix so an arity>=2 clone does not echo the
     // whole joined suffix once per argument (the doubling this batch fixes).
     // Null for arity-1 / definition bodies (legacy path).
-    public static string[]? InstantiationSuffixHintParts { get; set; }
+    // Same thread-affine reasoning as InstantiationSuffixHint above: this is
+    // part of the ambient current-body context and must not cross threads.
+    [ThreadStatic] private static string[]? _instantiationSuffixHintParts;
+    public static string[]? InstantiationSuffixHintParts
+    {
+        get => _instantiationSuffixHintParts;
+        set => _instantiationSuffixHintParts = value;
+    }
 
     // GN-13 fix4: the clone argument at generic-parameter index `idx`, or null
     // when no per-argument array is active (arity-1 / definition / non-generic
