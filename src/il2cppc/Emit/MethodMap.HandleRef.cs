@@ -53,9 +53,14 @@ public static partial class MethodRefResolver
                     0, true, true, true,
                     new[] { receiverIsAddress ? "hrp2" : "" }, returnTypeName: "System.Object");
             default:
+                // stacktrace-real message correction: "net48 has no such
+                // member" was false -- net48's HandleRef also declares the
+                // static ToIntPtr(HandleRef) plus the Object overrides. The
+                // honest reason is "not wired in this runtime yet".
                 throw new NotSupportedException(
-                    $"LOUD whitelist (net48 has no such member): System.Runtime.InteropServices.HandleRef::{name} -- " +
-                    "the runtime surface covers .ctor(object, IntPtr)/get_Handle/get_Wrapper " +
+                    $"System.Runtime.InteropServices.HandleRef::{name} is not wired in this runtime yet -- the wired " +
+                    "surface covers .ctor(object, IntPtr)/get_Handle/get_Wrapper (net48 also declares static " +
+                    "ToIntPtr and the Object overrides) " +
                     "[Reference Source runtime_interopservices_handleref.cs]");
         }
     }

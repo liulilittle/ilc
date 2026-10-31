@@ -92,9 +92,13 @@ public static partial class MethodRefResolver
             case "System.Net.WebClient":
                 return TryMapWebClient(name, ps, count);
             default:
+                // stacktrace-real message correction: the owner IS a System.Net
+                // type in net48 -- the real gap is that MethodMap.Net.cs has no
+                // arm for it. Never claim the member does not exist.
                 throw new NotSupportedException(
-                    $"LOUD whitelist (net48 has no such member): {owner} is not a System.Net owner wired by MethodMap.Net.cs " +
-                    "(IPAddress / Socket / WebClient only) [Reference Source: net48 mscorlib System.Net]");
+                    $"{owner}::{name} is not wired in this runtime yet -- MethodMap.Net.cs implements only " +
+                    "IPAddress / Socket / WebClient (the owner is a net48 System.Net type with no runtime " +
+                    "implementation here) [Reference Source: net48 mscorlib System.Net]");
         }
     }
 

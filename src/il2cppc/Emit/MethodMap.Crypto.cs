@@ -138,8 +138,9 @@ public static partial class MethodRefResolver
                     return I($"il2cpp::runtime::icall_{algo}_transform_block", 5, true, true, true,
                         new[] { "", "a", "i", "i", "a", "i" }, resultKind: "i");
                 throw new NotSupportedException(
-                    $"LOUD whitelist (net48 has no such member): '{algo}' is not a HashAlgorithm, so it has " +
-                    "no TransformBlock [Reference Source hashalgorithm.cs:133]");
+                    $"the runtime has no TransformBlock icall for the '{algo}' receiver yet -- net48 DOES declare " +
+                    "TransformBlock (HashAlgorithm.TransformBlock); this receiver's algorithm has no runtime " +
+                    "implementation [Reference Source hashalgorithm.cs:133]");
 
             case "TransformFinalBlock":
                 if (owner == "System.Security.Cryptography.ICryptoTransform")
@@ -159,8 +160,9 @@ public static partial class MethodRefResolver
                     return I($"il2cpp::runtime::icall_{algo}_transform_final_block", 3, true, true, true,
                         new[] { "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
                 throw new NotSupportedException(
-                    $"LOUD whitelist (net48 has no such member): '{algo}' is not a HashAlgorithm, so it has " +
-                    "no TransformFinalBlock [Reference Source hashalgorithm.cs:156]");
+                    $"the runtime has no TransformFinalBlock icall for the '{algo}' receiver yet -- net48 DOES " +
+                    "declare TransformFinalBlock (HashAlgorithm.TransformFinalBlock); this receiver's algorithm " +
+                    "has no runtime implementation [Reference Source hashalgorithm.cs:156]");
 
             case "get_HashSize":
                 // HashAlgorithm.HashSize: the digest size in BITS (net48
@@ -447,8 +449,9 @@ public static partial class MethodRefResolver
                 return I($"il2cpp::runtime::icall_{algo}_compute_hash_stream", 1, true, true, true,
                     new[] { "", "" }, returnTypeName: "System.Byte[]");
             throw new NotSupportedException(
-                $"LOUD whitelist (net48 has no such member): ComputeHash(Stream) on '{algo}' -- only " +
-                "HashAlgorithm defines it [Reference Source hashalgorithm.cs:57]");
+                $"the runtime has no ComputeHash(Stream) icall for the '{algo}' receiver yet -- net48 DOES " +
+                "declare it (HashAlgorithm.ComputeHash(Stream)); this receiver's algorithm has no runtime " +
+                "implementation [Reference Source hashalgorithm.cs:57]");
         }
         throw new NotSupportedException(
             $"LOUD whitelist (net48 has no such overload): ComputeHash arity {count} " +

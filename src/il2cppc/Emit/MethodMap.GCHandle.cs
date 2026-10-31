@@ -98,9 +98,15 @@ public static partial class MethodRefResolver
                         : "il2cpp::runtime::il2cpp_intptr_op_inequality",
                     2, true, false, false, new[] { "", "" });
             default:
+                // stacktrace-real message correction: this catch-all used to
+                // claim "net48 has no such member". net48's GCHandle DOES
+                // declare more members than the list below -- op_Explicit in
+                // both directions, plus the Object overrides -- so the honest
+                // reason is "not wired here yet", not "does not exist".
                 throw new NotSupportedException(
-                    $"LOUD whitelist (net48 has no such member): System.Runtime.InteropServices.GCHandle::{name} -- the runtime " +
-                    "surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated/ToIntPtr/FromIntPtr/op_Equality/op_Inequality " +
+                    $"System.Runtime.InteropServices.GCHandle::{name} is not wired in this runtime yet -- the wired " +
+                    "surface covers Alloc/Free/Target/AddrOfPinnedObject/IsAllocated/ToIntPtr/FromIntPtr/op_Equality/" +
+                    "op_Inequality (net48 also declares op_Explicit and the Object overrides) " +
                     "[Reference Source runtime_interopservices_gchandle.cs:91-264]");
         }
     }
