@@ -31,6 +31,9 @@
 #include "il2cpp_object.h"
 #include "versionuri.h" // icall_uri_to_string (untracked-Uri ToString branch below)
 #include "il2cpp_stringbuilder.h" // icall_stringbuilder_to_string (StringBuilder Object.ToString branch below)
+// stacktrace-real: the StackTrace/StackFrame model -- their ToString overrides
+// reach this file through `callvirt Object::ToString` (see the branches below).
+#include "il2cpp_stacktrace.h"
 // nullable (GN-2): the DateTime/TimeSpan/Guid boxes + the guid.h ToString
 // (the Nullable<T> representation boxes the underlying T).
 #include "guid.h"
@@ -723,6 +726,23 @@ Il2CppString* icall_object_to_string(Il2CppObject* obj)
     if (HasKlassName(obj, "System.Uri"))
     {
         return reinterpret_cast<Il2CppString*>(icall_uri_to_string(obj));
+    }
+    if (obj->klass == &System_Diagnostics_StackTrace_class)
+    {
+        // stacktrace-real: Roslyn emits `callvirt Object::ToString` for
+        // `st.ToString()` (the StackTrace override is reached VIRTUALLY), so
+        // the generated call site lands here, not on a StackTrace-owner
+        // mapping. net48 prints the "   at ..." frame text, never
+        // "System.Diagnostics.StackTrace" -- dispatch the modelled override.
+        return reinterpret_cast<Il2CppString*>(
+            icall_stacktrace_to_string(obj));
+    }
+    if (obj->klass == &System_Diagnostics_StackFrame_class)
+    {
+        // Same virtual-call shape for StackFrame.ToString(): the frame text
+        // without the "   at " prefix (net48).
+        return reinterpret_cast<Il2CppString*>(
+            icall_stackframe_to_string(obj));
     }
     if (obj->klass == &System_AppDomain_class)
     {

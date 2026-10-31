@@ -290,6 +290,12 @@ public static class CodeGenerator
         // declarations (charops static-surface cmake failure otherwise).
         generatedHeader.Line("#include \"il2cpp_char.h\"");
         generatedHeader.Line("#include \"il2cpp_environment.h\"");
+        // stacktrace-real: the System.Diagnostics.StackTrace / StackFrame icall
+        // declarations (icall_stacktrace_*, icall_stackframe_*) live in
+        // il2cpp_stacktrace.h; without the include the generated C++ cannot see
+        // them ("'icall_stackframe_get_file_line_number' is not a member of
+        // 'il2cpp::runtime'" -- the p-stacktrace cmake build).
+        generatedHeader.Line("#include \"il2cpp_stacktrace.h\"");
         // GN-20 legacy AppContext domain -- System.AppContext / Compatibility-
         // Switch icalls (icall_appcontext_*, MethodMap.AppContext.cs) live in
         // appcontext.h (namespace il2cpp::runtime). Without the include the

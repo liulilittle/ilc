@@ -63,10 +63,12 @@ struct Il2CppFrame
     // Managed spelling of the method ("Ns.Type.Method(System.Int32)"), the
     // StackTrace/Environment.StackTrace frame text. Appended AFTER refCount so
     // the existing "{ prev, methodName, refs, refCount }" aggregate
-    // initializers stay valid (this slot is then value-initialized to null and
-    // assigned right after). Never null in generated code -- the emitter
-    // falls back to methodName when it has no managed spelling.
-    const char*  displayName;
+    // initializers stay valid. The default member initializer keeps
+    // runtime-internal frames (GcRoot rooting markers, tests that build a
+    // frame by hand) at null instead of an indeterminate pointer; every
+    // generated prologue ASSIGNS it, and the formatter falls back to
+    // methodName when it is null.
+    const char*  displayName = nullptr;
 
     // RAII pop (M3 Task 10): the frame pops itself when the method's stack
     // storage goes out of scope -- on BOTH the normal return path and the

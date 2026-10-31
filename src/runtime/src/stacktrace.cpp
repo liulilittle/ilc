@@ -47,6 +47,8 @@
 //   baseClass         System.Object (registered by the builtin ensure pass,
 //                     which runs before any user code can allocate)
 //------------------------------------------------------------------------------
+using il2cpp::Il2CppClass;
+
 Il2CppClass System_Diagnostics_StackTrace_class = {
     "System.Diagnostics.StackTrace",                    // name
     static_cast<int32_t>(sizeof(il2cpp::Il2CppStackTrace)), // instanceSize
