@@ -48,6 +48,8 @@
 
 #include <cstdint>
 
+#include "il2cpp_string.h"
+
 namespace il2cpp { namespace runtime {
 
 // IntPtr(int32) ctor: the int32 value IS the pointer carrier (sign-extended
@@ -90,5 +92,26 @@ bool il2cpp_intptr_op_inequality(intptr_t a, intptr_t b);
 // addresses (a value with the top bit set sorts HIGHER than any positive
 // value).
 int32_t il2cpp_intptr_compare(intptr_t a, intptr_t b);
+
+//------------------------------------------------------------------------------
+// Object-surface members (net48 oracle 2026-10-31, x64).
+//
+// IntPtr.GetHashCode(): the LOW 32 BITS of the pointer value, read as a
+// SIGNED int32 -- (IntPtr)0x1234567890 -> 0x34567890, (IntPtr)(-1) -> -1,
+// (IntPtr)0x80000000 -> int.MinValue. It is NOT an identity hash.
+//------------------------------------------------------------------------------
+int32_t il2cpp_intptr_get_hash_code(intptr_t value);
+
+// UIntPtr.GetHashCode(): the low 32 bits MASKED to [0, INT32_MAX] --
+// UIntPtr(ulong.MaxValue) -> 2147483647, UIntPtr(0x80000000) -> 0.
+int32_t il2cpp_uintptr_get_hash_code(intptr_t value);
+
+// IntPtr.ToString(): SIGNED DECIMAL of the pointer value ("255", "-1",
+// "78187493520"). net48 does NOT print hex here.
+Il2CppString* il2cpp_intptr_to_string(intptr_t value);
+
+// UIntPtr.ToString(): UNSIGNED DECIMAL of the pointer value
+// (UIntPtr(ulong.MaxValue) -> "18446744073709551615").
+Il2CppString* il2cpp_uintptr_to_string(intptr_t value);
 
 }} // namespace il2cpp::runtime

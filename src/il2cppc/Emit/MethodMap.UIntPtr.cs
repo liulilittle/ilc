@@ -1,4 +1,4 @@
-namespace Il2Cpp.Transpiler.Emit;
+﻿namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.UIntPtr -- System.UIntPtr pointer-arithmetic icall mappings
@@ -79,6 +79,20 @@ public static partial class MethodRefResolver
             case "ToUInt32":
                 if (ps.Length != 0) return null;
                 return I("il2cpp::runtime::il2cpp_uintptr_to_uint32", 0, true, false, true,
+                    new[] { receiverIsAddress ? "deref:v" : "" });
+            // instance string ToString(): UNSIGNED DECIMAL
+            // (UIntPtr(ulong.MaxValue) -> "18446744073709551615"). net48 has
+            // NO UIntPtr.ToString(string) overload (csc CS1501 on
+            // ua.ToString("X")), so only the 0-argument form is mapped.
+            case "ToString":
+                if (ps.Length != 0) return null;
+                return I("il2cpp::runtime::il2cpp_uintptr_to_string", 0, true, true, true,
+                    new[] { receiverIsAddress ? "deref:v" : "" });
+            // instance int GetHashCode(): low 32 bits MASKED to [0, INT32_MAX]
+            // (ulong.MaxValue -> 2147483647, 0x80000000 -> 0).
+            case "GetHashCode":
+                if (ps.Length != 0) return null;
+                return I("il2cpp::runtime::il2cpp_uintptr_get_hash_code", 0, true, false, true,
                     new[] { receiverIsAddress ? "deref:v" : "" });
             // G8: op_Explicit -- BOTH directions of the explicit operators.
             // (UIntPtr)uint/ulong -> carrier (ret = native uint 0x19).

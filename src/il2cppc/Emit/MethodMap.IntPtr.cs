@@ -1,4 +1,4 @@
-namespace Il2Cpp.Transpiler.Emit;
+﻿namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.IntPtr -- System.IntPtr pointer-arithmetic icall mappings
@@ -95,6 +95,20 @@ public static partial class MethodRefResolver
                 if (!IsIntPtrByte(ps[0])) return null;
                 return I("il2cpp::runtime::il2cpp_intptr_compare", 1, true, false, true,
                     new[] { receiverIsAddress ? "deref:v" : "", "" });
+            // instance string ToString(): SIGNED DECIMAL of the pointer value
+            // ("255" / "-1" / "78187493520") -- net48 prints decimal here, NOT
+            // hex (probe-intptrapi oracle). ToString(string format) is NOT an
+            // IntPtr overload in net48.
+            case "ToString":
+                if (ps.Length != 0) return null;
+                return I("il2cpp::runtime::il2cpp_intptr_to_string", 0, true, true, true,
+                    new[] { receiverIsAddress ? "deref:v" : "" });
+            // instance int GetHashCode(): the LOW 32 BITS of the value as a
+            // signed int32 (big -> 0x34567890), not an identity hash.
+            case "GetHashCode":
+                if (ps.Length != 0) return null;
+                return I("il2cpp::runtime::il2cpp_intptr_get_hash_code", 0, true, false, true,
+                    new[] { receiverIsAddress ? "deref:v" : "" });
             // batch 177 (intptrret probe): `(IntPtr)long` / `(IntPtr)int`
             // explicit conversion calls IntPtr::op_Explicit -- the int64/int32
             // value IS the pointer carrier (same semantics as the IntPtr ctor:

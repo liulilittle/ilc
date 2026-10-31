@@ -1,5 +1,6 @@
 #include "intptr.h"
 #include "il2cpp_exception.h"
+#include "il2cpp_format.h"
 
 namespace il2cpp { namespace runtime {
 
@@ -151,6 +152,54 @@ int32_t il2cpp_intptr_compare(intptr_t a, intptr_t b)
     const uintptr_t ua = static_cast<uintptr_t>(a);
     const uintptr_t ub = static_cast<uintptr_t>(b);
     return (ua < ub) ? -1 : (ua > ub) ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
+// IntPtr.GetHashCode() -- the LOW 32 BITS of the pointer value as a SIGNED
+// int32 (net48 probe 2026-10-31: (IntPtr)0x1234567890 -> 0x34567890 =
+// 878082192, (IntPtr)(-1) -> -1, (IntPtr)0x80000000 -> int.MinValue,
+// (IntPtr)0x100000001 -> 1). The high word is DISCARDED -- this is not an
+// identity hash and not a high^low fold.
+//------------------------------------------------------------------------------
+int32_t il2cpp_intptr_get_hash_code(intptr_t value)
+{
+    return static_cast<int32_t>(static_cast<uint32_t>(static_cast<uintptr_t>(value)));
+}
+
+//------------------------------------------------------------------------------
+// UIntPtr.GetHashCode() -- the low 32 bits masked to a NON-NEGATIVE int32
+// (net48 probe 2026-10-31: ulong.MaxValue -> 2147483647, 0x80000000 -> 0,
+// 0xC0000000 -> 1073741824, 0x1234567890 -> 0x34567890). Because UIntPtr is
+// unsigned the net48 hash is never negative.
+//------------------------------------------------------------------------------
+int32_t il2cpp_uintptr_get_hash_code(intptr_t value)
+{
+    return il2cpp_intptr_get_hash_code(value) & 0x7FFFFFFF;
+}
+
+//------------------------------------------------------------------------------
+// IntPtr.ToString() -- SIGNED DECIMAL ("255", "-1", "78187493520").
+//
+// net48's IntPtr.ToString() is NOT hex and NOT %p: it prints the pointer
+// value in decimal with a '-' for a negative (top-bit-set) pointer. The
+// canonical digit loop already lives in icall_int64_to_string, so the value
+// is widened (sign-preserving, CLI III.3.4) and formatted there -- one
+// decimal formatter in the runtime, no duplicated digit code.
+//------------------------------------------------------------------------------
+Il2CppString* il2cpp_intptr_to_string(intptr_t value)
+{
+    return icall_int64_to_string(static_cast<int64_t>(value));
+}
+
+//------------------------------------------------------------------------------
+// UIntPtr.ToString() -- UNSIGNED DECIMAL
+// (UIntPtr(ulong.MaxValue) -> "18446744073709551615"). The bit pattern is
+// reinterpreted as uintptr_t (never sign-extended) and formatted by the
+// unsigned int64 digit loop.
+//------------------------------------------------------------------------------
+Il2CppString* il2cpp_uintptr_to_string(intptr_t value)
+{
+    return icall_uint64_to_string(static_cast<uint64_t>(static_cast<uintptr_t>(value)));
 }
 
 }} // namespace il2cpp::runtime
