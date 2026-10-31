@@ -14,9 +14,16 @@
 //   * read after WaitForExit  -> the SAME value, if read while alive
 //   * read 500 ms later       -> the SAME value (child object reclaimed)
 //   * repeat reads            -> identical value (net48 caches the instance)
-//   * Kill, then read         -> the cached value if read while alive,
-//                                InvalidOperationException otherwise
-//   * NEVER read while alive, then read after exit / Kill
+//   * Kill + WaitForExit, read
+//                             -> the cached value if read while alive
+//                                (40/40 runs), InvalidOperationException otherwise
+//                                (100/100 runs)
+//   * Kill, then read WITHOUT a full-exit barrier
+//                             -> NOT deterministic (3/40 runs answered the name
+//                                while the process object was still being torn
+//                                down); this probe does not pin that race -- see
+//                                [h]/[h2] below for the two deterministic arms
+//   * NEVER read while alive, then read after exit
 //                             -> InvalidOperationException
 //   * GetCurrentProcess()     -> this exe's stem (reduced to non-empty here:
 //                                the two executables have different names)
@@ -176,15 +183,15 @@ namespace Cases
             }
             Console.WriteLine("[g.unread_after_wait]=" + gName);
 
-            // [h]: never read while alive, Kill, then read -> same net48 rule.
+            // [h]: the throwing arm, deterministic. Never read while alive, Kill,
+            // then WaitForExit as the full-exit barrier; the first-ever read
+            // raises InvalidOperationException (net48 scratch: 100/100 runs).
+            // The old HasExited-poll-only formulation raced the kernel teardown
+            // of the process object and answered "PING" in 3/40 runs, so it
+            // pinned neither arm; WaitForExit removes that window (candidate b).
             Process ph = Process.Start("ping.exe", "-n 30 127.0.0.1");
             ph.Kill();
-            int spins2 = 0;
-            while (!ph.HasExited && spins2 < 600)
-            {
-                Thread.Sleep(10);
-                spins2++;
-            }
+            ph.WaitForExit();
             string hName;
             try
             {
@@ -195,6 +202,35 @@ namespace Cases
                 hName = "!" + e.GetType().Name;
             }
             Console.WriteLine("[h.unread_after_kill]=" + hName);
+
+            // [h2]: the answering arm, deterministic. A live read fills net48's
+            // cached name, then Kill + WaitForExit: the SAME stem is still
+            // answered (net48 scratch: PING|PING 40/40 runs). This is the
+            // cached-name half of the old [h] race, pinned exactly instead of
+            // by timing.
+            Process ph2 = Process.Start("ping.exe", "-n 30 127.0.0.1");
+            string h2Alive;
+            try
+            {
+                h2Alive = ph2.ProcessName;
+            }
+            catch (Exception e)
+            {
+                h2Alive = "!" + e.GetType().Name;
+            }
+            ph2.Kill();
+            ph2.WaitForExit();
+            string h2After;
+            try
+            {
+                h2After = ph2.ProcessName;
+            }
+            catch (Exception e)
+            {
+                h2After = "!" + e.GetType().Name;
+            }
+            Console.WriteLine("[h.cached_after_kill]=" + h2After);
+            Console.WriteLine("[h.cached_after_kill.eq_alive]=" + Same(h2After, h2Alive));
 
             // [i]: never read while alive, HasExited poll only (the process
             // handle is still held by the slot but the object is terminated),
