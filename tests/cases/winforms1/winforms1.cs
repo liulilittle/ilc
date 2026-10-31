@@ -5671,7 +5671,7 @@ public const int CB_ADDSTRING = 0x0143;
         // lpstrFile path back (the suffix is derived from the path STRING --
         // the nFileExtension writeback is unreliable when the dialog's result
         // equals the pre-filled name, probed).
-        IntPtr p25FileBuf = Marshal.AllocHGlobal(256);
+        IntPtr p25FileBuf = Marshal.AllocHGlobal(2048);
         IntPtr p25Filter = Marshal.StringToHGlobalUni("All\0*.*\0");
         IntPtr p25Title = Marshal.StringToHGlobalUni(P25_TITLE);
         int[] ofn25 = new int[38];
@@ -5682,7 +5682,7 @@ public const int CB_ADDSTRING = 0x0143;
         long fb25 = p25FileBuf.ToInt64();
         ofn25[12] = (int)(fb25 & 0xFFFFFFFFL);
         ofn25[13] = (int)((fb25 >> 32) & 0xFFFFFFFFL);
-        ofn25[14] = 128;
+        ofn25[14] = 1024;
         long pt25 = p25Title.ToInt64();
         ofn25[22] = (int)(pt25 & 0xFFFFFFFFL);
         ofn25[23] = (int)((pt25 >> 32) & 0xFFFFFFFFL);
@@ -5695,7 +5695,7 @@ public const int CB_ADDSTRING = 0x0143;
             // deterministic non-empty file name -- "winforms1.exe" on net48,
             // "il2cpp_gen_exe.exe" on the transpiled run, extension "exe"
             // on both; the dialog keeps the name and prepends its directory).
-            GetModuleFileNameW(IntPtr.Zero, p25FileBuf, 128);
+            GetModuleFileNameW(IntPtr.Zero, p25FileBuf, 1024);
 
             P25OpenResult = -1;
             Thread p25Thread = new Thread(P25OpenFileWorker);
