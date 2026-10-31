@@ -8267,7 +8267,19 @@ public static class StackFold
                 // methodPtr ABI the arrayext2 icalls invoke directly).
                 || fullName.StartsWith("System.Predicate`", StringComparison.Ordinal)
                 || fullName.StartsWith("System.Converter`", StringComparison.Ordinal)
-                || fullName.StartsWith("System.Comparison`", StringComparison.Ordinal))
+                || fullName.StartsWith("System.Comparison`", StringComparison.Ordinal)
+                // P0 batch A (RuntimeHelpers.ExecuteCodeWithGuaranteedCleanup):
+                // the CER delegate pair is NESTED in the BCL type
+                // (System.Runtime.CompilerServices.RuntimeHelpers+TryCode /
+                // +CleanupCode). They are ordinary single-cast delegates
+                // (TryCode(object), CleanupCode(object, bool)) the runtime
+                // helper invokes directly, so they ride the same
+                // il2cpp_delegate_new path -- without this the newobj fell to
+                // the reference-alloc path and emitted undefined
+                // System_Runtime_CompilerServices_RuntimeHelpers_TryCode_class
+                // / __ctor_<hash> symbols.
+                || fullName == "System.Runtime.CompilerServices.RuntimeHelpers+TryCode"
+                || fullName == "System.Runtime.CompilerServices.RuntimeHelpers+CleanupCode")
                 return true;
             if (types == null) return false;
             // Nested-name match: nested TypeDefs carry Namespace="" (FullName is

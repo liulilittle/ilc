@@ -18,6 +18,8 @@
 
 #include "il2cpp_interlocked.h"
 
+#include <atomic> // std::atomic_thread_fence (SpeculationBarrier)
+
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
     #ifndef NOMINMAX
@@ -177,14 +179,18 @@ void* il2cpp_interlocked_compare_exchange_pointer(void** location, void* value, 
 //------------------------------------------------------------------------------
 // il2cpp_interlocked_speculation_barrier -- Interlocked.SpeculationBarrier.
 //
-// EMPTY implementation (audit-approved): net48 semantics is a hardware
-// speculation fence; every operation in this module is a sequentially-
-// consistent atomic (Win32 Interlocked* or __ATOMIC_SEQ_CST), which the
-// compiler/hardware already prevents from being speculated or reordered
-// across -- there is no speculative-load window for a barrier to close.
+// net48 implements this as a hardware speculation barrier
+// (__faststorefence()/MemoryBarrier()). The old empty body argued "there is
+// no speculative-load window to close" -- that was an assumption, not a
+// measurement. The contract the managed API states is a full reordering
+// barrier at the call site, and the platform-portable way to express it is
+// C++11 std::atomic_thread_fence(seq_cst) (the SAME primitive
+// icall_thread_memory_barrier already uses). Cost is a single compiler/hardware
+// fence, so the real fence is strictly safer than an empty body.
 //------------------------------------------------------------------------------
 void il2cpp_interlocked_speculation_barrier()
 {
+    std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 
 //------------------------------------------------------------------------------

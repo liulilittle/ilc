@@ -16,6 +16,10 @@
 #include "il2cpp_array.h"
 #include "il2cpp_exception.h"
 #include "il2cpp_delegate.h"
+// P0 batch A: RuntimeHelpers JIT/stack/CER icalls (runtimehelpers.cpp).
+// Every generated translation unit includes this contract header first, so
+// the generated calls see the declarations without a CodeGenerator edit.
+#include "il2cpp_runtime_helpers.h"
 #include "il2cpp_frame.h"
 #include "il2cpp_pinvoke.h"
 // C42 fold fix (culturedeep): cultureinfo.h declares the il2cpp_culture_*

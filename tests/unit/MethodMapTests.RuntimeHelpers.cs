@@ -61,18 +61,36 @@ public class MethodMapTestsRuntimeHelpers
     }
 
     //--------------------------------------------------------------------------
-    // The net48 audit §3 JIT-prepare / stack-probe / CER hints have no
-    // runtime counterpart -- LOUD, self-identifying.
+    // P0 batch A: the net48 audit §3 JIT-prepare / stack-probe / CER hints are
+    // now wired to the runtime helpers (probe-measured semantics -- see
+    // il2cpp_runtime_helpers.h); the LOUD rejection is gone.
     //--------------------------------------------------------------------------
     [Theory]
-    [InlineData("PrepareDelegate", 0x1C)]
-    [InlineData("PrepareContractedDelegate", 0x1C)]
-    [InlineData("EnsureSufficientExecutionStack", 0x01)]
-    [InlineData("ProbeForSufficientStack", 0x01)]
-    [InlineData("ExecuteCodeWithGuaranteedCleanup", 0x1C)]
+    [InlineData("PrepareDelegate", 0x1C, 1, "il2cpp::runtime::icall_runtime_helpers_prepare_delegate")]
+    [InlineData("PrepareContractedDelegate", 0x1C, 1, "il2cpp::runtime::icall_runtime_helpers_prepare_contracted_delegate")]
+    [InlineData("EnsureSufficientExecutionStack", 0x01, 0, "il2cpp::runtime::icall_runtime_helpers_ensure_sufficient_execution_stack")]
+    [InlineData("ProbeForSufficientStack", 0x01, 0, "il2cpp::runtime::icall_runtime_helpers_probe_for_sufficient_stack")]
+    [InlineData("ExecuteCodeWithGuaranteedCleanup", 0x1C, 3, "il2cpp::runtime::icall_runtime_helpers_execute_code_with_guaranteed_cleanup")]
+    [InlineData("InitializeArray", 0x1C, 2, "il2cpp::runtime::icall_runtime_helpers_initialize_array")]
+    public void Resolve_P0BatchA_MapsToRuntimeHelpersIcall(string memberName, byte ret, int paramCount, string cpp)
+    {
+        var ps = new byte[paramCount];
+        for (var i = 0; i < ps.Length; i++) ps[i] = 0x1C;
+        var resolved = ResolveMember(Synthesize(memberName, Sig(ret, ps)), memberName);
+
+        Assert.Equal(cpp, resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.False(resolved.ReturnsValue);
+        Assert.Equal(paramCount, resolved.ParamCount);
+    }
+
+    //--------------------------------------------------------------------------
+    // The remaining net48 audit §3 members (type/module-init drivers) still
+    // have no runtime counterpart -- LOUD, self-identifying.
+    //--------------------------------------------------------------------------
+    [Theory]
     [InlineData("_RunClassConstructor", 0x1C)]
     [InlineData("_RunModuleConstructor", 0x1C)]
-    [InlineData("InitializeArray", 0x1C)]
     public void Resolve_LoudMembers_ThrowsLoud(string memberName, byte ret)
     {
         var ex = Assert.Throws<NotSupportedException>(() =>

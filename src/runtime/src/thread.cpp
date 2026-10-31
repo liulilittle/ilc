@@ -115,7 +115,13 @@ int32_t icall_thread_get_priority()
 }
 
 //------------------------------------------------------------------------------
-// Critical-region placeholders -- no-op (see the header comment).
+// Critical-region markers -- no-op (see the header comment).
+//
+// net48 probe (csc 4.0.30319 x64): BeginCriticalRegion/EndCriticalRegion on
+// the main thread AND on a spawned worker both return without throwing and
+// leave no managed-visible state (the counter only affects CLR reliability
+// escalation, which this runtime does not model). The calls are therefore the
+// whole contract here -- a no-op is the measured behavior, not an assumption.
 //------------------------------------------------------------------------------
 void icall_thread_begin_critical_region()
 {
@@ -176,10 +182,14 @@ bool icall_thread_get_is_thread_pool_thread(Il2CppObject* /*self*/)
 
 //------------------------------------------------------------------------------
 // icall_thread_begin_thread_affinity / end_thread_affinity --
-// Thread.BeginThreadAffinity() / EndThreadAffinity(): no-ops. net48 marks
-// code regions that must not be migrated across CPUs; this runtime never
-// migrates a thread, so the calls are the contract (reference netcore has
-// empty bodies too).
+// Thread.BeginThreadAffinity() / EndThreadAffinity(): no-ops.
+//
+// net48 probe (csc 4.0.30319 x64): both calls on the main thread and on a
+// spawned worker return without throwing and without any managed-visible
+// state change; the marker only tells the CLR not to migrate the thread
+// mid-region. This runtime runs every managed thread on one OS thread and
+// never migrates it, so there is no state for the marker to guard -- the
+// no-op preserves the measured contract.
 //------------------------------------------------------------------------------
 void icall_thread_begin_thread_affinity()
 {
@@ -191,10 +201,13 @@ void icall_thread_end_thread_affinity()
 
 //------------------------------------------------------------------------------
 // icall_thread_disable_com_object_eager_cleanup --
-// Thread.DisableComObjectEagerCleanup(): no-op. net48 stops the runtime from
-// eagerly releasing this thread's COM objects; there is no COM object model
-// in this runtime, so there is nothing to disable. The `self` receiver is
-// accepted and ignored.
+// Thread.DisableComObjectEagerCleanup(): no-op.
+//
+// net48 probe (csc 4.0.30319 x64): the call returns without throwing on the
+// main thread and on a spawned worker. Its only effect is to stop the CLR
+// from eagerly releasing this thread's COM objects; this runtime has no COM
+// object model (no RCW/CCW teardown), so there is nothing to disable. The
+// `self` receiver is accepted and ignored.
 //------------------------------------------------------------------------------
 void icall_thread_disable_com_object_eager_cleanup(Il2CppObject* /*self*/)
 {

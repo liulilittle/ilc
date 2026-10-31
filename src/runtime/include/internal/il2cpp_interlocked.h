@@ -87,11 +87,10 @@ int64_t il2cpp_interlocked_compare_exchange64(int64_t* location, int64_t value, 
 void* il2cpp_interlocked_compare_exchange_pointer(void** location, void* value, void* comparand);
 
 // Interlocked.SpeculationBarrier() -- the net48 hardware speculation fence.
-// EMPTY implementation (audit-approved): every Interlocked operation in this
-// runtime is a sequentially-consistent atomic (Win32 Interlocked* or
-// __ATOMIC_SEQ_CST), which the compiler already prevents from being
-// speculated/reordered across, so there is no speculative-load window for a
-// barrier to close.
+// Implemented as a REAL full reordering barrier:
+// std::atomic_thread_fence(std::memory_order_seq_cst) (the same primitive as
+// Thread.MemoryBarrier). The previous empty body was an assumption, not a
+// measured equivalence.
 void il2cpp_interlocked_speculation_barrier();
 
 // P6: Interlocked float/double atomics via bit-reinterpretation.

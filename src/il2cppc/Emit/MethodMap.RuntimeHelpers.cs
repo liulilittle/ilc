@@ -17,20 +17,26 @@ namespace Il2Cpp.Transpiler.Emit;
 //     produces the boxed value, so the wrapper is an identity).
 //   * InitializeArray        -> folded by StackFold.FoldInitializeArray
 //     (the ldtoken<RVA field> + newarr pattern) BEFORE the resolver runs;
-//     the LOUD below is the safety net for an un-folded shape.
+//     the resolver arm below serves the un-folded runtime-handle shape.
 //
-// LOUD (net48 audit section 3 -- JIT-prepare / stack-probe / constrained-execution
-// hints with no runtime counterpart; an empty implementation would be a
-// silent semantic gap):
-//   * PrepareDelegate / PrepareContractedDelegate  -- JIT-prepare hints
-//     (netcore bodies are empty); this AOT has no JIT to prepare.
-//   * EnsureSufficientExecutionStack / ProbeForSufficientStack -- host
-//     stack-probe hints; the runtime has no probe primitive.
-//   * ExecuteCodeWithGuaranteedCleanup             -- constrained-execution
-//     try/finally (TryCode/CleanupCode delegate pair); no runtime support.
-//   * _RunClassConstructor / _RunModuleConstructor -- module/type-init
-//     drivers; the transpiler drives cctor guards statically.
-//   * InitializeArray (fallback)                    -- see above.
+// P0 batch A (wired -- probe-measured net48 semantics, see
+// src/runtime/include/internal/il2cpp_runtime_helpers.h):
+//   * PrepareDelegate / PrepareContractedDelegate  -> no-op JIT-prepare
+//     hints (net48 accepts null and valid delegates without throwing).
+//   * EnsureSufficientExecutionStack               -> the runtime's REAL
+//     per-thread stack-limit check (throws
+//     InsufficientExecutionStackException below the guard).
+//   * ProbeForSufficientStack                      -> stack-touch hint no-op
+//     (net48 deep recursion is a raw SOE, not a managed exception).
+//   * ExecuteCodeWithGuaranteedCleanup             -> runtime try/cleanup
+//     driver (cleanup runs on both paths, exception rethrown).
+//   * InitializeArray                              -> StackFold handles the
+//     compiler-generated RVA shape; the un-folded runtime-handle shape goes
+//     to the runtime helper's net48 invalid-handle contract.
+//
+// LOUD (net48 audit section 3 -- type/module-init drivers):
+//   * _RunClassConstructor / _RunModuleConstructor -- the transpiler drives
+//     type-initialization through generated ensure_cctor guards.
 //
 // Anything else returns null -> the generated-name path (standard unwired
 // behavior; this family is not reachable from ordinary net48 user code).
@@ -68,28 +74,29 @@ public static partial class MethodRefResolver
                     : throw new NotSupportedException(
                         $"LOUD whitelist (net48 has no such overload): RuntimeHelpers.GetObjectValue with {ps.Length} arg(s) -- " +
                         "net48 has exactly GetObjectValue(object) [Reference Source runtimehelpers.cs:50]");
-            // --- LOUD rejections (net48 audit section 3; no runtime counterpart) ---
+            // --- P0 batch A: wired to the runtime helpers (net48 probe-measured;
+            // see il2cpp_runtime_helpers.h / runtimehelpers.cpp) ---
+            // void PrepareDelegate(Delegate): JIT-prepare hint, no-op in AOT.
             case "PrepareDelegate":
-                throw new NotSupportedException(
-                    "LOUD whitelist (① machine/JIT state): RuntimeHelpers.PrepareDelegate is a JIT-prepare hint " +
-                    "(this AOT has no JIT to prepare the delegate) [Reference Source runtimehelpers.cs:135]");
+                return I("il2cpp::runtime::icall_runtime_helpers_prepare_delegate", 1, false, false, false, new[] { "" });
+            // void PrepareContractedDelegate(Delegate): same JIT-prepare hint.
             case "PrepareContractedDelegate":
-                throw new NotSupportedException(
-                    "LOUD whitelist (① machine/JIT state): RuntimeHelpers.PrepareContractedDelegate is a constrained-execution " +
-                    "JIT-prepare hint (no JIT to prepare) [Reference Source runtimehelpers.cs:150]");
+                return I("il2cpp::runtime::icall_runtime_helpers_prepare_contracted_delegate", 1, false, false, false, new[] { "" });
+            // void EnsureSufficientExecutionStack(): the runtime performs a REAL
+            // per-thread stack-limit check and throws
+            // System.InsufficientExecutionStackException below the guard.
             case "EnsureSufficientExecutionStack":
-                throw new NotSupportedException(
-                    "LOUD whitelist (① machine/JIT state): RuntimeHelpers.EnsureSufficientExecutionStack is a host stack-probe " +
-                    "hint (the AOT runs on the host stack with no managed stack-limit checks) [Reference Source runtimehelpers.cs:191]");
+                return I("il2cpp::runtime::icall_runtime_helpers_ensure_sufficient_execution_stack", 0, false, false, false);
+            // void ProbeForSufficientStack(): net48 stack-touch hint (no managed
+            // exception contract; deep recursion is a raw SOE).
             case "ProbeForSufficientStack":
-                throw new NotSupportedException(
-                    "LOUD whitelist (① machine/JIT state): RuntimeHelpers.ProbeForSufficientStack is a host stack-probe hint " +
-                    "(no managed stack-limit checks) [Reference Source runtimehelpers.cs:197]");
+                return I("il2cpp::runtime::icall_runtime_helpers_probe_for_sufficient_stack", 0, false, false, false);
+            // void ExecuteCodeWithGuaranteedCleanup(TryCode, CleanupCode, object):
+            // the runtime runs code(userData), always runs
+            // backoutCode(userData, exceptionThrown) and rethrows.
             case "ExecuteCodeWithGuaranteedCleanup":
-                throw new NotSupportedException(
-                    "LOUD whitelist (③ no runtime descriptor): RuntimeHelpers.ExecuteCodeWithGuaranteedCleanup is a " +
-                    "constrained-execution try/finally (TryCode/CleanupCode delegate pair); the runtime has no CER support " +
-                    "[Reference Source runtimehelpers.cs:229]");
+                return I("il2cpp::runtime::icall_runtime_helpers_execute_code_with_guaranteed_cleanup", 3, false, false, false,
+                    new[] { "", "", "" });
             case "_RunClassConstructor":
                 throw new NotSupportedException(
                     "LOUD whitelist (③ no runtime descriptor): RuntimeHelpers._RunClassConstructor is a runtime type-init " +
@@ -102,13 +109,15 @@ public static partial class MethodRefResolver
             case "InitializeArray":
                 // StackFold.FoldInitializeArray intercepts the canonical
                 // `newarr + dup + ldtoken<RVA field> + InitializeArray`
-                // pattern BEFORE the resolver (StackFold.cs:1333); reaching
-                // here means an un-folded shape -- reject, never emit a call
-                // against the fold-only member.
-                throw new NotSupportedException(
-                    "LOUD whitelist (③ no runtime descriptor): RuntimeHelpers.InitializeArray is a StackFold fold " +
-                    "(ldtoken<RVA field> + newarr); the call reached the resolver without the fold pattern " +
-                    "[Reference Source runtimehelpers.cs:32]");
+                // pattern BEFORE the resolver, so every compiler-generated
+                // `new T[] { ... }` initializer never reaches this arm.
+                // A handle obtained at runtime (e.g. FieldInfo.FieldHandle)
+                // has no compile-time RVA blob to fold; the runtime helper
+                // reproduces net48's invalid-handle contract (default handle
+                // -> ArgumentNullException, any other un-folded handle ->
+                // ArgumentException) instead of rejecting the program.
+                return I("il2cpp::runtime::icall_runtime_helpers_initialize_array", 2, false, false, false,
+                    new[] { "", "" });
             default:
                 return null;
         }
