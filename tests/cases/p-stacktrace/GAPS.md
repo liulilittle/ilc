@@ -1,8 +1,19 @@
 # GAPS.md -- p-stacktrace recorded findings (GN-20 legacy, P1)
 
-Case status: **W7 whitelist** (recorded, NOT byte-exact fixable in the ILC
-model). The probe `p-stacktrace.cs` is kept as the net48 measurement + red
-evidence; the runtime channel cannot match it byte-for-byte.
+Case status: **W7 whitelist** (recorded, NOT byte-exact in the ILC model), but
+**no longer a rejection case**: since `stacktrace-real` (2026-11-01) the probe
+TRANSPILES, BUILDS and RUNS (exit 0, real frame text), because
+`Environment.StackTrace` and the StackTrace/StackFrame surface are implemented
+over the runtime's shadow frame stack (`src/runtime/src/stacktrace.cpp`). The
+case stays in `scripts/sweep-exclude.txt` only for the residual FORMAT
+divergences listed at the bottom of this file (PDB file/line info, the
+CLR-internal `System.Environment.GetStackTrace` frames, and the
+exception-attached frame list).
+
+Superseded below: the older notes that describe the managed StackTrace surface
+as "not wired in M5" / "not reconstructible" are kept as history -- every
+member the probe calls is now a real icall, and the two messages that claimed
+net48 lacked them were false.
 
 ## Why byte-exact is impossible (measured net48, zh-CN host)
 
@@ -75,15 +86,29 @@ locale resources, all outside the transpiler's native surface.
 
 ## Recorded, NOT fixed (W7; evidence)
 
-- `tests/cases/p-stacktrace/` probe (net48-compiled): `expected.txt` is the
-  raw net48 oracle (1237 bytes) under the zh-CN host. Runtime channel:
-  `Main` fold-skips on the unwired managed members -> 0 bytes, code 1
-  (`this method was not transpiled`). Probe diff stays RED by design; the case
-  is documentation, not a green difftest.
-- net48 frame-text proof lines (S3/S5/S6) contain absolute paths + line/col
-  (`位置 F:\...\行号 36`) and CLR-internal frames (`System.Environment.GetStackTrace`)
-  -- neither is statically reconstructible. S6 `Environment.StackTrace` frame
-  list is additionally net48-runtime-specific.
+- SUPERSEDED (stacktrace-real, 2026-11-01): the old text here said the runtime
+  channel "fold-skips on the unwired managed members -> 0 bytes, code 1".
+  That is no longer true. Measured: transpile reports **0** `method fold
+  failed` warnings, `gen/src/Cases_PStackTrace.cpp` carries frame records for
+  `Main`/`Probe`/`OnPeek`/`Throws`/`Params`/`Strip`, and the built exe exits
+  **0** with non-empty stdout (`[S1.count] 1`, `[S1.tostr]    at
+  Cases.PStackTrace.Main()`, ..., `[S8.onpect] 1`).
+- The case is STILL not byte-exact, for these measured reasons:
+  1. net48 frame text carries absolute PDB paths + line/col
+     (`位置 F:\...\行号 36`); an AOT build has no PDB, so
+     `GetFileName()` is null and the line/column numbers are 0 (net48's own
+     answer for a frame built without file info) -- the ` in ...:line N`
+     suffix is absent.
+  2. net48's `Environment.StackTrace` (S6) additionally lists its own
+     CLR-internal `System.Environment.GetStackTrace(Exception e, Boolean
+     needFileInfo)` / `get_StackTrace()` frames; the runtime has no such
+     helpers, so S6 starts at the first managed frame.
+  3. S4 (`new StackTrace(ex)` after a catch) reports the frames alive at
+     construction (1: `Main`) instead of the exception's throw-time frames
+     (2: `ThrowInner`, `Main`) -- exception objects here carry no frame list.
+  4. S5 (`ex.ToString()`) prints only the exception type; the exception
+     message/frame text is a separate pre-existing surface.
+  5. The localized marker word (zh-CN `在`) renders as the invariant `at`.
 
 ## Verification
 

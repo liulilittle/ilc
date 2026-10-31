@@ -2247,3 +2247,46 @@ Unit: 3993/3993 (baseline 3974 + 19 new assertions in
   LOUD: the comparer would have to be dispatched per family (`GroupKeysEqual`
   refuses it explicitly). The default (null) comparer covers every new kind.
 
+
+## 24. stacktrace-real: System.Diagnostics.StackTrace / Environment.StackTrace
+
+FIXED (not a gap): `Environment.StackTrace` and the StackTrace/StackFrame
+managed surface used to be LOUD rejections. Two of the messages were factually
+false (`Environment.get_StackTrace` and `StackTrace::get_FrameCount` exist in
+net48 and are statically analyzable), and a rejection deletes the WHOLE
+enclosing method, so one `Console.WriteLine(Environment.StackTrace)` made a
+program untranspilable. Both are now REAL: the runtime keeps a per-thread
+shadow frame stack whose records carry each method's managed spelling
+(`Il2CppFrame::displayName`), and `stacktrace.cpp` captures/formats it.
+
+Remaining, registered deviations -- format divergences, never rejections:
+
+1. **No PDB.** `StackFrame.GetFileName()` answers null and
+   `GetFileLineNumber()` / `GetFileColumnNumber()` answer 0 (net48's own answer
+   for a frame built without file info). The net48 frame text therefore has no
+   ` in <abs path>:line N` suffix.
+2. **No CLR-internal frames.** net48's `Environment.StackTrace` starts with
+   its own `System.Environment.GetStackTrace(...)` / `get_StackTrace()`
+   frames; an AOT build has no such helpers, so the text starts at the first
+   managed frame.
+3. **`new StackTrace(Exception)` captures the LIVE stack**, not the exception's
+   throw-time frames: this runtime's exception objects carry a message + type
+   chain and no frame list (`exception.cpp` / `stubs.cpp` exception side
+   tables), so there is nothing to read back. Consequence: `new StackTrace(ex)`
+   after catching reports the frames alive at construction. A faithful fix
+   requires a throw-time frame snapshot on every exception object -- a
+   separate, larger change.
+4. **`StackFrame.GetMethod()` returns the method's SIMPLE managed name** (the
+   simplified member model the reflection surface resolves:
+   `MethodBase.GetParameters` / `MemberInfo.get_Name` / `get_DeclaringType`).
+   The declaring type is recovered by a registry scan for that name, so two
+   types declaring the same method name can resolve to the deepest one.
+5. **`Environment.StackTrace` between frames uses CRLF**, one
+   `   at Ns.Type.Method(params)` line per frame, innermost first, matching the
+   net48 separator; the localized marker word of the host (zh-CN "在") is not
+   reproduced -- the runtime emits the invariant "at".
+6. `GetStackFramesInternal` (mscorlib-internal enumerator) stays a no-op: user
+   code cannot reach it and the transpiled StackTrace ctors do not call it.
+7. `Exception.ToString()` (the probe's [S5.ex] record) still prints only the
+   exception type: the exception-message surface is a separate, pre-existing
+   divergence (`MethodMap.Exception.cs`), unchanged by this work.
