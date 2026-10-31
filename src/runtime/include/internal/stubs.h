@@ -5,6 +5,18 @@
 
 #include "../il2cpp_api.h"
 #include "il2cpp_time.h"
+// p0c domains: the generated code sees these declarations through stubs.h
+// (the include table in CodeGenerator is another seat's file). il2cpp_rwlock.h
+// and il2cpp_remoting.h also carry the class descriptors the generated
+// newobj/base-class/isinst references need; com_factory.h carries the
+// ObjectCreationDelegate descriptor.
+#include "il2cpp_rwlock.h"
+#include "il2cpp_remoting.h"
+#include "com_factory.h"
+// p0c D2/D3: the Debugger icalls (debuggerext.h) were mapped but never
+// visible to generated code -- no e2e case had ever called IsAttached /
+// IsLogging. The real OS queries live there now.
+#include "debuggerext.h"
 
 #include <cstdint>
 
@@ -224,7 +236,6 @@ int32_t icall_interlocked_compare_exchange_found(int32_t* location, int32_t valu
 void icall_weak_reference_finalize(Il2CppObject* self);
 Il2CppObject* icall_appdomain_n_create_context();
 void icall_environment_get_version_ex();
-int32_t icall_reader_writer_lock_any_writers_since(int32_t seqNum);
 
 // Remaining X509 stubs
 Il2CppObject* icall_x509_utils_get_date_not_before(Il2CppObject* self);

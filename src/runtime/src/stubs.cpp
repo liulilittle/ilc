@@ -1203,13 +1203,6 @@ void icall_environment_get_version_ex()
         "Environment.GetVersionEx requires the OperatingSystem object model (use Environment.OSVersion for the string surface)");
 }
 
-// ReaderWriterLock.AnyWritersSince (net48): the legacy lock has no runtime
-// model -- the constant false answer (no writer ever held it).
-int32_t icall_reader_writer_lock_any_writers_since(int32_t)
-{
-    return 0;
-}
-
 // System.Number.DoubleToNumber / NumberToDouble (net48 internal formatting
 // surface): NumberBuffer is internal (user code cannot construct it) -- the
 // documented PNSE contract (see MethodMap.GC.cs DoubleToNumber).

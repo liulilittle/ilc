@@ -422,13 +422,15 @@ public class MethodMapTestsDateTimeLoud
     }
 
     // --- MethodMap.Legacy.cs (no runtime object model) ---
+    // p0c D31-D35 wired the five public-face state accessors, so the family
+    // LOUD sample is a member that still needs the missing object model.
     [Fact]
     public void Loud_RemotingFamily_NoRuntimeDescriptor()
     {
         AssertLoudWhitelist(() => ResolveMember(
-            Synthesize("System.Runtime.Remoting", "RemotingServices", "IsTransparentProxy",
-                new byte[] { 0x00, 0x01, 0x02, 0x1C }), "IsTransparentProxy"),
-            "runtime descriptor");
+            Synthesize("System.Runtime.Remoting", "RemotingServices", "CreateTransparentProxy",
+                new byte[] { 0x00, 0x01, 0x02, 0x1C }), "CreateTransparentProxy"),
+            "remoting object model");
     }
 
     [Fact]
@@ -463,12 +465,15 @@ public class MethodMapTestsDateTimeLoud
             "runtime descriptor");
     }
 
+    // p0c D37 wired the lock object model; the LockCookie members are the
+    // remaining LOUD strain.
     [Fact]
     public void Loud_ReaderWriterLock_NoRuntimeDescriptor()
     {
         AssertLoudWhitelist(() => ResolveMember(
-            Synthesize("System.Threading", "ReaderWriterLock", "AcquireWriterLock", Sig(0x01, 0x08)), "AcquireWriterLock"),
-            "runtime descriptor");
+            Synthesize("System.Threading", "ReaderWriterLock", "DowngradeFromWriterLock", Sig(0x00, 0x1C)),
+            "DowngradeFromWriterLock"),
+            "LockCookie");
     }
 
     // --- MethodMap.Dtoffset.cs (boxed DateTimeOffset) ---

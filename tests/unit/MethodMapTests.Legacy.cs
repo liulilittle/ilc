@@ -19,14 +19,16 @@ public class MethodMapTestsLegacy
     // (net48 audit §3 row 979: "legacy technique, LOUD rejection recommended"). The family has no
     // runtime infrastructure (proxies/ObjRef/channels/contexts).
     //--------------------------------------------------------------------------
+    // p0c D31-D35: the five public-face state accessors (GetProxiedType /
+    // GetTransparentProxy / GetStubData / SetStubData / IsTransparentProxy /
+    // GetRealProxy) and the RealProxy ctors are now WIRED; the rest of the
+    // family still has no runtime infrastructure and stays LOUD.
     [Theory]
-    [InlineData("System.Runtime.Remoting", "RemotingServices", "IsTransparentProxy")]
-    [InlineData("System.Runtime.Remoting", "RemotingServices", "GetRealProxy")]
     [InlineData("System.Runtime.Remoting", "RemotingServices", "CreateTransparentProxy")]
     [InlineData("System.Runtime.Remoting", "RemotingServices", "AllocateUninitializedObject")]
     [InlineData("System.Runtime.Remoting", "RemotingServices", "AllocateInitializedObject")]
     [InlineData("System.Runtime.Remoting", "RemotingServices", "CallDefaultCtor")]
-    [InlineData("System.Runtime.Remoting.Proxies", "RealProxy", "GetStubData")]
+    [InlineData("System.Runtime.Remoting.Proxies", "RealProxy", "GetStub")]
     public void Resolve_RemotingFamily_ThrowsLoud(string ns, string type, string memberName)
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
@@ -140,6 +142,72 @@ public class MethodMapTestsLegacy
     }
 
     //--------------------------------------------------------------------------
+    // p0c D31-D35: the wired remoting state accessors resolve to the
+    // il2cpp_remoting.h icalls (remoting.cpp side table).
+    //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("RemotingServices", "IsTransparentProxy", 0x02, 0x1C,
+        "il2cpp::runtime::icall_remoting_services_is_transparent_proxy")]
+    [InlineData("RemotingServices", "GetRealProxy", 0x1C, 0x1C,
+        "il2cpp::runtime::icall_remoting_services_get_real_proxy")]
+    public void Resolve_RemotingServices_Accessor_MapsToIcall(string type, string member, int ret, int ps, string cpp)
+    {
+        var resolved = ResolveMember(
+            Synthesize("System.Runtime.Remoting", type, member, Sig((byte)ret, (byte)ps)), member);
+        Assert.Equal(cpp, resolved.CppName);
+    }
+
+    [Theory]
+    [InlineData("GetProxiedType", 0x1C, "il2cpp::runtime::icall_realproxy_get_proxied_type")]
+    [InlineData("GetTransparentProxy", 0x1C, "il2cpp::runtime::icall_realproxy_get_transparent_proxy")]
+    [InlineData("GetStubData", 0x1C, "il2cpp::runtime::icall_realproxy_get_stub_data")]
+    public void Resolve_RealProxy_Accessor_MapsToIcall(string member, int ret, string cpp)
+    {
+        // GetStubData is static in net48: (RealProxy) -> object. The synthetic
+        // PE passes a single 0x1C parameter for it and none for the two
+        // instance getters.
+        var sig = member == "GetStubData" ? Sig((byte)ret, 0x1C) : Sig((byte)ret);
+        var resolved = ResolveMember(
+            Synthesize("System.Runtime.Remoting.Proxies", "RealProxy", member, sig), member);
+        Assert.Equal(cpp, resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_RealProxy_SetStubData_MapsToIcall()
+    {
+        var resolved = ResolveMember(
+            Synthesize("System.Runtime.Remoting.Proxies", "RealProxy", "SetStubData", Sig(0x00, 0x1C, 0x1C)),
+            "SetStubData");
+        Assert.Equal("il2cpp::runtime::icall_realproxy_set_stub_data", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_RealProxy_Ctor_MapsToIcall()
+    {
+        // RealProxy(Type classToProxy) -- the ctor is MANAGED in net48 but its
+        // body stores mscorlib-only fields, so the runtime side table replaces
+        // it (otherwise the accessors would read uninitialized state).
+        var resolved = ResolveMember(
+            Synthesize("System.Runtime.Remoting.Proxies", "RealProxy", ".ctor", Sig(0x01, 0x1C)),
+            ".ctor");
+        Assert.Equal("il2cpp::runtime::icall_realproxy_ctor_type", resolved.CppName);
+    }
+
+    //--------------------------------------------------------------------------
+    // p0c D11: ExtensibleClassFactory.RegisterObjectCreationCallback is wired;
+    // its only reachable net48 outcomes are reproduced at runtime.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Resolve_ExtensibleClassFactory_RegisterObjectCreationCallback_MapsToIcall()
+    {
+        var resolved = ResolveMember(
+            Synthesize("System.Runtime.InteropServices", "ExtensibleClassFactory",
+                "RegisterObjectCreationCallback", Sig(0x00, 0x1C)),
+            "RegisterObjectCreationCallback");
+        Assert.Equal("il2cpp::runtime::icall_extensible_class_factory_register", resolved.CppName);
+    }
+
+    //--------------------------------------------------------------------------
     // ArgIterator -- legacy varargs-reflection primitive.
     //--------------------------------------------------------------------------
     [Fact]
@@ -152,16 +220,47 @@ public class MethodMapTestsLegacy
     }
 
     //--------------------------------------------------------------------------
-    // ReaderWriterLock -- legacy low-frequency lock.
+    // ReaderWriterLock -- p0c D37: the lock object model is wired; only the
+    // LockCookie members stay LOUD (no System.Threading.LockCookie value-type
+    // model in this transpiler).
     //--------------------------------------------------------------------------
+    [Theory]
+    [InlineData("AcquireReaderLock", 0x01, "il2cpp::runtime::icall_rwl_acquire_reader")]
+    [InlineData("AcquireWriterLock", 0x01, "il2cpp::runtime::icall_rwl_acquire_writer")]
+    [InlineData("ReleaseReaderLock", 0x00, "il2cpp::runtime::icall_rwl_release_reader")]
+    [InlineData("ReleaseWriterLock", 0x00, "il2cpp::runtime::icall_rwl_release_writer")]
+    [InlineData("AnyWritersSince", 0x02, "il2cpp::runtime::icall_rwl_any_writers_since")]
+    public void Resolve_ReaderWriterLock_MapsToIcall(string member, int ret, string cpp)
+    {
+        var sig = member is "ReleaseReaderLock" or "ReleaseWriterLock"
+            ? Sig((byte)ret)
+            : Sig((byte)ret, 0x08);
+        var resolved = ResolveMember(Synthesize("System.Threading", "ReaderWriterLock", member, sig), member);
+        Assert.Equal(cpp, resolved.CppName);
+    }
+
+    [Theory]
+    [InlineData("get_IsReaderLockHeld", "il2cpp::runtime::icall_rwl_get_is_reader_lock_held")]
+    [InlineData("get_IsWriterLockHeld", "il2cpp::runtime::icall_rwl_get_is_writer_lock_held")]
+    [InlineData("get_WriterSeqNum", "il2cpp::runtime::icall_rwl_get_writer_seq_num")]
+    public void Resolve_ReaderWriterLock_Getter_MapsToIcall(string member, string cpp)
+    {
+        var resolved = ResolveMember(Synthesize("System.Threading", "ReaderWriterLock", member, Sig(0x02)), member);
+        Assert.Equal(cpp, resolved.CppName);
+    }
+
     [Fact]
-    public void Resolve_ReaderWriterLock_ThrowsLoud()
+    public void Resolve_ReaderWriterLock_LockCookieMember_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System.Threading", "ReaderWriterLock", "AcquireReaderLock", Sig(0x01, 0x08)),
-                "AcquireReaderLock"));
+            // The mapping gates on the NAME only, so the synthetic PE uses an
+            // object return (a real LockCookie 0x11 value type would need a
+            // TypeDefOrRef coded index the synthetic builder lacks).
+            ResolveMember(Synthesize("System.Threading", "ReaderWriterLock", "UpgradeToWriterLock", Sig(0x1C, 0x08)),
+                "UpgradeToWriterLock"));
 
         Assert.Contains("System.Threading.ReaderWriterLock", ex.Message);
+        Assert.Contains("LockCookie", ex.Message);
     }
 
     //--------------------------------------------------------------------------

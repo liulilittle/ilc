@@ -100,9 +100,16 @@ int32_t icall_environment_set_exit_code(int32_t code);
 // then terminate via std::exit (FailFast uses std::abort instead).
 void icall_environment_exit(int32_t code);
 
-// Environment.HasShutdownStarted (netcore21+ audit surface): constant false
-// -- the simplified runtime never initiates shutdown while managed code runs.
+// Environment.HasShutdownStarted (p0c D4): REAL shutdown state. The flag is
+// 0 while managed code runs and flips to 1 when the process begins its exit
+// chain -- Environment.Exit / FailFast (before std::exit / std::abort) and
+// the runtime's atexit marker (a plain return from Main). Never cleared.
 int32_t icall_environment_get_has_shutdown_started();
+
+// Mark the process shutdown transition (idempotent). Called by
+// Environment.Exit / FailFast and by the atexit marker; exposed so a future
+// generated-main epilogue can mark the normal-return path directly.
+void il2cpp_environment_begin_shutdown();
 
 // Environment.ProcessorCount -> int32. The number of hardware processors
 // (>= 1; the OS-reported count on Windows, hardware_concurrency elsewhere

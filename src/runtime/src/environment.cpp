@@ -294,6 +294,32 @@ const char* DirSep()
 // the runtime main, not this property icall.
 int32_t g_exit_code = 0;
 
+// Environment.HasShutdownStarted (p0c D4): 0 until the process begins its
+// teardown. Set by Environment.Exit (before std::exit) and by the atexit
+// marker below (a plain return from Main). Never cleared -- shutdown is a
+// one-way transition, exactly like net48.
+int32_t g_il2cpp_shutdown_started = 0;
+
+namespace {
+
+// The atexit marker: marks shutdown when the process exit chain begins after
+// a normal return from Main. Registered through a function-local static so
+// the registration happens on the first Environment.* call (no global
+// constructor across translation units, no static-init-order dependency).
+void ShutdownAtExit() { g_il2cpp_shutdown_started = 1; }
+
+void EnsureShutdownMarker()
+{
+    static const bool registered = []()
+    {
+        std::atexit(&ShutdownAtExit);
+        return true;
+    }();
+    (void)registered;
+}
+
+} // namespace
+
 //------------------------------------------------------------------------------
 // Managed System.String[] construction (nb1 ENV-SPOT, the io.cpp
 // ReadAllLines precedent -- il2cpp_array_new with the string element class,
@@ -503,6 +529,9 @@ void icall_environment_fail_fast(Il2CppObject* message)
         }
     }
     std::fflush(stderr);
+    // p0c D4: FailFast also begins the shutdown transition (std::abort skips
+    // the atexit chain, so mark it explicitly).
+    il2cpp_environment_begin_shutdown();
     std::abort();
 }
 
@@ -522,13 +551,29 @@ int32_t icall_environment_get_exit_code()
 
 //------------------------------------------------------------------------------
 // icall_environment_get_has_shutdown_started -- Environment.HasShutdownStarted
-// (the netcore21+ audit surface): the simplified runtime never initiates
-// shutdown while managed code runs -- the honest constant answer is false on
-// every platform (cross-platform consistency).
+// (p0c D4). REAL shutdown state instead of the constant false.
+//
+// MEASURED net48 (probe-p0c): the property is false while Main runs (and even
+// inside an AppDomain.ProcessExit handler) and turns true when the CLR runs
+// the shutdown-time finalizers. The equivalent moments in this runtime:
+//   * Environment.Exit  -> g_shutdown_started is set BEFORE std::exit runs
+//     the atexit chain, so every atexit handler (thread-pool shutdown) and
+//     every finalizer the GC runs from it observes the true value;
+//   * a plain return from Main -> the runtime's atexit marker (registered
+//     below) marks the same flag when the process begins its exit chain.
+// No managed code observes the true value in this runtime because there is
+// no ProcessExit event and no exit-time finalizer pass (documented in NOTES);
+// the flag is still real state read by icall_environment_exit's own chain.
 //------------------------------------------------------------------------------
 int32_t icall_environment_get_has_shutdown_started()
 {
-    return 0;
+    EnsureShutdownMarker();
+    return g_il2cpp_shutdown_started;
+}
+
+void il2cpp_environment_begin_shutdown()
+{
+    g_il2cpp_shutdown_started = 1;
 }
 
 
@@ -540,9 +585,12 @@ int32_t icall_environment_set_exit_code(int32_t code)
 
 void icall_environment_exit(int32_t code)
 {
-    // Persist first (same store as the setter), then terminate. std::exit
-    // runs atexit handlers (thread-pool shutdown); does not return.
+    // Persist first (same store as the setter), then mark shutdown started
+    // (p0c D4 -- net48: Environment.Exit begins the shutdown), then
+    // terminate. std::exit runs atexit handlers (thread-pool shutdown);
+    // does not return.
     g_exit_code = code;
+    il2cpp_environment_begin_shutdown();
     std::exit(code);
 }
 

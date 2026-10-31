@@ -2466,9 +2466,11 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Linq.IGrouping`2":
                 return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, genArgNames,
                     receiverType, receiverIsAddress, arg0Type, arg1Type);
-            // Legacy LOUD family (MethodMap.Legacy.cs): System.Runtime.
-            // Remoting.* / AppDomain / ArgIterator / ReaderWriterLock -- the
-            // net48 audit section 3/section 6 LOUD rejection list (no runtime support).
+            // Legacy family (MethodMap.Legacy.cs): System.Runtime.Remoting.* /
+            // AppDomain / ArgIterator / ReaderWriterLock / ExtensibleClassFactory.
+            // p0c wired the five Remoting state accessors, the ReaderWriterLock
+            // object model and ExtensibleClassFactory.RegisterObjectCreationCallback;
+            // the remaining members of each family are LOUD.
             case "System.Runtime.Remoting.RemotingServices":
             case "System.Runtime.Remoting.Proxies.RealProxy":
             case "System.Runtime.Remoting.Contexts.Context":
@@ -2479,6 +2481,8 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.AppDomain":
             case "System.AppDomainSetup":
             case "System.ArgIterator":
+            case "System.Runtime.InteropServices.ExtensibleClassFactory":
+            case "System.Runtime.InteropServices.ObjectCreationDelegate":
             case "System.Threading.ReaderWriterLock": return TryMapLegacy(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                 ?? TryMapEmit(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             // MathF domain (MethodMap.MathF.cs): System.MathF -- the corert

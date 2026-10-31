@@ -22,11 +22,18 @@
 
 namespace il2cpp { namespace runtime {
 
-// System.Diagnostics.Debugger.get_IsAttached -- always false: ILC runs
-// without a debugger. The bool result crosses in the int32 ABI slot.
+// System.Diagnostics.Debugger.get_IsAttached -- REAL process state: a
+// debugger is attached to this process (Win32 IsDebuggerPresent +
+// CheckRemoteDebuggerPresent; Linux /proc/self/status TracerPid). net48
+// tracks the CLR managed debugger (measured false under a native cdb
+// debugger); an AOT process has no CLR debugger, so the OS query is the only
+// meaningful (and never constant) answer. The bool result crosses in the
+// int32 ABI slot.
 int32_t il2cpp_debugger_is_attached();
 
-// System.Diagnostics.Debugger.IsLogging() -- always false: no logging channel.
+// System.Diagnostics.Debugger.IsLogging() -- real state: net48 answers true
+// only when an attached debugger has logging enabled, so ILC answers the
+// same attached query (see the .cpp measurement note).
 int32_t il2cpp_debugger_is_logging();
 
 // System.Diagnostics.Debugger.Break() -- no-op: no debugger to break into.

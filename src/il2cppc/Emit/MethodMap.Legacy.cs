@@ -5,20 +5,23 @@ namespace Il2Cpp.Transpiler.Emit;
 // legacy families (icall-inventory-net48.md rows 786-824 / 980: "legacy
 // technology, suggested LOUD reject" / "low-frequency/legacy").
 //
-//   * System.Runtime.Remoting.* -- the 6 public-face RemotingServices gaps
-//     (CallDefaultCtor / AllocateInitializedObject / nSetRemoteActivation-
-//     Configured / Unwrap / AlwaysUnwrap / CheckCast + the RealProxy/Context/
-//     Message/StackBuilderSink icalls). The runtime has NO remoting
-//     infrastructure (no transparent proxies, no ObjRef, no channels, no
-//     context-bound objects), so EVERY member of the family is rejected as a
-//     family -- a member-level list would just misname the same wall.
+//   * System.Runtime.Remoting.* -- p0c D31-D35 wires ONLY the five
+//     public-face STATE ACCESSORS (RealProxy.GetProxiedType /
+//     GetTransparentProxy / GetStubData / SetStubData + RemotingServices.
+//     IsTransparentProxy / GetRealProxy) and the RealProxy ctors, on the
+//     proxy-identity side table (il2cpp_remoting.h). There is still NO
+//     remoting infrastructure (no ObjRef, no channels, no context-bound
+//     objects), so every other member of the family stays LOUD.
 //   * System.AppDomain -- the runtime has no AppDomain object; the AOT
 //     process IS the default domain (CreateDomain/Unload/evidence/probing
 //     are all meaningless here).
 //   * System.ArgIterator -- varargs reflection (__arglist) is not in the M3
-//     model.
-//   * System.Threading.ReaderWriterLock -- legacy low-frequency lock with no
-//     runtime icall (Monitor / the Interlocked atomics cover the need).
+//     model (the `arglist` IL opcode itself is rejected in StackFold, so no
+//     ArgIterator can even be constructed; see NOTES.md for the IL shape and
+//     the separate varargs work item).
+//   * System.Threading.ReaderWriterLock -- p0c D37 gives the legacy lock its
+//     own object model (il2cpp_rwlock.h); only the LockCookie members stay
+//     LOUD (no System.Threading.LockCookie value-type model).
 //
 // The BclResolve wrapper prefixes every message with "{owner}::{name}: " so
 // the rejection self-identifies. Without these cases the members silently
@@ -31,8 +34,70 @@ public static partial class MethodRefResolver
     {
         switch (owner)
         {
-            case "System.Runtime.Remoting.RemotingServices":
+            // p0c D31-D35: the FIVE public-face RealProxy/RemotingServices
+            // STATE ACCESSORS are wired (il2cpp_remoting.h, remoting.cpp).
+            // Measured net48 (probe-p0c): GetProxiedType answers the ctor's
+            // classToProxy; GetTransparentProxy is identity-stable;
+            // GetStubData answers the shared boxed IntPtr(-1) default stub
+            // until SetStubData replaces it (null stub data is
+            // ArgumentNullException); IsTransparentProxy is false for null and
+            // for a RealProxy; GetRealProxy answers the SAME RealProxy
+            // instance, and null (never a throw) for a non-proxy. net48's
+            // `.ctor` is MANAGED (verified by reflection: GetTransparentProxy
+            // is the only other managed member), but its body stores the
+            // mscorlib-only fields, so it is replaced here by the runtime
+            // side-table ctor. Everything else in the family stays LOUD.
             case "System.Runtime.Remoting.Proxies.RealProxy":
+                switch (name)
+                {
+                    case ".ctor":
+                        // protected RealProxy(Type classToProxy)
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_realproxy_ctor_type", 1, false, false, true,
+                                new[] { "", "s" });
+                        // protected RealProxy(Type, IntPtr stub, object stubData)
+                        if (count == 3)
+                            return I("il2cpp::runtime::icall_realproxy_ctor_full", 3, false, false, true,
+                                new[] { "", "s", "n", "" });
+                        return null;
+                    case "GetProxiedType":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_realproxy_get_proxied_type", 0, true, true, true,
+                                returnTypeName: "System.Type");
+                        return null;
+                    case "GetTransparentProxy":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_realproxy_get_transparent_proxy", 0, true, true, true);
+                        return null;
+                    case "GetStubData":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_realproxy_get_stub_data", 1, true, true, false);
+                        return null;
+                    case "SetStubData":
+                        if (count == 2)
+                            return I("il2cpp::runtime::icall_realproxy_set_stub_data", 2, false, false, false);
+                        return null;
+                    default:
+                        break;
+                }
+                throw new NotSupportedException(
+                    $"{name} is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors (GetProxiedType / GetTransparentProxy / GetStubData / SetStubData / RemotingServices.IsTransparentProxy / GetRealProxy) and the RealProxy ctors are wired (il2cpp_remoting.h): LOUD whitelist (runtime descriptor: the rest of the family needs the remoting object model the runtime does not have -- no channels / ObjRef / context-bound objects) [Reference Source mscorlib/system/runtime/remoting/realproxy.cs:20,74]");
+            case "System.Runtime.Remoting.RemotingServices":
+                switch (name)
+                {
+                    case "IsTransparentProxy":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_remoting_services_is_transparent_proxy", 1, true, false, false);
+                        return null;
+                    case "GetRealProxy":
+                        if (count == 1)
+                            return I("il2cpp::runtime::icall_remoting_services_get_real_proxy", 1, true, true, false);
+                        return null;
+                    default:
+                        break;
+                }
+                throw new NotSupportedException(
+                    $"{name} is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2cpp_remoting.h): LOUD whitelist (runtime descriptor: the rest needs the remoting object model the runtime does not have -- no channels / ObjRef / context-bound objects) [Reference Source mscorlib/system/runtime/remoting/remotingservices.cs:46]");
             case "System.Runtime.Remoting.Contexts.Context":
             case "System.Runtime.Remoting.Messaging.Message":
             case "System.Runtime.Remoting.Messaging.StackBuilderSink":
@@ -232,15 +297,89 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     $"{name} is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3): LOUD whitelist (runtime descriptor: __arglist is not in the M3 model, the ArgIterator frame has no runtime support) [Reference Source mscorlib/system/argiterator.cs:18,29]");
             case "System.Threading.ReaderWriterLock":
-                // net48 closure: AnyWritersSince wires to the constant-false
-                // stub (stubs.cpp); the rest of the legacy lock stays LOUD.
-                if (name == "AnyWritersSince" && count == 1)
-                    return I("il2cpp::runtime::icall_reader_writer_lock_any_writers_since", 1, true, false, false, new[] { "i" });
-                // impl-tz2: whitelist 3 -- the legacy lock has no runtime
-                // object model (the AnyWritersSince constant stub above is
-                // the only wired arm); Monitor/Interlocked cover the need.
+                // p0c D37: the legacy lock now HAS an object model
+                // (il2cpp_rwlock.h, rwlock.cpp). The PUBLIC members below are
+                // the ones a user program calls (net48: they are managed
+                // wrappers over the *Internal icalls; mscorlib is never
+                // translated, so the wrapper itself is the resolution target
+                // and is replaced by the runtime icall). MEASURED net48
+                // (probe-p0c): WriterSeqNum starts at 1 and advances on every
+                // writer acquisition; AnyWritersSince(n) is exactly
+                // `WriterSeqNum > n`; a reader acquisition does not advance it.
+                switch (name)
+                {
+                    case ".ctor":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_rwl_ctor", 0, false, false, true);
+                        return null;
+                    case "AcquireReaderLock":
+                        if (count == 1 && ps[0] == 0x08)
+                            return I("il2cpp::runtime::icall_rwl_acquire_reader", 1, false, false, true,
+                                new[] { "", "i" });
+                        return null;
+                    case "ReleaseReaderLock":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_rwl_release_reader", 0, false, false, true);
+                        return null;
+                    case "AcquireWriterLock":
+                        if (count == 1 && ps[0] == 0x08)
+                            return I("il2cpp::runtime::icall_rwl_acquire_writer", 1, false, false, true,
+                                new[] { "", "i" });
+                        return null;
+                    case "ReleaseWriterLock":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_rwl_release_writer", 0, false, false, true);
+                        return null;
+                    case "get_IsReaderLockHeld":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_rwl_get_is_reader_lock_held", 0, true, false, true);
+                        return null;
+                    case "get_IsWriterLockHeld":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_rwl_get_is_writer_lock_held", 0, true, false, true);
+                        return null;
+                    case "get_WriterSeqNum":
+                        if (count == 0)
+                            return I("il2cpp::runtime::icall_rwl_get_writer_seq_num", 0, true, false, true);
+                        return null;
+                    case "AnyWritersSince":
+                        if (count == 1 && ps[0] == 0x08)
+                            return I("il2cpp::runtime::icall_rwl_any_writers_since", 1, true, false, true,
+                                new[] { "", "i" });
+                        return null;
+                    default:
+                        break;
+                }
+                // NOT wired: UpgradeToWriterLock / DowngradeFromWriterLock /
+                // ReleaseLock / RestoreLock exchange a System.Threading.
+                // LockCookie -- a BCL value type with no C++ model here (a
+                // TypeEmitter concern, a different owner's file domain). They
+                // stay LOUD instead of pretending.
                 throw new NotSupportedException(
-                    $"{name} is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime descriptor: the legacy lock has no runtime object model -- use the Monitor domain (monitor.h) or the Interlocked atomics (il2cpp_interlocked.h) instead) [Reference Source mscorlib/system/threading/readerwriterlock.cs:33,126]");
+                    $"{name} is part of System.Threading.ReaderWriterLock -- the lock itself is wired (il2cpp_rwlock.h: ctor / AcquireLock+ReleaseLock for reader and writer / IsReaderLockHeld / IsWriterLockHeld / WriterSeqNum / AnyWritersSince): LOUD whitelist (runtime descriptor: the LockCookie members UpgradeToWriterLock / DowngradeFromWriterLock / ReleaseLock / RestoreLock need a System.Threading.LockCookie value-type model this transpiler does not have) [Reference Source mscorlib/system/threading/readerwriterlock.cs:33,126]");
+            case "System.Runtime.InteropServices.ExtensibleClassFactory":
+                // p0c D11: RegisterObjectCreationCallback is an InternalCall in
+                // net48. MEASURED (probe-p0c): a plain caller gets
+                // InvalidOperationException ("only from the class constructor
+                // of a COM-creatable class"), and a null delegate is rejected
+                // FIRST with ArgumentNullException. The runtime reproduces
+                // exactly those two outcomes (com_factory.cpp) -- there is no
+                // COM-creatable class context in this runtime, so the callback
+                // can never legitimately be registered.
+                if (name == "RegisterObjectCreationCallback" && count == 1)
+                    return I("il2cpp::runtime::icall_extensible_class_factory_register", 1, false, false, false);
+                throw new NotSupportedException(
+                    $"{name} is part of System.Runtime.InteropServices.ExtensibleClassFactory -- only RegisterObjectCreationCallback is wired (com_factory.cpp): LOUD whitelist (runtime descriptor: the rest needs the COM class-factory model the runtime does not have) [Reference Source mscorlib/system/runtime/interopservices/extensibleclassfactory.cs:18]");
+            case "System.Runtime.InteropServices.ObjectCreationDelegate":
+                // The delegate type RegisterObjectCreationCallback takes. The
+                // transpiler's BCL-delegate rewrite table does not cover it, so
+                // the generic newobj+ctor shape applies: il2cpp_object_new on
+                // the descriptor, then this icall initializes the object with
+                // the standard (object target, IntPtr method) pair (exactly
+                // what the table-covered types get from il2cpp_delegate_new).
+                if (name == ".ctor" && count == 2)
+                    return I("il2cpp::runtime::icall_object_creation_delegate_ctor", 2, false, false, true);
+                return null;
             default:
                 return null;
         }

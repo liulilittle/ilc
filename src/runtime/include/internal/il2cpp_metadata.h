@@ -160,6 +160,17 @@ extern il2cpp::Il2CppClass System_ArgumentOutOfRangeException_class;
 extern il2cpp::Il2CppClass System_IConvertible_class;
 extern il2cpp::Il2CppClass System_IComparable_class;
 extern il2cpp::Il2CppClass System_IFormattable_class;
+// p0c D31-D35: the remoting identity descriptors (remoting.cpp). RealProxy is
+// the base class of a translated user proxy subclass (the transpiler's default
+// descriptor arm references &System_Runtime_Remoting_Proxies_RealProxy_class);
+// TransparentProxy is allocated by icall_realproxy_get_transparent_proxy;
+// IMessage is the interface the user subclass implements (interface map).
+extern il2cpp::Il2CppClass System_Runtime_Remoting_Proxies_RealProxy_class;
+extern il2cpp::Il2CppClass System_Runtime_Remoting_Proxies_TransparentProxy_class;
+extern il2cpp::Il2CppClass System_Runtime_Remoting_Messaging_IMessage_class;
+// p0c D37: the legacy ReaderWriterLock object descriptor (rwlock.cpp); newobj
+// allocates through it and the members read the native state pointer.
+extern il2cpp::Il2CppClass System_Threading_ReaderWriterLock_class;
 // nullable (GN-2): the DateTime/TimeSpan/Guid box descriptors (a Nullable<T>
 // value is a box of the underlying T; see il2cpp_nullable.h).
 extern il2cpp::Il2CppClass System_DateTime_class;
