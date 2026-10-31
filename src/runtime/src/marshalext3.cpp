@@ -16,7 +16,10 @@
 //   3. icall_marshal_get_exception_code / _get_exception_pointers -- the
 //      x86-only SEH queries. ILC runs in a fully managed context with no SEH,
 //      so GetExceptionCode always returns 0 and GetExceptionPointers always
-//      returns IntPtr.Zero on every platform.
+//      returns IntPtr.Zero on every platform. impl-p0b MEASURED this against
+//      the .NET Framework 4.8 x64 oracle (tests/cases/probe-p0b G4 section):
+//      GetExceptionCode() == 0 and GetExceptionPointers() == IntPtr.Zero,
+//      byte-identical to these two returns.
 //
 // EXCEPTION MAPPING (managed semantics via il2cpp_exception_ext.h)
 //   unsafe_addr_of_pinned_array_element: null array -> ArgumentNullException;

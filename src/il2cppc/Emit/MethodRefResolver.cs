@@ -272,6 +272,11 @@ public sealed record ResolvedMethod(
     // and StackFold replaces the Type argument with the IID literal (or a
     // nullptr for the typeof(object) form, which performs no QI).
     public const string ComTypedObjectMarker = "::com_typed_object::";
+    // impl-p0b G4: Marshal.GetMethodInfoForComSlot(Type, int, ref ComMemberType)
+    // -- the slot -> method resolution is pure metadata, so the resolver emits
+    // this marker and StackFold supplies the method name / ComMemberType / the
+    // range check (the ComStartSlotMarker precedent).
+    public const string ComMethodInfoMarker = "::com_method_info::";
 }
 
 public static partial class MethodRefResolver

@@ -921,6 +921,39 @@ void icall_com_change_wrapper_handle_strength(Il2CppObject* o, int32_t fIsWeak);
 // pointer). pOuter == 0 or o == null -> ArgumentNullException.
 intptr_t icall_com_create_aggregated_object(intptr_t pOuter, Il2CppObject* o);
 
+//------------------------------------------------------------------------------
+// impl-p0b G4 -- the Marshal type-library / thunk surface (net48 x64 oracle:
+// tests/cases/probe-p0b G4 section).
+//------------------------------------------------------------------------------
+
+// Marshal.GetITypeInfoForType(Type): net48 answers a live ITypeInfo only when
+// the type is described by a REGISTERED type library; a type without one
+// throws COMException (measured on a [ComImport] interface). ILC generates no
+// type libraries, so every type takes that path: this icall always throws the
+// COMException-shaped DotNetException carrying TYPE_E_ELEMENTNOTFOUND.
+intptr_t icall_com_get_itypeinfo_for_type();
+
+// Marshal.GetTypeLibLcid(ITypeLib / UCOMITypeLib): null -> ArgumentNullException
+// (net48 measured). ILC creates no type libraries, so a non-null argument
+// throws NotSupportedException (documented platform limitation).
+int32_t icall_com_get_typelib_lcid(Il2CppObject* typeLib);
+
+// Marshal.GetManagedThunkForUnmanagedMethodPtr /
+// GetUnmanagedThunkForManagedMethodPtr: a zero pointer ->
+// ArgumentNullException (net48 measured). Non-zero pointers are undefined
+// behaviour in net48 (measured: AccessViolationException), so ILC throws
+// NotSupportedException instead of faulting natively.
+intptr_t icall_com_get_managed_thunk(intptr_t pfnMethodToWrap, intptr_t pbSignature, int32_t cbSignature);
+intptr_t icall_com_get_unmanaged_thunk(intptr_t pfnMethodToWrap, intptr_t pbSignature, int32_t cbSignature);
+
+// Marshal.GetMethodInfoForComSlot support (the slot -> method resolution runs
+// at TRANSPILE time). Writes 'memberType' through 'memberTypeOut' (the
+// caller's ref ComMemberType local) and returns the method NAME string as the
+// MethodInfo value (the name-only member model Type.GetMethod uses).
+// slotValid == 0 -> ArgumentOutOfRangeException (net48's out-of-range answer).
+Il2CppObject* icall_com_method_info_for_slot(int32_t slotValid, int32_t memberType,
+                                             Il2CppString* name, int32_t* memberTypeOut);
+
 // Marshal.IsComObject(object o): true iff the object is an RCW (its klass is
 // the RCW descriptor). Null -> ArgumentNullException (net48).
 bool icall_com_is_com_object(Il2CppObject* obj);

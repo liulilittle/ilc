@@ -637,6 +637,43 @@ public static partial class MethodRefResolver
                 if (ps.Length != 2 || !IsIntPtrByte(ps[0]) || ps[1] is not (0x12 or 0x1C or 0x13 or 0x1E)) return null;
                 return I("il2cpp::runtime::icall_com_create_aggregated_object", 2, true, false, false,
                     new[] { "n", "" }, "ptr");
+            // ---- com10 (impl-p0b G4): the type-library / thunk surface plus the
+            // COM-slot MethodInfo lookup. net48 x64 oracle (tests/cases/probe-p0b
+            // G4 section):
+            //   * GetITypeInfoForType(Type) -> COMException for a type with no
+            //     registered type library (measured on a [ComImport] interface);
+            //     ILC generates no type libraries, so every type takes that path.
+            //   * GetTypeLibLcid(ITypeLib/UCOMITypeLib) -> ArgumentNullException
+            //     for null (measured both overloads).
+            //   * GetManagedThunkForUnmanagedMethodPtr /
+            //     GetUnmanagedThunkForManagedMethodPtr -> ArgumentNullException
+            //     for a zero pointer (measured; non-zero pointers are undefined
+            //     behaviour in net48 -> AccessViolationException).
+            //   * GetMethodInfoForComSlot(Type, int, ref ComMemberType) -> the
+            //     MethodInfo for the slot, ArgumentOutOfRangeException outside
+            //     [start, end]. The slot -> method resolution is METADATA, so the
+            //     resolver emits the marker and StackFold supplies the name /
+            //     member type / bounds check (the com8 precedent).
+            case "GetITypeInfoForType":
+                if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
+                return I("il2cpp::runtime::icall_com_get_itypeinfo_for_type", 0, true, false, false,
+                    resultKind: "ptr");
+            case "GetTypeLibLcid":
+                if (ps.Length != 1 || ps[0] is not (0x12 or 0x1C)) return null;
+                return I("il2cpp::runtime::icall_com_get_typelib_lcid", 1, true, false, false,
+                    new[] { "" });
+            case "GetManagedThunkForUnmanagedMethodPtr":
+                if (ps.Length != 3 || !IsIntPtrByte(ps[0]) || !IsIntPtrByte(ps[1]) || ps[2] != 0x08) return null;
+                return I("il2cpp::runtime::icall_com_get_managed_thunk", 3, true, false, false,
+                    new[] { "n", "n", "i" }, "ptr");
+            case "GetUnmanagedThunkForManagedMethodPtr":
+                if (ps.Length != 3 || !IsIntPtrByte(ps[0]) || !IsIntPtrByte(ps[1]) || ps[2] != 0x08) return null;
+                return I("il2cpp::runtime::icall_com_get_unmanaged_thunk", 3, true, false, false,
+                    new[] { "n", "n", "i" }, "ptr");
+            case "GetMethodInfoForComSlot":
+                if (ps.Length != 3 || ps[0] is not (0x12 or 0x1C) || ps[1] != 0x08 || ps[2] != 0x11) return null;
+                return I(ResolvedMethod.ComMethodInfoMarker, 3, true, true, false,
+                    new[] { "", "i", "addr:i" }, "ref");
             // ---- com6: GetTypeFromProgID / CreateObject -- the C1 (A1) split
             // from the r127 PNSE stubs to the REAL COM runtime (net48:
             // Marshal.GetTypeFromProgID == Type.GetTypeFromProgID, and
@@ -771,9 +808,7 @@ public static partial class MethodRefResolver
         "GetComInterfaceForObjectInContext",
         "GetIDispatchForObjectInContext",
         "GetIUnknownForObjectInContext",
-        "GetITypeInfoForType",
         "GetLoadedTypeForGUID",
-        "GetMethodInfoForComSlot",
         "GetRawIUnknownForComObjectNoAddRef",
         // NOTE (impl-p0b G2): "GetStartComSlot", "GetEndComSlot" and
         // "IsTypeVisibleFromCom" were REMOVED from this LOUD set -- they fold to
@@ -782,7 +817,6 @@ public static partial class MethodRefResolver
         "GetTypeInfoForType",
         "GetTypeLibGuid",
         "GetTypeLibGuidForAssembly",
-        "GetTypeLibLcid",
         "GetTypeLibVersion",
         "InitWrapper",
         // Internal *Native/*Internal icall variants (public wrappers in parentheses)

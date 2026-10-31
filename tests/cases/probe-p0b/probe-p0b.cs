@@ -162,7 +162,17 @@ namespace Cases
             try { Marshal.CreateAggregatedObject(q, null); }
             catch (Exception e) { Console.WriteLine("[g3.agg.nullobj]=" + e.GetType().Name); }
 
-            Marshal.Release(q);
+            Console.WriteLine("[g4.excode]=" + Marshal.GetExceptionCode());
+            Console.WriteLine("[g4.exptr.zero]=" + (Marshal.GetExceptionPointers() == IntPtr.Zero));
+            try { Marshal.GetITypeInfoForType(typeof(IZero)); }
+            catch (Exception e) { Console.WriteLine("[g4.typeinfo]=" + e.GetType().Name); }
+            try { Marshal.GetTypeLibLcid((System.Runtime.InteropServices.ComTypes.ITypeLib)null); }
+            catch (Exception e) { Console.WriteLine("[g4.typelib.lcid.null]=" + e.GetType().Name); }
+            try { Marshal.GetManagedThunkForUnmanagedMethodPtr(IntPtr.Zero, IntPtr.Zero, 0); }
+            catch (Exception e) { Console.WriteLine("[g4.thunk.managed.null]=" + e.GetType().Name); }
+            try { Marshal.GetUnmanagedThunkForManagedMethodPtr(IntPtr.Zero, IntPtr.Zero, 0); }
+            catch (Exception e) { Console.WriteLine("[g4.thunk.unmanaged.null]=" + e.GetType().Name); }
+
         }
     }
 }

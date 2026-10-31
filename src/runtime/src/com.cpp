@@ -1,4 +1,4 @@
-﻿//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // com.cpp -- COM interop runtime (see il2cpp_com.h for the full contract).
 //
 // PLATFORM SPLIT (user iron rule #17: COM identical to .NET Framework;
@@ -8577,6 +8577,98 @@ intptr_t icall_com_create_aggregated_object(intptr_t pOuter, Il2CppObject* o)
     auto* c = reinterpret_cast<Il2CppComCcw*>(ccw);
     c->outer = reinterpret_cast<void*>(pOuter);
     return ccw;
+}
+
+//------------------------------------------------------------------------------
+// impl-p0b G4 -- the type-library / thunk surface. net48 x64 oracle
+// (tests/cases/probe-p0b G4 section):
+//   * GetITypeInfoForType(typeof(T)) for a type with NO type library ->
+//     COMException (measured on a [ComImport] interface). net48 answers a
+//     live ITypeInfo only when the type IS described by a registered type
+//     library; ILC generates none, so every type takes the no-TLB path.
+//   * GetTypeLibLcid(null) -> ArgumentNullException (both overloads).
+//   * GetManagedThunkForUnmanagedMethodPtr / GetUnmanagedThunkForManaged
+//     MethodPtr with a zero pointer -> ArgumentNullException. With non-zero
+//     pointers net48 dereferences them (measured: AccessViolationException,
+//     i.e. undefined behaviour), so ILC throws NotSupportedException there --
+//     a documented platform limitation instead of a native fault.
+//------------------------------------------------------------------------------
+intptr_t icall_com_get_itypeinfo_for_type()
+{
+    // COR_E_NOTSUPPORTED-shaped COM failure: net48 maps a missing type
+    // library to COMException (TYPE_E_ELEMENTNOTFOUND / 0x8002802B when the
+    // type is not in any registered library).
+    ThrowComException(kComHrTypeElemNotFound);
+    return 0;
+}
+
+int32_t icall_com_get_typelib_lcid(Il2CppObject* typeLib)
+{
+    if (typeLib == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("pTLB");
+    }
+    il2cpp_throw_not_supported_exception(
+        "ILC does not create type libraries, so ITypeLib LCID queries are unsupported "
+        "(ILC platform limitation).");
+    return 0;
+}
+
+intptr_t icall_com_get_managed_thunk(intptr_t pfnMethodToWrap, intptr_t pbSignature, int32_t cbSignature)
+{
+    if (pfnMethodToWrap == 0)
+    {
+        il2cpp_throw_argument_null_exception("pfnMethodToWrap");
+    }
+    if (pbSignature == 0)
+    {
+        il2cpp_throw_argument_null_exception("pbSignature");
+    }
+    (void)cbSignature;
+    il2cpp_throw_not_supported_exception(
+        "ILC does not emit native thunks (Marshal.GetManagedThunkForUnmanagedMethodPtr is "
+        "deprecated and needs the x86 calling convention -- ILC platform limitation).");
+    return 0;
+}
+
+intptr_t icall_com_get_unmanaged_thunk(intptr_t pfnMethodToWrap, intptr_t pbSignature, int32_t cbSignature)
+{
+    if (pfnMethodToWrap == 0)
+    {
+        il2cpp_throw_argument_null_exception("pfnMethodToWrap");
+    }
+    if (pbSignature == 0)
+    {
+        il2cpp_throw_argument_null_exception("pbSignature");
+    }
+    (void)cbSignature;
+    il2cpp_throw_not_supported_exception(
+        "ILC does not emit native thunks (Marshal.GetUnmanagedThunkForManagedMethodPtr is "
+        "deprecated and needs the x86 calling convention -- ILC platform limitation).");
+    return 0;
+}
+
+//------------------------------------------------------------------------------
+// icall_com_method_info_for_slot -- Marshal.GetMethodInfoForComSlot support.
+// The METHOD is resolved at TRANSPILE time (metadata: the slot -> the
+// declaration's name and ComMemberType); this helper writes the ComMemberType
+// through 'memberTypeOut' (the caller's ref local) and returns the method
+// NAME string as the MethodInfo value -- the same name-only member model
+// Type.GetMethod uses. slotValid == 0 reproduces net48's
+// ArgumentOutOfRangeException for a slot outside [start, end].
+//------------------------------------------------------------------------------
+Il2CppObject* icall_com_method_info_for_slot(int32_t slotValid, int32_t memberType,
+                                             Il2CppString* name, int32_t* memberTypeOut)
+{
+    if (slotValid == 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("slot", nullptr);
+    }
+    if (memberTypeOut != nullptr)
+    {
+        *memberTypeOut = memberType;
+    }
+    return reinterpret_cast<Il2CppObject*>(name);
 }
 
 

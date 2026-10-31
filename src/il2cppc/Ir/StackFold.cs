@@ -5149,6 +5149,101 @@ public static class StackFold
                 Push(typedCall, ins);
                 return;
             }
+            // impl-p0b G4: Marshal.GetMethodInfoForComSlot(Type, int, ref
+            // ComMemberType). The slot -> method mapping is METADATA (the same
+            // own-method declaration order GetStartComSlot/GetEndComSlot count),
+            // so the fold resolves the name + ComMemberType and emits a call to
+            // the runtime helper, which writes the ComMemberType through the
+            // caller's ref local and returns the method name as the MethodInfo
+            // VALUE (the name-only member model Type.GetMethod uses).
+            // net48 x64 oracle (tests/cases/probe-p0b G4): a slot outside
+            // [start, end] -> ArgumentOutOfRangeException; a property accessor
+            // reports ComMemberType.PropGet / PropSet and the PROPERTY name
+            // (get_B -> "B").
+            if (resolved != null && resolved.CppName == ResolvedMethod.ComMethodInfoMarker)
+            {
+                if (args.Count != 3 || args[0] is not StringConstExpr miTypeValue
+                    || miTypeValue.TypeToken is not int miToken
+                    || args[1] is not IntConstExpr miSlotArg
+                    || args[2] is not LocAddrExpr)
+                    throw new NotSupportedException(
+                        "GetMethodInfoForComSlot requires a CONSTANT typeof(T) first argument and an ldc.i4 slot " +
+                        "with the ref ComMemberType local as the third argument");
+                if (md == null || MetadataTokens.Handle(miToken).Kind != HandleKind.TypeDefinition)
+                    throw new NotSupportedException(
+                        "GetMethodInfoForComSlot: only a type DEFINED in the transpiled assembly is supported " +
+                        "(an external-assembly TypeRef has no readable metadata in this reader)");
+                var miTdHandle = (TypeDefinitionHandle)MetadataTokens.Handle(miToken);
+                var miTd = md.GetTypeDefinition(miTdHandle);
+                var miVisible = MetadataLoader.ComVisibleAttributeValue(md, miTd.GetCustomAttributes())
+                    ?? (md.IsAssembly
+                        ? MetadataLoader.ComVisibleAttributeValue(
+                            md, md.GetAssemblyDefinition().GetCustomAttributes())
+                        : null) ?? true;
+                if (!miVisible)
+                    throw new NotSupportedException(
+                        $"GetMethodInfoForComSlot(typeof({md.GetFullName(miTdHandle)})): the type is not visible from " +
+                        "COM ([ComVisible(false)]), which net48 answers with ArgumentException -- a transpile-time " +
+                        "fold cannot throw at runtime, so this call site is rejected LOUD");
+                if ((miTd.Attributes & System.Reflection.TypeAttributes.Interface) == 0)
+                    throw new NotSupportedException(
+                        $"GetMethodInfoForComSlot(typeof({md.GetFullName(miTdHandle)})): a non-interface type is not " +
+                        "supported (net48 answers ArgumentOutOfRangeException for it)");
+                var miIfaceType = MetadataLoader.InterfaceTypeAttributeValue(md, miTd.GetCustomAttributes());
+                var miStart = 3 + (miIfaceType == 1 ? 0 : 4);
+                var miOwn = 0;
+                foreach (var miMh in miTd.GetMethods())
+                {
+                    var miMd = md.GetMethodDefinition(miMh);
+                    if ((miMd.Attributes & System.Reflection.MethodAttributes.Static) != 0) continue;
+                    miOwn++;
+                }
+                var miIndex = miSlotArg.Value - miStart;
+                var miValid = miIndex >= 0 && miIndex < miOwn;
+                var miName = "";
+                var miMemberType = 0; // ComMemberType.Method
+                if (miValid)
+                {
+                    var miOrdinal = 0;
+                    foreach (var miMh in miTd.GetMethods())
+                    {
+                        var miMd = md.GetMethodDefinition(miMh);
+                        if ((miMd.Attributes & System.Reflection.MethodAttributes.Static) != 0) continue;
+                        if (miOrdinal++ != miIndex) continue;
+                        var raw = md.GetString(miMd.Name);
+                        if (raw.StartsWith("get_", StringComparison.Ordinal))
+                        {
+                            miName = raw[4..];
+                            miMemberType = 1; // ComMemberType.PropGet
+                        }
+                        else if (raw.StartsWith("set_", StringComparison.Ordinal))
+                        {
+                            miName = raw[4..];
+                            miMemberType = 2; // ComMemberType.PropSet
+                        }
+                        else
+                        {
+                            miName = raw;
+                        }
+                        break;
+                    }
+                }
+                var miCall = new CallExpr
+                {
+                    Function = $"call_{ins.Operand}",
+                    ReturnsRef = true,
+                    Resolved = new ResolvedMethod(
+                        "il2cpp::runtime::icall_com_method_info_for_slot", 4, false, true, false,
+                        new[] { false, false, false, false }, false,
+                        ParamTypeNames: new[] { "i", "i", "", "addr:i" }),
+                };
+                miCall.Args.Add(new IntConstExpr { Value = miValid ? 1 : 0 });
+                miCall.Args.Add(new IntConstExpr { Value = miMemberType });
+                miCall.Args.Add(new StringConstExpr { Value = miName });
+                miCall.Args.Add(args[2]); // the ref ComMemberType local address
+                Push(miCall, ins);
+                return;
+            }
             // Work order #24 (3-arg) + nb2 IO-PATH2 (4-arg): Path.Combine(
             // string, string, string[, string]) -- the params-array form.
             // The resolver emits the NestedCombineMarker (the runtime icall
