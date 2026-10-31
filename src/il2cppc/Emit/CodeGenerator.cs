@@ -90,6 +90,42 @@ public static class CodeGenerator
     private static bool PinvokeModuleIsDynamic(string module)
         => _dynamicPinvokeModules.Contains(module);
 
+    // Whether a [DllImport] module is a WINDOWS SYSTEM library (the API whose
+    // prototypes <windows.h> owns). Any "*.dll" plus the well-known Win32
+    // module names (kernel32/user32/advapi32/shell32/ole32/oleaut32/crypt32/
+    // secur32/bcrypt/ntdll/combase/mscoree/clr/api-ms-win-*) counts; QCall is
+    // not a DLL. Used by TWO sites and they must agree:
+    //   * the extern "C" declaration emitter (a guarded/no-op decl on Windows:
+    //     windows.h already declares these), and
+    //   * the CALL emitter, which routes every such import through
+    //     il2cpp_pinvoke_resolve_probe (net48 never binds a [DllImport] at link
+    //     time, and windows.h's A/W macros -- e.g. `MessageBox` expanding to
+    //     `MessageBoxA` because the generated project defines no UNICODE --
+    //     cannot express a CharSet/ExactSpelling import).
+    private static bool PinvokeModuleIsWindowsSystem(string module)
+    {
+        var modBase = module.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? module.Substring(0, module.Length - 4) : module;
+        return module.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || modBase.StartsWith("api-ms-win-", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("kernel32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("user32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("gdi32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("comdlg32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("comctl32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("advapi32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("shell32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("ole32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("oleaut32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("crypt32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("secur32", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("bcrypt", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("ntdll", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("combase", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("mscoree", StringComparison.OrdinalIgnoreCase)
+            || modBase.Equals("clr", StringComparison.OrdinalIgnoreCase);
+    }
+
     // Whether this resolved call is a DYNAMIC P/Invoke (out-of-manifest lib).
     private static bool TryPinvokeDynamicSig(string module, string entry, out string retCpp, out string paramsCpp)
     {
@@ -1559,35 +1595,18 @@ public static class CodeGenerator
                     var piParams = PinvokeParamList(md, m);
                     var piDecl = $"extern \"C\" {piRet} {m.PinvokeEntryName}({piParams});";
                     w.Line($"// P/Invoke (M4 Task 1): native import from '{m.PinvokeModule}' ([DllImport]).");
+                    var pinvokeMod = m.PinvokeModule ?? "";
                     // Guard: Windows API functions are declared in windows.h -- don't redeclare
                     // on Windows to avoid "functions that differ only in their return type" overload
                     // conflicts (generated int32_t vs Windows SDK BOOL/LPVOID/etc).
-                    var pinvokeMod = m.PinvokeModule ?? "";
-                    // Any Windows system library (kernel32/user32/advapi32/shell32/
-                    // ole32/oleaut32/crypt32/secur32/bcrypt/ntdll/combase/mscoree/clr/
-                    // api-ms-win-*) is declared in windows.h -- don't redeclare on
-                    // Windows to avoid overload conflicts. QCall is not a DLL.
-                    var pinvokeBase = pinvokeMod.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-                        ? pinvokeMod.Substring(0, pinvokeMod.Length - 4) : pinvokeMod;
-                    var isWindowsDll = pinvokeMod.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.StartsWith("api-ms-win-", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("kernel32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("user32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("gdi32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("comdlg32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("comctl32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("advapi32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("shell32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("ole32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("oleaut32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("crypt32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("secur32", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("bcrypt", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("ntdll", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("combase", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("mscoree", StringComparison.OrdinalIgnoreCase)
-                        || pinvokeBase.Equals("clr", StringComparison.OrdinalIgnoreCase);
-                    if (isWindowsDll)
+                    //
+                    // entrypoint-suffix: the same predicate decides the CALL shape --
+                    // a Windows system library is resolved dynamically through
+                    // il2cpp_pinvoke_resolve_probe (see PinvokeCallWrapCode /
+                    // PinvokeResolveProbeCode): net48 never binds a [DllImport] at
+                    // link time, and the CharSet A/W candidate list cannot be
+                    // evaluated before the library is loaded.
+                    if (PinvokeModuleIsWindowsSystem(pinvokeMod))
                     {
                         w.Line($"#ifdef _WIN32");
                         w.Line($"// '{m.PinvokeEntryName}' declared in windows.h -- not redeclared to avoid overload conflicts");
@@ -5383,7 +5402,13 @@ public static class CodeGenerator
                     // as SEHException on the managed side (void specialization
                     // of the helper -- the native result, if the declared
                     // return is a discardable value, is dropped).
-                    var pinvokeCallCodeStmt = PinvokeCallWrapCode(pinvokeStmtStmt, fnStmt, callArgsStmt ?? "", "void");
+                    // entrypoint-suffix: Windows system DLL imports take the
+                    // CharSet probe shape here too (void/statement position).
+                    var pinvokeCallCodeStmt = pinvokeStmtStmt.PinvokeModule is { } probeModStmt
+                        && PinvokeModuleIsWindowsSystem(probeModStmt)
+                        && TryPinvokeProbeSig(md, c.Function, out var probeSigStmt)
+                        ? PinvokeResolveProbeCode(pinvokeStmtStmt, fnStmt, callArgsStmt ?? "", "void", probeSigStmt)
+                        : PinvokeCallWrapCode(pinvokeStmtStmt, fnStmt, callArgsStmt ?? "", "void");
                     w.LineAligned($"{pinvokeCallCodeStmt};",
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- invoke {DescribeCall(fnStmt)} (P/Invoke SEH boundary)");
                 }
@@ -9097,14 +9122,19 @@ default: return false;                           // primitives/VAR(handled by ca
     // wfm2 (struct returns): a VALUETYPE struct return (V:<FullName>) declares the native
     // struct type (il2cpp_pinvoke_struct.h) -- the native callee returns the struct by value.
     private static string PinvokeReturnTypeCpp(MetadataReader md, MethodDef m)
+        => PinvokeReturnTypeCppOf(m.ReturnType, PinvokeReturnStructName(md, m));
+
+    // The return-type body, callable from the declaration site (model MethodDef)
+    // and from a CALL site (signature re-decoded from the metadata token).
+    private static string PinvokeReturnTypeCppOf(SignatureTypeCode returnType, string? structRet)
     {
-        if (m.ReturnType is SignatureTypeCode.IntPtr) return "intptr_t";
-        if (m.ReturnType is SignatureTypeCode.UIntPtr) return "uintptr_t";
+        if (returnType is SignatureTypeCode.IntPtr) return "intptr_t";
+        if (returnType is SignatureTypeCode.UIntPtr) return "uintptr_t";
         // P-D3 P0 (fnptr DllImport RETURN): ELEMENT_TYPE_FNPTR (0x1B) return
         // was silently declared int32_t (the x64 address truncated). A fnptr
         // IS a void* (the "p" slot); the C++ compiler reads the full-width
         // pointer and the calli rides the void* value directly.
-        if (m.ReturnType is SignatureTypeCode.FunctionPointer) return "void*";
+        if (returnType is SignatureTypeCode.FunctionPointer) return "void*";
         // P-D1 P0-1 (full-width returns): int64/double/float/uint64 DllImport
         // returns were silently declared int32_t (a double return read EAX,
         // a long return sign-extended the truncated EAX -- both P-D1 audits
@@ -9112,11 +9142,10 @@ default: return false;                           // primitives/VAR(handled by ca
         // UserCallResultKind ("l"/"d"/"ptr"), so only the extern "C"
         // declaration must name the native return width -- the C++ compiler
         // then reads the correctly-typed return register/converts the SDL.
-        if (m.ReturnType is SignatureTypeCode.Int64) return "int64_t";
-        if (m.ReturnType is SignatureTypeCode.UInt64) return "uint64_t";
-        if (m.ReturnType is SignatureTypeCode.Single) return "float";
-        if (m.ReturnType is SignatureTypeCode.Double) return "double";
-        var structRet = PinvokeReturnStructName(md, m);
+        if (returnType is SignatureTypeCode.Int64) return "int64_t";
+        if (returnType is SignatureTypeCode.UInt64) return "uint64_t";
+        if (returnType is SignatureTypeCode.Single) return "float";
+        if (returnType is SignatureTypeCode.Double) return "double";
         if (structRet != null) return structRet;
         // Small native-int-family remains int32_t (the CLR expands BOOL/short/
         // byte/char P/Invoke slots to 4-byte native ints). A STRING-typed
@@ -9133,8 +9162,12 @@ default: return false;                           // primitives/VAR(handled by ca
     private static string? PinvokeReturnStructName(MetadataReader md, MethodDef m)
     {
         var handle = FindMethodHandle(md, m);
-        if (handle == null) return null;
-        var mi = md.GetMethodDefinition(handle.Value);
+        return handle == null ? null : PinvokeReturnStructNameOfHandle(md, handle.Value);
+    }
+
+    private static string? PinvokeReturnStructNameOfHandle(MetadataReader md, MethodDefinitionHandle handle)
+    {
+        var mi = md.GetMethodDefinition(handle);
         var sig = md.GetBlobReader(mi.Signature);
         var hdr = sig.ReadSignatureHeader();
         if (hdr.IsGeneric) sig.ReadCompressedInteger();
@@ -9163,27 +9196,32 @@ default: return false;                           // primitives/VAR(handled by ca
     // their short metadata name -- TypeEmitter.ExpandNestedTypes -- which is
     // exactly the token's suffix here).
     private static string PinvokeParamList(MetadataReader md, MethodDef m)
+        => PinvokeParamListOf(md, m.ParamTypes, PinvokeImportIsUtf16(md, m), m.Name);
+
+    // CharSet decoding at a P/Invoke IMPORT site (MethodImportAttributes CharSet
+    // mask 0x06: 0x02 Ansi / 0x04 Unicode / 0x06 Auto; on Windows Auto = W).
+    private static bool PinvokeImportIsUtf16(MetadataReader md, MethodDef m)
     {
-        // wf2 (winforms1): CharSet.Unicode/Auto P/Invokes marshal string args
-        // as UTF-16 (the W-API reads char16_t*). m.ParamTypes carries the raw
-        // MethodSignatureCoder encoding ("r:System.String" regardless of
-        // CharSet) -- the CharSet must be re-decoded from the import attribute
-        // (MethodImportAttributes CharSet mask 0x06: 0x02 Ansi / 0x04 Unicode
-        // / 0x06 Auto; on Windows Auto = W/Unicode).
         var pinvokeHandle = FindMethodHandle(md, m);
-        var utf16PInvoke = false;
-        if (pinvokeHandle != null)
-        {
-            var mi = md.GetMethodDefinition(pinvokeHandle.Value);
-            var import = mi.GetImport();
-            if (!import.Module.IsNil)
-            {
-                var charSet = (int)import.Attributes & 0x06;
-                utf16PInvoke = charSet is 0x04 or 0x06;
-            }
-        }
-        if (m.ParamTypes.Length == 0) return "void";
-        return string.Join(", ", SplitTopLevel(m.ParamTypes).Select(p =>
+        if (pinvokeHandle == null) return false;
+        var import = md.GetMethodDefinition(pinvokeHandle.Value).GetImport();
+        return !import.Module.IsNil && PinvokeImportIsUtf16((int)import.Attributes);
+    }
+
+    private static bool PinvokeImportIsUtf16(int attributes)
+    {
+        var charSet = attributes & 0x06;
+        return charSet is 0x04 or 0x06; // CharSetUnicode / CharSetAuto
+    }
+
+    // The parameter-list body, callable from BOTH the declaration site (model
+    // MethodDef) and the CALL site (signature re-decoded from the metadata
+    // token) -- the dynamic resolve cast must name exactly the types the old
+    // extern "C" declaration named.
+    private static string PinvokeParamListOf(MetadataReader md, string paramTypesRaw, bool utf16PInvoke, string methodName)
+    {
+        if (paramTypesRaw.Length == 0) return "void";
+        return string.Join(", ", SplitTopLevel(paramTypesRaw).Select(p =>
         {
             // handleref: a HandleRef P/Invoke parameter decays to its .Handle
             // (a native int) -- net48 passes the IntPtr value, never a pointer
@@ -9267,9 +9305,9 @@ default: return false;                           // primitives/VAR(handled by ca
                 || r.StartsWith("P:", StringComparison.Ordinal)
                 || r.StartsWith("B:", StringComparison.Ordinal) =>
                 throw new NotSupportedException(
-                    $"P/Invoke parameter type '{r}' on {m.Name} is not supported: reference-typed (delegate/array/object), fnptr, pointer and by-ref DllImport parameters are LOUDLY rejected (no marshalling bridge exists -- P-D3 wires fnptr)"),
+                    $"P/Invoke parameter type '{r}' on {methodName} is not supported: reference-typed (delegate/array/object), fnptr, pointer and by-ref DllImport parameters are LOUDLY rejected (no marshalling bridge exists -- P-D3 wires fnptr)"),
                 var other => throw new NotSupportedException(
-                    $"P/Invoke parameter encoding '{other}' on {m.Name} is not supported"),
+                    $"P/Invoke parameter encoding '{other}' on {methodName} is not supported"),
             };
         }));
     }
@@ -10972,7 +11010,16 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // boundary instead of unwinding to std::terminate.
         if (resolved2 is { IsPInvoke: true } pivoke)
         {
-            callCode2 = PinvokeCallWrapCode(pivoke, cppName2, callArgs2 ?? "", "");
+            // entrypoint-suffix: a WINDOWS SYSTEM DLL import resolves through
+            // the CharSet/ExactSpelling probe (see PinvokeModuleIsWindowsSystem)
+            // -- its declaration is windows.h's macro-bound prototype, which
+            // cannot express the import flags. The signature is decoded from
+            // THIS call's metadata token, so every overload keeps its own.
+            callCode2 = pivoke.PinvokeModule is { } probeMod
+                && PinvokeModuleIsWindowsSystem(probeMod)
+                && TryPinvokeProbeSig(md, c.Function, out var probeSig)
+                ? PinvokeResolveProbeCode(pivoke, cppName2, callArgs2 ?? "", "", probeSig)
+                : PinvokeCallWrapCode(pivoke, cppName2, callArgs2 ?? "", "");
         }
         // P/Invoke "ptr" result bridge (il2cpp_pinvoke_bridge.h): the native
         // return may be an SDK pointer/size type (HWND/HMODULE/LRESULT/...)
@@ -11466,6 +11513,51 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         return string.IsNullOrEmpty(args)
             ? $"il2cpp::runtime::il2cpp_pinvoke_call<{retCpp}>({fn})"
             : $"il2cpp::runtime::il2cpp_pinvoke_call<{retCpp}>({fn}, {args})";
+    }
+
+    //--------------------------------------------------------------------------
+    // entrypoint-suffix: the CharSet/ExactSpelling probe call shape.
+    //
+    // The native signature and the two import flags are decoded from the CALL's
+    // own metadata token, so an overload never borrows another overload's
+    // signature (the (module, entry)-keyed table picked the FIRST overload of
+    // e.g. user32!SendMessage -- a wrong projection) and a per-overload flag
+    // difference is honored.
+    //--------------------------------------------------------------------------
+    private readonly record struct PinvokeProbeSig(string Ret, string Params, int CharSet, int ExactSpelling);
+
+    private static bool TryPinvokeProbeSig(MetadataReader md, string function, out PinvokeProbeSig sig)
+    {
+        sig = default;
+        if (!function.StartsWith("call_", StringComparison.Ordinal)) return false;
+        if (!int.TryParse(function["call_".Length..], out var token)) return false;
+        var handle = MetadataTokens.Handle(token);
+        if (handle.Kind != HandleKind.MethodDefinition) return false;
+        var mh = (MethodDefinitionHandle)handle;
+        var mi = md.GetMethodDefinition(mh);
+        var import = mi.GetImport();
+        if (import.Module.IsNil) return false;
+        var attributes = (int)import.Attributes;
+        var (_, returnType, paramTypes, _) = MethodSignatureCoder.Decode(md, mi.Signature);
+        sig = new PinvokeProbeSig(
+            PinvokeReturnTypeCppOf(returnType, PinvokeReturnStructNameOfHandle(md, mh)),
+            PinvokeParamListOf(md, paramTypes, PinvokeImportIsUtf16(attributes), md.GetString(import.Name)),
+            attributes & 0x06,
+            attributes & 0x01);
+        return true;
+    }
+
+    private static string PinvokeResolveProbeCode(ResolvedMethod r, string fn, string args, string retOverride,
+        PinvokeProbeSig sig)
+    {
+        var retCpp = retOverride != ""
+            ? retOverride
+            : sig.Ret;
+        var resolveCall =
+            $"(({sig.Ret}(*)({sig.Params}))il2cpp::il2cpp_pinvoke_resolve_probe(\"{r.PinvokeModule}\",\"{fn}\",{sig.CharSet},{sig.ExactSpelling}))";
+        return string.IsNullOrEmpty(args)
+            ? $"il2cpp::runtime::il2cpp_pinvoke_call<{retCpp}>({resolveCall})"
+            : $"il2cpp::runtime::il2cpp_pinvoke_call<{retCpp}>({resolveCall}, {args})";
     }
 
     // B3: is this expression an ADDRESS expression (ldloca / ldflda /
@@ -13704,7 +13796,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     }
 
     //--------------------------------------------------------------------------
-    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section 锟?
+    // EmitMemberAttributeRegistrations -- RF-N6 (NEXT2-DECISION section �?
     // RF-N6): construct the MEMBER-level custom attribute instances (methods /
     // fields / properties) and register each annotated member's array in the
     // RF-N6 member registry (attribute.h) under the "FullName::memberName"
