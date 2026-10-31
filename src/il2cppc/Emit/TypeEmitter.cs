@@ -721,7 +721,30 @@ public static class TypeEmitter
     // resolve a user-struct generic argument to its TypeDef so a List<T>
     // materializer can box with the struct's OWN descriptor and sizeof(T) --
     // the resolver carries no type list of its own.
-    public static IReadOnlyList<TypeDef>? SessionTypes { get; private set; }
+    //
+    // D1 (fix #2): the storage is [ThreadStatic] and that is load-bearing. A
+    // session/Generate context is single-threaded by construction -- emission is
+    // synchronous per body, so the list is written and read on the same thread
+    // with no interleaving -- hence per-thread storage preserves today's
+    // behaviour EXACTLY while making two concurrent Generates (and xUnit's
+    // parallel test classes) independent. With a plain static, one writer's
+    // synthetic list (see MethodMapTestsGroupByKey.SessionTypesScope) leaked into
+    // a concurrently reading class, which surfaced as a real flake:
+    // "value-type (Cases.Color) key has no runtime key carrier" in the full
+    // parallel suite while the same test passed alone. AsyncLocal is unnecessary
+    // and wrong here: there is no await between the set and its uses, so a
+    // thread-affine slot already matches the lifetime, and AsyncLocal would add
+    // per-access overhead plus copy-on-write semantics nobody relies on.
+    // The property name, type and private setter are preserved: 6 production read
+    // sites use the name and the test helper installs via GetSetMethod(true).
+    [ThreadStatic]
+    private static IReadOnlyList<TypeDef>? _sessionTypes;
+
+    public static IReadOnlyList<TypeDef>? SessionTypes
+    {
+        get => _sessionTypes;
+        private set => _sessionTypes = value;
+    }
 
     // Public for CodeGenerator (called once per Generate, after all clones are
     // created -- the session map is deterministic on the final type list).
