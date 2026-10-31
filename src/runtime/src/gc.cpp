@@ -91,6 +91,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
+#include <mutex>
 
 namespace il2cpp {
 
@@ -339,8 +340,23 @@ int32_t SizeBucket(size_t size)
 // the process with "il2cpp_gc: static root table overflow". Raised to 4096 /
 // 1024 (32 KB + 16 KB of .bss) so ordinary programs never hit it; the overflow
 // branch below still FAILS LOUD rather than silently dropping a root.
+//
+// kMaxRootRanges = 16384 (2026-10-31, gc-roots hardening). The 1024 entries
+// were reached by real programs: one range is registered per live XmlWriter,
+// per String.Concat(IEnumerable) call and per HandleRef P/Invoke argument
+// (il2cpp_handleref.h roots its wrapper slot for the call), and a recursive
+// call chain with a HandleRef argument holds one range per native frame. The
+// probe (tests/runtime/test_gcrootrange_race.cpp) measures the native cost of
+// one nested range per level; scaling that to the 1 MiB default thread stack
+// puts the deepest reachable nesting well above 1024, so the old bound aborted
+// an ordinary deep call chain. 16384 costs 256 KiB of .bss (16 bytes/entry,
+// against 8 MiB for g_blockTable) and leaves >=2x margin over the measured
+// stack-imposed nesting limit. The overflow branch below still FAILS LOUD:
+// silently dropping a root would leave dangling pointers, which is strictly
+// worse than aborting, and an unbounded dynamic table would make OOM behavior
+// undefined (constraint #12: static storage only).
 constexpr int32_t kMaxStaticRoots = 4096;
-constexpr int32_t kMaxRootRanges  = 1024;
+constexpr int32_t kMaxRootRanges  = 16384;
 
 void**      g_staticRoots[kMaxStaticRoots];
 int32_t     g_staticRootCount = 0;
@@ -352,6 +368,45 @@ struct RootRange
 };
 RootRange   g_rootRanges[kMaxRootRanges];
 int32_t     g_rootRangeCount = 0;
+
+// Serializes every access to the root-range table above (2026-10-31, gc-roots).
+//
+// WHY: the table is process-global mutable state. Managed worker threads are
+// real OS threads (threadobj.cpp ThreadTrampoline -> plat_thread_spawn) and
+// register/unregister ranges from ordinary runtime calls:
+//   * il2cpp_handleref.h:110  -- one slot per HandleRef P/Invoke argument
+//   * stringext2.cpp:1141     -- String.Concat(IEnumerable) (per call)
+//   * xml_write.cpp:241/517   -- one slot per live XmlWriter
+//   * dependhandle.cpp:63, appdomain.cpp:383 -- one-shot registrations
+// while the collector enumerates the SAME table during mark and during the
+// compaction reference update. Without a lock, concurrent add/add overwrites an
+// entry (a silently lost root -> premature reclamation) and remove/remove drives
+// the count negative (out-of-bounds static writes) or inflated.
+//
+// LOCK DISCIPLINE (D11 -- no deadlock):
+//   * Acquired in: il2cpp_gc_add_root_range, il2cpp_gc_remove_root_range,
+//     the diagnostic getters, and Collect() from the root-range mark loop
+//     through the end of the cycle (so a range can neither appear between the
+//     mark scan and the sweep nor vanish while Phase C rewrites its slots; a
+//     second concurrent collection also serializes here).
+//   * While held, the collector executes only pure table/heap bookkeeping:
+//     no managed code, no finalizer callback (RunPendingFinalizers runs BEFORE
+//     the lock is taken), no I/O. It never acquires another runtime lock; the
+//     only lock that can be taken underneath is the CRT malloc lock in
+//     AllocSegment, which is a leaf (malloc never calls back into the runtime).
+//   * Callers of add/remove hold no runtime lock at the call site (verified at
+//     every caller listed above), so no thread acquires this mutex while
+//     holding another runtime lock.
+//   Therefore the lock-order graph is {this mutex} -> {CRT malloc lock} only:
+//   it has a cycle-free topology.
+//
+// SCOPE (honest limitation): this makes the root-range TABLE internally
+// consistent and keeps a registered range's target marked for the whole cycle.
+// It does NOT make the collector a stop-the-world collector: the M3 allocator
+// and the static-root table are still single-threaded by design, and the
+// collector scans only the CALLING thread's frame stack (framestack.cpp:13-20).
+// A full concurrent collector is a separate architecture task.
+std::mutex  g_rootRangeMutex;
 
 bool g_initialized = false;
 
@@ -1167,6 +1222,13 @@ void Collect()
         MarkSlot(reinterpret_cast<Il2CppObject**>(g_staticRoots[i]));
     }
     // Roots: contiguous reference-slot ranges (managed frames, etc.).
+    // Take the root-range lock here and keep it until Collect returns: the
+    // table must be a stable snapshot from this mark scan through the Phase C
+    // reference rewrite below (UpdateReferencesAfterCompaction walks the same
+    // table). A registration that arrives meanwhile waits for the cycle to
+    // finish, so a live range can never be swapped out from under the collector
+    // and a range cannot appear between the scan and the sweep unmarked.
+    std::unique_lock<std::mutex> rootRangeLock(g_rootRangeMutex);
     for (int32_t r = 0; r < g_rootRangeCount; ++r)
     {
         const RootRange& range = g_rootRanges[r];
@@ -1760,6 +1822,7 @@ void il2cpp_gc_add_root_range(void** begin, int32_t count)
     {
         return;
     }
+    std::lock_guard<std::mutex> lock(g_rootRangeMutex);
     if (g_rootRangeCount >= kMaxRootRanges)
     {
         FailLoud("root range table overflow");
@@ -1784,6 +1847,7 @@ void il2cpp_gc_remove_root_range(void** begin)
     {
         return;
     }
+    std::lock_guard<std::mutex> lock(g_rootRangeMutex);
     for (int32_t i = 0; i < g_rootRangeCount; ++i)
     {
         if (g_rootRanges[i].begin == begin)
@@ -1803,6 +1867,7 @@ void il2cpp_gc_remove_root_range(void** begin)
 //------------------------------------------------------------------------------
 int32_t il2cpp_gc_get_root_range_count()
 {
+    std::lock_guard<std::mutex> lock(g_rootRangeMutex);
     return g_rootRangeCount;
 }
 
