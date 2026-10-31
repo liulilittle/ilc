@@ -352,7 +352,11 @@ public class StubReportTests
 
     private static void ArglistBody(InstructionEncoder e)
     {
-        e.OpCode(ILOpCode.Arglist); // StackFold LOUD: varargs unsupported
+        // A body the fold still rejects LOUD. `arglist` IS supported now
+        // (varargs/ArgIterator landed), so the stub fixture uses the remaining
+        // filter-clause gap (VB-only IL; still no EH model).
+        e.LoadConstantI4(0);
+        e.OpCode(ILOpCode.Endfilter);
         e.OpCode(ILOpCode.Ret);
     }
 

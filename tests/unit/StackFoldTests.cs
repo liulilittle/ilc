@@ -1733,12 +1733,15 @@ public class StackFoldTests
     }
 
     [Fact]
-    public void Fold_Arglist_ThrowsNotSupported()
+    public void Fold_Arglist_PushesVarArgsFrameHandle()
     {
-        // arglist (varargs -- no transpiler model): LOUD.
-        Assert.Throws<NotSupportedException>(() => StackFold.Fold(
-            IlDecoder.DecodeMethod(new byte[] { 0xFE, 0x00, 0x2A }),
-            new MethodContext { ArgCount = 0 }));
+        // arglist: pushes the CURRENT method's varargs frame handle -- the
+        // trailing intptr_t va_frame parameter every variadic method receives.
+        // `arglist; pop; ret` folds without error and the handle is referenced.
+        var stmts = StackFold.Fold(
+            IlDecoder.DecodeMethod(new byte[] { 0xFE, 0x00, 0x26, 0x2A }),
+            new MethodContext { ArgCount = 0 });
+        Assert.NotEmpty(stmts);
     }
 
     [Fact]

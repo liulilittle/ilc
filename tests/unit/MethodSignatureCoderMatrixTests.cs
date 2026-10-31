@@ -71,13 +71,42 @@ public class MethodSignatureCoderMatrixTests
         Assert.Equal(expected, EncodeParams(paramBytes));
     }
 
-    // Vararg sentinel (0x41) is a separator, not a real param: consumed, encoded
-    // as a "..." marker, and the loop keeps decoding the following (optional) args.
+    // Vararg sentinel (0x41, ECMA-335 II.23.2.2) is a SEPARATOR, not a param:
+    // it splits the FIXED parameters from the optional ones and never enters the
+    // fixed param list. That is the hash/ABI channel -- a MethodDef definition
+    // signature carries no sentinel, so a call-site hash that contained it could
+    // never match the generated symbol (the varargs P0 root cause).
     [Fact]
-    public void Param_Sentinel_ConsumedAndMarked()
+    public void Param_Sentinel_SplitsFixedFromOptional()
     {
-        // header 0x00, paramCount 2, ret void, params: SENTINEL(0x41), int32
-        Assert.Equal("...,i", EncodeParams(new byte[] { 0x41, 0x08 }, paramCount: 2));
+        // callconv VARARG (0x05), paramCount 2 (fixed + optional), ret void,
+        // params: int32 (fixed), SENTINEL (0x41), int32 (optional)
+        var sig = new byte[] { 0x05, 0x02, 0x01, 0x08, 0x41, 0x08 };
+        using var pe = new PEReader(SynthesizeMember(sig));
+        var md = pe.GetMetadataReader();
+        var sigHandle = md.GetMemberReference(md.MemberReferences.Single()).Signature;
+        var v = MethodSignatureCoder.DecodeVarArgs(md, sigHandle);
+        Assert.True(v.IsVarArgs);
+        Assert.Equal(1, v.FixedCount);
+        Assert.Equal("i", v.FixedParamTypes);
+        Assert.Equal(new[] { "i" }, v.VarArgTypes);
+        // The fixed-only Decode view (the hash channel) matches the definition.
+        Assert.Equal("i", MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
+    }
+
+    // A definition signature carries the VARARG convention and NO sentinel: the
+    // optional parameters are unknown at the definition site.
+    [Fact]
+    public void Param_VarArgDefinition_NoSentinel()
+    {
+        var sig = new byte[] { 0x05, 0x01, 0x01, 0x08 };
+        using var pe = new PEReader(SynthesizeMember(sig));
+        var md = pe.GetMetadataReader();
+        var v = MethodSignatureCoder.DecodeVarArgs(md, md.GetMemberReference(md.MemberReferences.Single()).Signature);
+        Assert.True(v.IsVarArgs);
+        Assert.Equal(1, v.FixedCount);
+        Assert.Equal("i", v.FixedParamTypes);
+        Assert.Empty(v.VarArgTypes);
     }
 
     //--------------------------------------------------------------------------

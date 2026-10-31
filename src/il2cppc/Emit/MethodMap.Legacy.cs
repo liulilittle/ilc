@@ -309,14 +309,17 @@ public static partial class MethodRefResolver
                         // ArgIterator(RuntimeArgumentHandle): initialize the
                         // value slot from the caller-built frame handle. The
                         // newobj fold passes the slot as arg0 (vctor path) and
-                        // the emitter addresses it for the icall.
-                        if (count == 1)
+                        // the emitter addresses it for the icall. The real
+                        // parameter is a VALUETYPE (0x11) or the native-int
+                        // carrier (0x18) -- any other 1-arg shape is not this
+                        // ctor.
+                        if (count == 1 && ps[0] is 0x11 or 0x18)
                             return I("il2cpp::runtime::icall_argiterator_ctor", 1, false, false, true);
                         // ArgIterator(RuntimeArgumentHandle, void*) carries an
-                        // unmanaged signature pointer -- not modelled (the frame
-                        // already carries the declared types).
+                        // unmanaged signature pointer -- not modelled (the
+                        // typed frame already carries the declared types).
                         throw new NotSupportedException(
-                            $"{name} is part of System.ArgIterator -- only the ArgIterator(RuntimeArgumentHandle) ctor is wired (the unmanaged void* signature-pointer ctor is not modelled; the typed frame carries the declared types) [Reference Source mscorlib/system/argiterator.cs:18,44]");
+                            $"{name} is part of System.ArgIterator -- only the ArgIterator(RuntimeArgumentHandle) ctor is wired: LOUD whitelist (no runtime descriptor for the unmanaged void* signature-pointer ctor) [Reference Source mscorlib/system/argiterator.cs:18,44]");
                     case "GetRemainingCount":
                         if (count == 0)
                             return I("il2cpp::runtime::icall_argiterator_get_remaining_count", 1, true, false, false,

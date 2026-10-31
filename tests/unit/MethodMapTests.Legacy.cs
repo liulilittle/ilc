@@ -208,13 +208,44 @@ public class MethodMapTestsLegacy
     }
 
     //--------------------------------------------------------------------------
-    // ArgIterator -- legacy varargs-reflection primitive.
+    // ArgIterator -- varargs (__arglist) consumption. The public surface is a
+    // managed wrapper over internal icalls in net48; mscorlib is never
+    // translated, so these public members are the resolution targets
+    // (runtime model: il2cpp_argiterator.h).
     //--------------------------------------------------------------------------
-    [Fact]
-    public void Resolve_ArgIterator_ThrowsLoud()
+    [Theory]
+    [InlineData("GetRemainingCount", 0x08, "il2cpp::runtime::icall_argiterator_get_remaining_count")]
+    [InlineData("GetNextArgType", 0x06, "il2cpp::runtime::icall_argiterator_get_next_arg_type")]
+    [InlineData("End", 0x01, "il2cpp::runtime::icall_argiterator_end")]
+    [InlineData("GetHashCode", 0x08, "il2cpp::runtime::icall_argiterator_get_hash_code")]
+    [InlineData("GetNextArg", 0x08, "il2cpp::runtime::icall_argiterator_get_next_arg")]
+    public void Resolve_ArgIterator_Surface_MapsToIcalls(string member, int ret, string cpp)
     {
+        var resolved = ResolveMember(
+            Synthesize("System", "ArgIterator", member, Sig((byte)ret)),
+            member);
+        Assert.Equal(cpp, resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_ArgIterator_Ctor_MapsToIcall()
+    {
+        // ArgIterator(RuntimeArgumentHandle): the frame handle rides the
+        // native-int carrier (ELEMENT_TYPE_I 0x18) -- the exact shape net48's
+        // public ctor wrapper hands to the internal `.ctor(native int)` icall.
+        var resolved = ResolveMember(
+            Synthesize("System", "ArgIterator", ".ctor", Sig(0x01, 0x18)),
+            ".ctor");
+        Assert.Equal("il2cpp::runtime::icall_argiterator_ctor", resolved.CppName);
+    }
+
+    [Fact]
+    public void Resolve_ArgIterator_UnknownMember_ThrowsLoud()
+    {
+        // Members outside the varargs-consumption surface must never fall to a
+        // generated-name symbol.
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "ArgIterator", "GetRemainingCount", Sig(0x08)), "GetRemainingCount"));
+            ResolveMember(Synthesize("System", "ArgIterator", "GetNextArgTypeHandle", Sig(0x08)), "GetNextArgTypeHandle"));
 
         Assert.Contains("System.ArgIterator", ex.Message);
     }
