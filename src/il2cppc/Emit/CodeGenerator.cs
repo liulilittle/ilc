@@ -336,6 +336,9 @@ public static class CodeGenerator
         // GCHandle.cs) live in il2cpp_gchandle.h. Missing include -> the
         // generated C++ cannot see the declarations (cmake_build failure).
         generatedHeader.Line("#include \"il2cpp_gchandle.h\"");
+        // handleref: the runtime mirror struct + the P/Invoke argument bridge
+        // (Il2CppHandleRef / il2cpp_handleref_ctor / il2cpp_handleref_arg).
+        generatedHeader.Line("#include \"il2cpp_handleref.h\"");
         generatedHeader.Line("#include \"il2cpp_string_intern.h\"");
         generatedHeader.Line("#include \"il2cpp_marshal_ext.h\"");
         generatedHeader.Line("#include \"il2cpp_marshal_ext2.h\"");
@@ -3139,6 +3142,23 @@ public static class CodeGenerator
                     locKind[d] = "ref";
                     continue;
                 }
+                // handleref: a System.Runtime.InteropServices.HandleRef local
+                // is the two-field runtime mirror struct (il2cpp_handleref.h:
+                // wrapper + handle -- the single authoritative layout). It is
+                // ZERO-initialized (an IL local starts as default(HandleRef):
+                // null wrapper / zero handle) and its .wrapper field is a
+                // whole-method GC frame root: the collector is a PRECISE root
+                // scanner (gc.cpp:1164-1195 walks ONLY registered roots and the
+                // managed frame stack -- an unregistered struct field would let
+                // a collection between the ctor and the P/Invoke reclaim the
+                // wrapper). The call-site bridge additionally roots the value
+                // it actually passes (il2cpp_handleref_arg) for the call.
+                if (ilKind == "v:System.Runtime.InteropServices.HandleRef")
+                {
+                    w.Line($"{MuPrefix(d)}il2cpp::Il2CppHandleRef {d} = {{ }};");
+                    structFieldRoots.Add($"{d}.wrapper");
+                    continue;
+                }
                 // guidcase (M7R2): a System.Guid IL-declared local is the
                 // 16-byte Il2CppGuid VALUE struct (the same type the signature
                 // and field slots use). The guid.h icalls write through raw
@@ -4669,6 +4689,12 @@ public static class CodeGenerator
                     // re-typed to the byte pointer.
                     else if (resolvedVc.CppName.StartsWith("il2cpp::il2cpp_guid_ctor", StringComparison.Ordinal))
                         thisCode = GuidValueBytePtr(thisCode);
+                    // handleref: the HandleRef ctor writes the two mirror fields
+                    // through the destination slot address -- the newobj fold
+                    // pushes the struct VALUE (LocExpr tN), so the call must
+                    // take `(&tN)` (the il2cpp_handleref.h ABI).
+                    else if (resolvedVc.CppName == "il2cpp::il2cpp_handleref_ctor")
+                        thisCode = $"(&{thisCode})";
                     // GN-N4 stage-2 (Id<Pt> by-value MVAR): a USER value-type
                     // ctor (`Cases_Pt__ctor_...` -- NOT an il2cpp:: runtime
                     // icall) declares its receiver `this` as `{T}*` (the
@@ -4760,7 +4786,7 @@ public static class CodeGenerator
                         // silently mis-emitting.
                         argE = castV switch
                         {
-                            null or "" or "l" or "i" or "tupctor" => argE,
+                            null or "" or "l" or "i" or "n" or "tupctor" => argE,
                             "s" => NullSafePtrCast("Il2CppString*", argE),
                             "a" => NullSafePtrCast("Il2CppArray*", argE),
                             _ => throw new NotSupportedException(
@@ -7363,7 +7389,14 @@ default: return false;                           // primitives/VAR(handled by ca
             var t = lines[i].TrimStart();
             if (t.StartsWith("int32_t ", StringComparison.Ordinal)
                 || t.StartsWith("Il2CppObject* ", StringComparison.Ordinal)
-                || t.StartsWith("const char* ", StringComparison.Ordinal))
+                || t.StartsWith("const char* ", StringComparison.Ordinal)
+                // handleref: the HandleRef mirror struct local declaration
+                // (`il2cpp::Il2CppHandleRef locN = { };`) must be included in
+                // the declaration scan -- the frame refs array is inserted
+                // AFTER the last declaration and references `&locN.wrapper`;
+                // stopping at an earlier int32_t decl emitted the frame prologue
+                // BEFORE locN's declaration (C++ "locN was not declared").
+                || t.StartsWith("il2cpp::Il2CppHandleRef ", StringComparison.Ordinal))
                 lastDecl = i;
         }
         var prologue = new List<string>
@@ -9072,6 +9105,16 @@ default: return false;                           // primitives/VAR(handled by ca
         if (m.ParamTypes.Length == 0) return "void";
         return string.Join(", ", SplitTopLevel(m.ParamTypes).Select(p =>
         {
+            // handleref: a HandleRef P/Invoke parameter decays to its .Handle
+            // (a native int) -- net48 passes the IntPtr value, never a pointer
+            // to the struct. The call-site bridge (EmitIcallCallArgs) reads
+            // the handle through the runtime accessor and roots the wrapper
+            // for the call (il2cpp_handleref_arg). ref/out HandleRef does not
+            // occur in the WinForms import surface: 0 rows in
+            // .opencode/tmp/wforms-audit/classified.tsv for "HandleRef&" /
+            // "B:V:System.Runtime.InteropServices.HandleRef" -- deliberately
+            // NOT implemented (a byref would be IntPtr* per net48).
+            if (p == "V:System.Runtime.InteropServices.HandleRef") return "intptr_t";
             if (p.StartsWith("B:V:", StringComparison.Ordinal))
             {
                 var inner = PinvokeStructCppType(p[4..]);
@@ -9421,6 +9464,15 @@ default: return false;                           // primitives/VAR(handled by ca
         // System_Runtime_InteropServices_GCHandle name (no generated struct)
         // -> C++ compile failure.
         "System.Runtime.InteropServices.GCHandle" => "int32_t",
+        // handleref: System.Runtime.InteropServices.HandleRef is a two-field
+        // value type (_wrapper object + _handle native int) with no generated
+        // struct (mscorlib TypeRef). Map it to the runtime mirror struct --
+        // the single authoritative layout (il2cpp_handleref.h) -- so locals,
+        // parameters and temporaries name a DEFINED type. The P/Invoke
+        // declaration decays the parameter to intptr_t and the call-site
+        // bridge passes .Handle with the wrapper rooted (see
+        // EmitIcallCallArgs / il2cpp_handleref_arg).
+        "System.Runtime.InteropServices.HandleRef" => "il2cpp::Il2CppHandleRef",
         // wf2 (winforms1): System.IntPtr/UIntPtr are the pointer CARRIER
         // (intptr_t/uintptr_t slots -- MethodMap.IntPtr, M4.5 "ptr" result kind).
         "System.IntPtr" => "intptr_t",
@@ -11602,6 +11654,22 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 if (r.ProviderCulture) { parts.Add(code); }
                 continue;
             }
+            // handleref: a HandleRef P/Invoke argument. The native declaration
+            // is intptr_t (PinvokeParamList) -- or the SDK's own pointer type
+            // (windows.h owns those prototypes) -- so the argument is the
+            // runtime bridge object il2cpp_handleref_arg(hr): it converts to
+            // either native type from .Handle, and its temporary lifetime (the
+            // whole P/Invoke full-expression) roots .Wrapper as a precise GC
+            // root range (il2cpp_handleref.h explains the root strategy; the
+            // collector does NOT scan unregistered C++ stack slots). It is NOT
+            // wrapped in il2cpp_pinvoke_arg: the proxy performs the pointer /
+            // native-int conversion itself (a class value cannot go through
+            // reinterpret_cast).
+            if (r.IsPInvoke && cast == "V:System.Runtime.InteropServices.HandleRef")
+            {
+                parts.Add($"il2cpp::il2cpp_handleref_arg({code})");
+                continue;
+            }
             var castPart = cast switch
             {
                 "i" => $"static_cast<int32_t>({code})",
@@ -11675,6 +11743,17 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "g" => IsGuidOperand(args[srcIdx], md, types)
                     ? (IsAddressExpr(args[srcIdx]) ? NullSafePtrCast("uint8_t*", code) : GuidValueBytePtr(code))
                     : NullSafePtrCast("uint8_t*", code),
+                // handleref: the HandleRef mirrors (il2cpp_handleref.h -- the
+                // single authoritative layout). "hrp" is the value-type ctor
+                // receiver slot; "hrp2" is the ADDRESS receiver of the
+                // HandleRef.Handle / HandleRef.Wrapper accessors (the accessor
+                // name itself is the resolved CppName -- the cast supplies only
+                // the pointer argument). Field reads go through the struct
+                // type, never a hand-written offset.
+                "hrp" => IsAddressExpr(args[srcIdx])
+                    ? $"reinterpret_cast<il2cpp::Il2CppHandleRef*>({code})"
+                    : $"reinterpret_cast<il2cpp::Il2CppHandleRef*>(&({code}))",
+                "hrp2" => $"reinterpret_cast<const il2cpp::Il2CppHandleRef*>({code})",
                 // P/Invoke string params (sprint worklist #28/#29 next-gap):
                 // the P/Invoke branch of MethodRefResolver carries the RAW
                 // signature encodings as cast codes -- they double as the

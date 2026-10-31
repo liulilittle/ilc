@@ -5763,6 +5763,16 @@ public static class StackFold
                 || typeFullName is "System.Numerics.BigInteger"
                 // wf2 (winforms1): System.IntPtr/UIntPtr are BCL VALUE types.
                 || typeFullName is "System.IntPtr" or "System.UIntPtr"
+                // handleref: System.Runtime.InteropServices.HandleRef is a BCL
+                // VALUE type (two fields: _wrapper / _handle). It has no
+                // TypeDef here, so the reference-allocation path emitted
+                // `il2cpp_object_new(&System_Runtime_InteropServices_
+                // HandleRef_class)` for an undeclared symbol (the winforms
+                // probe's C++ build failure). The in-place path declares the
+                // runtime mirror struct and the ctor writes its fields; the
+                // P/Invoke bridge decays it to .Handle (see
+                // src/runtime/include/internal/il2cpp_handleref.h).
+                || typeFullName is "System.Runtime.InteropServices.HandleRef"
                 // tuple1 (ValueTuple): System.ValueTuple`N is an ordinary BCL
                 // VALUE type (a struct with Item1..ItemN + a .ctor). It has no
                 // TypeDef here, so without this arm the ctor took the

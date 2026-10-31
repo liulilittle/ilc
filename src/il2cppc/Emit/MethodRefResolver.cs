@@ -2372,6 +2372,9 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Collections.Generic.SortedDictionary`2+ValueCollection+Enumerator":
                 return TryMapSortedListValueEnumerator(owner, name, count, receiverType);
             case "System.Runtime.InteropServices.Marshal": return TryMapMarshal(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames);
+            // handleref: the HandleRef value type (mirror struct + P/Invoke
+            // argument bridge; MethodMap.HandleRef.cs / il2cpp_handleref.h).
+            case "System.Runtime.InteropServices.HandleRef": return TryMapHandleRef(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Runtime.InteropServices.SafeHandle": return TryMapSafeHandle(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Security.Cryptography.MD5":
             case "System.Security.Cryptography.SHA1":
