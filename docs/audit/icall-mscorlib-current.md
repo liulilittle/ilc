@@ -255,6 +255,8 @@
 
 「缺口」= 非「已接」且非「影子」的全部行 = **640** 条（半接 / LOUD 拒绝 / 无接线 / 部分影子）。影子单列在 §3.6（结论是「无需接线」），部分影子单列在 §3.7（结论是「只部分覆盖」）。
 
+**本节行数与摘要优先级分布的对应关系**（避免把两套口径误读为互相矛盾）：本节 P0/P1/P2/P3 共 42+219+95+284 = **640** 行，即上段的「缺口」全体；摘要里的优先级分布 42+290+98+284 = **714** = 908−194（已接），即**把 §3.6 的 74 条影子也按优先级计入**。两套口径的差只落在 P1/P2：P0（42=42）与 P3（284=284）完全一致，故 74 条影子全部落在 P1∪P2，据此得 P1 影子 290−219=**71**、P2 影子 98−95=**3**（71+3=74 自洽）。**已知缺陷**：§3.6 未设「优先级」列，上述 71/3 拆分是算术推定而非逐行可查，需脚本补出该列后才能逐条核对。
+
 ### P0（42 条）
 
 类型与方法均为 public，用户 IL 可以直接 call，属于**必须处理**的面。
@@ -304,7 +306,7 @@
 | 41 | `System.Threading.Thread` | `EndCriticalRegion` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_end_critical_region`，但运行时是空体/恒值桩（桩定义 `thread.cpp:124`） | `thread.cpp:124` |
 | 42 | `System.Threading.Thread` | `EndThreadAffinity` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_end_thread_affinity`，但运行时是空体/恒值桩（桩定义 `thread.cpp:188`） | `thread.cpp:188` |
 
-### P1（219 条）
+### P1（摘要 290 条 = 本节 219 条缺口 + §3.6 的 71 条影子）
 
 非 public 面，但经普通 BCL 内部路径可达（集合/字符串/LINQ/IO/格式化/数值等），或距离 public 入口只有 1 跳。
 
@@ -530,7 +532,7 @@
 | 218 | `System.ValueType` | `FastEqualsCheck` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 219 | `System.WeakReference` | `IsTrackResurrection` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
 
-### P2（95 条）
+### P2（摘要 98 条 = 本节 95 条缺口 + §3.6 的 3 条影子）
 
 仅经反射/序列化/调试器/COM 宿主/interop 路径可达，或链路深度 ≥4。
 
