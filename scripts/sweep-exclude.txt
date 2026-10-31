@@ -1,4 +1,4 @@
-﻿# Sweep exclusion list (non byte-exact cases)
+# Sweep exclusion list (non byte-exact cases)
 # Format: one case name per line; '#' comments allowed (put a space before '#'
 # when adding a trailing note, otherwise the note becomes part of the name).
 # These cases live under tests/cases/ but are NOT byte-exact difftest cases,
@@ -22,11 +22,9 @@ loud-p0-18-strmin-loud   # LOUD contract: string Min/Max requires culture-aware 
 # loud-p0-grp-dec-op (decimal-bucket aggregate/Contains operators) are now WIRED
 # real cases, so they were removed from this list.
 
-# --- Incomplete WIP case assets (added by the 2026-10-23 wip commit with only a
-# --- .csproj; the .cs source was never committed, so the net48 oracle build fails
-# --- with CS5001 "no static Main"). Excluded until the source is supplied.
-convchange1
-convround1
-convstr1
-convtostr1
-mathmisc1
+# --- Convert-domain DIVERGENCES found by the former WIP cases (2026-11-01) ---
+# The sources now exist and the cases run; they stay out of the sweep ONLY
+# because the records below are KNOWN-divergent (net48 oracle vs runtime), not
+# because the assets are incomplete. Remove a line once src is fixed.
+convchange1   # DIVERGENT: [conv.int.umax] net48 OverflowException vs runtime -1 (Convert.ToInt32(uint) sign-extends); [i32.obj.ulongmax] net48 OverflowException vs runtime -1 (boxed ulong -> int32 loses the value)
+convround1    # DIVERGENT: [u8.m05d]/[u32.m05d]/[u64.m05d] net48 0 vs runtime OverflowException (unsigned targets reject -0.5 before the half-to-even round)
