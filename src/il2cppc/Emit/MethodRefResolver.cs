@@ -3344,6 +3344,8 @@ var userRecvLike = receiverType ?? arg0Type;
         "l" or "q" => "int64_t",
         "f" or "d" => "double",
         "n" => "intptr_t",
+        // ELEMENT_TYPE_U (0x19): native unsigned int, full pointer width.
+        "u" => "uintptr_t",
         var r when r.StartsWith("r:", StringComparison.Ordinal) => "Il2CppObject*",
         _ => null,
     };

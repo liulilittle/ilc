@@ -34,8 +34,8 @@ public class MethodSignatureCoderMatrixTests
     [InlineData(0x0D, "d")]  // R8 (double slot)
     [InlineData(0x0E, "r:System.String")]
     [InlineData(0x16, "tr")] // TYPEDBYREF (no trailing)
-    [InlineData(0x18, "n")]  // ELEMENT_TYPE_I (native int, raw 0x18 -- int32 slot)
-    [InlineData(0x19, "i")]  // ELEMENT_TYPE_U (native uint, raw 0x19 -- as int32)
+    [InlineData(0x18, "n")]  // ELEMENT_TYPE_I (native int -- intptr_t slot)
+    [InlineData(0x19, "u")]  // ELEMENT_TYPE_U (native uint -- uintptr_t slot, unsigned)
     [InlineData(0x1C, "r:System.Object")]
     public void Param_LeafTypes_Encode(int typeByte, string expected)
     {

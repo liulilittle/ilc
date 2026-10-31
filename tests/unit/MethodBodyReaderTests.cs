@@ -23,8 +23,11 @@ using Xunit;
 //     The matrixcase probe E wall (formerly "multidim-array/function-pointer
 //     local ... not supported" @MethodBodyReader.cs:193) is now decoded
 //     (multidim-probe.md fix direction: "0x14 per-reference slot 'r' + full consumption").
-//   * ELEMENT_TYPE_U (0x19, native uint): single-byte, no trailing -> "i"
-//     (pre-fix it was wrongly lumped with multidim and REJECTED).
+//   * ELEMENT_TYPE_I (0x18, native int) / ELEMENT_TYPE_U (0x19, native uint):
+//     single-byte, no trailing -> "ptr" (intptr_t) / "uptr" (uintptr_t). The
+//     pointer width is authoritative: an assignment-free `out IntPtr p;` slot
+//     was declared int32_t and silently truncated (pre-fix 0x19 was wrongly
+//     lumped with multidim and REJECTED).
 //   * PTR (0x0F) / BYREF (0x10): the element type byte follows and must be
 //     consumed (pre-fix the element leaked into the next local).
 //   * PINNED (0x45, `fixed` buffers): modifier wrapping the next type.
@@ -252,14 +255,34 @@ public class MethodBodyReaderTests
     }
 
     [Fact]
-    public void LocalSig_NativeUint_0x19_KindI()
+    public void LocalSig_NativeUint_0x19_KindUptr()
     {
         // ELEMENT_TYPE_U (native uint, 0x19): single-byte, no trailing data.
-        // Pre-fix it was lumped with multidim and REJECTED as
-        // "multidim-array/function-pointer local".
+        // The slot is the UNSIGNED pointer carrier (uintptr_t), not int32_t.
         using var pe = Synthesize(EmitRet, 2, new byte[] { 0x07, 0x01, 0x19 });
         var info = ReadBody(pe);
-        Assert.Equal(new[] { "i" }, info.LocalKinds);
+        Assert.Equal(new[] { "uptr" }, info.LocalKinds);
+    }
+
+    [Fact]
+    public void LocalSig_NativeInt_0x18_KindPtr()
+    {
+        // ELEMENT_TYPE_I (native int, 0x18): single-byte, no trailing data --
+        // the full-width intptr_t carrier (an assignment-free out-slot was
+        // int32_t before the fix).
+        using var pe = Synthesize(EmitRet, 2, new byte[] { 0x07, 0x01, 0x18 });
+        var info = ReadBody(pe);
+        Assert.Equal(new[] { "ptr" }, info.LocalKinds);
+    }
+
+    [Fact]
+    public void LocalSig_Erratum_0x17_KindPtr()
+    {
+        // 0x17 (the ECMA-335 PRINTED-table I byte, never emitted by Roslyn)
+        // classifies with 0x18 so a hand-built blob cannot degrade to int32_t.
+        using var pe = Synthesize(EmitRet, 2, new byte[] { 0x07, 0x01, 0x17 });
+        var info = ReadBody(pe);
+        Assert.Equal(new[] { "ptr" }, info.LocalKinds);
     }
 
     [Fact]

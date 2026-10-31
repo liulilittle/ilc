@@ -457,8 +457,22 @@ public static class MethodBodyReader
             for (var i = 0; i < fnptrCount; i++) LocalTypeKind(md, ref sig, name);
             return "i";
         }
+        // Native int/uint locals keep the FULL pointer width. The real wire
+        // bytes are ELEMENT_TYPE_I 0x18 (System.IntPtr) and ELEMENT_TYPE_U
+        // 0x19 (System.UIntPtr); 0x17 is the ECMA-335 printed-table erratum
+        // byte and never appears in Roslyn/net48 metadata, but is classified
+        // with 0x18 for completeness (MethodSignatureCoder's 0x17 note).
+        // "ptr" declares intptr_t, "uptr" declares uintptr_t -- UIntPtr must
+        // stay UNSIGNED (a high-bit compare/shift on an intptr_t slot is
+        // wrong). The old shared "i" default declared these locals int32_t,
+        // so an assignment-free IntPtr/UIntPtr local (the `out IntPtr p;`
+        // target, an `ldloca`-written slot) was 4 bytes wide and the callee's
+        // stind.i truncated the x64 value (or, with a widened byref
+        // parameter, failed to compile: intptr_t* vs int32_t*).
+        if (b is 0x17 or 0x18) return "ptr";
+        if (b == 0x19) return "uptr";
         // Remaining single-byte types (0x02 bool / 0x03 char / 0x04 i1 / 0x08 i4 /
-        // 0x09 u4 / 0x17 native int / 0x18-0x19 native uint etc.) carry no trailing data.
+        // 0x09 u4 etc.) carry no trailing data.
         return "i";
     }
 

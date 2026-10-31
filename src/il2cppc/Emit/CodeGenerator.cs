@@ -2786,8 +2786,14 @@ public static class CodeGenerator
         // M5 wiring: IL-declared int64/double locals are authoritative -- a
         // copy (`long b = a;`) must propagate the 64-bit kind even when the
         // fold only saw an int32-typed constant source.
+        // Native int/uint locals (ELEMENT_TYPE_I 0x18 / ELEMENT_TYPE_U 0x19,
+        // MethodBodyReader "ptr"/"uptr") are authoritative too: their width is
+        // the C++ pointer width and the UNSIGNED-slot distinction cannot be
+        // recovered from the IR (an IntPtr/UIntPtr assignment classifies as
+        // the shared "ptr" carrier). Without this seed an assignment-free
+        // `out IntPtr p;` slot fell to the int32_t default.
         for (var i = 0; i < bodyInfo.LocalKinds.Length; i++)
-            if (bodyInfo.LocalKinds[i] is "l" or "d")
+            if (bodyInfo.LocalKinds[i] is "l" or "d" or "ptr" or "uptr")
                 locKind[bodyInfo.LocNames[i]] = bodyInfo.LocalKinds[i];
         var refLocals = new List<string>();
         // batch 156c (asynccase): REFERENCE FIELDS of VALUETYPE locals (the
@@ -3297,6 +3303,15 @@ public static class CodeGenerator
             if (kind == "ptr")
             {
                 w.Line($"{MuPrefix(d)}intptr_t {d};");
+                continue;
+            }
+            // System.UIntPtr locals (ELEMENT_TYPE_U 0x19 -> "uptr"): the same
+            // pointer width but the UNSIGNED C++ carrier. Declaring it
+            // intptr_t would make any direct C++ compare/shift on the slot
+            // signed (a high-bit UIntPtr value compares as negative).
+            if (kind == "uptr")
+            {
+                w.Line($"{MuPrefix(d)}uintptr_t {d};");
                 continue;
             }
             // M5 wiring: DateTime/TimeSpan icall results -> the runtime value
@@ -7155,6 +7170,7 @@ default: return false;                           // primitives/VAR(handled by ca
             "d" or "f" => "double",
             "l" or "q" => "int64_t",
             "n" => "intptr_t",
+            "u" => "uintptr_t",
             var f when f.StartsWith("F:", StringComparison.Ordinal) => "void*",
             var v when v.StartsWith("V:", StringComparison.Ordinal) && IsKnownBclEnumName(v[2..]) => "int32_t",
             var v when v.StartsWith("V:", StringComparison.Ordinal) => TypeCppName(v[2..]),
@@ -9155,6 +9171,10 @@ default: return false;                           // primitives/VAR(handled by ca
                 "f" => "float",
                 "d" => "double",
                 "n" => "intptr_t",
+                // ELEMENT_TYPE_U (0x19) is native UNSIGNED int: the same
+                // pointer width, declared uintptr_t so a high-bit UIntPtr
+                // keeps its unsigned value across the native boundary.
+                "u" => "uintptr_t",
                 "i" or "b" or "c" or "i1" or "u1" or "i2" or "u2" or "tr" => "int32_t",
                 // P-D1 P0-2 (delegate-typed DllImport params): a delegate (or
                 // any other reference-typed / fnptr / pointer / byref) param
@@ -10993,7 +11013,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             return CalliParamCpp(encoded[2..]) + "*";
         return encoded switch
         {
-            "i" or "b" or "c" or "i1" or "u1" or "i2" or "u2" or "n" => "int32_t",
+            // Native int/uint ("n"/"u", ELEMENT_TYPE_I/U) are FULL pointer
+            // width -- the same C++ type ParamTypesCpp gives the defined
+            // method. The old shared int32_t arm truncated a by-value or
+            // byref IntPtr/UIntPtr parameter (B:n -> int32_t*), so an
+            // `out IntPtr p` callee wrote 8 bytes through a 4-byte slot
+            // (or, once the local widened, failed to compile).
+            "n" => "intptr_t",
+            "u" => "uintptr_t",
+            "i" or "b" or "c" or "i1" or "u1" or "i2" or "u2" => "int32_t",
             "l" or "q" => "int64_t",
             "f" or "d" => "double",
             // GN-18 B4 (calli V:/B: value-parameter arms): a VALUETYPE (0x11)
@@ -11709,6 +11737,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // (static_cast from std::nullptr_t is a C++ error -- the
                 // NullSafePtrCast precedent).
                 "n" => code == "nullptr" ? code : $"static_cast<intptr_t>({code})",
+                // ELEMENT_TYPE_U (0x19) native-uint argument: the same
+                // pointer-width bridge, cast to the UNSIGNED carrier so a
+                // high-bit UIntPtr is not sign-extended on the way in.
+                "u" => code == "nullptr" ? code : $"static_cast<uintptr_t>({code})",
                 // M5 wiring: "s" -- a STRING-typed runtime param (the format/
                 // parse icalls take Il2CppString*, not the IR's Il2CppObject*).
                 "s" => NullSafePtrCast("Il2CppString*", code),
@@ -13156,6 +13188,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     // full pointer width -- int32_t truncates the x64 HWND/
                     // WPARAM/LPARAM the WNDPROC ABI passes.
                     "n" => "intptr_t",
+                    // ELEMENT_TYPE_U (UIntPtr): same width, UNSIGNED carrier
+                    // (a high-bit UIntPtr parameter must not sign-extend).
+                    "u" => "uintptr_t",
                     // nb9 D15: System.Array is a REFERENCE parameter like any
                     // other (Il2CppObject*), matching TypeEmitter/ReferenceCppType.
                     // Declaring it Il2CppArray* made a generated `F(Array a)`

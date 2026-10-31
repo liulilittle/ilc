@@ -15,8 +15,9 @@ namespace Il2Cpp.Transpiler.Emit;
 ///           V:{FullName}=value type, T:{FullName}=ECMA type-handle encoding (nested types),
 ///           P:{...}=unmanaged pointer, tr=TypedReference, ...=vararg sentinel marker.
 /// Native int/uint ride the raw ELEMENT_TYPE_I/U bytes (0x18/0x19) and encode
-/// as "n"/"i" (int32 slots) -- the ECMA-335 PRINTED table (I=0x17, U=0x18) is
-/// an erratum; Roslyn/net48 csc emit 0x18/0x19 (pinvokeext 00-01-18-0E probe).
+/// as "n"/"u" (intptr_t/uintptr_t pointer-width slots) -- the ECMA-335 PRINTED
+/// table (I=0x17, U=0x18) is an erratum; Roslyn/net48 csc emit 0x18/0x19
+/// (pinvokeext 00-01-18-0E probe).
 /// </summary>
 public static class MethodSignatureCoder
 {
@@ -361,8 +362,13 @@ public static class MethodSignatureCoder
         // sig 00 02 18 18 19; pinvokeext reverse_static return 00-01-18-0E).
         // 0x17 is reserved in real metadata (ECMA-335's printed I=0x17 is an
         // erratum -- Roslyn/net48 csc emit 0x18 for nint).
-        0x18 => "n",                                    // ELEMENT_TYPE_I (native int -- int32 slot)
-        0x19 => "i",                                    // ELEMENT_TYPE_U (native uint -- as int32)
+        // "n" = native int (intptr_t), "u" = native UNSIGNED int (uintptr_t).
+        // The old 0x19 -> "i" encoding declared a UIntPtr parameter as
+        // int32_t and truncated every x64 value above 2^31 on the way in
+        // (the same width defect as the "i" local default); the unsigned
+        // carrier must stay distinct from signed int32.
+        0x18 => "n",                                    // ELEMENT_TYPE_I (native int -> intptr_t)
+        0x19 => "u",                                    // ELEMENT_TYPE_U (native uint -> uintptr_t)
         0x1B => "F:" + FnPtrSig(md, ref sig),           // ELEMENT_TYPE_FNPTR
         0x1C => "r:System.Object",                      // ELEMENT_TYPE_OBJECT
         0x1D => "r:" + EncodeType(md, ref sig).TrimStart('r', ':') + "[]", // ELEMENT_TYPE_SZARRAY
