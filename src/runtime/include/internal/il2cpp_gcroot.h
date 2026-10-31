@@ -40,6 +40,9 @@ struct GcRoot
     {
         refs_[0] = &ref;
         frame_.methodName = name;
+        // The frame is a runtime-internal rooting marker, not a managed method:
+        // its managed spelling IS the same tag (displayName is never null).
+        frame_.displayName = name;
         frame_.refs = refs_;
         frame_.refCount = 1;
         il2cpp_frame_push(&frame_);

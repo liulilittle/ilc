@@ -1954,7 +1954,8 @@ public static class CodeGenerator
         var frameRoots = bodyInfo.ExceptionRegions.Count > 0
             ? refLocals.Concat(structFieldRoots).ToList()
             : refLocals.Where(r => rootAnalysis.All.Contains(r)).Concat(structFieldRoots).ToList();        if (frameRoots.Count > 0)
-            body = WrapFrameRoots(body, frameRoots, cppMethodName);
+            body = WrapFrameRoots(body, frameRoots, cppMethodName,
+                FrameDisplayName(TypeEmitter.ReflectionFullName(t), m.Name, m.ParamTypes));
                 EmitFunctionHeader(w, t, m, bodyInfo, stmts, assemblyPath);
                 w.Line(MethodEmitter.EmitMethod(cppMethodName, paramNames, returnType, body, paramTypes));
                 w.Line();
@@ -6349,13 +6350,18 @@ public static class CodeGenerator
         "System.ArgumentException" => "il2cpp_object_new(&System_ArgumentException_class)",
         "System.ArgumentNullException" => "il2cpp_object_new(&System_ArgumentNullException_class)",
         "System.ArgumentOutOfRangeException" => "il2cpp_object_new(&System_ArgumentOutOfRangeException_class)",
-        // GN-20 P1 (p-stacktrace): `new StackTrace()` -- the runtime has no
-        // StackTrace object model (its frame content is the W7 live-stack
-        // enumeration). Allocate as a plain object (the System.Exception
-        // precedent); the ctor icall is a documented no-op (stubs.cpp). The
-        // newobj fallback would emit &System_Diagnostics_StackTrace_class, an
-        // undefined symbol that broke the build (D2 audit regression).
-        "System.Diagnostics.StackTrace" => "il2cpp_object_new(&System_Object_class)",
+        // GN-20 P1 (p-stacktrace) / stacktrace-real: `new StackTrace()` and
+        // `new StackFrame()` allocate through their REAL runtime descriptors
+        // (stacktrace.cpp): the instances now carry a frame snapshot
+        // (StackTrace.frames) and a method display name (StackFrame), the
+        // collector traces them through their refFieldBitmaps, and the icalls
+        // in icall_stacktrace_* read/write that payload. The old plain-object
+        // allocation (the System.Exception precedent for descriptorless BCL
+        // classes) was a placeholder for a runtime that had NO object model --
+        // it does now, so the real klass is required (a plain System.Object
+        // instance would have no room for the frames field).
+        "System.Diagnostics.StackTrace" => "il2cpp_object_new(&System_Diagnostics_StackTrace_class)",
+        "System.Diagnostics.StackFrame" => "il2cpp_object_new(&System_Diagnostics_StackFrame_class)",
         // refl5 (p-refl5-2ovl cmake FAIL): `new ParameterModifier(...)` -- the
         // opaque BCL value type has no generated descriptor and its instances
         // are never observed (the GetMethod(name, Type[], ParameterModifier[])
@@ -7459,6 +7465,74 @@ default: return false;                           // primitives/VAR(handled by ca
            || cpp.EndsWith("(__il2cpp_ex.message_text()", StringComparison.Ordinal);
 
     //--------------------------------------------------------------------------
+    // stacktrace-real -- frame display-name construction (Il2CppFrame::displayName).
+    //
+    //   FrameDisplayName  "Ns.Type.Method(System.Int32, System.String)" -- the
+    //                     managed spelling net48's StackFrame/StackTrace text
+    //                     prints. Built from the DECLARING type's reflection
+    //                     full name + the method name + the managed names of
+    //                     the signature's parameter encodings (MethodDef.
+    //                     ParamTypes, the MethodSignatureCoder language).
+    //   FrameParamName    one encoded parameter type -> its managed full name
+    //                     (the VarArgTypeName mapping extended with the
+    //                     byref/pointer decorators net48 prints).
+    //   CppStringLiteral  escape a display name for a C++ string literal.
+    //
+    // The name is a static literal in the generated code: the runtime's stack
+    // trace snapshot copies the POINTER (stacktrace.cpp), so no per-frame
+    // managed string is allocated while walking the call stack.
+    //--------------------------------------------------------------------------
+    private static string FrameDisplayName(string typeFullName, string methodName, string encodedParams)
+    {
+        var parts = encodedParams.Length == 0
+            ? Array.Empty<string>()
+            : SplitTopLevel(encodedParams).Select(FrameParamName).ToArray();
+        return $"{typeFullName}.{methodName}({string.Join(", ", parts)})";
+    }
+
+    private static string FrameParamName(string enc) => enc switch
+    {
+        "b" => "System.Boolean",
+        "c" => "System.Char",
+        "i1" => "System.SByte",
+        "u1" => "System.Byte",
+        "i2" => "System.Int16",
+        "u2" => "System.UInt16",
+        "i" => "System.Int32",
+        "l" => "System.Int64",
+        "q" => "System.UInt64",
+        "f" => "System.Single",
+        "d" => "System.Double",
+        "n" => "System.IntPtr",
+        "u" => "System.UIntPtr",
+        "tr" => "System.TypedReference",
+        "..." => "...",
+        var r when r.StartsWith("r:", StringComparison.Ordinal) => r[2..],
+        var v when v.StartsWith("V:", StringComparison.Ordinal) => v[2..],
+        var br when br.StartsWith("B:", StringComparison.Ordinal) => FrameParamName(br[2..]) + " ByRef",
+        var p when p.StartsWith("P:", StringComparison.Ordinal) => FrameParamName(p[2..]) + "*",
+        var other => other,
+    };
+
+    private static string CppStringLiteral(string s)
+    {
+        var sb = new System.Text.StringBuilder(s.Length + 8);
+        foreach (var ch in s)
+        {
+            switch (ch)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case '"': sb.Append("\\\""); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                default: sb.Append(ch); break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    //--------------------------------------------------------------------------
     // WrapFrameRoots -- frame-root protocol for one method body (Task 10).
     //
     //   Prologue:  il2cpp::il2cpp_gc_add_root_range((void**)&loc0, 1);   [per ref local]
@@ -7475,7 +7549,7 @@ default: return false;                           // primitives/VAR(handled by ca
     //   unwinding-path removes). A method with zero ref locals emits nothing
     //   (zero overhead -- the common arithmetic case).
     //--------------------------------------------------------------------------
-    private static string WrapFrameRoots(string body, List<string> refLocals, string methodName)
+    private static string WrapFrameRoots(string body, List<string> refLocals, string methodName, string displayName)
     {
         if (refLocals.Count == 0) return body;
         var lines = body.Split('\n').ToList();
@@ -7505,8 +7579,14 @@ default: return false;                           // primitives/VAR(handled by ca
         };
         var refsList = string.Join(", ", refLocals.Select(l => $"static_cast<void*>(&{l})"));
         prologue.Add($"    void* __frameRefs[] = {{ {refsList} }};");
-        prologue.Add($"    il2cpp::Il2CppFrame __frame = {{ nullptr, nullptr, nullptr, 0 }};");
+        prologue.Add($"    il2cpp::Il2CppFrame __frame = {{ nullptr, nullptr, nullptr, 0, nullptr }};");
         prologue.Add($"    __frame.methodName = \"{methodName}\";");
+        // stacktrace-real: the MANAGED spelling of this method, the text every
+        // stack-trace formatter prints ("Ns.Type.Method(System.Int32)"). It is
+        // a static literal (process lifetime), which is what lets the runtime
+        // snapshot a frame chain without allocating a string per frame. The
+        // fallback is the sanitized C++ name -- never null, never empty.
+        prologue.Add($"    __frame.displayName = \"{CppStringLiteral(displayName.Length > 0 ? displayName : methodName)}\";");
         prologue.Add("    __frame.refs = static_cast<void**>(__frameRefs);");
         prologue.Add($"    __frame.refCount = {refLocals.Count};");
         prologue.Add("    il2cpp::il2cpp_frame_push(&__frame);");

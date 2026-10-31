@@ -9,13 +9,24 @@
 //       const char*  methodName;  // the transpiled method's C++ name (diagnostics)
 //       void**       refs;        // array of reference-slot ADDRESSES
 //       int32_t      refCount;    // number of reference slots
+//       const char*  displayName; // MANAGED spelling "Ns.Type.Method(params)"
 //   };
 //
 //   Generated method prologue (every method with reference locals):
-//       Il2CppFrame __frame = { nullptr, "Foo_Bar_hash", refsArray, N };
+//       Il2CppFrame __frame = { nullptr, "Foo_Bar_hash", refsArray, N, nullptr };
+//       __frame.displayName = "Ns.Type.Method(System.Int32)";
 //       il2cpp_frame_push(&__frame);
 //   and every 'return' (and the method exit) pops:
 //       il2cpp_frame_pop(&__frame);
+//
+//   Two names, two audiences (M7 stacktrace-real):
+//     * methodName  -- the SANITIZED + signature-hashed C++ identifier
+//       ("Foo_Bar_1a2b3c"), unique per overload; stays the crash-diagnostic tag.
+//     * displayName -- the MANAGED identity the CLR would print
+//       ("Ns.Foo.Bar(System.Int32)"); StackTrace/Environment.StackTrace format
+//       frames from it. A frame whose emitter could not supply the managed
+//       spelling points displayName at the same string as methodName (never
+//       null), so a formatter always has something to print.
 //
 //   The frame stack is a per-thread linked list. The collector walks it as a
 //   GC root set: every refs[i] address holds a live object reference while
@@ -49,6 +60,13 @@ struct Il2CppFrame
     const char*  methodName; // diagnostics: the transpiled method name
     void**       refs;       // reference-slot addresses (GC roots)
     int32_t      refCount;   // number of slots in 'refs'
+    // Managed spelling of the method ("Ns.Type.Method(System.Int32)"), the
+    // StackTrace/Environment.StackTrace frame text. Appended AFTER refCount so
+    // the existing "{ prev, methodName, refs, refCount }" aggregate
+    // initializers stay valid (this slot is then value-initialized to null and
+    // assigned right after). Never null in generated code -- the emitter
+    // falls back to methodName when it has no managed spelling.
+    const char*  displayName;
 
     // RAII pop (M3 Task 10): the frame pops itself when the method's stack
     // storage goes out of scope -- on BOTH the normal return path and the

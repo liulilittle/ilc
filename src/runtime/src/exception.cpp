@@ -216,8 +216,10 @@ int il2cpp_report_unhandled_exception(const char* message)
     int depth = 0;
     for (Il2CppFrame* frame = il2cpp_frame_top(); frame != nullptr && depth < 64; frame = frame->prev, ++depth)
     {
-        std::fprintf(stderr, "  at %s\n",
-                     frame->methodName != nullptr ? frame->methodName : "(unknown frame)");
+        // Prefer the MANAGED spelling ("Ns.Type.Method(...)") when the
+        // emitter supplied one; fall back to the sanitized C++ name.
+        const char* name = frame->displayName != nullptr ? frame->displayName : frame->methodName;
+        std::fprintf(stderr, "  at %s\n", name != nullptr ? name : "(unknown frame)");
     }
     if (depth == 0)
     {
