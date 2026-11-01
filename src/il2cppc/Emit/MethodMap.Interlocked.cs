@@ -165,6 +165,19 @@ public static partial class MethodRefResolver
                 if (ps.Length == 0)
                     return I("il2cpp::runtime::icall_thread_memory_barrier", 0, false, false, false);
                 return null;
+            // ---- corelib-p0: Interlocked._MemoryBarrierProcessWide ----------
+            // The measured shipped CoreLib 8.0.31/9.0.20 declares the public
+            // MemoryBarrierProcessWide() wrapper over the QCall
+            // Interlocked_MemoryBarrierProcessWide. CoreCLR flushes every
+            // thread's write buffer; this runtime's atomics are ALL seq_cst
+            // over one shared managed heap (no weak publication protocol), so
+            // a full seq_cst fence is the strongest ordering the model
+            // provides -- the same primitive Interlocked.MemoryBarrier uses.
+            case "MemoryBarrierProcessWide":
+            case "_MemoryBarrierProcessWide":
+                if (ps.Length == 0)
+                    return I("il2cpp::runtime::icall_thread_memory_barrier", 0, false, false, false);
+                return null;
             default:
                 return null;
         }

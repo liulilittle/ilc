@@ -300,6 +300,16 @@ bool il2cpp_gc_register_for_full_gc_notification(int32_t maxGenerationThreshold,
                                                  int32_t largeObjectHeapThreshold);
 bool il2cpp_gc_cancel_full_gc_notification();
 
+// corelib-p0: remaining allocation budget of a generation, in bytes -- the
+// bytes this collector can still bump before its implicit-collection trigger
+// runs (AllocCore's g_bumpedSinceCollect vs kCollectAfterBumpedBytes). The
+// analogue of GCInterface::GetGenerationBudget, which reports the allocation
+// context's remaining budget before the next collection. This collector keeps
+// ONE shared bump budget, so every in-range generation reports the same
+// value; an out-of-range generation reports 0. Never negative, never a
+// promise about a future collection (the trigger is checked per allocation).
+int64_t il2cpp_gc_get_generation_budget(int32_t generation);
+
 // Cumulative allocation counter for the CURRENT THREAD. The M3 collector is
 // single-threaded, so "current thread" == the process-wide cumulative
 // counter (identical to il2cpp_gc_get_allocated_bytes).

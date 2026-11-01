@@ -50,6 +50,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h"
+#include "il2cpp_time.h" // Il2CppTimeSpan (GC.GetTotalPauseDuration)
 
 #include <cstdint>
 
@@ -123,5 +124,75 @@ void icall_gc_remove_memory_pressure(int64_t bytesAllocated);
 // P6: GCFrameRegistration internal helpers (stubs).
 void icall_gc_register_for_gc_reporting();
 void icall_gc_unregister_for_gc_reporting();
+
+//------------------------------------------------------------------------------
+// corelib-p0: the CoreLib-INTERNAL GC QCall bodies (measured present in BOTH
+// shipped System.Private.CoreLib 8.0.31 and 9.0.20 -- see
+// docs/audit/corelib-p0-reachability.md). Their public wrappers
+// (EndNoGCRegion / RegisterNoGCRegionCallback / GetConfigurationVariables /
+// _RegisterFrozenSegment callers) are the user-visible surface.
+//------------------------------------------------------------------------------
+
+// GC._EndNoGCRegion() -> EndNoGCRegionStatus. This collector has no NoGC
+// region support, so no region is ever in progress and the honest status is
+// NotInProgress (1) -- the public wrapper raises InvalidOperationException,
+// which is exactly what .NET does when EndNoGCRegion runs outside a region.
+int32_t icall_gc_end_no_gc_region();
+
+// GC._EnableNoGCRegionCallback(workItem, totalSize) ->
+// EnableNoGCRegionCallbackStatus. Only reachable after a successful
+// TryStartNoGCRegion, which this collector never grants, so the status is
+// NotStarted (1). The work-item pointer is not touched (nothing will ever
+// fire); the caller's allocation stays owned by the caller.
+int32_t icall_gc_enable_no_gc_region_callback(void* workItem, int64_t totalSize);
+
+// GC._EnumerateConfigurationValues(dictionary, callback) -> void. This
+// collector exposes NO tunable configuration values, so the enumeration
+// completes without invoking the callback (the public
+// GC.GetConfigurationVariables observes an empty map). The callback is a
+// native function pointer owned by the managed caller; it is never called and
+// never stored.
+void icall_gc_enumerate_configuration_values(void* configurationDictionary, void* callback);
+
+// GC._RegisterFrozenSegment(sectionAddress, sectionSize) -> IntPtr. A
+// non-frozen-heap collector cannot adopt the segment, so registration only
+// mints an opaque non-zero handle (a monotonically increasing token) that
+// _UnregisterFrozenSegment accepts. Documented deviation: the memory in the
+// segment is NOT scanned/relocated by this collector -- there is no
+// frozen-segment consumer in the runtime (no R2R/read-only heap).
+intptr_t icall_gc_register_frozen_segment(intptr_t sectionAddress, intptr_t sectionSize);
+
+// GC._UnregisterFrozenSegment(segmentHandle) -> void: forget a handle minted
+// by icall_gc_register_frozen_segment. Unknown/stale handles are ignored
+// (the CoreCLR contract treats the handle as opaque and unregisters once).
+void icall_gc_unregister_frozen_segment(intptr_t segmentHandle);
+
+//------------------------------------------------------------------------------
+// corelib-p0: the PUBLIC GC wrappers (a net8/net9 caller binds these directly;
+// the wrapper IL lives in CoreLib and is never transpiled). They report the
+// same truth as the internal arms above.
+//------------------------------------------------------------------------------
+
+// GC.GetTotalPauseDuration() -> TimeSpan: the collector's accumulated pause
+// ticks as a TimeSpan value (il2cpp_gc_get_total_pause_ticks).
+Il2CppTimeSpan icall_gc_get_total_pause_duration();
+
+// GC.EndNoGCRegion() -> void. Outside a NoGC region .NET raises
+// InvalidOperationException("NoGCRegion mode must be set."); this collector
+// never grants a region, so that is always the answer.
+void icall_gc_end_no_gc_region_public();
+
+// GC.RegisterNoGCRegionCallback(long totalSize, Action callback) -> void. Same
+// contract as EndNoGCRegion outside a region: InvalidOperationException
+// ("NoGCRegion mode must be set."). Neither argument is used (a null callback
+// still raises the region error first, exactly like .NET's argument order).
+// Argument order is the IL order: (totalSize, callback).
+void icall_gc_register_no_gc_region_callback_public(int64_t totalSize, Il2CppObject* callback);
+
+// GC.RefreshMemoryLimit() -> void: re-read the machine/container limits and
+// reconfigure the collector. This collector has a fixed budget, so the call
+// returns without changing anything (measured on the shipped runtime as a
+// normal return).
+void icall_gc_refresh_memory_limit();
 
 }} // namespace il2cpp::runtime

@@ -260,6 +260,42 @@ public static partial class MethodRefResolver
             // P6: Exception internal helpers (stubs).
             case "SaveStackTracesFromDeepCopy": return I("il2cpp::runtime::icall_exception_save_stack_traces_from_deep_copy", 0, false, false, true);
             case "GetExceptionCount": return I("il2cpp::runtime::icall_exception_get_exception_count", 0, true, false, false);
+            // ---- corelib-p0: the CoreLib-internal exception helpers ----------
+            // Measured against the SHIPPED 8.0.31/9.0.20 CoreLib (both declare
+            // these with impl=0x1000/0x0080 -- see
+            // docs/audit/corelib-p0-reachability.md).
+            case "IsImmutableAgileException":
+                // private static bool IsImmutableAgileException(Exception):
+                // true only for CoreCLR's preallocated immutable/agile
+                // singletons (OutOfMemoryException, StackOverflowException,
+                // AccessViolationException, ThreadAbortException). This
+                // runtime allocates no such singletons, so no exception is
+                // immutable-agile -- the runtime answers false.
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_exception_is_immutable_agile_exception", 1, true, false, false,
+                        new[] { "" });
+                return null;
+            case "PrepareForForeignExceptionRaise":
+                // private static void PrepareForForeignExceptionRaise(): stage
+                // the thread's exception state before raising a
+                // native/foreign exception. There is no foreign-exception
+                // staging state in this runtime, so the call is a no-op.
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_exception_prepare_for_foreign_exception_raise", 0, false, false, false);
+                return null;
+            case "GetMessageFromNativeResources":
+                // private static void GetMessageFromNativeResources(
+                // ExceptionMessageKind kind, ref string retMesg) QCall. Its
+                // return channel is a runtime-compiler StringHandleOnStack
+                // (a CoreLib-internal byref handle struct) that the
+                // transpiler has no C++ model for; the only caller is
+                // CoreLib's own wrapper IL, which is never transpiled (the
+                // public surface is mapped instead). Registered as a gap in
+                // docs/audit/b5-gaps.md rather than silently faked.
+                throw new NotSupportedException(
+                    "LOUD whitelist (corelib-p0 gap): Exception.GetMessageFromNativeResources is a QCall whose " +
+                    "out channel is a CoreLib-internal StringHandleOnStack struct with no C++ value model -- see " +
+                    "docs/audit/b5-gaps.md");
             default:
                 return null;
         }

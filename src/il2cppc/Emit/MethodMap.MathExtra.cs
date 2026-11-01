@@ -145,16 +145,27 @@ public static partial class MethodRefResolver
                         "tuple-return / dual-out-slot emission [Reference Source math.cs:131-167]");
                 return null;
             // --- ModF: netcore public `double ModF(double value, out double
-            // intPart)` (private SplitFractionDouble in net48). The runtime icall
-            // icall_math_modf_d(double, double*) exists and is unit-tested, but
-            // the public API returns a ValueTuple / uses an out-param the
-            // transpiler cannot yet emit (ref/out milestone) -- LOUD.
+            // intPart)`. The measured shipped signature (8.0.31/9.0.20, both
+            // INTERNALCALL) is `(double, double*) -> double`, which is exactly
+            // the runtime's icall_math_modf_d(double value, double* intPart)
+            // (mathext.cpp:448, std::modf -- unit-tested in test_mathext).
+            // The pointer parameter rides the "addr:d" reinterpret cast (the
+            // same out-parameter channel Math.DivRem uses), so the integral
+            // part is written through the caller's slot and the fractional
+            // part is the return value.
             case "ModF":
+                if (count == 2 && ps.Length == 2 && ps[0] == 0x0D && ps[1] == 0x0D)
+                    return I("il2cpp::runtime::icall_math_modf_d", 2, true, false, false,
+                        new[] { "d", "addr:d" }, "d");
+                return null;
+            // net48's private SplitFractionDouble(double* value) is a DIFFERENT
+            // contract (single in/out pointer, no separate intPart slot) and
+            // has no runtime symbol -- keep it LOUD.
             case "SplitFractionDouble":
                 throw new NotSupportedException(
-                    $"LOUD whitelist (net48 has no such overload): Math.{name} -- ModF/SplitFractionDouble is a .NET Core API " +
-                    "(net48 has no public ModF member); the runtime icall icall_math_modf_d exists but the M-stage transpiler " +
-                    "has no tuple-return / out-param emission [Reference Source math.cs:131-167]");
+                    $"LOUD whitelist (net48 has no such overload): Math.{name} -- SplitFractionDouble is the net48 " +
+                    "private helper with a single in/out pointer contract; the runtime ships only the netcore " +
+                    "icall_math_modf_d(double, double*) shape [Reference Source math.cs:131-167]");
             case "BigMul":
                 // long BigMul(int, int) -- batch 150: the exact 64-bit product
                 // (int32 widening; the "l" result rides the int64 slot).

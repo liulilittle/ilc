@@ -307,3 +307,38 @@ il2cpp::Il2CppString* icall_exception_param_name(const char* messageText)
     return il2cpp::il2cpp_string_new_from_utf8(buf);
 }
 
+//------------------------------------------------------------------------------
+// corelib-p0: the CoreLib-internal exception FCalls (see il2cpp_exception_ext.h).
+//------------------------------------------------------------------------------
+namespace il2cpp { namespace runtime {
+
+// Exception.IsImmutableAgileException(Exception) -> bool.
+//
+// CoreCLR answers true only for the exceptions it preallocates as immutable
+// agile singletons (OutOfMemoryException, StackOverflowException,
+// AccessViolationException, ThreadAbortException) -- those objects may be
+// shared across threads without copy-on-write. This runtime allocates no
+// preallocated singletons (every throw builds a fresh DotNetException), so NO
+// exception object can be immutable-agile and the honest answer is always
+// false. The argument is not dereferenced: a null argument answers false too
+// (CoreCLR's check is a pointer-identity test against the singletons).
+bool icall_exception_is_immutable_agile_exception(Il2CppObject* exception)
+{
+    (void)exception;
+    return false;
+}
+
+// Exception.PrepareForForeignExceptionRaise() -> void.
+//
+// CoreCLR stages the current thread's exception state before raising an
+// exception that came from native/foreign code. This runtime's transport
+// (DotNetException + the throw-site type-name chain) is entirely managed-side
+// and has no foreign-staging state to prepare, so the call is a no-op -- the
+// same shape as ProbeForSufficientStack: the call itself is the contract.
+void icall_exception_prepare_for_foreign_exception_raise()
+{
+}
+
+} // namespace runtime
+} // namespace il2cpp
+

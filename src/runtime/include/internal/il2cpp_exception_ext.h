@@ -1,5 +1,5 @@
 #pragma once
-namespace il2cpp { struct Il2CppString; }
+namespace il2cpp { struct Il2CppString; struct Il2CppObject; }
 //------------------------------------------------------------------------------
 // il2cpp_exception_ext.h -- convenience factories for common managed exception
 // types (the transport itself lives in il2cpp_exception.h).
@@ -117,4 +117,26 @@ void il2cpp_throw_file_not_found_exception(const char* message);
 // recent throw; null when none).
 Il2CppString* icall_exception_param_name_current();
 bool il2cpp_exception_matches_string(const char* caughtChain, Il2CppString* thrownName);
-} // namespace il2cpp
+
+//------------------------------------------------------------------------------
+// corelib-p0: the CoreLib-internal exception FCalls (measured present in BOTH
+// shipped System.Private.CoreLib 8.0.31 and 9.0.20). Namespace note: the
+// MethodMap maps them as il2cpp::runtime::icall_exception_* (the icall layer
+// convention), so they live in the nested runtime namespace below.
+//------------------------------------------------------------------------------
+namespace runtime {
+
+// Exception.IsImmutableAgileException(Exception) -> bool. CoreCLR returns
+// true only for its preallocated immutable/agile singletons
+// (OutOfMemoryException, StackOverflowException, AccessViolationException,
+// ThreadAbortException). This runtime allocates no such singletons, so no
+// exception is immutable-agile and the honest answer is false. The argument is
+// accepted (and may be null) without being dereferenced.
+bool icall_exception_is_immutable_agile_exception(Il2CppObject* exception);
+
+// Exception.PrepareForForeignExceptionRaise() -> void. Stages the thread's
+// exception state before raising a native/foreign exception. This runtime has
+// no foreign-exception staging state, so the call is a no-op.
+void icall_exception_prepare_for_foreign_exception_raise();
+
+}} // namespace il2cpp::runtime

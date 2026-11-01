@@ -274,6 +274,47 @@ public static partial class MethodRefResolver
             case "NotifyWorkItemComplete": return I("il2cpp::runtime::icall_thread_pool_notify_work_item_complete", 0, false, false, false);
             case "ReportThreadStatus": return I("il2cpp::runtime::icall_thread_pool_report_thread_status", 1, false, false, false, new[] { "i" });
             case "ThreadPoolNotify": return I("il2cpp::runtime::icall_thread_pool_clear_notify", 0, false, false, false);
+            // ---- corelib-p0: the CoreLib-internal Thread helpers ------------
+            // Measured against the SHIPPED 8.0.31/9.0.20 CoreLib (see
+            // docs/audit/corelib-p0-reachability.md).
+            case "InternalFinalize":
+                // private void InternalFinalize(): the Thread object's
+                // finalizer hook. Thread objects in this model own no
+                // native handle that needs a finalizer (threadobj.h: "no
+                // finalizers in the M-stage model"), so the finalizer body is
+                // the same empty receiver no-op as System.Object.Finalize.
+                if (count == 0)
+                    return I("il2cpp::runtime::il2cpp_object_ctor_nop", 0, false, false, true);
+                return null;
+            case "GetCurrentOSThreadId":
+                // private static ulong GetCurrentOSThreadId(): the OS thread
+                // id as a 64-bit value (the platform layer's plat_thread_
+                // current_id, widened -- the same source ManagedThreadId
+                // reads).
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_thread_get_current_os_thread_id", 0, true, false, false, null, "l");
+                return null;
+            case "YieldInternal":
+                // private static Interop.BOOL YieldInternal(): the QCall body
+                // of the netcore public bool Thread.Yield(). The runtime
+                // reports whether a switch actually happened (the managed
+                // bool the net48-void entry drops).
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_thread_yield_bool", 0, true, false, false);
+                return null;
+            case "StartInternal":
+                // private static void StartInternal(ThreadHandle, int, int,
+                // char*): the QCall body of the netcore public Start. The
+                // first argument is the CoreLib-internal ThreadHandle wrapper
+                // struct, which has no C++ value model in this transpiler (the
+                // public Start(object) surface is mapped to
+                // icall_threadobj_start / _parameterized instead). Registered
+                // as a gap in docs/audit/b5-gaps.md -- see the entry for the
+                // full reasoning.
+                throw new NotSupportedException(
+                    "LOUD whitelist (corelib-p0 gap): Thread.StartInternal takes the CoreLib-internal ThreadHandle " +
+                    "wrapper struct (no C++ value model); the public Start surface is mapped instead -- see " +
+                    "docs/audit/b5-gaps.md");
             default: return null;
         }
     }

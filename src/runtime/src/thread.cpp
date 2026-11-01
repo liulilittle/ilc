@@ -107,6 +107,37 @@ void icall_thread_yield()
 }
 
 //------------------------------------------------------------------------------
+// icall_thread_yield_bool -- Thread.YieldInternal() (corelib-p0): the netcore
+// shape, which DOES report whether the call switched to another thread.
+//
+// Windows SwitchToThread reports exactly that. POSIX sched_yield has no such
+// answer -- it returns 0 when the call succeeded, and "a thread was ready" is
+// not observable -- so the platform-portable reading is "the yield was
+// performed" (true). Reporting false there would claim "nothing else could
+// run", which sched_yield never establishes.
+//------------------------------------------------------------------------------
+bool icall_thread_yield_bool()
+{
+#if defined(_WIN32)
+    return ::SwitchToThread() != 0;
+#else
+    ::sched_yield();
+    return true;
+#endif
+}
+
+//------------------------------------------------------------------------------
+// icall_thread_get_current_os_thread_id -- Thread.GetCurrentOSThreadId()
+// (corelib-p0): the OS thread id widened to the managed ulong. Same platform
+// source as ManagedThreadId (which narrows it to int32), so both always
+// identify the same thread.
+//------------------------------------------------------------------------------
+uint64_t icall_thread_get_current_os_thread_id()
+{
+    return static_cast<uint64_t>(static_cast<uint32_t>(plat_thread_current_id()));
+}
+
+//------------------------------------------------------------------------------
 // icall_thread_get_priority -- always ThreadPriority.Normal (0).
 //------------------------------------------------------------------------------
 int32_t icall_thread_get_priority()

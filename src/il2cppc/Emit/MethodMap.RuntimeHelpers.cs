@@ -98,14 +98,100 @@ public static partial class MethodRefResolver
                 return I("il2cpp::runtime::icall_runtime_helpers_execute_code_with_guaranteed_cleanup", 3, false, false, false,
                     new[] { "", "", "" });
             case "_RunClassConstructor":
+            case "RunClassConstructor":
+                // net48 spells the private driver `_RunClassConstructor`; the
+                // measured net8 surface has BOTH a public IL-only
+                // RunClassConstructor(RuntimeTypeHandle) wrapper and the
+                // private QCall RunClassConstructor(QCallTypeHandle).
                 throw new NotSupportedException(
-                    "LOUD whitelist (③ no runtime descriptor): RuntimeHelpers._RunClassConstructor is a runtime type-init " +
-                    "driver; the transpiler drives type-initialization through generated ensure_cctor guards " +
-                    "[Reference Source runtimehelpers.cs:63]");
+                    "LOUD whitelist (corelib-p0 gap): RuntimeHelpers._RunClassConstructor / RunClassConstructor is a " +
+                    "type-init driver -- an Il2CppClass descriptor carries no .cctor function pointer, so a runtime " +
+                    "'run it now' entry cannot dispatch, while the transpiler's ensure_cctor_* guards already cover " +
+                    "every static access. Implementing it needs a StackFold fold (out of this seat's scope) -- see " +
+                    "docs/audit/b5-gaps.md [Reference Source runtimehelpers.cs:63]");
             case "_RunModuleConstructor":
+            case "RunModuleConstructor":
                 throw new NotSupportedException(
-                    "LOUD whitelist (③ no runtime descriptor): RuntimeHelpers._RunModuleConstructor is a module-level " +
-                    "constructor driver (module ctors are not in the M3 model) [Reference Source runtimehelpers.cs:81]");
+                    "LOUD whitelist (corelib-p0 gap): RuntimeHelpers._RunModuleConstructor / RunModuleConstructor is a " +
+                    "module-level constructor driver -- module ctors are not in the M3 model (there is no module " +
+                    "descriptor to dispatch on). See docs/audit/b5-gaps.md [Reference Source runtimehelpers.cs:81]");
+            // ---- corelib-p0: the remaining CoreLib-internal helpers ----------
+            // All measured against the SHIPPED 8.0.31/9.0.20 CoreLib.
+            case "TryGetHashCode":
+                // assembly static int TryGetHashCode(object): the non-throwing
+                // identity hash (Object.GetHashCode's own fallback). Same
+                // dispatch as GetHashCode above -- string ordinal / boxed
+                // Int32 value / address hash.
+                if (count == 1 && ps.Length == 1 && ps[0] == 0x1C)
+                    return I("il2cpp::runtime::icall_object_get_hash_code", 1, true, false, false, new[] { "" });
+                return null;
+            case "TryEnsureSufficientExecutionStack":
+                // PUBLIC bool TryEnsureSufficientExecutionStack(): the
+                // non-throwing twin of EnsureSufficientExecutionStack. The
+                // runtime reuses the exact same per-thread stack-limit check
+                // and reports "not enough stack" as false instead of throwing
+                // (stubs.cpp catches the DotNetException the check raises).
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_runtime_helpers_try_ensure_sufficient_execution_stack",
+                        0, true, false, false);
+                return null;
+            case "CompileMethod":
+                // private static void CompileMethod(RuntimeMethodHandleInternal):
+                // a JIT request. An AOT image is already compiled, so the
+                // contract is satisfied -- the call is a no-op.
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_runtime_helpers_compile_method", 1, false, false, false,
+                        new[] { "" });
+                return null;
+            case "PrepareMethod":
+                // Three measured shapes, all JIT-prepare hints (everything is
+                // prepared in an AOT image): the net8 public
+                // PrepareMethod(RuntimeMethodHandle), the net48 public
+                // PrepareMethod(RuntimeMethodHandle, RuntimeTypeHandle[]) and
+                // the internal PrepareMethod(RuntimeMethodHandleInternal,
+                // IntPtr* instantiation, int count). Only the handle is
+                // forwarded; the instantiation selector is dropped.
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_runtime_helpers_prepare_method", 1, false, false, false,
+                        new[] { "" });
+                if (count == 2)
+                    return I("il2cpp::runtime::icall_runtime_helpers_prepare_method", 2, false, false, false,
+                        new[] { "", "drop" });
+                if (count == 3)
+                    return I("il2cpp::runtime::icall_runtime_helpers_prepare_method", 3, false, false, false,
+                        new[] { "", "drop", "drop" });
+                return null;
+            case "AllocateTypeAssociatedMemory":
+                // The PUBLIC net8 member takes a System.Type (a class
+                // reference); the private QCall twin takes a QCallTypeHandle
+                // (CoreLib-internal byref-ish struct). Only the public shape is
+                // reachable from user IL -- an internal handle struct is not
+                // constructible outside CoreLib -- so the public shape is
+                // mapped and the handle struct is a registered gap
+                // (docs/audit/b5-gaps.md).
+                //
+                // Associated memory is released when its AssemblyLoadContext
+                // unloads; an AOT image never unloads, so a process-lifetime
+                // allocation is exact.
+                if (count == 2 && ps.Length == 2 && ps[0] == 0x12)
+                    return I("il2cpp::runtime::icall_runtime_helpers_allocate_type_associated_memory", 2,
+                        true, false, false, new[] { "", "i" }, "ptr");
+                if (count == 2)
+                    throw new NotSupportedException(
+                        "LOUD whitelist (corelib-p0 gap): RuntimeHelpers.AllocateTypeAssociatedMemory(QCallTypeHandle, uint) " +
+                        "is the CoreLib-internal QCall twin -- its byref handle struct has no C++ value model and cannot be " +
+                        "built outside CoreLib; the public (Type, int) shape is mapped. See docs/audit/b5-gaps.md");
+                return null;
+            case "GetTailCallInfo":
+                // private static TailCallTls* GetTailCallInfo(IntPtr retAddr,
+                // IntPtr* returnAddress): reads the JIT's per-thread tailcall
+                // argument buffer. An AOT compiler emits native tail calls and
+                // never materializes a TailCallTls, so the member has no
+                // meaning here -- registered as a gap instead of returning a
+                // fabricated pointer. See docs/audit/b5-gaps.md.
+                throw new NotSupportedException(
+                    "LOUD whitelist (corelib-p0 gap): RuntimeHelpers.GetTailCallInfo reads the JIT tailcall TLS " +
+                    "buffer (TailCallTls); an AOT image has no such buffer -- see docs/audit/b5-gaps.md");
             case "InitializeArray":
                 // StackFold.FoldInitializeArray intercepts the canonical
                 // `newarr + dup + ldtoken<RVA field> + InitializeArray`

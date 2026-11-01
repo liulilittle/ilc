@@ -1,4 +1,4 @@
-namespace Il2Cpp.Transpiler.Emit;
+﻿namespace Il2Cpp.Transpiler.Emit;
 
 //------------------------------------------------------------------------------
 // MethodMap.GC -- System.GC icall mappings (il2cpp_gc.h).
@@ -348,6 +348,175 @@ public static partial class MethodRefResolver
             case "get_TraceLevel":
                 if (count == 0 && owner.EndsWith("TracingStatusChangedEventArgs", StringComparison.Ordinal))
                     return I("il2cpp::runtime::icall_tracing_status_changed_get_trace_level", 0, true, false, true);
+                return null;
+
+            // ---- corelib-p0: the CoreLib-internal GC helpers ----------------
+            // docs/audit/corelib-p0-reachability.md measured the shipped
+            // System.Private.CoreLib 8.0.31/9.0.20 and found these members
+            // present in BOTH as the QCall/FCall bodies behind the public
+            // GC API. The public wrappers above are the user-visible surface;
+            // the arms below close the internal surface so a CoreLib-shaped
+            // assembly (private helper reached from a non-transpiled wrapper)
+            // also resolves instead of emitting an undefined extern.
+            //
+            // Signatures are the MEASURED ones (MetadataReader dump of
+            // 8.0.31), not the CoreCLR main-branch reference text -- e.g.
+            // shipped `_Collect` takes (int generation, int mode), while the
+            // main branch has grown a third bool.
+            case "_Collect":
+                // private void _Collect(int generation, int mode): the body of
+                // GC.Collect. This collector only has a full blocking
+                // collection, so both selectors are dropped (the "drop" casts
+                // keep the fold's ParamCount in sync with the IL stack).
+                if (count == 2)
+                    return I("il2cpp::runtime::icall_gc_collect", 2, false, false, false,
+                        new[] { "drop", "drop" });
+                return null;
+            case "_CollectionCount":
+                // private int _CollectionCount(int generation, int
+                // getSpecialGCCount): the second argument selects BCL-only
+                // special counters that this runtime does not maintain; it is
+                // dropped. The value is the same per-generation counter the
+                // public GC.CollectionCount reads.
+                if (count == 2)
+                    return I("il2cpp::il2cpp_gc_get_collection_count", 2, true, false, false,
+                        new[] { "i", "drop" }, "l");
+                return null;
+            case "_GetTotalPauseDuration":
+                // private long _GetTotalPauseDuration(): total collection
+                // pause time in TimeSpan ticks (100ns) -- exactly what
+                // il2cpp_gc_get_total_pause_ticks accumulates in gc.cpp.
+                if (count == 0)
+                    return I("il2cpp::il2cpp_gc_get_total_pause_ticks", 0, true, false, false, null, "l");
+                return null;
+            case "_RegisterForFullGCNotification":
+                // private bool _RegisterForFullGCNotification(int, int): the
+                // BLOCKING collector always accepts (gc.cpp returns true).
+                if (count == 2)
+                    return I("il2cpp::il2cpp_gc_register_for_full_gc_notification", 2, true, false, false,
+                        new[] { "i", "i" });
+                return null;
+            case "_CancelFullGCNotification":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_gc_cancel_full_gc_notification", 0, true, false, false);
+                return null;
+            case "_AddMemoryPressure":
+                // private void _AddMemoryPressure(ulong bytesAllocated): the
+                // collector has no pressure-driven trigger, so the count is
+                // accepted and ignored (the net48 AddMemoryPressure contract).
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_gc_add_memory_pressure", 1, false, false, false,
+                        new[] { "l" });
+                return null;
+            case "_RemoveMemoryPressure":
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_gc_remove_memory_pressure", 1, false, false, false,
+                        new[] { "l" });
+                return null;
+            case "_WaitForPendingFinalizers":
+                // private void _WaitForPendingFinalizers(): run every due
+                // finalizer synchronously (the gcext trigger -- the same entry
+                // the public WaitForPendingFinalizers uses).
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_gc_finalize_trigger", 0, false, false, false);
+                return null;
+            case "_EndNoGCRegion":
+                // private int _EndNoGCRegion() -> EndNoGCRegionStatus: no NoGC
+                // region can ever be in progress in this collector, so the
+                // honest status is NotInProgress (1). The public wrapper turns
+                // that into InvalidOperationException -- the exact .NET
+                // behaviour of EndNoGCRegion outside a region.
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_gc_end_no_gc_region", 0, true, false, false);
+                return null;
+            case "_EnableNoGCRegionCallback":
+                // private EnableNoGCRegionCallbackStatus
+                // _EnableNoGCRegionCallback(NoGCRegionCallbackFinalizerWorkItem*,
+                // long): only reachable after a successful NoGC-region start,
+                // which this collector never grants -> NotStarted (1). The
+                // work item is never enqueued, so both arguments are dropped
+                // (the pointer's pointee is a CoreLib-internal struct with no
+                // C++ model -- and nothing would ever read it).
+                if (count == 2)
+                    return I("il2cpp::runtime::icall_gc_enable_no_gc_region_callback", 2, true, false, false,
+                        new[] { "drop", "drop" });
+                return null;
+            case "_GetGenerationBudget":
+                // private long _GetGenerationBudget(int generation): bytes
+                // left before this collector's next implicit collection
+                // (gc.cpp g_bumpedSinceCollect vs kCollectAfterBumpedBytes).
+                if (count == 1)
+                    return I("il2cpp::il2cpp_gc_get_generation_budget", 1, true, false, false, new[] { "i" }, "l");
+                return null;
+            case "_RegisterFrozenSegment":
+                // private IntPtr _RegisterFrozenSegment(IntPtr sectionAddress,
+                // nint sectionSize): the collector has no frozen-segment heap,
+                // so registration only records an opaque handle (see
+                // icall_gc_register_frozen_segment in stubs.cpp).
+                if (count == 2)
+                    return I("il2cpp::runtime::icall_gc_register_frozen_segment", 2, true, false, false,
+                        new[] { "", "" }, "ptr");
+                return null;
+            case "_UnregisterFrozenSegment":
+                // private void _UnregisterFrozenSegment(IntPtr segmentHandle)
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_gc_unregister_frozen_segment", 1, false, false, false,
+                        new[] { "" });
+                return null;
+            case "_EnumerateConfigurationValues":
+                // private void _EnumerateConfigurationValues(void*
+                // configurationDictionary, callback): this collector exposes no
+                // tunable configuration values, so the enumeration completes
+                // without invoking the callback (the public
+                // GC.GetConfigurationVariables sees an empty map). The target
+                // dictionary and the native function pointer are CoreLib-side
+                // objects that nothing here would touch -> both dropped.
+                if (count == 2)
+                    return I("il2cpp::runtime::icall_gc_enumerate_configuration_values", 2, false, false, false,
+                        new[] { "drop", "drop" });
+                return null;
+
+            // ---- corelib-p0: the PUBLIC wrappers over the QCall bodies above --
+            // A net8/net9-compiled caller binds these directly (the wrapper IL
+            // lives in CoreLib and is never transpiled), so the public shape
+            // needs its own arm. Each one reports the same truth the internal
+            // arm reports; the behaviour measured on the shipped 8.0.31 runtime
+            // is recorded next to each arm.
+            case "GetTotalPauseDuration":
+                // public static TimeSpan GetTotalPauseDuration() -- net8
+                // returns new TimeSpan(_GetTotalPauseDuration()), i.e. the
+                // collector's accumulated pause ticks (0 on a fresh process).
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_gc_get_total_pause_duration", 0, true, false, false,
+                        null, "ts", returnTypeName: "System.TimeSpan");
+                return null;
+            case "EndNoGCRegion":
+                // public static void EndNoGCRegion(): the wrapper throws
+                // InvalidOperationException when the internal status is
+                // NotInProgress -- measured on the shipped runtime as
+                // "NoGCRegion mode must be set." The runtime entry raises the
+                // same exception (this collector never grants a NoGC region).
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_gc_end_no_gc_region_public", 0, false, false, false);
+                return null;
+            case "RegisterNoGCRegionCallback":
+                // public static void RegisterNoGCRegionCallback(long
+                // totalSize, Action callback): same measured contract as
+                // EndNoGCRegion outside a region -- InvalidOperationException
+                // ("NoGCRegion mode must be set."). Both arguments are dropped:
+                // no region exists, so the work item is never enqueued.
+                if (count == 2)
+                    return I("il2cpp::runtime::icall_gc_register_no_gc_region_callback_public", 2,
+                        false, false, false, new[] { "l", "" });
+                return null;
+            case "RefreshMemoryLimit":
+                // public static void RefreshMemoryLimit(): re-reads the
+                // container/physical memory limits and reconfigures the
+                // collector. A fixed-budget collector has nothing to
+                // reconfigure, so the call is a no-op -- measured on the
+                // shipped runtime as a normal return.
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_gc_refresh_memory_limit", 0, false, false, false);
                 return null;
             default: return null;
         }

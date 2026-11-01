@@ -84,6 +84,18 @@ int32_t icall_thread_get_current_thread_id();
 // is not modeled.
 void icall_thread_yield();
 
+// Thread.YieldInternal() -> Interop.BOOL (corelib-p0): the netcore shape of
+// Thread.Yield, which DOES carry the result -- true when the call actually
+// switched to another thread (Windows SwitchToThread's return, POSIX
+// sched_yield's "no error" -- the closest portable analogue; there is no
+// "did another thread run" query on POSIX).
+bool icall_thread_yield_bool();
+
+// Thread.GetCurrentOSThreadId() -> ulong (corelib-p0): the OS thread id
+// widened to 64 bits (plat_thread_current_id -- the same source
+// ManagedThreadId reads, which stays int32).
+uint64_t icall_thread_get_current_os_thread_id();
+
 // Thread.CurrentThread.Priority (SIMPLIFIED) -> int32. Always 0 =
 // ThreadPriority.Normal (the single-threaded model never changes priority).
 int32_t icall_thread_get_priority();

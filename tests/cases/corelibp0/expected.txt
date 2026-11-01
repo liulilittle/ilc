@@ -1,0 +1,22 @@
+True gc pause non-negative
+True gc pause ticks non-negative
+True gc EndNoGCRegion outside region
+True gc RegisterNoGCRegionCallback outside region
+True gc RefreshMemoryLimit
+True gc WaitForPendingFinalizers
+True gc pressure + full-GC notification
+True gc CollectionCount(0) non-negative
+True gc CollectionCount(max) non-negative
+True gc Collect
+True rh TryEnsureSufficientExecutionStack true at shallow depth
+True rh EnsureSufficientExecutionStack at shallow depth
+True rh TryEnsure after throw variant
+True rh AllocateTypeAssociatedMemory non-null
+True rh AllocateTypeAssociatedMemory second block
+True rh AllocateTypeAssociatedMemory distinct blocks
+True interlocked process-wide barrier
+True thread Yield returns without throwing
+True thread ManagedThreadId non-zero after Yield
+True math Truncate negative
+True math fraction identity ModF implements
+failures=0

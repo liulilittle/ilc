@@ -2111,6 +2111,29 @@ int64_t il2cpp_gc_get_total_pause_ticks()
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_gc_get_generation_budget -- remaining allocation budget of a
+// generation (corelib-p0; the analogue of GCInterface::GetGenerationBudget).
+//
+// This collector keeps ONE shared bump budget: AllocCore runs an implicit
+// collection once g_bumpedSinceCollect passes kCollectAfterBumpedBytes. The
+// remaining budget before that trigger is therefore the honest answer for
+// every in-range generation (the per-generation split of the real CLR has no
+// counterpart here); an out-of-range generation reports 0, matching the
+// per-generation accessors above.
+//------------------------------------------------------------------------------
+int64_t il2cpp_gc_get_generation_budget(int32_t generation)
+{
+    if (generation < 0 || generation > kGcGeneration2)
+    {
+        return 0;
+    }
+    const size_t consumed = g_bumpedSinceCollect > kCollectAfterBumpedBytes
+                                ? kCollectAfterBumpedBytes
+                                : g_bumpedSinceCollect;
+    return static_cast<int64_t>(kCollectAfterBumpedBytes - consumed);
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_gc_get_last_gc_percent_time_in_gc -- percentage (0..100) of
 // wall-clock time spent in the collector since the last collection. Written
 // by RecordCollectionEnd at every collection end.

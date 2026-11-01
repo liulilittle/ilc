@@ -14,6 +14,8 @@
 #include "il2cpp_exception.h"
 #include "il2cpp_gc.h"
 
+#include <atomic>
+
 namespace il2cpp { namespace runtime {
 
 //------------------------------------------------------------------------------
@@ -194,6 +196,108 @@ void icall_gc_register_for_gc_reporting()
 void icall_gc_unregister_for_gc_reporting()
 {
     // no-op: GC frame registration not needed in simplified model
+}
+
+//------------------------------------------------------------------------------
+// corelib-p0: the CoreLib-INTERNAL GC QCall bodies (see il2cpp_gc_api.h).
+//
+// These back the members the shipped System.Private.CoreLib 8.0.31/9.0.20
+// declares as QCall bodies behind the public GC API. The collector has no NoGC
+// region, no frozen heap and no tunable configuration, so each one reports the
+// status that is TRUE for this collector rather than inventing state -- the
+// public wrappers then take exactly the branch .NET takes in that situation.
+//------------------------------------------------------------------------------
+
+// EndNoGCRegionStatus.NotInProgress -- a region can never be in progress.
+int32_t icall_gc_end_no_gc_region()
+{
+    return 1;
+}
+
+// EnableNoGCRegionCallbackStatus.NotStarted -- registering a callback requires
+// an in-progress NoGC region, which this collector never grants.
+int32_t icall_gc_enable_no_gc_region_callback(void* workItem, int64_t totalSize)
+{
+    (void)workItem;
+    (void)totalSize;
+    return 1;
+}
+
+// No configuration values exist, so the callback is never invoked.
+void icall_gc_enumerate_configuration_values(void* configurationDictionary, void* callback)
+{
+    (void)configurationDictionary;
+    (void)callback;
+}
+
+//------------------------------------------------------------------------------
+// Frozen segments: this collector has no frozen (read-only, non-moving) heap,
+// so a registered segment cannot be adopted. The handle is an opaque token
+// that _UnregisterFrozenSegment accepts; nothing else observes it.
+//
+// The token is deliberately NOT derived from the address: two registrations of
+// the same segment must not alias (the caller owns the segment lifetime), and
+// a handle value of 0 is never minted (0 is the "no handle" / default IntPtr).
+//------------------------------------------------------------------------------
+namespace {
+
+std::atomic<intptr_t> g_frozenSegmentToken{0};
+
+} // namespace
+
+intptr_t icall_gc_register_frozen_segment(intptr_t sectionAddress, intptr_t sectionSize)
+{
+    (void)sectionAddress;
+    (void)sectionSize;
+    return g_frozenSegmentToken.fetch_add(1) + 1;
+}
+
+void icall_gc_unregister_frozen_segment(intptr_t segmentHandle)
+{
+    // The token is opaque and carries no resources: there is no frozen heap to
+    // detach, so unregistering is only the contract that the handle stops
+    // being used. A default (0) handle is ignored like any unknown token.
+    (void)segmentHandle;
+}
+
+//------------------------------------------------------------------------------
+// corelib-p0: the PUBLIC GC wrappers (see il2cpp_gc_api.h). A net8/net9
+// caller binds these directly -- the wrapper IL is CoreLib's and is never
+// transpiled -- so they re-state the same truth as the internal arms.
+//------------------------------------------------------------------------------
+
+Il2CppTimeSpan icall_gc_get_total_pause_duration()
+{
+    // GC.GetTotalPauseDuration() == new TimeSpan(_GetTotalPauseDuration()):
+    // the raw 100ns ticks ride straight into the TimeSpan value.
+    return Il2CppTimeSpan(il2cpp_gc_get_total_pause_ticks());
+}
+
+void icall_gc_end_no_gc_region_public()
+{
+    // Measured on the shipped 8.0.31 runtime: EndNoGCRegion outside a region
+    // throws InvalidOperationException with this exact message.
+    il2cpp_throw_new("System.InvalidOperationException,System.SystemException,System.Exception",
+                     "NoGCRegion mode must be set.");
+}
+
+void icall_gc_register_no_gc_region_callback_public(int64_t totalSize, Il2CppObject* callback)
+{
+    // Measured on the shipped 8.0.31 runtime: RegisterNoGCRegionCallback
+    // outside a region throws InvalidOperationException with the SAME message
+    // as EndNoGCRegion (the region check precedes any argument validation --
+    // probed with a non-null callback, and .NET's own code path raises the
+    // region error first).
+    (void)callback;
+    (void)totalSize;
+    il2cpp_throw_new("System.InvalidOperationException,System.SystemException,System.Exception",
+                     "NoGCRegion mode must be set.");
+}
+
+void icall_gc_refresh_memory_limit()
+{
+    // Fixed-budget collector: there is no heap hard limit to recompute, so the
+    // call completes without changing anything (measured: normal return).
 }
 
 }} // namespace il2cpp::runtime

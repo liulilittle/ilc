@@ -74,4 +74,41 @@ void icall_runtime_helpers_execute_code_with_guaranteed_cleanup(
 // RuntimeFieldHandle value rides as an intptr_t (reflecthandle.h model).
 void icall_runtime_helpers_initialize_array(Il2CppObject* array, intptr_t fieldHandle);
 
+//------------------------------------------------------------------------------
+// corelib-p0: the remaining CoreLib-INTERNAL RuntimeHelpers members (measured
+// present in BOTH shipped System.Private.CoreLib 8.0.31 and 9.0.20).
+//------------------------------------------------------------------------------
+
+// RuntimeHelpers.TryEnsureSufficientExecutionStack() -> bool. The
+// non-throwing twin of EnsureSufficientExecutionStack: it runs the SAME
+// per-thread stack-limit check (one implementation, no drift) and reports
+// "not enough stack" as false instead of throwing
+// InsufficientExecutionStackException. Implemented in stubs.cpp by catching
+// the DotNetException the shared check raises.
+bool icall_runtime_helpers_try_ensure_sufficient_execution_stack();
+
+// RuntimeHelpers.CompileMethod(RuntimeMethodHandleInternal) -> void. A JIT
+// request; an AOT image is already compiled, so the call is a no-op. The
+// handle rides as an intptr_t (reflecthandle.h value model).
+void icall_runtime_helpers_compile_method(intptr_t methodHandle);
+
+// RuntimeHelpers.PrepareMethod(RuntimeMethodHandleInternal, IntPtr*
+// instantiation, int count) -> void (the net48 public shape is
+// PrepareMethod(RuntimeMethodHandle, RuntimeTypeHandle[])). A JIT-prepare
+// hint: everything is prepared in an AOT image, so the call is a no-op.
+// 'instantiation' / 'instantiationCount' select a generic instantiation that
+// is already compiled.
+void icall_runtime_helpers_prepare_method(intptr_t methodHandle, void* instantiation,
+                                          int32_t instantiationCount);
+
+// RuntimeHelpers.AllocateTypeAssociatedMemory(Type, int) -> IntPtr (the QCall
+// twin takes a type handle + uint size). Associated memory is released when
+// its AssemblyLoadContext unloads; an AOT image never unloads, so a plain
+// process-lifetime allocation is the exact lifetime contract. 'type' is the
+// type identity (an Il2CppClass* / Type object) and is not needed to keep the
+// block alive. Returns 0 for a zero/negative size (the managed wrapper
+// validates first). The intptr_t return IS the managed IntPtr carrier (the
+// "ptr" ResultKind), so the emitted call needs no pointer cast.
+intptr_t icall_runtime_helpers_allocate_type_associated_memory(void* type, int32_t size);
+
 }} // namespace il2cpp::runtime

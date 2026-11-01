@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
@@ -121,6 +122,30 @@ uintptr_t CurrentStackPointer()
 #endif
 }
 
+// The ONE stack-availability check shared by EnsureSufficientExecutionStack
+// (throws when it answers false) and TryEnsureSufficientExecutionStack (which
+// reports that same answer). Keeping a single implementation is the point: the
+// throwing and non-throwing members must never disagree about how much stack
+// counts as "sufficient". Returns true when the platform cannot answer (never
+// a false alarm).
+bool HasSufficientExecutionStack()
+{
+    uintptr_t lowLimit = 0;
+    uintptr_t highLimit = 0;
+    if (!CurrentThreadStackBounds(&lowLimit, &highLimit))
+    {
+        return true; // no platform query: cannot prove a low stack
+    }
+    const uintptr_t sp = CurrentStackPointer();
+    if (sp <= lowLimit || sp > highLimit)
+    {
+        return true; // not on the queried stack (unexpected): never a false alarm
+    }
+    const double total = static_cast<double>(highLimit - lowLimit);
+    const double remaining = static_cast<double>(sp - lowLimit);
+    return remaining >= total * kSufficientStackFraction;
+}
+
 // CleanupCode(object userData, bool exceptionThrown) invocation (single-cast
 // delegate; the net48 API is a plain two-argument delegate, and the AOT
 // delegate object carries methodPtr + optional target exactly like every
@@ -159,27 +184,25 @@ void icall_runtime_helpers_prepare_contracted_delegate(Il2CppObject* d)
 
 void icall_runtime_helpers_ensure_sufficient_execution_stack()
 {
-    uintptr_t lowLimit = 0;
-    uintptr_t highLimit = 0;
-    if (!CurrentThreadStackBounds(&lowLimit, &highLimit))
+    if (HasSufficientExecutionStack())
     {
-        return; // no platform query: cannot prove a low stack, do not throw
+        return;
     }
-    const uintptr_t sp = CurrentStackPointer();
-    if (sp <= lowLimit || sp > highLimit)
-    {
-        return; // not on the queried stack (unexpected): never a false throw
-    }
-    const double total = static_cast<double>(highLimit - lowLimit);
-    const double remaining = static_cast<double>(sp - lowLimit);
-    if (remaining < total * kSufficientStackFraction)
-    {
-        il2cpp_throw_new(
-            "System.InsufficientExecutionStackException,System.Exception",
-            "Insufficient stack to continue executing the program safely. "
-            "This can happen from having too many functions on the call stack "
-            "or function on the stack using too much stack space.");
-    }
+    il2cpp_throw_new(
+        "System.InsufficientExecutionStackException,System.Exception",
+        "Insufficient stack to continue executing the program safely. "
+        "This can happen from having too many functions on the call stack "
+        "or function on the stack using too much stack space.");
+}
+
+bool icall_runtime_helpers_try_ensure_sufficient_execution_stack()
+{
+    // The non-throwing twin: SAME check, reported as a bool. Deliberately not
+    // implemented by catching the exception above -- a throw/catch pair would
+    // unwind the caller's frames and cost an exception per probe, and (worse)
+    // the two members could drift if either is edited. One predicate, used by
+    // both, is the contract.
+    return HasSufficientExecutionStack();
 }
 
 void icall_runtime_helpers_probe_for_sufficient_stack()
@@ -241,6 +264,51 @@ void icall_runtime_helpers_initialize_array(Il2CppObject* array, intptr_t fieldH
     // at the call site.
     il2cpp_throw_new("System.ArgumentException,System.Exception",
                      "Value does not fall within the expected range.");
+}
+
+//------------------------------------------------------------------------------
+// corelib-p0: the remaining CoreLib-INTERNAL RuntimeHelpers entries (see
+// il2cpp_runtime_helpers.h).
+//------------------------------------------------------------------------------
+
+void icall_runtime_helpers_compile_method(intptr_t methodHandle)
+{
+    // A JIT request. An AOT image is already compiled, so the request is
+    // already satisfied: the handle is not dereferenced and nothing is
+    // emitted. (The managed caller only needs the method to BE compiled --
+    // there is no "was it compiled" reply.)
+    (void)methodHandle;
+}
+
+void icall_runtime_helpers_prepare_method(intptr_t methodHandle, void* instantiation,
+                                          int32_t instantiationCount)
+{
+    // A JIT-prepare hint for a method (and, for the generic shape, one
+    // instantiation of it). Everything is prepared in an AOT image. The
+    // instantiation array selects which MethodSpec is prepared -- it does not
+    // affect any observable state here, so it is accepted and ignored.
+    (void)methodHandle;
+    (void)instantiation;
+    (void)instantiationCount;
+}
+
+intptr_t icall_runtime_helpers_allocate_type_associated_memory(void* type, int32_t size)
+{
+    // Type-associated memory is freed when its AssemblyLoadContext unloads.
+    // An AOT image never unloads, so process lifetime IS the contract -- a
+    // plain allocation is exact, and the type identity plays no part in
+    // keeping the block alive.
+    //
+    // The managed wrapper validates the size (ArgumentOutOfRangeException for
+    // <= 0) before calling, so a non-positive size here is a caller bug;
+    // answering 0 keeps the contract "returns a usable block or the null
+    // IntPtr" without allocating a zero-length region.
+    (void)type;
+    if (size <= 0)
+    {
+        return 0;
+    }
+    return reinterpret_cast<intptr_t>(std::malloc(static_cast<size_t>(size)));
 }
 
 }} // namespace il2cpp::runtime
