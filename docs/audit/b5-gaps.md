@@ -1,4 +1,4 @@
-﻿# B5 fix -- residual gaps (registered, NOT silent)
+# B5 fix -- residual gaps (registered, NOT silent)
 
 Scope of this batch: D-1 (non-i4 `Any(pred)`/`Count(pred)`/`All`/`Where`/
 `Select`/`First`/`Last` for every element family), D-2 (`List<T>` carrier
@@ -2345,3 +2345,91 @@ byte-exact).
    **Change surface**: a proper enum box descriptor for BCL enums (the
    `System.DayOfWeek` table precedent) before the composite dispatch can
    serve them.
+## 26. impl-pinvoke-array: managed array DllImport parameters (the `array` group)
+
+### 26.1 What was refused and is now real
+
+`docs/audit/winforms-pinvoke-current.md` listed **67** Windows P/Invoke parameters
+in the `array` group (`byte[]` / `char[]` / `int[]` / `RECT[]` buffer pin/copy);
+only 16 worked. The rest hit the blanket LOUD arm at
+`src/il2cppc/Emit/CodeGenerator.cs` (`PinvokeParamListOf`), which rejected every
+parameter shape it did not model. A managed array bound to a blittable native
+parameter is statically analysable, so refusing it was exactly the class of
+refusal the project forbids.
+
+Now implemented (`feat(pinvoke): marshal managed array DllImport parameters`):
+primitive element arrays (`byte`/`sbyte`/`short`/`ushort`/`int`/`uint`/`long`/
+`ulong`/`float`/`double`/`IntPtr`/`UIntPtr`/`char` UTF-16) and blittable
+same-assembly struct arrays (plus `System.Guid`). Coverage measured from the
+audit's `classified.tsv`: 73 array rows / 78 array parameter positions --
+`byte[]` 32, `int[]`/`uint[]` 18, `float[]` 12, `IntPtr[]` 4, `short[]` 2,
+`char[]` (Unicode) 2, `Guid[]` 1, same-assembly blittable struct arrays.
+Affected APIs now transpile: `DrawTextA`/`DrawTextExA`, `GetKeyboardState`,
+`SetKeyboardState`, `GetKeyboardLayoutList`, `SendMessage` (`int[]`),
+`MultiByteToWideChar` (`byte[]` + `char[]`), `CopyMemoryW` (`char[]`),
+`GetComputerName` (`int[]`).
+
+### 26.2 Measured net48 semantics (the oracle)
+
+`tests/cases/probe-pinvoke-array` owns a SHARED dll (`arrayprobe/`) and a net48
+oracle; both sides produce 845 B sha
+`b8f5d7e861eb5e6acf723e1a32815a91326d6987bad91dbc9da1b52008cba657`, 38 records,
+`firstDiff -1/-1`. The records establish:
+
+1. **Primitive-element arrays are PINNED in place.** `[In]` / `[Out]` are
+   ignored; the callee sees the managed bytes and its writes are visible in the
+   managed array immediately (`[byte.default.seen]=17`,
+   `[byte.default.after]=153`, `[byte.out.seen]=53`, `[byte.out.after]=151`).
+2. **`char[]` width follows CharSet, and the C# default is Ansi.**
+   `CharSet.Ansi` -> NARROW bytes (`char.ansi.first4=1145258561=0x44434241`);
+   `Unicode`/`Auto` -> UTF-16 (`0x00420041`).
+3. **Struct-element arrays are COPIED.** default/`[In]` copy in only
+   (`[rect.after.left]=1`); `[In,Out]` copies both ways
+   (`[extra.rect.inout.after]=888`); `[Out]` hands the callee a **zeroed** temp
+   (`[extra.rect.out.seen]=0`, stable over 10 runs) then copies back (999).
+   `Guid[]` follows the struct path (`[extra.guid.after3]=1`).
+4. **`null` -> NULL** (`[null.isnull]=1`); **zero-length -> NON-NULL** pointer to
+   the payload start (`[zero.byte.isnull]=0`).
+5. **GC**: with a native callback forcing `GC.Collect()` between two writes,
+   both writes land (`[gc.after0]=119`, `[gc.after1]=136`).
+
+### 26.3 The GC-safety design (and why it is two primitives, not one)
+
+This collector is a compacting generational mark-sweep, so a raw payload
+address is only valid while the array is both ROOTED and IMMOVABLE. The pin
+table marks an object immovable but does **not** root it: the mark phase walks
+`g_staticRoots` only (`src/runtime/src/gc.cpp`, the `Roots: static reference
+fields` loop), and `g_pinnedRefs` is consulted solely by `IsPinned()` so a
+pinned survivor is promoted NON-MOVING. Therefore every array argument
+registers BOTH primitives for the call's full-expression lifetime --
+`il2cpp_gc_add_static_root` + `il2cpp_gc_add_pinned` -- exactly the double
+registration `GCHandle.Alloc(obj, Pinned)` performs, and removes them in the
+mirror order (pin, then root).
+
+Mutation proof (all restored, `git status` clean): (M1) passing the object
+header instead of the payload -> runtime `0xC0000005`, 0/38 records;
+(M2) disabling the struct copy-back -> `[extra.rect.inout.after]` 888->5 and
+`[extra.rect.out.after]` 999->6; (M3) dropping the pin registration while
+keeping the strong root -> `[gc.after1]` 136->2 (the write lands in a buffer the
+collector already moved). M3 is the direct proof that the pin half is required.
+
+### 26.4 Registered residuals -- array shapes that still refuse, and why
+
+Each of these is a **self-identifying transpile-time `NotSupportedException`**
+with a message naming the measured net48 behaviour it cannot reproduce. They
+are registered here per the project rule; none of them is silently mis-handled.
+
+| # | Shape | Why it still refuses |
+|---|-------|----------------------|
+| 1 | `bool[]` (e.g. `SystemParametersInfo`) | net48 marshals `bool[]` as **4-byte BOOL** elements; this model stores bool array cells at **1 byte** (`CodeGenerator.ArrayElementType`). A 4x-wrong stride is a silent value corruption, so it rejects until a `MarshalAs`/BOOL-array decode exists. |
+| 2 | `char[]` with `CharSet.Ansi` (e.g. `CopyMemoryA`) | net48 converts the UTF-16 managed array to a **narrow ANSI byte buffer** (measured `0x44434241`). This emitter has no ANSI encoding pass at the boundary; `CharSet.Unicode` or `byte[]` is the faithful spelling. |
+| 3 | `INPUT[]` (`SendInput`) | `INPUT` is an `ExplicitLayout` union; this model has no union layout, so a byte-identical element stride cannot be guaranteed. Rejecting beats a silent mis-layout. |
+| 4 | `IMalloc[]` | array of managed **references** -- net48 marshals element-by-element through COM interop; a flat buffer has no meaning. |
+| 5-6 | `string[]` x2 (`clr!CorLaunchApplication`) | array of managed references needing per-element string marshalling (D-class: entry point is a CLR-internal export, not a Windows SDK API). |
+| 7 | External-assembly struct array (`CharacterRange[]` from `System.Drawing.dll`) | the struct's layout is only readable when the type is defined in the assembly being transpiled; a `TypeRef` has no readable field layout, so blittability cannot be proven. When `System.Drawing.dll` itself is the input assembly it is 2 x int32 and IS accepted. |
+
+### 26.5 Not done here (next)
+
+`System.DateTimeOffset` through IFormattable (see 25.3 item 1) is a two-line
+`box`/`unbox` switch addition in `CodeGenerator.cs`; it is the smallest
+remaining item on the formatting surface and is scheduled next.
