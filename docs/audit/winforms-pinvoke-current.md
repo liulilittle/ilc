@@ -123,13 +123,43 @@ internalcalls=4
 | array buffer pin/copy (byte[]/char[]/...)（`array`） | 67 | 16 |
 | struct layout not byte-identical (managed ref field vs inline native data)（`nonblittable-struct`） | 55 | 3 |
 | StringBuilder native-write buffer（`stringbuilder`） | 21 | 3 |
-| ref/out of class / foreign-assembly value type（`byref-other`） | 13 | 0 |
+| ref/out of class / foreign-assembly value type（`byref-other`） | 13 | 0 → **9 已可用 / 4 属 COM**（§2.1b） |
 | struct C++ name vs Windows SDK typedef（`name-clash`） | 11 | 0 |
 | by-value struct RETURN for unregistered structs（`struct-return`） | 9 | 3 |
 | System.Object VARIANT-style parameter（`object`） | 7 | 0 |
 | entry point absent from the module (macro alias / comctl32 v6 only)（`entrypoint-missing`） | 1 | 0 |
 
 > 组合能力见 §8 的贪心顺序：`handleref` → `entrypoint-suffix` → `byref-scalar` → ...
+
+### 2.1b `byref-other` 的 13 条：逐行定性（2026-11-01 实测）
+
+`byref-other` 的 13 是「**触及**该能力的行数」，不是「13 个参数全坏」——`cap_alone` 为 0 只因这 13 行每一行
+都还同时需要 handleref / array / string / IntPtr（表头 `涉及条数 / 补齐后单独解决` 见 §2.1 与
+`render_winforms_report.py:178-185`）。逐行实测（每行签名原样抄进 census 工程单独转译 + MinGW 编译 +
+与 net48 oracle 对跑）：
+
+| # | 入口 | 参数 | 结论 | 机制 / 原因 |
+|---|---|---|---|---|
+| 1,2,3,4,5,6,7,11 | gdiplus `GdipGetEncoderParameterList`/`...Size`/`GdipGetImageRawFormat`/`GdipImageGetFrameCount`/`GdipImageSelectActiveFrame`/`GdipSaveImageToFile`、ole32 `ReadClassStg`、shell32 `SHGetKnownFolderPath` | `System.Guid&` | **已可用**（转译 OK + C++ 编译 OK + 与 net48 逐字节相同） | `B:V:System.Guid` → `TypeCppName` → `il2cpp::Il2CppGuid`（16B，`src/runtime/include/internal/guid.h:59`）`+ "*"`；调用点直接传 `ldloca` 槽地址，**无拷贝**，callee 写的就是托管槽 |
+| 12 | user32 `SendMessage` | `NativeMethods+LVHITTESTINFO&` | **已可用** | 本地值类型 TypeDef → 生成的 blittable 结构体，`B:V:` 传地址直通 |
+| 8,9 | oleaut32 `OleCreatePropertyFrame` ×2 | `[MarshalAs(Interface)] ref object` | **仍拒绝**，属 `object` + COM 组 | 指向 **IUnknown 接口指针**的指针，需 RCW/CCW/接口 marshal（COM 组 50 参数） |
+| 10 | oleaut32 `VarFormat` | `ref object`（无 MarshalAs） | **仍拒绝**，属 `object` + COM 组 | 指向 **VARIANT** 的指针，需 `GetNativeVariantForObject` / `GetObjectForNativeVariant` |
+| 13 | user32 `SendMessage`（editOle） | `[MarshalAs(IUnknown)] ref object` | **仍拒绝**，属 COM 组 | 同 8/9 |
+
+**13 条里没有一条是 `nonblittable-struct`（55 参数组）的伪装**：唯二的值类型形态 `System.Guid`（16 字节
+POD）与 `LVHITTESTINFO`（5×int32，`structs.tsv` 判 blittable）都已是字节等价布局。
+
+net48 实测（`tests/cases/probe-pinvoke-byrefother/`，自建 SHARED dll，oracle == 转译运行时逐字节）：
+
+- `out Guid` 是**真 16 字节槽**，且 **marshal 桩不预先清零**（清零来自方法入口 `.locals init`）：
+  callee 只写前 8 字节时后 8 字节保持调用方原值（fresh out → 全 0；`ref` 有旧值 → 旧高 8 字节保留）。
+- `ref Guid` callee 看得到调用方的旧值；16 字节全 `0xff` 时 callee 求和 4080，16 字节全部过界。
+- `ref object` 的真实形状（`VirtualQuery` + 目标内存转储）：**默认形态**callee 收到的是**对象引用本身**
+  （不是指向引用的指针、也不是 VARIANT）；带 `[MarshalAs(IUnknown)]` 时收到的是 `void**`，其指向的是
+  **IUnknown 接口指针**。callee 改成别的接口指针，拷回后托管侧拿到的是**正确的 RCW**（类型仍是原类）；
+  callee 写 `nullptr` → 托管引用变 `null`；传入 `null` → callee 收到非空槽内含 `nullptr`。
+  这证明 `ref object` 是 COM/VARIANT marshal 契约，**不能**靠「传托管槽地址」静态化。
+
 
 ### 2.2 入口名导出实况（`WinFormsExportProbe`，真实 `GetProcAddress`）
 
