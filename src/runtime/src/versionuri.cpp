@@ -1523,17 +1523,20 @@ std::string BuildUriHashText(const Il2CppUriObject* u)
     {
         path = "/";
     }
+    // Rule 1: the fragment is dropped. It can sit on the path itself
+    // ("http://x/#frag"), on the query, or on both -- truncating before the
+    // '?' split covers every shape (an ESCAPED "%23" is not a '#').
+    const std::size_t frag = path.find('#');
+    if (frag != std::string::npos)
+    {
+        path.erase(frag);
+    }
     std::string query;
     const std::size_t q = path.find('?');
     if (q != std::string::npos)
     {
         query.assign(path, q, std::string::npos);
         path.erase(q);
-    }
-    const std::size_t hash = query.find('#');
-    if (hash != std::string::npos)
-    {
-        query.erase(hash); // rule 1: the fragment rides on the query text
     }
 
     // net48 maps '\' to '/' inside the path before unescaping.

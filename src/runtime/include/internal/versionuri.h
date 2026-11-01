@@ -373,14 +373,25 @@ bool icall_uri_get_is_absolute_uri(Il2CppObject* self);
 // dot-folding/escapes arrive with P4 -- recorded deviation).
 bool icall_uri_equals(Il2CppObject* self, Il2CppObject* other);
 
-// GetHashCode() (URI-FIX P3 -- accepted deviation, parent ruling
-// 2026-09-19): net48 hashes via the native NLS case mixer (OS/NLS-version
-// dependent; exact-int replication would pin our NLS tables, not .NET
-// semantics). The runtime hash is a deterministic FNV-1a ordinal fold over
-// the SAME normalized absolute text Equals compares (relative: the
-// OriginalString) -- so Equals(a,b) implies Hash(a)==Hash(b) by
-// construction. Contract equality only; the oracle integer is never
-// asserted (see URI-FIX-PLAN Addendum A3).
+// GetHashCode() (URI-FIX P3; INTS MADE NET48-EXACT 2026-11-01). The earlier
+// "accepted deviation" note claimed net48's NLS mixing was unreproducible and
+// that the oracle integer "is never asserted" -- BOTH claims were false:
+// tests/cases/diffuri001/diffuri001.cs:45 asserts the integer, and net48's
+// integer IS reproducible because it runs on the SAME NLS layer.
+//
+// Measured (net48 probe, 2026-11-01; pinned by tests/runtime/test_urihash.cpp):
+//   Uri.GetHashCode() == StringComparer.InvariantCultureIgnoreCase.GetHashCode(
+//       GetComponents(UriComponents.HttpRequestUrl, UriFormat.SafeUnescaped))
+// i.e. the INVARIANT culture (NOT CurrentCulture -- a tr-TR CurrentCulture
+// leaves the integer unchanged), ignore-case hash of net48's own
+// HttpRequestUrl projection: fragment and userinfo dropped, scheme and host
+// lowercased, default port dropped, the path unescaped BEFORE dot-folding
+// (so "%2E" DOES fold here, unlike the AbsoluteUri rebuild), SafeUnescaped's
+// restricted decode set with original escape casing preserved, and mailto's
+// userinfo dropped. The underlying culture string hash is the NLS sort-key
+// byte fold implemented by il2cpp_culture_hash (valuesemantics.cpp).
+// A relative Uri hashes its OriginalString the same way, so the .NET
+// Equals=>equal-hash contract still holds.
 int32_t icall_uri_get_hash_code(Il2CppObject* self);
 
 }} // namespace il2cpp::runtime
