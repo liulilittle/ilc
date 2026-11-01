@@ -115,17 +115,75 @@ public class MethodMapTestsDtoffset
         Assert.Equal(new[] { "", "", "drop" }, resolved.ParamTypeNames);
     }
 
+    [Fact]
+    public void Resolve_Dtoffset_CompareToObject_MapsToValueVsObjectHelper()
+    {
+        // DateTimeOffset.CompareTo(object) used to be a transpile-time LOUD
+        // ("a boxed DateTimeOffset has no runtime box class"). That reason
+        // became false when System_DateTimeOffset_class and the box icalls
+        // landed, so the overload is wired: the receiver is the 16-byte value
+        // slot (deref:dto), the argument the managed object. Oracle:
+        // tests/cases/dtoobjcmp1.
+        var resolved = ResolveMember(Synthesize("System", "DateTimeOffset", "CompareTo", Sig(0x08, 0x1C)), "CompareTo");
+
+        Assert.Equal("il2cpp::runtime::icall_dtoffset_compare_object", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "deref:dto", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Dtoffset_EqualsObject_MapsToValueVsObjectHelper()
+    {
+        // The Equals(object) counterpart -- net48 answers false for null and
+        // for any non-DateTimeOffset object, and compares the UTC instant for
+        // a boxed DateTimeOffset. Oracle: tests/cases/dtoobjcmp1.
+        var resolved = ResolveMember(Synthesize("System", "DateTimeOffset", "Equals", Sig(0x02, 0x1C)), "Equals");
+
+        Assert.Equal("il2cpp::runtime::icall_dtoffset_equals_object", resolved.CppName);
+        Assert.True(resolved.IsInstance);
+        Assert.Equal(1, resolved.ParamCount);
+        Assert.Equal(new[] { "deref:dto", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Object_Equals_DtoffsetAddressReceiver_MapsToValueVsObjectHelper()
+    {
+        // The constrained callvirt shape `dto.Equals(obj)`: Roslyn declares the
+        // MemberRef on System.Object, so the receiver HINT is what routes the
+        // call. An ADDRESS receiver (the value slot) cannot be passed to the
+        // generic icall_boxed_equals_ext2 (two Il2CppObject*).
+        var resolved = ResolveMember(Synthesize("System", "Object", "Equals", Sig(0x02, 0x1C)), "Equals",
+            receiverType: "System.DateTimeOffset", receiverIsAddress: true);
+
+        Assert.Equal("il2cpp::runtime::icall_dtoffset_equals_object", resolved.CppName);
+        Assert.Equal(new[] { "deref:dto", "" }, resolved.ParamTypeNames);
+    }
+
+    [Fact]
+    public void Resolve_Object_Equals_GenericArm_RequestsReceiverReresolve()
+    {
+        // Every other receiver keeps the generic boxed-value dispatcher, but it
+        // must ASK for the receiver-aware re-resolve -- otherwise the
+        // DateTimeOffset/Guid/IPAddress arms (which need the hint) can never
+        // fire on a hint-less first pass.
+        var resolved = ResolveMember(Synthesize("System", "Object", "Equals", Sig(0x02, 0x1C)), "Equals");
+
+        Assert.Equal("il2cpp::runtime::icall_boxed_equals_ext2", resolved.CppName);
+        Assert.True(resolved.ReresolveWithReceiver);
+    }
+
     //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as the transpiler)
     //--------------------------------------------------------------------------
     private static ResolvedMethod ResolveMember(MemoryStream pe, string memberName,
-        string? receiverType = null, string? arg0Type = null)
+        string? receiverType = null, string? arg0Type = null, bool receiverIsAddress = false)
     {
         using var reader = new PEReader(pe);
         var md = reader.GetMetadataReader();
         var handle = md.MemberReferences.Single(h => md.GetString(md.GetMemberReference(h).Name) == memberName);
         return MethodRefResolver.Resolve(md, MetadataTokens.GetToken(handle), Array.Empty<TypeDef>(),
-            receiverType, false, arg0Type, null);
+            receiverType, receiverIsAddress, arg0Type, null);
     }
 
     // Signature blob: header 0x00 (DEFAULT, non-generic), param count, return

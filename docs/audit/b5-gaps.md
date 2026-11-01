@@ -2399,16 +2399,32 @@ now handles.
    **Change surface**: a proper enum box descriptor for BCL enums (the
    `System.DayOfWeek` table precedent) before the composite dispatch can
    serve them.
-2. **`DateTimeOffset.Equals(object)` / `CompareTo(object)` (pre-existing LOUD,
-   now with a stale message).** `MethodMap.Dtoffset.cs` rejects both with a
-   message whose stated reason is "a boxed DateTimeOffset has no runtime box
-   class". That reason is FALSE since 25.3 landed (`System_DateTimeOffset_class`
-   is real and `icall_box_date_time_offset` stamps it), so the message must be
-   corrected even though the mapping itself is still unwired -- the object
-   overloads need an argument-side boxed-klass dispatch (unbox a
-   DateTimeOffset box, answer false for any other box), which is a behaviour
-   change this batch did not make. The LOUD itself stays: it is still a
-   refusal, never a silent wrong value.
+2. **`DateTimeOffset.Equals(object)` / `CompareTo(object)` (FIXED).**
+   What was wrong: `MethodMap.Dtoffset.cs` rejected both overloads at
+   transpile time with `NotSupportedException` whose stated reason was "a
+   boxed DateTimeOffset has no runtime box class, so the boxed value cannot
+   reach the icall". That justification had been false since 25.3 landed
+   (`System_DateTimeOffset_class` is a real box descriptor,
+   `icall_box_date_time_offset` / `icall_unbox_date_time_offset` exist and the
+   `icall_boxed_equals_ext2` DateTimeOffset arm already read the box payload),
+   so the pair was a transpile-time refusal of statically analysable code --
+   and a comment that lied about the runtime next to it. A second, independent
+   gap sat behind it: `((IComparable)dto).CompareTo(obj)` boxes the receiver,
+   and the runtime's boxed-compare table (`TryCompareBoxedBuiltin`) had no
+   DateTimeOffset arm, so the dispatch fell through to the "no reflected
+   virtual CompareTo slot" `NotSupportedException`.
+   What fixed it: `icall_dtoffset_equals_object` / `icall_dtoffset_compare_object`
+   (`dtoffset.cpp`) implement the measured net48 contract -- `Equals(object)`:
+   null -> false, non-DateTimeOffset -> false, boxed DateTimeOffset ->
+   UTC-instant equality (the offset is NOT part of equality); `CompareTo(object)`:
+   null -> 1, non-DateTimeOffset -> `ArgumentException` "Object must be of type
+   DateTimeOffset.", boxed DateTimeOffset -> -1/0/1 on the UTC instants. The
+   boxed-compare table gained a DateTimeOffset arm, and the transpiler maps both
+   overloads instead of throwing (`MethodMap.Dtoffset.cs`), with the
+   `Object::Equals(object)` arm carrying `reresolveWithReceiver` so the
+   constrained value-address receiver reaches the value-vs-object helper.
+   Oracle: `tests/cases/dtoobjcmp1` (byte-exact against net48 4.8, both boxed
+   and unboxed receivers). The stale comment is gone.
 ## 26. impl-pinvoke-array: managed array DllImport parameters (the `array` group)
 
 ### 26.1 What was refused and is now real

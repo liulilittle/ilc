@@ -476,22 +476,12 @@ public class MethodMapTestsDateTimeLoud
             "LockCookie");
     }
 
-    // --- MethodMap.Dtoffset.cs (boxed DateTimeOffset) ---
-    [Fact]
-    public void Loud_Dtoffset_CompareToObject_NoRuntimeDescriptor()
-    {
-        AssertLoudWhitelist(() => ResolveMember(
-            SynthesizeWithDateTimeRef("System", "DateTimeOffset", "CompareTo", Sig(0x08, 0x1C)), "CompareTo"),
-            "runtime descriptor");
-    }
-
-    [Fact]
-    public void Loud_Dtoffset_EqualsObject_NoRuntimeDescriptor()
-    {
-        AssertLoudWhitelist(() => ResolveMember(
-            SynthesizeWithDateTimeRef("System", "DateTimeOffset", "Equals", Sig(0x02, 0x1C)), "Equals"),
-            "runtime descriptor");
-    }
+    // --- MethodMap.Dtoffset.cs ---
+    // The DateTimeOffset Equals(object) / CompareTo(object) LOUD rows that used
+    // to live here are GONE: both overloads are wired now, so asserting a throw
+    // would assert the defect. Their coverage moved to
+    // MethodMapTests.Dtoffset.cs (the mapping pin) and to the
+    // tests/cases/dtoobjcmp1 oracle (the net48 behaviour).
 
     // --- MethodMap.DateTimeExtra.cs (culture-dependent + arity) ---
     [Theory]
