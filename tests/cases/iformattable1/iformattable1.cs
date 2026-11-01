@@ -7,10 +7,9 @@
 // IFormattable does not even compile, CS0030.) The numeric receivers are
 // covered by convtostr1.
 //
-// System.DateTimeOffset is oracle-verified IFormattable but NOT exercised
-// here: the transpiler's box arm has no DateTimeOffset helper (a different
-// seat owns CodeGenerator.cs), so the cast rejects at the box instruction.
-// See docs/audit/b5-gaps.md.
+// System.DateTimeOffset is oracle-verified IFormattable. Its rows live in the
+// dedicated case dtoiformattable1 (the box/unbox arms and the formatter landed
+// after this case was written), so they are not repeated here.
 //
 // The explicit interface call must transpile WITHOUT the former
 // "System.IFormattable::ToString: not wired in M5" rejection, and every row
@@ -57,10 +56,10 @@ internal static class IFormattable1
         Console.WriteLine("[guid.P.inv] " + ((IFormattable)g).ToString("P", inv));
         Console.WriteLine("[guid.X.inv] " + ((IFormattable)g).ToString("X", inv));
 
-        // System.DateTimeOffset also implements IFormattable in net48, but the
-        // transpiler's box arm has no DateTimeOffset helper (CodeGenerator.cs
-        // is out of this seat's file set), so the cast rejects at the box
-        // instruction. Documented in docs/audit/b5-gaps.md, not exercised here.
+        // System.DateTimeOffset also implements IFormattable in net48; those rows
+        // are pinned by dtoiformattable1 (its box/unbox arms and formatter are
+        // wired now), so this case intentionally stops at the four receivers it
+        // was written for.
 
         int negi = -1;
         Console.WriteLine("[i32.X.inv] " + ((IFormattable)negi).ToString("X", inv));
