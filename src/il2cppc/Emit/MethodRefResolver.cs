@@ -767,6 +767,15 @@ public static partial class MethodRefResolver
             // cases themselves are CG-FIX work (P3). Anything else keeps its
             // raw encoding (the emitter LOUD-rejects unknown cast codes, never
             // silently emitting).
+            // Struct returns: the SAME shared decoder the extern "C"
+            // declaration / dynamic-manifest signature use names the native
+            // carrier. Without it a struct return fell to the int32_t default
+            // on BOTH the static-direct wrapper (PinvokeRetType null) and the
+            // result temp (ResultKind null), and the call site then projected
+            // a field out of an int32_t. An ENUM return stays the int32
+            // backing (its generated struct is 16 bytes and would flip the
+            // ABI to a hidden sret pointer).
+            var pinvokeStructRet = CodeGenerator.PinvokeReturnStructNameOfSignature(md, m.Signature);
             return new ResolvedMethod(entry, paramCount, false,
                 returnType != SignatureTypeCode.Void, IsRefType(returnType), ParamRefFlags(paramTypes), false,
                 IsPInvoke: true, ParamTypeNames: CodeGenerator.SplitTopLevel(paramTypes).Select(p =>
@@ -781,22 +790,29 @@ public static partial class MethodRefResolver
                 // result temp AND the GN-17 il2cpp_pinvoke_call<Ret> wrapper
                 // collapsed them to int32_t (pinvokewide 4000000001 -> a
                 // -294967295 truncation after the 5eacaad3 wrapper wrap).
-                ResultKind: returnType switch
-                {
-                    SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr => "ptr",
-                    SignatureTypeCode.Int64 or SignatureTypeCode.UInt64 => "l",
-                    SignatureTypeCode.Single or SignatureTypeCode.Double => "d",
-                    SignatureTypeCode.FunctionPointer => "p",
-                    _ => null,
-                },
+                // A same-assembly struct return carries "us:{CppName}" (the
+                // P25b struct-slot convention), so a compiler temp holding the
+                // result is declared as the generated struct instead of
+                // int32_t (the int64 field then survives whole).
+                ResultKind: pinvokeStructRet is { } structCpp && structCpp != "int32_t"
+                    ? "us:" + structCpp
+                    : returnType switch
+                    {
+                        SignatureTypeCode.IntPtr or SignatureTypeCode.UIntPtr => "ptr",
+                        SignatureTypeCode.Int64 or SignatureTypeCode.UInt64 => "l",
+                        SignatureTypeCode.Single or SignatureTypeCode.Double => "d",
+                        SignatureTypeCode.FunctionPointer => "p",
+                        _ => null,
+                    },
                 // GN-17 P0 (pinvokewide): the native C++ return type, so
                 // il2cpp_pinvoke_call<Ret> carries the FULL native width
                 // (deriving Ret from ResultKind narrows int64/double/float/
                 // uint64 to int32_t -- the P0 regression). Mirrors
-                // PinvokeReturnTypeCpp; struct returns go through the same
-                // raw-name path (PinvokeRetCpp returns null -> the struct
-                // type is resolved by the emitter as before).
-                PinvokeRetType: PinvokeRetCpp(returnType),
+                // PinvokeReturnTypeCpp; a same-assembly struct return names
+                // the generated struct here (the old null fell through to the
+                // wrapper's int32_t default -- the static-direct defect), and
+                // an enum return names "int32_t" explicitly.
+                PinvokeRetType: pinvokeStructRet ?? PinvokeRetCpp(returnType),
                 // P-D4: carry the [DllImport] library name so the call site
                 // can route static vs dynamic (see the record field).
                 PinvokeModule: importModuleName,

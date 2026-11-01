@@ -9342,9 +9342,17 @@ default: return false;                           // primitives/VAR(handled by ca
     }
 
     private static string? PinvokeReturnStructNameOfHandle(MetadataReader md, MethodDefinitionHandle handle)
+        => PinvokeReturnStructNameOfSignature(md, md.GetMethodDefinition(handle).Signature);
+
+    // SHARED with MethodRefResolver's P/Invoke call resolution: the call site
+    // needs the SAME native carrier the extern "C" declaration names
+    // (PinvokeRetType) and the same result-temp slot kind (ResultKind
+    // "us:{Cpp}"), so a struct return can never be declared as the struct and
+    // then carried through int32_t (or vice versa). Decodes the RETURN byte
+    // from the method signature; a 0x11 (VALUETYPE) return is classified here.
+    internal static string? PinvokeReturnStructNameOfSignature(MetadataReader md, BlobHandle signature)
     {
-        var mi = md.GetMethodDefinition(handle);
-        var sig = md.GetBlobReader(mi.Signature);
+        var sig = md.GetBlobReader(signature);
         var hdr = sig.ReadSignatureHeader();
         if (hdr.IsGeneric) sig.ReadCompressedInteger();
         sig.ReadCompressedInteger(); // param count
@@ -9360,8 +9368,8 @@ default: return false;                           // primitives/VAR(handled by ca
         // REGISTERED native-layout structs keep their canonical C++ twin
         // (Il2CppPinvokePoint / Rect / Msg).
         if (PinvokeStructCppType(name) is { } registered) return registered;
-        // SAME-ASSEMBLY TypeDef: mirror the by-value PARAM fallback
-        // (:9409-9412) -- the generated value-type struct is defined as
+        // SAME-ASSEMBLY TypeDef: mirror the by-value PARAM fallback in
+        // PinvokeParamListOf -- the generated value-type struct is defined as
         // TypeEmitter.Sanitize(full name), so the resolve cast AND the
         // il2cpp_pinvoke_call<Ret> carrier name a DEFINED type. Returning
         // null here (the old behaviour) silently collapsed the value to
