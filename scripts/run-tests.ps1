@@ -12,6 +12,7 @@ param(
 $ErrorActionPreference = "Stop"
 # Resolve the repo root relative to this script location; avoids relative-path breakage when CWD is undefined under -File mode
 $Root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "off-c-drive.ps1")   # user directive: no artifact may land on C: (see off-c-drive.ps1)
 
 # F:\il2cpp\xxx -> /mnt/f/il2cpp/xxx (Resolve-Path to an absolute path first; on a relative path Substring(0,1) picks the wrong drive)
 function ConvertTo-WslPath([string]$winPath) {

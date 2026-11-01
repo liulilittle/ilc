@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory)][string]$Case,
     [ValidateSet("mingw","msvc","clang")][string]$Compiler = "mingw",
     [string]$ReportDir = "",
@@ -11,6 +11,7 @@
 # the existing no-args behavior for every prior caller.
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "off-c-drive.ps1")   # user directive: no artifact may land on C: (see off-c-drive.ps1)
 if (-not $ReportDir) { $ReportDir = "$Root/.opencode/tmp/diffharness" }
 New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null
 

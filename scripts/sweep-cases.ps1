@@ -7,6 +7,7 @@ param(
 )
 $ErrorActionPreference = "Continue"
 $Root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "off-c-drive.ps1")   # user directive: no artifact may land on C: (see off-c-drive.ps1)
 $env:CMAKE_BUILD_PARALLEL_LEVEL = "$BuildParallel"
 if ($Compiler -eq "mingw") {
     $env:Path = "F:\il2cpp\.opencode\tmp\ccache-shim;D:\Program Files\mingw\msys2\mingw64\bin;D:\android\sdk\cmake\3.22.1\bin;" + $env:Path
