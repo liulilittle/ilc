@@ -189,20 +189,38 @@ public class MethodMapTestsLinq
     }
 
     //--------------------------------------------------------------------------
-    // Sum/Min/Max over string[] -> LOUD: net48's Comparer<string>.Default is
-    // culture-aware (new[]{"B","a"}.Min() is "a"); ordinal would silently
-    // misorder mixed-case input (P0LINQ1 D2 decision, loud-p0-18-strmin-loud).
+    // Sum/Min/Max/Average over string[]:
+    //   * Min/Max are REAL -- net48's Comparer<string>.Default is
+    //     CultureInfo.CurrentCulture.CompareInfo with CompareOptions.None, i.e.
+    //     CULTURE collation (new[]{"B","a"}.Min() is "a", and for a case-only
+    //     difference lowercase wins). The runtime answers it with
+    //     il2cpp_string_compare_culture on the SAME OS NLS primitive net48 uses
+    //     (CompareStringEx + current locale), NOT an ordinal shortcut.
+    //   * Sum/Average have NO System.String overload in net48 at all, so they stay
+    //     LOUD -- inventing a numeric result would be worse than rejecting.
+    // (P0LINQ1 D2 originally made all four LOUD; impl-collation wired Min/Max and
+    // retired loud-p0-18-strmin-loud, which is now a byte-exact case.)
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_StringMinMax_ThrowsLoud()
+    public void Resolve_StringMinMax_MapsToCultureKernels()
     {
-        foreach (var name in new[] { "Min", "Max", "Sum", "Average" })
-        {
-            var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric(name,
-                new byte[] { 0x10, 0x01, 0x01, 0x0E, 0x15, 0x12, 0x09, 0x01, 0x0E },
-                new byte[] { 0x0A, 0x01, 0x0E })));
-            Assert.Contains("culture-aware collation", ex.Message);
-        }
+        Assert.Equal("il2cpp::il2cpp_linq_min_string", ResolveMethodSpec(SynthesizeGeneric("Min",
+            new byte[] { 0x10, 0x01, 0x01, 0x0E, 0x15, 0x12, 0x09, 0x01, 0x0E },
+            new byte[] { 0x0A, 0x01, 0x0E })).CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_max_string", ResolveMethodSpec(SynthesizeGeneric("Max",
+            new byte[] { 0x10, 0x01, 0x01, 0x0E, 0x15, 0x12, 0x09, 0x01, 0x0E },
+            new byte[] { 0x0A, 0x01, 0x0E })).CppName);
+    }
+
+    [Theory]
+    [InlineData("Sum")]
+    [InlineData("Average")]
+    public void Resolve_StringSumAverage_StaysLoud(string name)
+    {
+        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpec(SynthesizeGeneric(name,
+            new byte[] { 0x10, 0x01, 0x01, 0x0E, 0x15, 0x12, 0x09, 0x01, 0x0E },
+            new byte[] { 0x0A, 0x01, 0x0E })));
+        Assert.Contains("no Sum/Average", ex.Message);
     }
 
     //--------------------------------------------------------------------------
