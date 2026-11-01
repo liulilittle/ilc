@@ -475,6 +475,20 @@ public static partial class MethodRefResolver
                     return I("il2cpp::runtime::icall_gc_enumerate_configuration_values", 2, false, false, false,
                         new[] { "drop", "drop" });
                 return null;
+            case "_RefreshMemoryLimit":
+                // private int _RefreshMemoryLimit(GCHeapHardLimitInfo
+                // heapHardLimitInfo): the parameter is the CoreLib-internal
+                // GCHeapHardLimitInfo struct passed BY VALUE (8 x ulong). The
+                // operation re-derives the heap hard limits from the machine /
+                // container, and a fixed-budget collector has none -- so the
+                // struct is CONSUMED and never read ("drop"), and the status is
+                // RefreshMemoryStatus.Succeeded. That is the same truth the
+                // public wrapper reports; this arm exists so a CoreLib-shaped
+                // caller resolves instead of emitting an undefined extern.
+                if (count == 1)
+                    return I("il2cpp::runtime::icall_gc_refresh_memory_limit_internal", 1, true, false, false,
+                        new[] { "drop" });
+                return null;
 
             // ---- corelib-p0: the PUBLIC wrappers over the QCall bodies above --
             // A net8/net9-compiled caller binds these directly (the wrapper IL

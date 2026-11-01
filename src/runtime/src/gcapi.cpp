@@ -300,4 +300,12 @@ void icall_gc_refresh_memory_limit()
     // call completes without changing anything (measured: normal return).
 }
 
+int32_t icall_gc_refresh_memory_limit_internal()
+{
+    // RefreshMemoryStatus.Succeeded. The hard-limit struct the caller passed is
+    // not even on the ABI here: the resolver drops it at the call site, because
+    // a fixed-budget collector has nothing to configure from it.
+    return 0;
+}
+
 }} // namespace il2cpp::runtime

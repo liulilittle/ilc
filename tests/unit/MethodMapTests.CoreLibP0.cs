@@ -190,6 +190,24 @@ public class MethodMapTestsCoreLibP0
         Assert.Contains("b5-gaps.md", ex.Message);
     }
 
+    // _RefreshMemoryLimit(GCHeapHardLimitInfo heapHardLimitInfo) -> int: the
+    // struct rides the IL operand stack but the QCall's only effect (re-derive
+    // the heap limits) has no counterpart in a fixed-budget collector, so the
+    // value is consumed without being read -> "drop". The PUBLIC
+    // RefreshMemoryLimit() wrapper is mapped separately (above).
+    [Fact]
+    public void Resolve_GcRefreshMemoryLimitInternal_DropsTheValueStructArgument()
+    {
+        var resolved = ResolveMember("System", "GC",
+            SynthesizeWithNestedValueType("System", "GC", "GCHeapHardLimitInfo", "_RefreshMemoryLimit",
+                Sig(1, 0x08, 0x11, 0x05)),
+            "_RefreshMemoryLimit");
+
+        Assert.Equal("il2cpp::runtime::icall_gc_refresh_memory_limit_internal", resolved.CppName);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(new[] { "drop" }, resolved.ParamTypeNames);
+    }
+
     //==========================================================================
     // System.Math.ModF -- the measured FCall is (double, double*) -> double,
     // exactly the runtime's icall_math_modf_d.
@@ -436,6 +454,28 @@ public class MethodMapTestsCoreLibP0
         bytes[2] = ret;
         Array.Copy(paramBytes, 0, bytes, 3, paramBytes.Length);
         return bytes;
+    }
+
+    // Synthesize a member whose signature names a NESTED value type
+    // ("Owner+Inner"), so the VALUETYPE parameter byte resolves through the
+    // nested TypeRef instead of blowing up in MethodSignatureCoder.Decode.
+    private static MemoryStream SynthesizeWithNestedValueType(string ownerNamespace, string ownerType,
+        string nestedType, string memberName, byte[] signature)
+    {
+        var mdb = new MetadataBuilder();
+        mdb.AddModule(0, mdb.GetOrAddString("synthetic.dll"), mdb.GetOrAddGuid(Guid.NewGuid()),
+            default(GuidHandle), default(GuidHandle));
+        var asmRef = mdb.AddAssemblyReference(mdb.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0), default(StringHandle), default(BlobHandle), 0, default(BlobHandle));
+        var ownerRef = mdb.AddTypeReference(asmRef, mdb.GetOrAddString(ownerNamespace),
+            mdb.GetOrAddString(ownerType));
+        var nestedRef = mdb.AddTypeReference(ownerRef, default(StringHandle),
+            mdb.GetOrAddString(nestedType));
+        // VALUETYPE (0x11) + TypeDefOrRef coded index "TypeRef, row 2" (tag 1):
+        // (row << 2) | 1 == 0x09.
+        _ = nestedRef;
+        mdb.AddMemberReference(ownerRef, mdb.GetOrAddString(memberName), mdb.GetOrAddBlob(signature));
+        return Serialize(mdb);
     }
 
     private static MemoryStream Synthesize(string ownerNamespace, string ownerType, string memberName,

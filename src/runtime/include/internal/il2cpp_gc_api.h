@@ -189,6 +189,12 @@ void icall_gc_end_no_gc_region_public();
 // Argument order is the IL order: (totalSize, callback).
 void icall_gc_register_no_gc_region_callback_public(int64_t totalSize, Il2CppObject* callback);
 
+// GC._RefreshMemoryLimit(GCHeapHardLimitInfo heapHardLimitInfo) -> int
+// (RefreshMemoryStatus). The struct is the CoreLib-internal 8 x ulong hard
+// limit descriptor; a fixed-budget collector has no hard limit to recompute, so
+// the value is consumed without being read and the status is Succeeded (0).
+int32_t icall_gc_refresh_memory_limit_internal();
+
 // GC.RefreshMemoryLimit() -> void: re-read the machine/container limits and
 // reconfigure the collector. This collector has a fixed budget, so the call
 // returns without changing anything (measured on the shipped runtime as a
