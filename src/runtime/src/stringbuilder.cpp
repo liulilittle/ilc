@@ -545,7 +545,14 @@ void AppendFormatCore(Il2CppObject** selfSlot, const Il2CppString* format,
                 il2cpp_throw_new("System.FormatException,System.FormatException,System.SystemException,System.Exception",
                                  "Input string was not in a correct format.");
             }
-            if (fmtLen == 0 && alignment == 0)
+            // dtoiface: the no-specifier fast path renders through
+            // icall_object_to_string, which has no IFormatProvider -- it cannot
+            // honour an explicit provider (net48 `string.Format(inv, "{0}", dt)`
+            // is dt.ToString(null, inv), NOT the current-culture text). Only
+            // the provider-less form may take the fast path; a provider routes
+            // the arg through the composite engine, whose null-format arms ARE
+            // the type's IFormattable.ToString(null, provider).
+            if (fmtLen == 0 && alignment == 0 && provider == nullptr)
             {
                 AppendFormatArg(selfSlot, args[index]);
             }

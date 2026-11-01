@@ -697,6 +697,19 @@ Il2CppString* icall_object_to_string(Il2CppObject* obj)
         const Il2CppGuid g = BoxedGuidValue(obj);
         return reinterpret_cast<Il2CppString*>(il2cpp_guid_to_string(g.b));
     }
+    // dtoiface: the DateTimeOffset box had NO arm here, so a boxed value's
+    // Object.ToString (and every composite `string.Format("{0}", dto)` row
+    // through AppendFormatArg's no-format fast path) printed the type NAME
+    // "System.DateTimeOffset" instead of the net48 General pattern + " zzz".
+    // Same contract as the DateTime/TimeSpan/Guid arms above: the 16-byte
+    // payload after the object header, rendered by the type's own formatter.
+    if (HasKlassName(obj, "System.DateTimeOffset"))
+    {
+        Il2CppDateTimeOffset value;
+        std::memcpy(&value, reinterpret_cast<const char*>(obj) + kBoxPayloadOffset,
+                    sizeof(value));
+        return reinterpret_cast<Il2CppString*>(icall_dtoffset_to_string(value));
+    }
     if (HasKlassName(obj, "System.Text.StringBuilder"))
     {
         // StringBuilder.ToString() returns the builder's CONTENT (net48),
