@@ -5631,7 +5631,7 @@ public static partial class MethodRefResolver
                 // entry (net48 Comparer<string>.Default), the same contract as
                 // the array reference-source face.
                 string keySuffix = genArgs[1] == 0x0E
-                    ? "ref_string"
+                    ? "string"
                     : LinqKeyFamilySuffix(genArgs[1]);
                 if (keySuffix.Length == 0)
                     throw new NotSupportedException(
