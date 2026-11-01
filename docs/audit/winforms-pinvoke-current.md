@@ -1108,7 +1108,6 @@ python <repo>/tools/audit/verify_winforms_report.py <repo>
 
 第 3 步的 `classified.tsv` 是逐条明细（1317 行，含 `klass`/`needs`/`reason` 三列），审计时可直接 diff。
 
-
 ## 10. `struct-return` 重新实测（2026-11-02，基线 `c5cf04c8`，impl-struct-return 席位）
 
 > 本节更正 §2.1 / §4.3 对 `struct-return` 的旧归因。证据均在
@@ -1176,3 +1175,70 @@ TypeDef 返回 null，`PinvokeReturnTypeCppOf` 兜底成 `int32_t`；而 by-valu
    传 `int` 后绿）。属枚举参数族，不是结构体返回。
 4. `System.Drawing.Point.X/Y` 属性访问会发射未声明的 `System_Drawing_Point_get_X_...`
    helper（与本缺陷无关的既有缺口；新 case 用原生回读避开）。
+
+## 11. name-clash 修订（2026-11-02，可执行红绿）
+
+### 11.1 缺陷与复现
+
+托管结构体在**全局命名空间**下按 `Sanitize(FullName)` 生成裸 C++ 名；`LOGFONTW` 这类名字正好是 `<windows.h>` 的 typedef（`typedef struct tagLOGFONTW {...} LOGFONTW;`），于是：
+
+```text
+generated.h:172:8: error: using typedef-name 'LOGFONTW' after 'struct'
+generated.h:190:8: error: using typedef-name 'TEXTMETRICW' after 'struct'
+```
+
+转译器本身不报错（`transpile=0`），只有 C++ 编译失败；这属于**静默通过转译、构建期才红**的一类缺口。命名空间/嵌套形态（`Cases.LOGFONTW`、`NativeMethods+LOGFONTW`）不带裸名，不会触发；这解释了为什么现有 winforms1 的嵌套 `MSG`/`RECT`/`SIZE` 一直能编译。
+
+### 11.2 冲突名清单（实测，不靠记忆）
+
+探测方法：`g++ -E -P` 预处理 `windows.h + commctrl.h + commdlg.h + wingdi.h + winuser.h`，从 typedef 声明块抽取候选标识符，再对每个候选编译 `struct <name>;`，收集 `using typedef-name '<name>' after 'struct'`。mingw-w64 g++ 16.1.0 实测得到 **6373** 个冲突名（输出：`.opencode/tmp/impl-name-clash/sdk_typedef_conflicts.txt`）。除 `LOGFONTW/LOGFONTA`、`TEXTMETRICW/TEXTMETRICA` 外，还包含 `NOTIFYICONDATAW/A`、`CHOOSEFONTW`、`OPENFILENAMEW`、`MONITORINFOEXW`、`NONCLIENTMETRICSW`、`MINMAXINFO`、`WNDCLASSEXW`、`CREATESTRUCTW`、`MSG`、`RECT`、`POINT`、`SIZE` 等；只补 `LOGFONTW` 会立刻在 `TEXTMETRICW` 复现同一错误。完整清单以静态表内嵌在 `src/il2cppc/Emit/TypeEmitter.cs:2726`（`WindowsSdkTypedefNames`）。
+
+### 11.3 实现（复用 `_cppNameOverrides`）
+
+- `ResolveTypeCppNameCollisions` 在既有「托管类型互相撞名」后缀之后，对 **非嵌套**、未获 `_h` 后缀、且 `TypeCppNameCore` 恰为 SDK typedef 的类型写入 `_sdk`（`TypeEmitter.cs:820-836`）；定义、字段类型、`_class`/`_typeinfo`、数组元素等所有走 `TypeCppName` 的引用点自动一致。
+- 字符串侧也必须拿到同一个后缀：`PinvokeParamListOf` 的 `((int32_t(*)(LOGFONTW*))...)` 和 `MethodRefResolver.UserMethodCppName` 不经过 `TypeCppName(TypeDef)`，而是各自的 `Sanitize`。因此 `Resolve` 从同一张 override 表派生 `_sanitizedNameOverrides`（仅收裸顶层非泛型 identity，`TypeEmitter.cs:837-848`），`SanitizeIdentChars` 命中时追加同一后缀（`TypeEmitter.cs:968-996`）。`TypeCppNameCore` 计算裸 core 时用线程局部开关抑制该查找，避免二次追加（`TypeEmitter.cs:643-659`）。
+- 未改 `Sanitize` 的 Split/Join 与白名单规则；后缀只对**本 Generate 实际命中的全局冲突类型**生效。11 个锚逐字节不变（§11.6），winforms1 的嵌套 `MSG`/`RECT`/`SIZE` 不触发。
+
+### 11.4 e2e 回归：`tests/cases/pinvoke-nameclash`
+
+全局 `LOGFONTW` 与 `TEXTMETRICW`（各带 `[MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)]`）经 `ref` 传给本 case 自己的 `nameclashprobe.dll`；原生侧读取数值字段、返回 IN 值校验和并写回新值，托管侧打印返回值与写回后的字段（不是“能编译”断言）：
+
+```text
+[lf.ret]=1596 [lf.height]=13 [lf.width]=36 [lf.weight]=59 [lf.face]=Segoe UI
+[tm.ret]=7900 [tm.height]=18 [tm.ascent]=30 [tm.descent]=42 [tm.weight]=54 [tm.face]=Consolas
+```
+
+net48 oracle 与 runtime 逐字节一致：**182B，sha=6fe3b4b1f46a1849e0f57c62e91139b4ad0fe3ea77ff02cae7f937a2c6a33f67**。
+
+变异证明：把 `overrides[id] = SdkTypedefSuffix;` 改成空后缀 → 同一 case 回到 11.1 的 `using typedef-name after 'struct'`（C++ 构建失败）→ 恢复后 182B 双绿。变异标记 grep 为 0、`git status` 干净。
+
+### 11.5 四个 EntryPoint 在 name-clash 修复后还差什么
+
+先说明口径：GAC 里这四个入口的结构体是**嵌套**形态（`System.Windows.Forms.NativeMethods+...`），C++ 名带前缀，本来就不撞 typedef；审计的 name-clash 标记对应“全局镜像结构体”形态（本次修复的对象）。下表按**当前代码**（不是旧审计基线）列出剩余能力：
+
+| EntryPoint | 本次修复后仍缺 | 证据（当前代码） |
+|---|---|---|
+| `SystemParametersInfoForDpi` | `nonblittable-struct`：`NONCLIENTMETRICS` 内含 `LOGFONTW` 的 `ByValTStr`，本模型把该字段落成 GC 指针而非内联 `WCHAR[32]`；按值传递的 ABI/尺寸也不对 | `MetadataLoader.cs:1011`、`TypeEmitter.cs` 的 `LayoutValueTypeFields`；审计 §1.16b/W3b |
+| `SystemParametersInfo` | `nonblittable-struct`（同上，`NONCLIENTMETRICS`/`LOGFONT` 重载）+ `bool[]`（net48 4 字节 BOOL 元素，模型 1 字节，当前 LOUD 拒绝） | `CodeGenerator.cs:9572-9574`（bool[] LOUD）；数组原语 `int[]`/`IntPtr[]` 已支持（`:9541`）；entrypoint-suffix/byref-scalar 已补 |
+| `GetObject` | 仅 `nonblittable-struct`（`LOGFONT` 的 `ByValTStr`）；`HandleRef` 衰减、A/W 后缀探测、`ref int`、`int[]` 均已打通 | handleref `CodeGenerator.cs:9386`；suffix `:11965`/runtime `pinvoke.cpp:314`；byref-scalar `:9404`；数组 `:9541` |
+| `SendMessage` | `nonblittable-struct`（`LOGFONT`/`CHARFORMATW` 等）+ `StringBuilder` 缓冲参数（当前 LOUD）+ `ref object`（`B:r:` 当前 LOUD）；`HandleRef`/suffix/byref-scalar/`int[]`/string/intptr 已通 | StringBuilder/ref-object LOUD `CodeGenerator.cs:9475-9480`；其余同上 |
+
+结论：name-clash 是这些入口的**独立前置缺口**，修完后它们不等于全通；剩余缺口按上表逐项收敛，其中 `nonblittable-struct`（W3b）是四个入口的共同剩余项。
+
+### 11.6 锚回归（本 worktree difftest，oracle==runtime）
+
+| case | 字节 | sha256 |
+|---|---|---|
+| winforms1 | 20521 | `8a4c0011723c4e462ad6240f094841c905e086dde4d9d2a0f2f5a975794c2138` |
+| collation1 | 1356 | `90013e33c575bf609c3d4a50ac2a7a6bd1233237f12908e5885625307853c8ca` |
+| urihash1 | 1417 | `9e622815bf31d62eaaba80863848d7158a59bda584816ed1fc6b67c77d3366d7` |
+| diffuri001 | 585 | `20d4483c1f06658e916a2278c0873bec25cba48dedf7ffa508372d08e09d6061` |
+| probe-pinvoke-array | 845 | `b8f5d7e861eb5e6acf723e1a32815a91326d6987bad91dbc9da1b52008cba657` |
+| probe-pinvoke-byref | 1185 | `55f3e5c810d2b015af0fca36c58d251e0cb7704fad0a657a02712fd1e085ef66` |
+| probe-pinvoke-byrefother | 648 | `10c90ffd2dc29415a2e6d97e49cfedacfc9367da0f415df92087bf64659d6bb2` |
+| probe-handleref | 217 | `a089ccbfc400627c7d360a0deb5b8d8ad6cf66c50dd92aa5ee87b1cfc05b766a` |
+| dtoiformattable1 | 1421 | `3c919969fe9229b0593f53ebce2d432fa66625d9fac7b84930332ab7f7d30195` |
+| dtoobjcmp1 | 710 | `40fcc5a09d31f6764e3ed7a079367b99c2c5aba9714b0d757fed6b5701faedb5` |
+| corelibp0 | 887 | `391cb96fe4862f2af565c2ef9b56037cbf7a0ccb6c48dd25e24550a6fc577d56` |
+
+单位测试：`dotnet test tests/unit/unit.csproj -c Debug` → **4147 通过 / 0 失败 / 0 跳过**；C0 `dotnet build src/il2cppc/il2cppc.csproj -c Debug --no-incremental` → **0 警告 0 错误**。
