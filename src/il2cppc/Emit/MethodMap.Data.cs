@@ -243,9 +243,14 @@ namespace Il2Cpp.Transpiler.Emit
                             if (count == 1 && ps[0] == 0x0E)
                                 return I("il2cpp::runtime::icall_datatable_columns_add", 1, true, true, true,
                                     new[] { "", "" }, returnTypeName: "System.Data.DataColumn");
-                            // Columns.Add(DataColumn) -- adopt a constructed column.
+                            // Columns.Add(DataColumn) -- adopt a constructed
+                            // column. The receiver type MUST be the column
+                            // collection: the hint-less first resolve pass
+                            // carries receiverType == null and must DEFER (the
+                            // receiver-aware re-resolve picks this arm or the
+                            // Rows.Add(DataRow) one below).
                             if (count == 1 && ps[0] == 0x12
-                                && receiverType != "System.Data.DataRowCollection")
+                                && receiverType == "System.Data.DataColumnCollection")
                                 return I("il2cpp::runtime::icall_datatable_columns_add_column", 1, true, true, true,
                                     new[] { "", "" }, returnTypeName: "System.Data.DataColumn");
                             if (count == 1 && ps[0] == 0x1D)

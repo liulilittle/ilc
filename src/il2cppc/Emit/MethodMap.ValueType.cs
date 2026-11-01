@@ -416,47 +416,36 @@ public static partial class MethodRefResolver
     //--------------------------------------------------------------------------
     // TryMapValueTypeGetHashCode -- System.ValueType::GetHashCode (the
     // constrained-callvirt default for value types that do NOT override the
-    // member; the audit section 5 #5 gap). net48 DOCUMENTED rule (netcore
-    // ValueType.cs:89-98): "look for the first non-static field and get its
-    // hashcode; if the type has no non-static fields, return the hashcode of
-    // the type." The PROBED net48 actual behavior is a process-randomized
-    // whole-struct hash (il2cpp_value_semantics.h:107-112) -- not
-    // reproducible for deterministic AOT -- so this wiring implements the
-    // DOCUMENTED rule deterministically.
+    // member).
+    //
+    // net48's rule is NOT the documented "hash the first non-static field"
+    // shortcut and it is NOT process-randomized. MEASURED against .NET
+    // Framework 4.8 (45+ probe points, tests/cases/structdefaulthash1):
+    //
+    //     hash = munge(typeID) ^ fieldImage
+    //     munge(id) = id * 711650207 + 2506965631U
+    //
+    //   typeID     the lazy ValueType typeID: 3, then +2, assigned on the
+    //              FIRST GetHashCode call for that type -- FIRST-HASH order,
+    //              not metadata declaration order -- and shared with the tuple-
+    //              element path (one counter per type).
+    //   fieldImage the XOR of every complete 4-byte word of the NET48 PACKED
+    //              field image (a 1..3-byte tail is dropped) when the struct is
+    //              tightly packed with no GC reference; otherwise the first
+    //              non-null field's own words.
+    //
+    // The generated C++ struct is NOT the net48 image (the emitter widens
+    // short/byte into int32 slots), so each user struct carries a field table
+    // (TypeEmitter.EmitVtFieldTable) that names the net48 offset/width; the
+    // runtime applies the rule. Both this path and the tuple path call
+    // icall_user_struct_default_hash, which owns the one typeID counter.
     //
     // CONSTRAINED-SHAPE CONTRACT: `constrained. T; callvirt
     // System.ValueType::GetHashCode()` tracks the receiver type T in
     // receiverType; T is a USER struct TypeDef (BCL structs like
     // Guid/DateTime/Decimal OVERRIDE GetHashCode, so Roslyn emits THEIR
-    // owner, never System.ValueType). The runtime has no value-type
-    // descriptors, and the emitter can inject only literal 0 / ParamCount
-    // (CodeGenerator.EmitIcallCallArgs), so the (typeHash, fieldKind, data)
-    // icall_value_type_get_hash_code contract is NOT fully wireable -- the
-    // resolver selects a per-kind runtime target instead:
-    //
-    //   first field kind                 runtime target + receiver cast
-    //   --------------------------------------------------------------------
-    //   4-byte value (i4/u4/bool/char/   icall_int32_get_hash_code + deref:i
-    //     i1/u1/i2/u2/enum/nested-struct)  (Int32.GetHashCode identity)
-    //   8-byte value (i8/u8)             icall_int64_get_hash_code + deref:l
-    //                                    (low 32 XOR high 32)
-    //   float/double (r4/r8)             icall_double_get_hash_code + deref:d
-    //                                    (bit pattern; +0.0/-0.0 -> 0)
-    //   GC reference                     icall_value_type_get_hash_code_ref
-    //                                    + "" (object hash; null -> 0)
-    //   no instance fields               icall_value_type_get_hash_code +
-    //                                    PrependCountArg + PrependZeroArg ->
-    //                                    (0, 0, data) -> fieldKind 0 returns
-    //                                    typeHash 0 (the type hash constant
-    //                                    is not injectable; documented
-    //                                    divergence: field-less structs hash
-    //                                    to 0 -- equality-consistent, since
-    //                                    all instances of such a type are
-    //                                    equal)
-    //
-    // The receiver address always passes through (the constrained shape is an
-    // ldloca ADDRESS). Value-typed receivers reuse the existing per-type hash
-    // icalls; only the reference case needs a dedicated runtime icall.
+    // owner, never System.ValueType). A receiver with no top-level TypeDef
+    // keeps the OfPtr fallback.
     //--------------------------------------------------------------------------
     private static ResolvedMethod? TryMapValueTypeGetHashCode(MetadataReader md, string owner, string name,
         byte[] ps, int count, byte[]? genArgs, string? receiverType, bool receiverIsAddress,

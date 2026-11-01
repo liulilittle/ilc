@@ -2588,3 +2588,72 @@ internals; reproducing that map would be invented data rather than fidelity. The
 no MethodMap arm at all (its public IL body lives in CoreLib and is never transpiled), so
 nothing is silently mis-served -- it simply stays outside the mapped surface.
 
+## 28. impl-datatable-agg: DataTable.Compute aggregate typing, and the user-struct default hash
+
+### 28.1 DataTable.Compute result types -- FIXED
+
+`src/runtime/src/datatable.cpp` used to answer a boxed **double** for every
+numeric aggregate, and documented that as "the net48 decimal result is
+approximated". That premise was false in two ways: a boxed double is not the
+type net48 returns for ANY column, and an int column's AVG is INTEGER division,
+so the VALUE was wrong too.
+
+MEASURED on real .NET Framework 4.8 (one process per probe):
+
+| column  | MIN / MAX | SUM     | AVG                        | COUNT |
+|---------|-----------|---------|----------------------------|-------|
+| int     | Int32     | Int64   | Int32 (**integer division**) | Int32 |
+| double  | Double    | Double  | Double                     | Int32 |
+| decimal | Decimal   | Decimal | Decimal                    | Int32 |
+
+`AVG{1,2}` is Int32 **1**; `AVG{-1,0}` is **0** (truncation toward zero);
+`AVG{1,2,2}` is **1**; `SUM{2e9,2e9}` is Int64 **4000000000**. An empty or
+all-DBNull set answers `DBNull` for MIN/MAX/SUM/AVG and Int32 0 for COUNT;
+DBNull cells are skipped by every aggregate. A column with NO declared type is
+net48's default String column: MIN/MAX answer the value text, SUM/AVG throw
+`System.Data.DataException`, COUNT counts the rows.
+
+The typed-column surface did not exist either: `Columns.Add(string, Type)`,
+`Columns.Add(DataColumn)` and `DataColumn.DataType` were all unwired, so
+every column was untyped and the numeric aggregates were unreachable from a
+transpiled program. All three are now wired (`MethodMap.Data.cs`), the table
+stores one DataType name per column (`Il2CppDataTable.colTypes`), and
+`DataColumn` is table-owned so `Columns[i].DataType = t` writes through to
+the schema, as net48's column object does. `System.DBNull` gains a shared
+singleton whose `ToString` is the empty string (measured).
+
+Lock: `tests/cases/datatableagg1` (38 records, type AND value per aggregate).
+
+### 28.2 User-struct default GetHashCode -- the comment was wrong AND the code was incomplete
+
+`il2cpp_valuetuple.h` said "a CLR-internal MethodTable function ... no AOT
+runtime can reproduce its exact value". MEASURED (45+ probe points): net48 is
+reproducible exactly.
+
+    hash = munge(typeID) ^ fieldImage
+    munge(id) = id * 711650207 + 2506965631U        (32-bit wrap)
+
+* `typeID` is the lazy ValueType typeID: starts at 3, advances by 2, assigned
+  on the FIRST GetHashCode call for that type -- so it follows **first-hash
+  order, not metadata declaration order** -- and there is ONE counter shared by
+  the plain `struct.GetHashCode()` path and the tuple-element path.
+* `fieldImage` (FAST path -- tightly packed, no GC reference) is the XOR of
+  every complete 4-byte word of the NET48 packed image; a 1..3-byte tail is
+  DROPPED. A struct with any interior padding, or any GC reference, takes the
+  REGULAR path: the first NON-NULL field's own words (null references skipped).
+  A `short` field therefore folds into the high half of its word, a `byte`
+  field folds away inside a 4-byte word, and a `long` contributes
+  `lo32 ^ hi32`.
+
+The CODE was wrong in both paths, not just the comment: the plain arm returned
+the first field's VALUE (no typeID munge), and the tuple arm used a PRIVATE
+typeID counter over the GENERATED C++ image -- which widens short/byte into
+int32 slots, so it could not reproduce the packed folding.
+
+Fixed by giving each user struct an `Il2CppVtField` table (generated C++
+offset, net48 offset, true width, kind) and routing BOTH paths through
+`icall_user_struct_default_hash`, which owns the one `il2cpp_user_struct_type_id`
+counter. Lock: `tests/cases/structdefaulthash1` (25 records -- declaration
+order vs hash order, 2-int XOR, short/byte/long folding, interior padding, and
+plain == tuple on one type).
+

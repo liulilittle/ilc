@@ -117,9 +117,16 @@ int64_t il2cpp_tuple_double_bits(double value);
 // to the ValueType default otherwise:
 //   * ToString  -> the type's full name;
 //   * Equals    -> field-image equality (the CLR's CanCompareBits path);
-//   * GetHashCode -> a CLR-internal MethodTable function that depends on the
-//     loading MethodTable; no AOT runtime can reproduce its exact value, so a
-//     deterministic field-image hash is used instead (documented deviation).
+//   * GetHashCode -> the ValueType default, which IS reproducible and IS
+//     reproduced exactly (MEASURED against .NET Framework 4.8, 45+ probe
+//     points): hash = munge(typeID) ^ fieldImage, where typeID is the lazy
+//     ValueType typeID (3, then +2, assigned on the FIRST GetHashCode call
+//     for that type -- first-hash order, NOT metadata declaration order) and
+//     fieldImage is the XOR of every complete 4-byte word of the NET48 PACKED
+//     field image (a 1..3-byte tail is dropped), or the first non-null field's
+//     own words when the struct has interior padding or a GC reference. Both
+//     this path and the plain `struct.GetHashCode()` go through
+//     icall_user_struct_default_hash, so they share ONE typeID counter.
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_tuple_user_struct_to_string(Il2CppClass* klass, const void* valueAddr);
 int32_t il2cpp_tuple_user_struct_hash(Il2CppClass* klass, const void* valueAddr);
