@@ -2322,22 +2322,76 @@ path too (net48 `((IFormattable)dt).ToString(null, InvariantCulture)` ->
 "02/29/2024 13:45:06"). e2e: `tests/cases/iformattable1` (20 records,
 byte-exact).
 
-### 25.3 Registered residuals
+### 25.3 IFormattable.ToString over DateTimeOffset (FIXED)
 
-1. **`System.DateTimeOffset` through IFormattable.** The type really
-   implements IFormattable and the runtime formatter exists
-   (`icall_dtoffset_to_string_format`), but the transpiler's `box` arm
-   (`CodeGenerator.cs`, owned by a different seat this batch) has no
-   System.DateTimeOffset branch, so `((IFormattable)dto)` rejects at the BOX
-   instruction ("box of System.DateTimeOffset not supported -- no runtime box
-   helper"). The runtime helpers already exist in `nullable.cpp`
-   (`icall_box_date_time_offset` / `icall_unbox_date_time_offset`).
-   **Change surface**: two lines in the CodeGenerator box/unbox switches
-   (mirroring the existing DateTime/TimeSpan/Guid arms) plus removing the
-   explicit exclusion comment in `MethodMap.Object.IsFormattableReceiver`.
-   Until then the cast stays a self-identifying transpile-time LOUD; the
-   type stays OUT of the receiver list rather than pretending to support it.
-2. **ENUM receivers through IFormattable.** net48 enums implement
+**What was wrong.** `System.DateTimeOffset` really implements `IFormattable` in
+net48 and the runtime formatter already existed
+(`icall_dtoffset_to_string_format`, formatext.cpp), but the transpiler's `box`
+switch had no `System.DateTimeOffset` arm. `((IFormattable)dto)` therefore
+rejected at the BOX instruction ("box of System.DateTimeOffset not supported --
+no runtime box helper"), and `MethodMap.Object.IsFormattableReceiver`
+deliberately left the type OUT of its receiver list so the failure landed at
+the box instead of at a half-wired call. A statically analysable cast was
+refused while every runtime piece existed.
+
+**What fixed it** (`feat(dto): box/unbox System.DateTimeOffset and accept it as
+an IFormattable receiver`). The change is WIRING, not a new mechanism: the box
+arm binds through `icall_box_date_time_offset`, which takes the 16-byte
+`const Il2CppDateTimeOffset*`, so it binds by const reference exactly like the
+Guid/Decimal arms.
+
+1. `CodeGenerator.cs` box switch: `System.DateTimeOffset` ->
+   `icall_box_date_time_offset(&static_cast<const
+   il2cpp::runtime::Il2CppDateTimeOffset&>(...))`.
+2. `CodeGenerator.cs` unbox switch and `NullableUnboxCode`:
+   `icall_unbox_date_time_offset` (the helper validates the klass and returns
+   the value struct).
+3. `StackFold.cs` `unbox.any` result kind: `"dto"`. This was the SECOND real
+   defect the new case found -- without it the unbox temp collapsed to
+   `int32_t` and the generated C++ failed to compile
+   (`cannot convert 'Il2CppDateTimeOffset' to 'int32_t'`), i.e. the wiring was
+   incomplete even after both switch arms were added.
+4. `MethodMap.Object.IsFormattableReceiver` now lists `System.DateTimeOffset`,
+   and the stale exclusion comment that claimed the box arm had no helper is
+   deleted (it had become a lie).
+5. Runtime side (`fix(runtime): render a boxed DateTimeOffset and keep the
+   provider on the composite fast path`): `valuesemantics.cpp`
+   `icall_object_to_string` gained the missing `System.DateTimeOffset` arm
+   (a boxed value's `Object.ToString` printed the type NAME
+   "System.DateTimeOffset"), and `stringbuilder.cpp` `AppendFormatCore` no
+   longer takes the no-specifier fast path when an explicit provider is
+   supplied -- the fast path renders through `icall_object_to_string`, which
+   cannot honour a provider, so `string.Format(inv, "{0}", dto)` returned the
+   current-culture text instead of the invariant one.
+
+**Evidence.** Oracle (net48 4.8, invariant provider): the IFormattable path,
+the parameterless path and the composite path all agree, and the non-zero
+offset survives the box -- `((IFormattable)dto).ToString(null, inv)` with
++05:30 -> "02/29/2024 13:45:06 +05:30", `ToString("o", inv)` ->
+"2024-02-29T13:45:06.7890000+05:30", `((DateTimeOffset)(object)dto).Offset` ->
+"05:30:00" (330 minutes), boxed `GetType()` -> `System.DateTimeOffset`,
+`is DateTimeOffset` true, `Equals` against the unboxed value true.
+e2e: `tests/cases/dtoiformattable1` (34 records, byte-exact, 1421 B sha
+`3c919969fe9229b0593f53ebce2d432fa66625d9fac7b84930332ab7f7d30195`,
+`firstDiff -1/-1`). Mutation proof: replacing the box arm with a DateTime box
+turned the case red (30 differing records, e.g. `[box.gettype]`
+expected=System.DateTimeOffset actual=System.DateTime, `[unbox.offset]`
+expected=330 actual=InvalidCastException); restoring the exact bytes made it
+green again.
+
+**Still not covered here** (registered below, not silently wrong):
+`Nullable<System.DateTimeOffset>` still has no arm in `NullableBoxCode`
+(`CodeGenerator.cs`), so `new DateTimeOffset?(dto)` remains a
+self-identifying transpile-time LOUD. The `box:dto` cast encoding does not
+exist anywhere in the emitter (the `AppendFormatted<T>` / `CompositeArgCast`
+tables list dec/dt/guid/ts and fall through to `box:us:<name>` for other value
+types), so there was nothing to wire for it; net48's composite path reaches
+DateTimeOffset through the ordinary `box` IL instruction, which the arm above
+now handles.
+
+### 25.4 Registered residuals
+
+1. **ENUM receivers through IFormattable.** net48 enums implement
    IFormattable, but the runtime's BCL-enum box erases the enum identity
    (boxed as Int64 via `icall_box_long`) and a user-enum box is
    registration-dependent, so the boxed-klass dispatch cannot reproduce the
@@ -2345,6 +2399,16 @@ byte-exact).
    **Change surface**: a proper enum box descriptor for BCL enums (the
    `System.DayOfWeek` table precedent) before the composite dispatch can
    serve them.
+2. **`DateTimeOffset.Equals(object)` / `CompareTo(object)` (pre-existing LOUD,
+   now with a stale message).** `MethodMap.Dtoffset.cs` rejects both with a
+   message whose stated reason is "a boxed DateTimeOffset has no runtime box
+   class". That reason is FALSE since 25.3 landed (`System_DateTimeOffset_class`
+   is real and `icall_box_date_time_offset` stamps it), so the message must be
+   corrected even though the mapping itself is still unwired -- the object
+   overloads need an argument-side boxed-klass dispatch (unbox a
+   DateTimeOffset box, answer false for any other box), which is a behaviour
+   change this batch did not make. The LOUD itself stays: it is still a
+   refusal, never a silent wrong value.
 ## 26. impl-pinvoke-array: managed array DllImport parameters (the `array` group)
 
 ### 26.1 What was refused and is now real
@@ -2430,6 +2494,9 @@ are registered here per the project rule; none of them is silently mis-handled.
 
 ### 26.5 Not done here (next)
 
-`System.DateTimeOffset` through IFormattable (see 25.3 item 1) is a two-line
-`box`/`unbox` switch addition in `CodeGenerator.cs`; it is the smallest
-remaining item on the formatting surface and is scheduled next.
+`System.DateTimeOffset` through IFormattable was the one item this section
+forward-referenced; it is now FIXED -- see 25.3 (the box/unbox wiring plus the
+boxed-`Object.ToString` and provider-fast-path runtime fixes, e2e
+`tests/cases/dtoiformattable1`). The smallest remaining item on the formatting
+surface is the ENUM receiver family in 25.4 item 1, which needs a real BCL-enum
+box descriptor before the composite dispatch can serve it.
