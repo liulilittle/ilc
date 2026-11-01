@@ -222,7 +222,11 @@ public sealed record ResolvedMethod(
     // contract: a fresh out slot reads 0 in the callee, while a slot that
     // already held a value passes THAT value (the stub does NOT re-zero at
     // the call site; probe-pinvoke-byref pins both). Null elsewhere.
-    bool[]? ParamOutFlags = null)
+    bool[]? ParamOutFlags = null,
+    // array params: the Param-table in bits of a real DllImport (net48 copies
+    // a struct array IN for default/[In]/[In,Out]; [Out] alone starts from a
+    // ZEROED native temp -- measured). Null elsewhere.
+    bool[]? ParamInFlags = null)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -727,17 +731,26 @@ public static partial class MethodRefResolver
             // definite-assignment value). Same face MetadataLoader decodes
             // for ParameterInfo.IsOut.
             bool[]? paramOutFlags = null;
-            var outRows = new List<(int Seq, bool Out)>();
+            // array params: the Param-table `in` bits in SIGNATURE order. net48
+            // struct-array marshalling copies in for default/[In]/[In,Out] and
+            // copies back only for [Out]/[In,Out] (measured: probe-pinvoke-
+            // array; default does NOT copy back). Primitive arrays ignore both
+            // bits (pinned), so this only feeds the struct-array bridge.
+            bool[]? paramInFlags = null;
+            var outRows = new List<(int Seq, bool In, bool Out)>();
             foreach (var ph in m.GetParameters())
             {
                 var pi = md.GetParameter(ph);
-                outRows.Add((pi.SequenceNumber, ((int)pi.Attributes & 0x2) != 0));
+                outRows.Add((pi.SequenceNumber, ((int)pi.Attributes & 0x1) != 0, ((int)pi.Attributes & 0x2) != 0));
             }
             if (outRows.Count > 0)
             {
                 outRows.Sort((x, y) => x.Seq.CompareTo(y.Seq));
                 if (outRows.Count >= paramCount)
+                {
                     paramOutFlags = outRows.Take(paramCount).Select(r => r.Out).ToArray();
+                    paramInFlags = outRows.Take(paramCount).Select(r => r.In).ToArray();
+                }
             }
             // ParamTypeNames = the RAW MethodSignatureCoder encodings (NOT
             // emitter cast codes): they drive the fold's P/Invoke string-arg
@@ -789,7 +802,8 @@ public static partial class MethodRefResolver
                 PinvokeModule: importModuleName,
                 // byref-scalar: the per-parameter out bits (see the record
                 // field -- the emitter's out-local zero-init reads them).
-                ParamOutFlags: paramOutFlags);
+                ParamOutFlags: paramOutFlags,
+                ParamInFlags: paramInFlags);
         }
         // tuple1 (ValueTuple): a method DEFINITION returning a tuple (the
         // same-assembly call shape) must carry the struct result kind, exactly

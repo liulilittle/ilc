@@ -9368,6 +9368,12 @@ default: return false;                           // primitives/VAR(handled by ca
         if (paramTypesRaw.Length == 0) return "void";
         return string.Join(", ", SplitTopLevel(paramTypesRaw).Select(p =>
         {
+            // array params: a SZARRAY of a blittable element marshals as a
+            // pointer to the element (see PinvokeArrayParamCpp / the runtime
+            // bridge header). Null for a non-array encoding; LOUD for an array
+            // shape with no faithful bridge.
+            if (PinvokeArrayParamCpp(md, p, utf16PInvoke, methodName) is { } arrayParamCpp)
+                return arrayParamCpp;
             // handleref: a HandleRef P/Invoke parameter decays to its .Handle
             // (a native int) -- net48 passes the IntPtr value, never a pointer
             // to the struct. The call-site bridge (EmitIcallCallArgs) reads
@@ -9512,6 +9518,181 @@ default: return false;                           // primitives/VAR(handled by ca
         "System.Windows.Forms.Message" => "il2cpp::Il2CppPinvokeMsg",
         _ => null,
     };
+
+    //--------------------------------------------------------------------------
+    // ARRAY P/Invoke parameters -- the native pointer declaration for a
+    // single-dimensional array parameter (see il2cpp_pinvoke_bridge.h).
+    //
+    // Returns null when 'p' is not an array encoding (the caller's other arms
+    // keep the existing handling). Throws LOUD for an array shape this bridge
+    // cannot marshal faithfully:
+    //   * multi-dimensional arrays (the boundary only takes a flat buffer),
+    //   * element arrays of managed references (string[]/object[]/class[]),
+    //   * bool[] -- net48 marshals 4-byte BOOL elements, this model stores
+    //     1-byte array cells (measured: no faithful bridge without MarshalAs),
+    //   * char[] with CharSet.Ansi -- net48 converts to NARROW ANSI bytes
+    //     (measured 0x44434241), an encoding pass this emitter does not have,
+    //   * a struct whose model layout is not byte-identical to the native one
+    //     (fixed buffers / unions / narrow fields) -- rejecting beats a silent
+    //     mis-layout (the separate nonblittable-struct task).
+    // The element widths below are the MEASURED net48 ones (probe-pinvoke-array
+    // records in .opencode/tmp/impl-pinvoke-array/NOTES.md).
+    //--------------------------------------------------------------------------
+    private static string? PinvokeArrayParamCpp(MetadataReader md, string p, bool utf16PInvoke, string methodName)
+    {
+        if (!p.StartsWith("r:", StringComparison.Ordinal) || !p.EndsWith("]", StringComparison.Ordinal))
+            return null;
+        if (!p.EndsWith("[]", StringComparison.Ordinal))
+            throw new NotSupportedException(
+                $"P/Invoke array parameter '{p}' on {methodName}: multi-dimensional arrays are not supported (only a single-dimensional SZARRAY buffer crosses the boundary)");
+        var elem = p[2..^2];
+        return PinvokeArrayElementCpp(md, elem, utf16PInvoke, methodName) + "*";
+    }
+
+    private static string PinvokeArrayElementCpp(MetadataReader md, string elem, bool utf16PInvoke, string methodName)
+    {
+        switch (elem)
+        {
+            case "i1": return "int8_t";
+            case "u1": return "uint8_t";
+            case "c":
+                if (!utf16PInvoke)
+                    throw new NotSupportedException(
+                        $"P/Invoke char[] parameter on {methodName} with CharSet.Ansi: net48 converts char[] to a NARROW ANSI buffer (measured 0x44434241); declare CharSet.Unicode or pass byte[]");
+                return "char16_t";
+            case "i2": return "int16_t";
+            case "u2": return "uint16_t";
+            case "i": return "int32_t";
+            case "l": return "int64_t";
+            case "q": return "uint64_t";
+            case "f": return "float";
+            case "d": return "double";
+            case "n": return "intptr_t";
+            case "u": return "uintptr_t";
+            case "b":
+                throw new NotSupportedException(
+                    $"P/Invoke bool[] parameter on {methodName}: net48 marshals bool[] as 4-byte BOOL elements while this model stores 1-byte array cells (ArrayElementType) -- no faithful bridge without a MarshalAs decode");
+        }
+        if (elem.StartsWith("V:", StringComparison.Ordinal))
+        {
+            var name = elem[2..];
+            if (!PinvokeArrayStructElementBlittable(md, name))
+                throw new NotSupportedException(
+                    $"P/Invoke struct array parameter 'V:{name}[]' on {methodName}: the struct is not byte-identically blittable in this model (external assembly / fixed buffer / union / reference or narrow field) -- rejecting instead of silently mis-laying-out (nonblittable-struct task)");
+            return PinvokeStructCppType(name) ?? TypeCppName(name);
+        }
+        throw new NotSupportedException(
+            $"P/Invoke array parameter '{elem}[]' on {methodName} is not supported: only blittable primitive element arrays (byte/sbyte/short/ushort/int/uint/long/ulong/float/double/IntPtr/UIntPtr/char-UTF16) and byte-identical same-assembly struct arrays have a marshalling bridge");
+    }
+
+    // A SZARRAY element struct is accepted only when this model lays it out
+    // BYTE-IDENTICALLY to the native one:
+    //   * it is defined in THIS assembly (a TypeRef has no readable layout),
+    //     except System.Guid (the model's 16-byte Il2CppGuid, native GUID),
+    //   * it is not ExplicitLayout (unions are not modeled),
+    //   * every field is a native-identical width: int32/uint32 (4),
+    //     int64/uint64 (8), float (4), double (8), native int (pointer),
+    //     System.Guid (16). bool/char/sbyte/byte/short/ushort fields are
+    //     4-byte members in this model (not 4/2/1 native) -> rejected, and
+    //     nested value types (fixed buffers, unions, sub-structs) rejected.
+    //--------------------------------------------------------------------------
+    private static bool PinvokeArrayStructElementBlittable(MetadataReader md, string fullName)
+    {
+        if (fullName == "System.Guid") return true;
+        TypeDefinitionHandle found = default;
+        var any = false;
+        foreach (var h in md.TypeDefinitions)
+        {
+            if (md.GetFullName(h) == fullName)
+            {
+                found = h;
+                any = true;
+                break;
+            }
+        }
+        if (!any) return false; // external struct: layout not readable here
+        var td = md.GetTypeDefinition(found);
+        if (((int)td.Attributes & 0x18) == 0x10) return false; // ExplicitLayout
+        foreach (var fh in td.GetFields())
+        {
+            var fd = md.GetFieldDefinition(fh);
+            if (((int)fd.Attributes & 0x10) != 0) continue; // static
+            var sig = md.GetBlobReader(fd.Signature);
+            if (sig.ReadByte() != 0x06) return false;
+            var tb = MethodSignatureCoder.SkipCustomModifiers(ref sig, sig.ReadByte());
+            switch (tb)
+            {
+                case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0C: case 0x0D:
+                case 0x18: case 0x19:
+                    break;
+                case 0x11:
+                {
+                    var vt = sig.ReadTypeHandle();
+                    var vtName = vt.Kind switch
+                    {
+                        HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)vt),
+                        HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)vt),
+                        _ => null,
+                    };
+                    if (vtName != "System.Guid") return false;
+                    break;
+                }
+                default:
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    // The measured element widths of the primitive element encodings (the
+    // runtime bridge validates arr->elemSize against this constant).
+    private static bool IsPinvokeArrayPrimitiveElement(string elem)
+        => elem is "i1" or "u1" or "c" or "i2" or "u2" or "i" or "l" or "q" or "f" or "d" or "n" or "u";
+
+    private static int PinvokeArrayPrimitiveElemSize(string elem) => elem switch
+    {
+        "i1" or "u1" => 1,
+        "c" or "i2" or "u2" => 2,
+        "i" or "f" => 4,
+        "l" or "q" or "d" or "n" or "u" => 8,
+        _ => throw new NotSupportedException($"P/Invoke array element encoding '{elem}' has no primitive width"),
+    };
+
+    //--------------------------------------------------------------------------
+    // ARRAY P/Invoke argument bridge (see il2cpp_pinvoke_bridge.h).
+    //
+    // Primitive-element arrays: the array is ROOTED + PINNED for the call and
+    // the callee gets its own payload pointer (net48 pin semantics -- [In]/[Out]
+    // ignored, writes visible immediately; measured).
+    // Struct-element arrays: a native temp is copied in (default/[In]/[In,Out])
+    // or zero-filled ([Out]) and copied back after the call ([Out]/[In,Out]);
+    // the copy-back re-reads the rooted array. The helpers carry their own
+    // templated conversion operator, so the result is emitted WITHOUT the
+    // il2cpp_pinvoke_arg wrapper.
+    // Returns null when the cast code is not an array parameter.
+    //--------------------------------------------------------------------------
+    private static string? PinvokeArrayArgCode(string? cast, string code, ResolvedMethod r, int slot)
+    {
+        if (cast == null || cast.Length < 4
+            || !cast.StartsWith("r:", StringComparison.Ordinal)
+            || !cast.EndsWith("[]", StringComparison.Ordinal))
+            return null;
+        var elem = cast[2..^2];
+        var arr = NullSafePtrCast("Il2CppArray*", code);
+        if (IsPinvokeArrayPrimitiveElement(elem))
+            return $"il2cpp::runtime::il2cpp_pinvoke_array({arr}, {PinvokeArrayPrimitiveElemSize(elem)})";
+        if (!elem.StartsWith("V:", StringComparison.Ordinal))
+            throw new NotSupportedException(
+                $"P/Invoke array argument '{cast}' has no marshalling bridge (declaration accepted it, the call site cannot)");
+        var structName = elem[2..];
+        var cpp = PinvokeStructCppType(structName) ?? TypeCppName(structName);
+        var outFlag = r.ParamOutFlags != null && slot < r.ParamOutFlags.Length && r.ParamOutFlags[slot];
+        var inFlag = r.ParamInFlags != null && slot < r.ParamInFlags.Length && r.ParamInFlags[slot];
+        var copyIn = inFlag || !outFlag; // measured: default and [In] copy in
+        var copyOut = outFlag;           // measured: only [Out]/[In,Out] copy back
+        return $"il2cpp::runtime::il2cpp_pinvoke_struct_array({arr}, {(copyIn ? 1 : 0)}, {(copyOut ? 1 : 0)}, static_cast<int32_t>(sizeof({cpp})))";
+    }
+
 
     // RES-1 (iron rule 18): the count of embedded manifest resources in the
     // assembly being transpiled -- drives the conditional resource-pool.h
@@ -12208,6 +12389,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             if (PinvokeNarrowByrefRefCode(cast, code) is { } narrowRefCode)
             {
                 parts.Add(narrowRefCode);
+                continue;
+            }
+            // array params: the native buffer bridge (see PinvokeArrayArgCode /
+            // il2cpp_pinvoke_bridge.h). Emitted WITHOUT il2cpp_pinvoke_arg: the
+            // helper's own templated conversion operator adapts to whatever the
+            // native declaration / resolve cast names.
+            if (r.IsPInvoke && PinvokeArrayArgCode(cast, code, r, j) is { } arrayArgCode)
+            {
+                parts.Add(arrayArgCode);
                 continue;
             }
             // dparse: "lit:<expr>" -- the icall slot takes a compile-time

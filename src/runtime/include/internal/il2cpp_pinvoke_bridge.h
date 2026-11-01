@@ -43,13 +43,27 @@
 // All helpers are inline templates -- zero runtime cost, no symbol emitted.
 //------------------------------------------------------------------------------
 
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <type_traits>
 // GN-17: il2cpp_pinvoke_call references il2cpp::DotNetException and
 // il2cpp::il2cpp_throw_new (the managed-exception transport declared in
 // il2cpp_exception.h; no include cycle -- that header pulls only the C++
 // standard <exception>). <exception> is brought in transitively.
 #include "il2cpp_exception.h"
+// array parameters: Il2CppArray payload addressing + the GC root/pin contract
+// (il2cpp_gc_add_static_root = strong root, il2cpp_gc_add_pinned = immovable).
+#include "il2cpp_array.h"
+#include "il2cpp_gc.h"
+
+// array P/Invoke parameters: the pinned-array helpers below read Il2CppArray's
+// payload and register the array with the collector, so both contracts must be
+// visible (both headers are cycle-free -- they pull only object/metadata).
+#include "il2cpp_array.h"
+#include "il2cpp_gc.h"
 
 namespace il2cpp {
 namespace runtime {
@@ -182,6 +196,162 @@ inline Il2CppPinvokeBoolRef il2cpp_pinvoke_bool_ref(int32_t& slot)
 }
 
 //------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+// ARRAY parameters (managed array -> native buffer).
+//
+// Measured net48 semantics (tests/cases/probe-pinvoke-array, raw records in
+// .opencode/tmp/impl-pinvoke-array/NOTES.md):
+//   * PRIMITIVE-element arrays (byte/sbyte/char(UTF-16)/short/ushort/int/uint/
+//     long/ulong/float/double/IntPtr/UIntPtr) are PINNED to their own storage:
+//     [In]/[Out] are IGNORED, the callee sees the managed bytes and its writes
+//     are visible in the managed array immediately.
+//   * STRUCT-element arrays (blittable user structs / System.Guid) are COPIED:
+//     default/[In] copy in only; [In,Out] copies both ways; [Out] hands the
+//     callee a ZEROED temp and copies back.
+//   * a null array is a NULL pointer; a zero-length array is a NON-NULL pointer
+//     to the array start.
+//
+// GC SAFETY (the hard requirement): the collector is a COMPACTING generational
+// mark-sweep -- a Gen0 array is copied by a collection, so a raw payload address
+// is only valid while the object is both rooted AND immovable. This runtime's
+// pin table marks an object immovable but does NOT root it (gc.cpp mark walks
+// g_staticRoots only), so every array argument registers BOTH primitives for
+// the call's full-expression lifetime -- the exact double registration
+// GCHandle.Pinned uses (gchandle.cpp alloc adds static root + pinned, free
+// removes pinned then static root). The registration lives in the OUTERMOST
+// argument temporary (the Il2CppPinvokeNarrowRef pattern: value copies carry
+// owner=false), whose destructor runs after the native call returns.
+//------------------------------------------------------------------------------
+inline void il2cpp_pinvoke_array_element_size_mismatch(int32_t got, int32_t expected)
+{
+    std::fprintf(stderr,
+                 "il2cpp_pinvoke array argument: array elemSize %d != the native element width %d "
+                 "(transpiler emitted the wrong array shape)\n",
+                 static_cast<int>(got), static_cast<int>(expected));
+    std::abort();
+}
+
+namespace detail {
+
+// Register the double root/pin pair on the CLIENT-OWNED slot 'slot' (which holds
+// the array). Removal MUST mirror gchandle.cpp's free order (pin first, then
+// the strong root).
+inline void pin_array_slot(Il2CppArray** slot)
+{
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(slot));
+    il2cpp_gc_add_pinned(reinterpret_cast<void**>(slot));
+}
+
+inline void unpin_array_slot(Il2CppArray** slot)
+{
+    il2cpp_gc_remove_pinned(reinterpret_cast<void**>(slot));
+    il2cpp_gc_remove_static_root(reinterpret_cast<void**>(slot));
+}
+
+} // namespace detail
+
+// PRIMITIVE-element array argument: the callee receives the array payload and
+// writes it in place (net48 pin semantics). Templated conversion operator so
+// the native declaration (windows.h prototype or the resolve cast) names the
+// exact pointer type.
+struct Il2CppPinvokeArrayArg
+{
+    Il2CppArray* ref;   // owner's pinned slot (the GC root/pin target)
+    Il2CppArray** slot; // &ref for the owner, copied verbatim into value copies
+    void* data;         // payload pointer (valid while pinned)
+    bool owner;
+
+    Il2CppPinvokeArrayArg(Il2CppArray* a, int32_t expectedElemSize)
+        : ref(a), slot(nullptr), data(nullptr), owner(true)
+    {
+        if (a == nullptr) return; // null array -> null pointer (net48)
+        if (a->elemSize != expectedElemSize)
+            il2cpp_pinvoke_array_element_size_mismatch(a->elemSize, expectedElemSize);
+        slot = &ref;
+        detail::pin_array_slot(slot);
+        data = a->data; // zero-length array still yields the inline payload start
+    }
+    Il2CppPinvokeArrayArg(const Il2CppPinvokeArrayArg& o)
+        : ref(o.ref), slot(o.slot), data(o.data), owner(false) {}
+    Il2CppPinvokeArrayArg& operator=(const Il2CppPinvokeArrayArg&) = delete;
+    ~Il2CppPinvokeArrayArg()
+    {
+        if (owner && slot != nullptr) detail::unpin_array_slot(slot);
+    }
+    template <typename T>
+    operator T() const { return reinterpret_cast<T>(data); }
+};
+
+inline Il2CppPinvokeArrayArg il2cpp_pinvoke_array(Il2CppArray* a, int32_t expectedElemSize)
+{
+    return Il2CppPinvokeArrayArg(a, expectedElemSize);
+}
+
+// STRUCT-element array argument (blittable element, measured copy semantics).
+// The native temp is owned by the OUTERMOST temporary; copies travel with
+// owner=false. Copy-back runs in the owner's destructor AFTER the native call,
+// re-reading the array header through the rooted slot (the collector rewrites a
+// moved root; the pin keeps this array immovable, so the copy-back target is
+// the live array in every case).
+struct Il2CppPinvokeStructArrayArg
+{
+    Il2CppArray* ref;
+    Il2CppArray** slot;
+    void* buffer;
+    int32_t bytes;
+    bool copyBack;
+    bool owner;
+
+    Il2CppPinvokeStructArrayArg(Il2CppArray* a, int32_t copyIn, int32_t copyOut, int32_t expectedElemSize)
+        : ref(a), slot(nullptr), buffer(nullptr), bytes(0), copyBack(copyOut != 0), owner(true)
+    {
+        if (a == nullptr) return; // null array -> null pointer (net48)
+        if (a->elemSize != expectedElemSize)
+            il2cpp_pinvoke_array_element_size_mismatch(a->elemSize, expectedElemSize);
+        slot = &ref;
+        detail::pin_array_slot(slot);
+        bytes = a->length * a->elemSize;
+        buffer = std::malloc(bytes > 0 ? static_cast<std::size_t>(bytes) : 1u);
+        if (buffer == nullptr)
+        {
+            std::fprintf(stderr, "il2cpp_pinvoke struct array argument: out of memory (%d bytes)\n",
+                         static_cast<int>(bytes));
+            std::abort();
+        }
+        if (copyIn != 0)
+        {
+            if (bytes > 0) std::memcpy(buffer, a->data, static_cast<std::size_t>(bytes));
+        }
+        else
+        {
+            // net48 hands an [Out] array a ZEROED native temp (measured).
+            std::memset(buffer, 0, bytes > 0 ? static_cast<std::size_t>(bytes) : 1u);
+        }
+    }
+    Il2CppPinvokeStructArrayArg(const Il2CppPinvokeStructArrayArg& o)
+        : ref(o.ref), slot(o.slot), buffer(o.buffer), bytes(o.bytes), copyBack(o.copyBack), owner(false) {}
+    Il2CppPinvokeStructArrayArg& operator=(const Il2CppPinvokeStructArrayArg&) = delete;
+    ~Il2CppPinvokeStructArrayArg()
+    {
+        if (!owner || slot == nullptr) return;
+        if (copyBack && bytes > 0)
+        {
+            Il2CppArray* live = *slot; // collector-updated reference
+            std::memcpy(live->data, buffer, static_cast<std::size_t>(bytes));
+        }
+        std::free(buffer);
+        detail::unpin_array_slot(slot);
+    }
+    template <typename T>
+    operator T() const { return reinterpret_cast<T>(buffer); }
+};
+
+inline Il2CppPinvokeStructArrayArg il2cpp_pinvoke_struct_array(
+    Il2CppArray* a, int32_t copyIn, int32_t copyOut, int32_t expectedElemSize)
+{
+    return Il2CppPinvokeStructArrayArg(a, copyIn, copyOut, expectedElemSize);
+}
+
 // GN-17: P/Invoke exception boundary (see the header comment).
 //
 // The chain handed to il2cpp_throw_new follows the exceptionext/com.cpp
