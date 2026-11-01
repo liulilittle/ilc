@@ -160,19 +160,42 @@ public class MethodMapTestsMathExtra
     }
 
     //--------------------------------------------------------------------------
-    // ModF -- STILL LOUD: the netcore public API returns a ValueTuple (double
-    // frac, out double intPart) and TryMapMathExtra rejects it by NAME
-    // regardless of ps (no Math.ModF mapping exists anywhere).
+    // ModF -- WIRED (corelib-p0). The SHIPPED System.Private.CoreLib 8.0.31 /
+    // 9.0.20 spell the member as the FCall
+    //     double ModF(double value, double* intPart)
+    // which is exactly the runtime's icall_math_modf_d(double, double*)
+    // (mathext.cpp -- std::modf, unit-tested). The integral part is written
+    // through the caller's address slot ("addr:d"); the fraction is the
+    // return value. The old LOUD rejection is gone.
     //--------------------------------------------------------------------------
     [Fact]
-    public void Resolve_Math_ModF_ThrowsLoud()
+    public void Resolve_Math_ModF_MapsToModfIcall()
+    {
+        // Signature blob: header 0x00, count 2, ret 0x0D (double), then
+        // double (0x0D) + double* (0x0F 0x0D).
+        var resolved = ResolveMember(Synthesize("System", "Math", "ModF",
+            new byte[] { 0x00, 0x02, 0x0D, 0x0D, 0x0F, 0x0D }), "ModF");
+
+        Assert.Equal("il2cpp::runtime::icall_math_modf_d", resolved.CppName);
+        Assert.False(resolved.IsInstance);
+        Assert.True(resolved.ReturnsValue);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("d", resolved.ResultKind);
+        Assert.Equal(new[] { "d", "addr:d" }, resolved.ParamTypeNames);
+    }
+
+    // net48's private SplitFractionDouble(double* value) is a DIFFERENT contract
+    // (one in/out pointer, no separate intPart slot) and has no runtime symbol
+    // -- it stays LOUD.
+    [Fact]
+    public void Resolve_Math_SplitFractionDouble_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
-            ResolveMember(Synthesize("System", "Math", "ModF", Sig(0x0D, 0x0D)), "ModF"));
+            ResolveMember(Synthesize("System", "Math", "SplitFractionDouble",
+                new byte[] { 0x00, 0x01, 0x0D, 0x0F, 0x0D }), "SplitFractionDouble"));
 
-        Assert.Contains("Math.ModF", ex.Message);
+        Assert.Contains("Math.SplitFractionDouble", ex.Message);
         Assert.Contains("LOUD whitelist", ex.Message);
-        Assert.Contains("net48 has no such overload", ex.Message);
     }
 
     //--------------------------------------------------------------------------
