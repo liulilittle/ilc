@@ -232,12 +232,21 @@ int main()
         Expect(!il2cpp::il2cpp_guid_parse(
                    MakeString("0000000000000000000000000000000g"), out),
                "non-hex digit in N form rejected");
-        Expect(!il2cpp::il2cpp_guid_parse(
+        Expect(il2cpp::il2cpp_guid_parse(
                    MakeString("{00000000-0000-0000-0000-000000000000}"), out),
-               "braced form rejected (strict D/N contract)");
+               "braced B form ACCEPTED (measured net48 Guid.TryParse)");
+        Expect(il2cpp::il2cpp_guid_parse(
+                   MakeString("(00000000-0000-0000-0000-000000000000)"), out),
+               "parenthesised P form ACCEPTED (measured net48 Guid.TryParse)");
+        Expect(il2cpp::il2cpp_guid_parse(
+                   MakeString(" 00000000-0000-0000-0000-000000000000 "), out),
+               "surrounding whitespace trimmed (net48 trims char.IsWhiteSpace)");
         Expect(!il2cpp::il2cpp_guid_parse(
-                   MakeString(" 0000000-0000-0000-0000-000000000000"), out),
-               "leading whitespace rejected");
+                   MakeString("{00000000-0000-0000-0000-000000000000)"), out),
+               "mismatched brace/paren rejected");
+        Expect(!il2cpp::il2cpp_guid_parse(
+                   MakeString("{ 00000000-0000-0000-0000-000000000000 }"), out),
+               "whitespace INSIDE the braces rejected (net48)");
         const uint8_t sentinel[16] = { 1, 2, 3, 4, 5, 6, 7, 8,
                                        9, 10, 11, 12, 13, 14, 15, 16 };
         uint8_t out2[16];
@@ -336,3 +345,4 @@ int main()
     std::printf("all runtime guid tests passed\n");
     return 0;
 }
+

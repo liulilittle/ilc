@@ -60,13 +60,20 @@
 //         32-bit cap: "80000000",16 -> INT32_MIN, "FFFFFFFF",16 -> -1
 //         (both wrap within uint32), while "100000000",16 and 11 octal
 //         digits -> OverflowException on net48 -> TryParse failure.
-//     KNOWN DEVIATION: an invalid fromBase (not in {2,8,10,16}) returns 0
-//     instead of throwing ArgumentException -- the no-throw TryParse
-//     contract wins here; documented for the transpiler wiring task.
+//     RADIX CONTRACT (measured against a real net48 CLR): the legal fromBase
+//     set is EXACTLY {2, 8, 10, 16}. Every other base -- 1, 3, 17, 36, 37,
+//     negative, ... -- throws ArgumentException, and the radix is checked
+//     BEFORE the text (Convert.ToInt32(null, 3) throws, while
+//     Convert.ToInt32(null, 2/8/10/16) returns 0). This is NOT a "2..36
+//     range" and an invalid base NEVER returns 0.
 //
-//   Known deviations from .NET (shared with the Parse family, see
-//   il2cpp_format.h): ASCII-only whitespace (no Unicode whitespace); no
-//   group separators in double text ("1,000" fails).
+//   Measured group-separator contract (see il2cpp_parse_styles.h): the
+//   double text grammar takes its group and decimal separators from the
+//   provider's NumberFormatInfo and allows thousands by default, so on this
+//   host double.Parse("1,000") == 1000 -- the old "no group separators"
+//   claim was false. The INTEGER parsers in this file intentionally do NOT
+//   take group separators: net48 int.Parse rejects them in every culture
+//   (measured: invariant, de-DE, fr-FR all FormatException).
 //------------------------------------------------------------------------------
 
 #include "il2cpp_string.h"
@@ -94,7 +101,9 @@ int32_t icall_try_parse_bool(Il2CppObject* s, int32_t* result);
 int32_t icall_try_parse_byte(Il2CppObject* s, int32_t* result);
 
 // Convert.ToInt32(string, fromBase) style parse for base 2/8/10/16: 1 +
-// value on success; 0 on failure. Invalid fromBase -> 0 (see header).
+// value on success; 0 on failure. An invalid fromBase THROWS
+// ArgumentException (see the header; the radix is checked before the text).
 int32_t icall_try_parse_int32_base(Il2CppObject* s, int32_t fromBase, int32_t* result);
 
 }} // namespace il2cpp::runtime
+

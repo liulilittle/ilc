@@ -5,21 +5,17 @@ byte-exact, all True). Active probes exercise the WIRED base-conversion
 surface (ToString(int,base) + ToInt32(string,base), bases 2/8/10/16) to
 exhaustion plus the shared-rejection custom-radix boundary.
 
-## D-CB-1 -- runtime radix validator accepts 2..36; net48 accepts ONLY {2,8,10,16}
+## D-CB-1 -- radix validator: CLOSED (the {2,8,10,16} rule is enforced)
 
-- **Phenomenon**: the runtime's radix validator (icall_convert_to_int32_string_base
-  / icall_convert_to_string_i4_base) accepts bases 2..36, while net48 rejects
-  any base outside {2,8,10,16} with ArgumentException. For bases 3..36 this is
-  a DIVERGENCE: net48 throws, the transpiled runtime parses -- a byte-exact
-  oracle diff can never match, so NO base-3..36 probe exists in a PASSing
-  case. Bases {0,1,37,100} are rejected by BOTH sides (net48: not in the
-  legal set; runtime: not in 2..36) -- those shared ArgumentException probes
-  ARE exercised (section 14).
-- **Impact**: net48-legal programs never pass such a base (they'd throw), so
-  the divergence is benign in practice; the "custom radix" dimension of this
-  case is pinned at the shared-rejection boundary.
-- **Fix path (future)**: tighten the runtime validator to {2,8,10,16} to
-  mirror net48 exactly (removes the latent superset).
+- **Status**: re-measured for impl-input-contracts. The wired icalls
+  (icall_convert_to_int32_string_base / icall_convert_to_string_i4_base)
+  enforce EXACTLY {2,8,10,16} and throw ArgumentException otherwise, which is
+  the net48 contract -- the old note (claiming a 2..36 superset) described a
+  stale build. `tests/cases/convertbaseguard1` pins the whole b = 0..37 sweep
+  across every To*(string, base) width plus Convert.ToString(value, base).
+- **Note**: the TryParse-SHAPED icall `icall_try_parse_int32_base` (unused by
+  the transpiler) used to return 0 for an invalid base, contradicting net48.
+  It now throws ArgumentException as well, so the module carries ONE rule.
 
 ## D-CB-2 -- (int32) hex literals > 0x7FFFFFFF bind to the UNWIRED uint overload
 
@@ -50,3 +46,4 @@ exhaustion plus the shared-rejection custom-radix boundary.
   family is unexercisable (recorded, not fixed).
 - **Fix path (future)**: extend the base icalls to int64 (ParseNumbers
   StringToInt64/IntToString64) + MethodMap cases for (0x0A, 0x08) signatures.
+

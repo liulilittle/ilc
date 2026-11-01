@@ -12,9 +12,12 @@
 //     against a net48 reference run); only the C-isms are adapted: the
 //     lowercase 'e' exponent marker -> 'E', and the specials (-0.0 -> "0",
 //     NaN/+-Infinity spellings).
-//   * Known divergences from .NET are enumerated in the header; the two
-//     notable ones: ASCII-only whitespace in Parse, and no group separators
-//     in double.Parse.
+//   * The DOUBLE parse entries delegate to parse_styles.cpp (the shared
+//     net48 Number.TryParseNumber port), so the group/decimal separators come
+//     from the provider's NumberFormatInfo and AllowThousands is ON by
+//     default -- double.Parse("1,000") == 1000. The INTEGER parsers in this
+//     file keep the ASCII whitespace set and reject group separators, which
+//     is what net48 int.Parse does in every culture.
 //------------------------------------------------------------------------------
 
 #include "il2cpp_format.h"

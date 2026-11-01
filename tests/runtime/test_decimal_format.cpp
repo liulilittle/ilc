@@ -515,7 +515,11 @@ int main()
     ExpectParseThrows("lone sign -> FormatException", "System.FormatException", "+");
     ExpectParseThrows("inner space -> FormatException", "System.FormatException", "1 2");
     ExpectParseThrows("comma first -> FormatException", "System.FormatException", ",5");
-    ExpectParseThrows("comma last -> FormatException", "System.FormatException", "5,");
+    // net48 accepts TRAILING and repeated group separators (measured:
+    // decimal.Parse("1,") == 1, decimal.Parse("1,,2") == 12); the old
+    // "comma last -> FormatException" pin asserted this runtime's bug.
+    Expect(TryParseIs("5,", "5"), "parse \"5,\" == 5 (trailing group separator, net48)");
+    Expect(TryParseIs("1,,2", "12"), "parse \"1,,2\" == 12 (repeated separators, net48)");
 
     // Parse(null) -> ArgumentNullException.
     {

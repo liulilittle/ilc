@@ -13,13 +13,16 @@ Case status: **PASS dual-compiler** (mingw + msvc, net48 oracle 127-line byte-ex
 - **Suspect**: fixing requires a float-aware formatter (G7) for Single on
   the ILC side.
 
-## D-PF-2 -- "1,000" group separators: net48 accepts, ILC rejects
+## D-PF-2 -- group separators: FIXED (impl-input-contracts)
 
-- **Phenomenon**: net48 `double.Parse(string)` defaults to
-  `NumberStyles.Float | AllowThousands`, so "1,000" parses to 1000. The
-  ILC double grammar has no group separators ("1,000" -> FormatException) --
-  a documented runtime deviation ("no group separators in double text").
-- **Disposition**: the comma-grouped row was removed from the matrix.
+- **Was**: net48 `double.Parse(string)` defaults to
+  `NumberStyles.Float | AllowThousands`, so "1,000" parses to 1000, while the
+  ILC double grammar had no group separators ("1,000" -> FormatException).
+- **Fix**: the double grammar is now the net48 Number.TryParseNumber port in
+  `src/runtime/src/parse_styles.cpp`, and the accepted separator comes from
+  the PROVIDER's NumberFormatInfo (`il2cpp_culture_number_info`). The full
+  cross-culture matrix is pinned by `tests/cases/parsegroupsep1`. The old
+  "documented runtime deviation" note was a false premise.
 
 ## D-PF-3 -- System.Single.Parse / Single.TryParse NOT wired
 

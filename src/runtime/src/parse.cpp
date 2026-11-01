@@ -26,6 +26,7 @@
 
 #include "il2cpp_parse.h"
 #include "il2cpp_parse_styles.h" // shared provider-aware double parse core
+#include "il2cpp_exception_ext.h" // the invalid-fromBase ArgumentException
 
 #include <cerrno>
 #include <cmath>
@@ -310,23 +311,38 @@ int32_t icall_try_parse_byte(Il2CppObject* s, int32_t* result)
 }
 
 //------------------------------------------------------------------------------
-// icall_try_parse_int32_base -- Convert.ToInt32(string, fromBase) style
-// parse for base 2/8/10/16 (see header for the invalid-base deviation).
+// icall_try_parse_int32_base -- Convert.ToInt32(string, fromBase) style parse.
+//
+// RADIX CONTRACT (measured on a real net48 CLR, one process per probe): the
+// legal set is {2, 8, 10, 16} EXACTLY. Every other base -- including 1, 3,
+// 17, 36 and 37 -- throws ArgumentException before the string is even
+// examined (net48 convert.cs: value == null && fromBase != 10 -> the
+// Arg_InvalidBase check runs first, so Convert.ToInt32(null, 3) throws while
+// Convert.ToInt32(null, 2/8/10/16) returns 0). The earlier "2..36, and an
+// invalid base returns 0" reading was WRONG on both counts.
+//
+// This is the TryParse-SHAPED entry point (it returns 1/0 so the transpiler
+// can fold it), so only the format/range failures return 0; the invalid-base
+// ArgumentException cannot be folded into a return value and is thrown, the
+// same way net48's ArgumentNullException/ArgumentException propagate through
+// TryParse in general.
 //------------------------------------------------------------------------------
 int32_t icall_try_parse_int32_base(Il2CppObject* s, int32_t fromBase, int32_t* result)
 {
+    if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
+    {
+        // net48 checks the radix BEFORE the text, so a null string with a bad
+        // base still throws ArgumentException (measured).
+        il2cpp_throw_argument_exception("The 'base' argument must be 2, 8, 10 or 16.");
+    }
     if (s == nullptr || result == nullptr)
     {
         return 0;
     }
-    if (fromBase != 2 && fromBase != 8 && fromBase != 10 && fromBase != 16)
-    {
-        return 0; // documented deviation: no throw for an invalid base
-    }
     const Il2CppString* str = reinterpret_cast<const Il2CppString*>(s);
     int64_t v = 0;
     // allowSign: base 10 accepts '+'/'-'; base 2/8/16 accept '+' (skipped)
-    // and reject '-' (net48 ArgumentException -> TryParse failure).
+    // and reject '-' (net48 ArgumentException -> failure).
     // rangeCheck: base 10 only (int32 range); base 2/8/16 use the uint32
     // wrap-with-32-bit-cap path.
     if (!TryParseInteger(str->chars, str->chars + str->length, fromBase, fromBase == 10,

@@ -162,6 +162,44 @@ void ExpectBase(const char* text, int32_t fromBase, int32_t expectedOk, int32_t 
     Expect(ok == expectedOk && out == expectedValue, what);
 }
 
+// The invalid-radix contract: net48 throws ArgumentException for any base
+// outside {2,8,10,16}, BEFORE looking at the text. e.type_name() carries the
+// full throw chain ("System.ArgumentException,..."), so this is a prefix
+// match on the first element.
+void ExpectBaseThrowsImpl(int32_t fromBase, bool nullText, const char* what)
+{
+    bool caught = false;
+    try
+    {
+        int32_t out = 0;
+        (void)il2cpp::runtime::icall_try_parse_int32_base(
+            nullText ? nullptr : AsObj(MakeStr("42")), fromBase, &out);
+    }
+    catch (const il2cpp::DotNetException& e)
+    {
+        caught = true;
+        Expect(std::strncmp(e.type_name(), "System.ArgumentException",
+                            std::strlen("System.ArgumentException")) == 0,
+               "invalid-base exception type is ArgumentException");
+    }
+    catch (...)
+    {
+        caught = true;
+        Expect(false, "wrong exception carrier type (not DotNetException)");
+    }
+    Expect(caught, what);
+}
+
+void ExpectBaseThrows(int32_t fromBase, const char* what)
+{
+    ExpectBaseThrowsImpl(fromBase, false, what);
+}
+
+void ExpectBaseThrowsNull(int32_t fromBase, const char* what)
+{
+    ExpectBaseThrowsImpl(fromBase, true, what);
+}
+
 } // namespace
 
 int main()
@@ -355,10 +393,19 @@ int main()
     ExpectBase(" 1F ", 16, 0, 0, "try-parse base-16 \" 1F \" -> 0 (no whitespace, net48)");
     ExpectBase(" 0x10 ", 16, 0, 0, "try-parse base-16 \" 0x10 \" -> 0 (no whitespace, net48)");
     ExpectBase(" 42 ", 10, 0, 0, "try-parse base-10 \" 42 \" -> 0 (no whitespace, net48)");
-    ExpectBase("42", 5, 0, 0, "try-parse base 5 -> 0 (invalid base, no throw)");
-    ExpectBase("42", 0, 0, 0, "try-parse base 0 -> 0");
-    ExpectBase("42", -1, 0, 0, "try-parse base -1 -> 0");
-    ExpectBase("42", 17, 0, 0, "try-parse base 17 -> 0");
+    // The radix contract (MEASURED net48): the legal set is {2,8,10,16}
+    // EXACTLY; any other base THROWS ArgumentException and is checked BEFORE
+    // the text (so a null value with a bad base throws too). The previous
+    // "invalid base -> 0" pins locked in this runtime's bug.
+    ExpectBaseThrows(5, "try-parse base 5 -> ArgumentException (net48)");
+    ExpectBaseThrows(0, "try-parse base 0 -> ArgumentException");
+    ExpectBaseThrows(-1, "try-parse base -1 -> ArgumentException");
+    ExpectBaseThrows(1, "try-parse base 1 -> ArgumentException");
+    ExpectBaseThrows(3, "try-parse base 3 -> ArgumentException");
+    ExpectBaseThrows(17, "try-parse base 17 -> ArgumentException");
+    ExpectBaseThrows(36, "try-parse base 36 -> ArgumentException");
+    ExpectBaseThrows(37, "try-parse base 37 -> ArgumentException");
+    ExpectBaseThrowsNull(3, "try-parse base 3 + null text -> ArgumentException (radix first)");
     ExpectBase(nullptr, 16, 0, 0, "try-parse base-16 null text -> 0");
 
     // --- 7. Contract: failure does not write out; null out -> 0; never throws ---

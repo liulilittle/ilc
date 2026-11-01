@@ -41,10 +41,11 @@
 //     "inf"/"nan", "+Infinity"/"-NaN" -- all FAIL on net48 zh-CN too, but
 //     only the culture words are probed (the runtime pins the zh-CN
 //     contract).
-//   * "1,000" (comma-grouped) is EXCLUDED: net48 double.Parse(string)
-//     defaults to NumberStyles.Float | AllowThousands (parses "1,000" ->
-//     1000) while the runtime's double grammar has no group separators
-//     (D-PF-2, recorded in GAPS).
+//   * "1,000" (comma-grouped) is NOT in the matrix here -- it is pinned by
+//     tests/cases/parsegroupsep1, which asserts the provider-dependent
+//     separator matrix ("1,000" -> 1000 under invariant, "1.000" -> 1000
+//     under de-DE). The old D-PF-2 GAP note claimed the runtime had no group
+//     separators; that was WRONG and is now FIXED.
 //
 // EVERY line prints "label=..."; net48 is the byte reference.
 //------------------------------------------------------------------------------

@@ -40,11 +40,17 @@
 //     OverflowException (net48 throws; .NET Core 3.0+ returns Infinity).
 //     Underflow -> 0.0.
 //
-//   Known deviations from .NET (documented, see format.cpp):
-//     * Whitespace handling is the ASCII set (0x09-0x0D, 0x20); .NET also
-//       accepts Unicode whitespace (e.g. U+00A0).
-//     * double.Parse does not accept group separators ("1,000" -> Format
-//       Exception; .NET's default NumberStyles.Float|AllowThousands does).
+//   MEASURED net48 behaviour this header's parse entries implement (a real
+//   net48 CLR, one process per probe -- the earlier "no group separators"
+//   and "ASCII whitespace only" notes were wrong for double):
+//     * double.Parse(string) is NumberStyles.Float | AllowThousands against
+//       the CURRENT culture, so "1,000" parses to 1000 on an invariant/zh-CN
+//       host. The accepted group/decimal separators come from the culture's
+//       NumberFormatInfo (de-DE: "1.000" -> 1000, "1,000" -> 1; fr-FR groups
+//       with U+202F). See il2cpp_parse_styles.h.
+//     * Whitespace: the DOUBLE grammar trims the char.IsWhiteSpace set;
+//       the INTEGER parsers keep the ASCII set and reject group separators in
+//       every culture (int.Parse("1,000") -> FormatException).
 //     * Integer formatting never uses std::to_chars / snprintf: a manual
 //       digit loop (deterministic, locale-independent, GCC 7.5 compatible).
 //------------------------------------------------------------------------------
