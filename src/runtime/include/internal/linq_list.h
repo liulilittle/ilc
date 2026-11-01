@@ -266,6 +266,14 @@ Il2CppArray* il2cpp_linq_list_order_by_key_ref_f(Il2CppObject* list, Il2CppObjec
                                                  int32_t desc, int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_ref_ref(Il2CppObject* list, Il2CppObject* keySel,
                                                    int32_t desc, int32_t kind);
+// impl-collation: List<T> with a STATICALLY System.String key. The list is
+// snapped through its own reference-element accessor and the ordering is the
+// array family's culture-collation entry (net48 Comparer<string>.Default:
+// CULTURE collation via il2cpp_string_compare_culture, stable, null keys
+// first, "a" before "B").
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_string(Il2CppObject* list,
+                                                      Il2CppObject* keySel,
+                                                      int32_t desc, int32_t kind);
 
 // The DOUBLE-element list key-selector entries: the snapshot is a double array
 // and the key crosses in the F-stack slot. The snapshot is taken through the
@@ -309,6 +317,12 @@ float   il2cpp_linq_list_sum_f(Il2CppObject* list, int32_t kind);
 float   il2cpp_linq_list_min_f(Il2CppObject* list, int32_t kind);
 float   il2cpp_linq_list_max_f(Il2CppObject* list, int32_t kind);
 float   il2cpp_linq_list_average_f(Il2CppObject* list, int32_t kind);
+
+// impl-collation: Enumerable.Min/Max over a List<string> (net48 semantics:
+// empty or all-null -> null, nulls never win once a value exists, winner chosen
+// with culture collation -- Comparer<string>.Default).
+Il2CppObject* il2cpp_linq_list_min_string(Il2CppObject* list, int32_t kind);
+Il2CppObject* il2cpp_linq_list_max_string(Il2CppObject* list, int32_t kind);
 
 // Selector aggregates (Sum/Min/Max/Average(source, selector)) -- the projection
 // family is the entry suffix, as on the array surface.

@@ -3626,6 +3626,38 @@ Il2CppArray* il2cpp_linq_list_order_by_key_ref_ref(Il2CppObject* list, Il2CppObj
     return il2cpp_linq_order_by_key_ref_ref(snap, keySel, desc);
 }
 
+// impl-collation: List<T> with a STATICALLY System.String key. The list is
+// snapped through its own reference-element accessor (never cast to an array
+// header) and the ordering is the array family's culture-collation entry, so
+// net48 Comparer<string>.Default semantics ("a" before "B", stable, null keys
+// first) hold for the list source too.
+Il2CppArray* il2cpp_linq_list_order_by_key_ref_string(Il2CppObject* list,
+                                                      Il2CppObject* keySel,
+                                                      int32_t desc, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    return il2cpp_linq_order_by_key_ref_string(snap, keySel, desc);
+}
+
+// impl-collation: Enumerable.Min/Max over a List<string>. net48 semantics,
+// identical to the array entries: an empty or all-null list yields null, nulls
+// never win once a value exists, and the winner is chosen with culture
+// collation (Comparer<string>.Default).
+Il2CppObject* il2cpp_linq_list_min_string(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    return il2cpp_linq_min_string(snap);
+}
+
+Il2CppObject* il2cpp_linq_list_max_string(Il2CppObject* list, int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    return il2cpp_linq_max_string(snap);
+}
+
 //------------------------------------------------------------------------------
 // The DOUBLE-element list key-selector entries: the snapshot is a double array
 // (8-byte cells) and the key crosses in the F-stack slot. The list is snapped
