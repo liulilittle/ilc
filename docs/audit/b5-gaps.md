@@ -2516,3 +2516,37 @@ boxed-`Object.ToString` and provider-fast-path runtime fixes, e2e
 `tests/cases/dtoiformattable1`). The smallest remaining item on the formatting
 surface is the ENUM receiver family in 25.4 item 1, which needs a real BCL-enum
 box descriptor before the composite dispatch can serve it.
+
+
+## 27. corelib-p0: the 32 in-BOTH CoreLib P0 members -- 6 registered residual gaps
+
+Scope: the 89-row reference-source P0 list in `docs/audit/icall-corelib-current.md` was
+re-cut against the SHIPPED `System.Private.CoreLib.dll` 8.0.31 (see
+`docs/audit/corelib-p0-reachability.md`). 42 rows exist in NEITHER 8.0.31 nor 9.0.20 and
+were dropped as main-branch artifacts; the 32 rows present in BOTH are wired (11 FCall +
+21 QCall). Per-row mechanism and status:
+`F:\il2cpp\.opencode\tmp\impl-corelib-p0\NOTES.md`.
+
+What remains, and why it is not silently handled:
+
+| # | member | why it cannot be served |
+|---|--------|-------------------------|
+| 1 | `RuntimeHelpers.GetTailCallInfo(IntPtr, IntPtr*)` | reads the JIT's per-thread `TailCallTls` argument buffer. An AOT image emits native tail calls and never materializes a `TailCallTls`, so there is nothing to return; fabricating a pointer would be a silent wrong value. |
+| 2 | `Exception.GetMessageFromNativeResources(ExceptionMessageKind, ref string)` | its return channel is a runtime-compiler `StringHandleOnStack` (a CoreLib-internal byref handle struct with no C++ value model in this emitter). The three messages it can produce were measured on 8.0.31, but there is no ABI slot to write them through. |
+| 3 | `RuntimeHelpers.RunClassConstructor(RuntimeTypeHandle)` | an `Il2CppClass` descriptor carries no `.cctor` function pointer, so a runtime "run it now" entry cannot dispatch. The transpiler's `ensure_cctor_*` guards already cover every static access. |
+| 4 | `RuntimeHelpers.RunModuleConstructor(ModuleHandle)` | module constructors are not in the M3 model -- there is no module descriptor to dispatch on. |
+| 5 | `Thread.StartInternal(ThreadHandle, int, int, char*)` | its first parameter is the CoreLib-internal `ThreadHandle` wrapper struct, which has no C++ value model in this emitter (same class of blocker as #6). The public `Thread.Start(object)` surface -- which is what a transpiled caller actually emits -- is already mapped to `icall_threadobj_start` / `_start_parameterized`. |
+
+One further **sub-shape** (the member itself is wired) stays LOUD:
+
+| 6 | `RuntimeHelpers.AllocateTypeAssociatedMemory(QCallTypeHandle, uint)` | the public `(System.Type, int)` shape IS mapped (`icall_runtime_helpers_allocate_type_associated_memory`). The internal twin takes a `QCallTypeHandle` -- a CoreLib-internal handle struct that is not constructible outside CoreLib, so no user IL can reach it. It rejects by name with a message pointing at the mapped shape. |
+
+Each of the six raises a self-identifying transpile-time `NotSupportedException` naming the
+member and the reason; none returns a fabricated value.
+
+Deliberately NOT wired although measured: `GC.GetConfigurationVariables()`. The shipped
+8.0.31 runtime reports `Count == 22`, but those key/value pairs are CoreCLR configuration
+internals; reproducing that map would be invented data rather than fidelity. The member has
+no MethodMap arm at all (its public IL body lives in CoreLib and is never transpiled), so
+nothing is silently mis-served -- it simply stays outside the mapped surface.
+
