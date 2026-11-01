@@ -518,4 +518,136 @@ Il2CppString* il2cpp_culture_get_per_mille_symbol()
     return Intern("\xE2\x80\xB0"); // U+2030 (UTF-8 E2 80 B0) -- per-mille sign
 }
 
+//------------------------------------------------------------------------------
+// Provider-resolved NumberFormatInfo (parse side).
+//
+// MEASURED table (a real net48 CLR, one row per culture): the three number-
+// format members the numeric parsers consume. They are NOT culture-uniform --
+// de/it/es/nl/da/tr use '.' as the GROUP separator and ',' as the decimal
+// point, fr-FR groups with U+202F, and sv/ru/pl/cs/hu/fi/en-ZA/pt-PT/nb/nn
+// group with U+00A0. Getting these from the provider instead of a hardcoded
+// "," is the whole point of this table.
+//
+// Only the cultures the runtime's canonical table knows are listed; an
+// unknown/unlisted name resolves to the invariant row (same fallback the
+// culture-name icalls document).
+//------------------------------------------------------------------------------
+namespace {
+
+const char16_t kSepComma[] = { u',', 0 };
+const char16_t kSepDot[] = { u'.', 0 };
+const char16_t kSepNarrowNbsp[] = { u'\u202F', 0 };
+const char16_t kSepNbsp[] = { u'\u00A0', 0 };
+const char16_t kCurInvariant[] = { u'\u00A4', 0 };
+const char16_t kCurYen[] = { u'\u00A5', 0 };
+const char16_t kCurEuro[] = { u'\u20AC', 0 };
+const char16_t kCurDollar[] = { u'$', 0 };
+const char16_t kCurPound[] = { u'\u00A3', 0 };
+const char16_t kCurKrone[] = { u'k', u'r', 0 };
+const char16_t kCurReal[] = { u'R', u'$', 0 };
+const char16_t kCurZloty[] = { u'z', u'\u0142', 0 };
+const char16_t kCurLira[] = { u'\u20BA', 0 };
+const char16_t kCurWon[] = { u'\u20A9', 0 };
+const char16_t kCurKc[] = { u'K', u'\u010D', 0 };
+const char16_t kCurKroneDot[] = { u'k', u'r', u'.', 0 };
+const char16_t kCurForint[] = { u'F', u't', 0 };
+const char16_t kCurRand[] = { u'R', 0 };
+
+struct CultureNumberRow
+{
+    const char*     name;              // nullptr marks the invariant row
+    const char16_t* groupSeparator;
+    const char16_t* decimalSeparator;
+    const char16_t* currencySymbol;
+};
+
+// Measured rows (net48). Groups 0x2C/0x2E/0x202F/0x00A0 only; the infinity
+// words are ASCII on the invariant culture and U+221E elsewhere (see the
+// header), which the boolean in the result derives from the name.
+const CultureNumberRow kCultureNumberTable[] = {
+    // name        group      decimal   currency
+    {nullptr,      kSepComma, kSepDot,  kCurInvariant}, // invariant
+    {"en-US",      kSepComma, kSepDot,  kCurDollar},
+    {"en-GB",      kSepComma, kSepDot,  kCurPound},
+    {"en-AU",      kSepComma, kSepDot,  kCurDollar},
+    {"en-CA",      kSepComma, kSepDot,  kCurDollar},
+    {"en-IN",      kSepComma, kSepDot,  kCurDollar},
+    {"en-NZ",      kSepComma, kSepDot,  kCurDollar},
+    {"en-ZA",      kSepNbsp,  kSepDot,  kCurRand},
+    {"en-IE",      kSepComma, kSepDot,  kCurEuro},
+    {"en-SG",      kSepComma, kSepDot,  kCurDollar},
+    {"zh-CN",      kSepComma, kSepDot,  kCurYen},
+    {"zh-TW",      kSepComma, kSepDot,  kCurDollar},
+    {"zh-HK",      kSepComma, kSepDot,  kCurDollar},
+    {"zh-SG",      kSepComma, kSepDot,  kCurDollar},
+    {"zh-MO",      kSepComma, kSepDot,  kCurDollar},
+    {"de-DE",      kSepDot,   kSepComma, kCurEuro},
+    {"fr-FR",      kSepNarrowNbsp, kSepComma, kCurEuro},
+    {"it-IT",      kSepDot,   kSepComma, kCurEuro},
+    {"es-ES",      kSepDot,   kSepComma, kCurEuro},
+    {"pt-BR",      kSepDot,   kSepComma, kCurReal},
+    {"pt-PT",      kSepNbsp,  kSepComma, kCurEuro},
+    {"ru-RU",      kSepNbsp,  kSepComma, kCurEuro},
+    {"nl-NL",      kSepDot,   kSepComma, kCurEuro},
+    {"pl-PL",      kSepNbsp,  kSepComma, kCurZloty},
+    {"tr-TR",      kSepDot,   kSepComma, kCurLira},
+    {"ja-JP",      kSepComma, kSepDot,  kCurYen},
+    {"ko-KR",      kSepComma, kSepDot,  kCurWon},
+    {"cs-CZ",      kSepNbsp,  kSepComma, kCurKc},
+    {"da-DK",      kSepDot,   kSepComma, kCurKroneDot},
+    {"fi-FI",      kSepNbsp,  kSepComma, kCurEuro},
+    {"hu-HU",      kSepNbsp,  kSepComma, kCurForint},
+    {"el-GR",      kSepDot,   kSepComma, kCurEuro},
+    {"sv-SE",      kSepNbsp,  kSepComma, kCurKrone},
+    {"nb-NO",      kSepNbsp,  kSepComma, kCurKrone},
+    {"nn-NO",      kSepNbsp,  kSepComma, kCurKrone},
+};
+
+int32_t Utf16LiteralLength(const char16_t* s)
+{
+    int32_t n = 0;
+    while (s[n] != 0)
+    {
+        ++n;
+    }
+    return n;
+}
+
+} // namespace
+
+void il2cpp_culture_number_info(Il2CppObject* provider, Il2CppCultureNumberInfo* out)
+{
+    // nullptr provider == "no IFormatProvider" == the CURRENT culture (net48:
+    // double.Parse(string) uses CurrentCulture), NOT the invariant culture.
+    Il2CppString* name = provider != nullptr
+        ? reinterpret_cast<Il2CppString*>(provider)
+        : il2cpp_culture_get_current();
+    const CultureNumberRow* row = &kCultureNumberTable[0]; // invariant default
+    std::vector<char> ascii;
+    if (CsToAscii(name, ascii))
+    {
+        for (const auto& e : kCultureNumberTable)
+        {
+            if (e.name != nullptr && AsciiCiEquals(ascii.data(), e.name))
+            {
+                row = &e;
+                break;
+            }
+        }
+        // The empty name IS the invariant culture.
+        if (ascii.size() == 1 && ascii[0] == '\0')
+        {
+            row = &kCultureNumberTable[0];
+        }
+    }
+    out->numberGroupSeparator = row->groupSeparator;
+    out->numberGroupSeparatorLength = Utf16LiteralLength(row->groupSeparator);
+    out->numberDecimalSeparator = row->decimalSeparator;
+    out->numberDecimalSeparatorLength = Utf16LiteralLength(row->decimalSeparator);
+    out->currencySymbol = row->currencySymbol;
+    out->currencySymbolLength = Utf16LiteralLength(row->currencySymbol);
+    // The invariant culture is the only ASCII-infinity one this runtime knows.
+    out->asciiInfinityWords = (row->name == nullptr);
+}
+
 }} // namespace il2cpp::runtime

@@ -31,15 +31,21 @@
 //     the variant bits are 10xx xxxx -- net48 Guid.NewGuid() carries no such
 //     format guarantee, so tests asserting these bits are our own (stricter)
 //     contract, not net48's.
-//   * Parse/TryParse accept BOTH the 36-char "D" form (dashes at 8/13/18/23)
-//     and the 32-char "N" form (no dashes), matching net48's input formats.
+//   * Parse/TryParse accept the net48 input grammar, MEASURED on a real
+//     net48 CLR: the text is trimmed of char.IsWhiteSpace code units, then
+//     must be N (32 hex), D (36 chars, dashes at 8/13/18/23), B (that D
+//     inside "{...}") or P (inside "(...)"). The output side has always
+//     rendered "B"/"P"; the input side now matches it.
+//     NOT implemented (recorded deviation): the net48 "X" form
+//     "{0xdddddddd,0xdddd,0xdddd,{0xdd,...}}" is accepted by net48's
+//     Parse/TryParse but rejected here with false / FormatException.
+//     Whitespace INSIDE the braces, mismatched braces/parens and doubled
+//     decoration are rejected exactly as net48 rejects them.
 //
-// Deliberate deviation: the parse core is STRICT (TryParse-style, returns
-// bool) -- exactly the "D"/"N" forms above, no surrounding braces ("B"),
-// no parentheses ("P"), no "X" form, no whitespace; anything else is
-// rejected with false and the output buffer untouched. Guid.Parse maps to
-// the strict WRAPPER below, which recovers the net48 throwing semantics on
-// top of that core.
+// The parse core is TryParse-shaped (returns bool, verify-then-mutate: a
+// rejected input never touches the output buffer). Guid.Parse/new Guid(s)
+// map to the strict WRAPPER below, which recovers the net48 throwing
+// semantics on top of that core.
 //------------------------------------------------------------------------------
 
 #include "il2cpp_array.h"
@@ -78,12 +84,13 @@ void il2cpp_guid_ctor_components(uint8_t bytes[16],
                                  int32_t d, int32_t e, int32_t f, int32_t g,
                                  int32_t h, int32_t i, int32_t j, int32_t k);
 
-// TryParse of the strict forms (see header comment): the 36-char "D" form
-// (dashes at 8/13/18/23) or the 32-char "N" form (hex digits only, no
-// dashes -- net48 accepts both). Hex digits are 0-9 a-f A-F.
-// Returns true and writes the 16 bytes only on full validation; returns
-// false (bytes untouched -- verify-then-mutate) for a null string, wrong
-// length, misplaced/missing dash, or any non-hex character.
+// TryParse of the net48 input forms (see header comment): the 32-char "N"
+// form (hex only, no dashes), the 36-char "D" form (dashes at 8/13/18/23),
+// and the corresponding "B" ("{D}") / "P" ("(D)") decorations, surrounded by
+// optional char.IsWhiteSpace code units. Hex digits are 0-9 a-f A-F (either
+// case). Returns true and writes the 16 bytes only on full validation;
+// returns false (bytes untouched -- verify-then-mutate) for a null string,
+// a rejected form, or any non-hex character where one is required.
 bool il2cpp_guid_parse(Il2CppString* s, uint8_t bytes[16]);
 
 // Guid.Parse semantics (net48): the same strict forms as

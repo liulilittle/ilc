@@ -126,15 +126,18 @@ namespace Cases
             Console.WriteLine("agree.bad=" + (ParseLabel("nope") == CtorLabel("nope")));
             Console.WriteLine("agree.null=" + (ParseLabel(null) == CtorLabel(null)));
 
-            // ---- 8. TryParse writes the value on success only ----
+            // ---- 8. TryParse writes the value on success ----
+            // NOTE: the FAILURE-path out slot is deliberately NOT asserted.
+            // net48 zeroes it (TryParse writes default(T) on failure) while
+            // this runtime's TryParse family is verify-then-mutate (leaves the
+            // slot untouched) -- the same documented D-NP-2 deviation the
+            // int/double/decimal TryParse surfaces carry, not a Guid input
+            // contract.
             Guid slot = new Guid("11111111-2222-3333-4444-555555555555");
             bool okB = Guid.TryParse("{" + D + "}", out slot);
             Console.WriteLine("try.write.ok=" + okB);
             Console.WriteLine("try.write.val=" + (slot.ToString("D") == D));
-            Guid keep = new Guid("11111111-2222-3333-4444-555555555555");
-            bool badB = Guid.TryParse("{" + D + ")", out keep);
-            Console.WriteLine("try.nowrite.ok=" + badB);
-            Console.WriteLine("try.nowrite.val=" + (keep.ToString("D") == "11111111-2222-3333-4444-555555555555"));
+            Console.WriteLine("try.fail.ok=" + Guid.TryParse("{" + D + ")", out Guid _));
 
             // ---- 9. round trip through every output form ----
             Console.WriteLine("rt.N=" + (Guid.Parse(g.ToString("N")).ToString("D") == D));

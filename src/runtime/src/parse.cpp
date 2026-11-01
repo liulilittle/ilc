@@ -13,18 +13,19 @@
 //     per-step overflow guard -- there is no digit-count upper bound, so
 //     arbitrarily long digit runs fail cleanly without overflow UB, and
 //     the final [minVal, maxVal] check gives the exact .NET ranges.
-//   * The double core mirrors format.cpp: the ASCII projection is
-//     validated against the same grammar (IsValidDoubleText replica) and
-//     converted with strtod (correctly rounded, C locale); the only
-//     difference from Parse is that ERANGE+inf is a FAILURE (return 0)
-//     instead of an OverflowException. A fixed stack buffer covers the
-//     common case; longer text falls back to malloc (a failed allocation
-//     is a plain failure -- no throw, no leak).
-//   * Whitespace is the ASCII set (0x09-0x0D, 0x20) -- same documented
-//     divergence as the Parse family.
+//   * The DOUBLE core lives in parse_styles.cpp, shared with the throwing
+//     Parse entry point and with the NumberStyles/IFormatProvider overloads:
+//     it is the net48 Number.TryParseNumber state machine, so the group and
+//     decimal separators come from the provider's NumberFormatInfo and
+//     AllowThousands is ON by default (double.Parse(string) is
+//     Float|AllowThousands in net48).
+//   * The INTEGER family (this file) keeps the ASCII whitespace set
+//     (0x09-0x0D, 0x20); that matches net48 for int.Parse, which rejects
+//     group separators in every culture (measured: invariant, de-DE, fr-FR).
 //------------------------------------------------------------------------------
 
 #include "il2cpp_parse.h"
+#include "il2cpp_parse_styles.h" // shared provider-aware double parse core
 
 #include <cerrno>
 #include <cmath>
@@ -41,11 +42,6 @@ namespace {
 bool IsWs(char16_t c)
 {
     return c == u' ' || (c >= u'\t' && c <= u'\r');
-}
-
-bool IsAsciiWhitespaceAscii(char c)
-{
-    return c == ' ' || (c >= '\t' && c <= '\r');
 }
 
 // Digit value of a char16_t for base 2/8/10/16 ('0'-'9', 'a'-'f', 'A'-'F');
@@ -225,210 +221,6 @@ bool TryParseInteger(const char16_t* p, const char16_t* end, int base, bool allo
     return true;
 }
 
-// Grammar validation for double text (see il2cpp_format.h): optional ASCII
-// whitespace, the exact word "NaN", OR a decimal literal (sign, digits,
-// optional '.', optional e/E exponent). The ASCII words
-// "Infinity"/"-Infinity" are REJECTED -- net48 reads the special words from
-// the culture's NumberFormatInfo (zh-CN uses U+221E, so the ASCII spelling
-// throws FormatException there); the U+221E/-U+221E culture words are
-// matched on the UTF-16 text in TryParseDoubleCore BEFORE the projection.
-// Replica of format.cpp's IsValidDoubleText minus the Infinity family; hex
-// floats, abbreviated "inf"/"nan" and "+Infinity"/"-NaN" are also rejected.
-// AllowThousands: ',' separators between integral digits (saudit2).
-bool IsValidDoubleText(const char* s, char* cleaned)
-{
-    const char* p = s;
-    char* out = cleaned;
-    while (IsAsciiWhitespaceAscii(*p))
-    {
-        *out++ = *p++;
-    }
-    const char* spec = nullptr;
-    if (std::strncmp(p, "NaN", 3) == 0)
-    {
-        spec = p + 3;
-    }
-    if (spec != nullptr)
-    {
-        while (p != spec)
-        {
-            *out++ = *p++;
-        }
-        while (IsAsciiWhitespaceAscii(*p))
-        {
-            *out++ = *p++;
-        }
-        *out = '\0';
-        return *p == '\0';
-    }
-    if (*p == '+' || *p == '-')
-    {
-        *out++ = *p++;
-    }
-    // saudit2: the integral run accepts the zh-CN thousands separator ','
-    // between two digits (net48 default NumberStyles Float|AllowThousands).
-    int before = 0;
-    for (;;)
-    {
-        if (*p >= '0' && *p <= '9')
-        {
-            ++before;
-            *out++ = *p++;
-            continue;
-        }
-        if (*p == ',' && before > 0 && p[1] >= '0' && p[1] <= '9')
-        {
-            ++p; // group separator: validated, NOT copied
-            continue;
-        }
-        break;
-    }
-    if (*p == '.')
-    {
-        *out++ = *p++;
-    }
-    int after = 0;
-    while (*p >= '0' && *p <= '9')
-    {
-        ++after;
-        *out++ = *p++;
-    }
-    if (before + after == 0)
-    {
-        return false;
-    }
-    if (*p == 'e' || *p == 'E')
-    {
-        *out++ = *p++;
-        if (*p == '+' || *p == '-')
-        {
-            *out++ = *p++;
-        }
-        int expDigits = 0;
-        while (*p >= '0' && *p <= '9')
-        {
-            ++expDigits;
-            *out++ = *p++;
-        }
-        if (expDigits == 0)
-        {
-            return false;
-        }
-    }
-    while (IsAsciiWhitespaceAscii(*p))
-    {
-        *out++ = *p++;
-    }
-    *out = '\0';
-    return *p == '\0';
-}
-
-// Match the culture infinity words on the ORIGINAL UTF-16 text (the ASCII
-// projection below cannot represent U+221E). net48 zh-CN probe: the
-// positive-infinity symbol is exactly U+221E and the negative form is
-// exactly '-' + U+221E; ASCII whitespace may pad either side, and a '+' sign
-// is NOT accepted (whole-text symbol match, so "+U+221E" fails). Returns 1 with
-// *out set on a full match; 0 otherwise (caller falls through to the
-// decimal-literal path, which rejects the text).
-bool TryMatchInfinityWord(const char16_t* p, const char16_t* end, double* out)
-{
-    while (p < end && IsWs(*p))
-    {
-        ++p;
-    }
-    bool negative = false;
-    if (p < end && *p == u'-' && p + 1 < end && p[1] == u'\u221E')
-    {
-        negative = true;
-        p += 2;
-    }
-    else if (p < end && *p == u'\u221E')
-    {
-        p += 1;
-    }
-    else
-    {
-        return false;
-    }
-    while (p < end && IsWs(*p))
-    {
-        ++p;
-    }
-    if (p != end)
-    {
-        return false; // trailing junk after the symbol ("U+221Ex", "U+221EU+221E", ...)
-    }
-    *out = negative ? -std::numeric_limits<double>::infinity()
-                    : std::numeric_limits<double>::infinity();
-    return true;
-}
-
-// Double TryParse core: validate the text against the double grammar and
-// convert with strtod. SUCCESS: *out holds the value, true. FAILURE
-// (invalid text, out-of-range magnitude, allocation failure): false.
-// Stack buffer first -- the vast majority of real texts are short; only
-// longer text allocates (format.cpp allocates unconditionally).
-bool TryParseDoubleCore(const char16_t* p, int32_t len, double* out)
-{
-    // Culture infinity words first, on the ORIGINAL UTF-16 text (the ASCII
-    // projection below cannot represent U+221E): zh-CN net48 reads the
-    // infinity words from the NumberFormatInfo (U+221E), so U+221E/-U+221E are
-    // successes while the ASCII "Infinity"/"-Infinity" spellings fall
-    // through and fail the validator (net48 zh-CN probe-pinned).
-    {
-        double special = 0.0;
-        if (TryMatchInfinityWord(p, p + len, &special))
-        {
-            *out = special;
-            return true;
-        }
-    }
-    char stackBuf[256];
-    char stackClean[256];
-    std::unique_ptr<char, void (*)(void*)> ownedBuf(nullptr, &std::free);
-    std::unique_ptr<char, void (*)(void*)> ownedClean(nullptr, &std::free);
-    char* buf = stackBuf;
-    char* clean = stackClean;
-    if (len >= static_cast<int32_t>(sizeof(stackBuf)))
-    {
-        ownedBuf.reset(static_cast<char*>(std::malloc(static_cast<size_t>(len) + 1)));
-        if (ownedBuf == nullptr)
-        {
-            return false; // TryParse never throws: allocation failure -> 0
-        }
-        ownedClean.reset(static_cast<char*>(std::malloc(static_cast<size_t>(len) + 1)));
-        if (ownedClean == nullptr)
-        {
-            return false;
-        }
-        buf = ownedBuf.get();
-        clean = ownedClean.get();
-    }
-    for (int32_t i = 0; i < len; ++i)
-    {
-        const char16_t c = p[i];
-        if (c > 0x7F)
-        {
-            return false; // non-ASCII text is never legal double text
-        }
-        buf[i] = static_cast<char>(c);
-    }
-    buf[len] = '\0';
-    if (!IsValidDoubleText(buf, clean))
-    {
-        return false;
-    }
-    errno = 0;
-    char* end = nullptr;
-    const double result = std::strtod(clean, &end);
-    (void)end; // the validator guarantees the full buffer was consumed
-    if (errno == ERANGE && std::isinf(result))
-    {
-        return false; // net48: TryParse fails on out-of-range magnitude
-    }
-    *out = result;
-    return true;
-}
 
 // Ordinal-ignore-case match of [p, end) against an ASCII word.
 bool MatchesIgnoreCase(const char16_t* p, const char16_t* end, const char* word)
@@ -548,10 +340,12 @@ int32_t icall_try_parse_int32_base(Il2CppObject* s, int32_t fromBase, int32_t* r
 }
 
 //------------------------------------------------------------------------------
-// icall_try_parse_double -- double.TryParse (net48, zh-CN culture): the
-// culture words "NaN" and U+221E/-U+221E or a decimal literal; the ASCII
-// "Infinity"/"-Infinity" words are rejected (net48 culture semantics);
-// out-of-range magnitude -> failure.
+// icall_try_parse_double -- double.TryParse(string) (net48 default):
+// NumberStyles.Float | AllowThousands against the CURRENT culture, via the
+// shared provider-aware core in parse_styles.cpp. The current culture's
+// group separator is accepted ("1,000" -> 1000 here), the special words come
+// from its NumberFormatInfo (zh-CN U+221E), and out-of-range magnitude is a
+// plain failure (never a throw).
 //------------------------------------------------------------------------------
 int32_t icall_try_parse_double(Il2CppObject* s, double* result)
 {
@@ -562,7 +356,7 @@ int32_t icall_try_parse_double(Il2CppObject* s, double* result)
     *result = 0.0; // failed parse writes 0.0 (.NET contract)
     const Il2CppString* str = reinterpret_cast<const Il2CppString*>(s);
     double out = 0.0;
-    if (!TryParseDoubleCore(str->chars, str->length, &out))
+    if (il2cpp_parse_double_default(str->chars, str->length, nullptr, &out) != 0)
     {
         return 0;
     }
@@ -617,3 +411,4 @@ int32_t icall_try_parse_bool(Il2CppObject* s, int32_t* result)
 }
 
 }} // namespace il2cpp::runtime
+

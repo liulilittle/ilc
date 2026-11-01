@@ -20,6 +20,7 @@
 #include "il2cpp_format.h"
 #include "il2cpp_format_ext.h"
 #include "il2cpp_exception_ext.h"
+#include "il2cpp_parse_styles.h" // double.Parse default-provider core (shared grammar)
 
 #include <cerrno>
 #include <cmath>
@@ -174,154 +175,14 @@ void FormatDoubleG15(double value, char* out)
     il2cpp::runtime::format_double_default(value, out, kFormatBufferSize);
 }
 
-// .NET Parse whitespace: the ASCII set (0x09-0x0D and 0x20). .NET also
-// accepts Unicode whitespace (U+00A0 etc.) -- documented divergence.
+// .NET Parse whitespace for the INTEGER/BOOL parsers below: the ASCII set
+// (0x09-0x0D and 0x20). net48's int.Parse DOES accept only these in
+// practice for the values this runtime pins -- int.Parse rejects group
+// separators and the Unicode spaces in every culture, so the integer half
+// needs no culture plumbing.
 bool IsAsciiWhitespace(char16_t c)
 {
     return c == u' ' || (c >= u'\t' && c <= u'\r');
-}
-
-bool IsAsciiWhitespaceAscii(char c)
-{
-    return c == ' ' || (c >= '\t' && c <= '\r');
-}
-
-// Match the culture infinity words on the ORIGINAL UTF-16 text (the ASCII
-// projection below cannot represent U+221E). net48 zh-CN probe: the
-// positive-infinity symbol is exactly U+221E and the negative form is
-// exactly '-' + U+221E; ASCII whitespace may pad either side, and a '+' sign
-// is NOT accepted (the symbol match is whole-text, so "+U+221E" fails). Returns 1
-// with *out set on a full match; 0 otherwise (caller falls through to the
-// decimal-literal path, which rejects the text).
-bool TryMatchInfinityWord(const char16_t* p, const char16_t* end, double* out)
-{
-    while (p < end && IsAsciiWhitespace(*p))
-    {
-        ++p;
-    }
-    bool negative = false;
-    if (p < end && *p == u'-' && p + 1 < end && p[1] == u'\u221E')
-    {
-        negative = true;
-        p += 2;
-    }
-    else if (p < end && *p == u'\u221E')
-    {
-        p += 1;
-    }
-    else
-    {
-        return false;
-    }
-    while (p < end && IsAsciiWhitespace(*p))
-    {
-        ++p;
-    }
-    if (p != end)
-    {
-        return false; // trailing junk after the symbol ("U+221Ex", "U+221EU+221E", ...)
-    }
-    *out = negative ? -std::numeric_limits<double>::infinity()
-                    : std::numeric_limits<double>::infinity();
-    return true;
-}
-
-// Grammar validation for double.Parse (see header): optional ASCII
-// whitespace, the exact word "NaN", OR a C-style decimal literal (sign,
-// digits, optional '.', optional e/E exponent). The ASCII words
-// "Infinity"/"-Infinity" are NOT matched here: net48 reads the infinity
-// words from the culture's NumberFormatInfo (zh-CN uses the U+221E symbol,
-// handled in icall_string_parse_double BEFORE the ASCII projection), so the
-// ASCII spelling must fall through to the decimal-literal path and fail.
-// Hex floats ("0x1p3"), abbreviated "inf"/"nan" and "+Infinity"/"-NaN" are
-// also rejected -- they are NOT legal .NET double text.
-// AllowThousands: ',' separators between integral digits (saudit2).
-bool IsValidDoubleText(const char* s, char* cleaned)
-{
-    const char* p = s;
-    char* out = cleaned;
-    while (IsAsciiWhitespaceAscii(*p))
-    {
-        *out++ = *p++;
-    }
-    const char* spec = nullptr;
-    if (std::strncmp(p, "NaN", 3) == 0)
-    {
-        spec = p + 3;
-    }
-    if (spec != nullptr)
-    {
-        while (p != spec)
-        {
-            *out++ = *p++;
-        }
-        while (IsAsciiWhitespaceAscii(*p))
-        {
-            *out++ = *p++;
-        }
-        *out = '\0';
-        return *p == '\0';
-    }
-    if (*p == '+' || *p == '-')
-    {
-        *out++ = *p++;
-    }
-    // saudit2: the integral run accepts the zh-CN thousands separator ','
-    // between two digits (net48 default NumberStyles Float|AllowThousands).
-    int before = 0;
-    for (;;)
-    {
-        if (*p >= '0' && *p <= '9')
-        {
-            ++before;
-            *out++ = *p++;
-            continue;
-        }
-        if (*p == ',' && before > 0 && p[1] >= '0' && p[1] <= '9')
-        {
-            ++p; // group separator: validated, NOT copied
-            continue;
-        }
-        break;
-    }
-    if (*p == '.')
-    {
-        *out++ = *p++;
-    }
-    int after = 0;
-    while (*p >= '0' && *p <= '9')
-    {
-        ++after;
-        *out++ = *p++;
-    }
-    if (before + after == 0)
-    {
-        return false;
-    }
-    if (*p == 'e' || *p == 'E')
-    {
-        *out++ = *p++;
-        if (*p == '+' || *p == '-')
-        {
-            *out++ = *p++;
-        }
-        int expDigits = 0;
-        while (*p >= '0' && *p <= '9')
-        {
-            ++expDigits;
-            *out++ = *p++;
-        }
-        if (expDigits == 0)
-        {
-            return false;
-        }
-    }
-    while (IsAsciiWhitespaceAscii(*p))
-    {
-        *out++ = *p++;
-    }
-    *out = '\0';
-    return *p == '\0';
 }
 
 } // namespace
@@ -661,19 +522,19 @@ int32_t icall_char_parse(Il2CppString* text)
 }
 
 //------------------------------------------------------------------------------
-// icall_string_parse_double -- double.Parse (net48, zh-CN culture):
-//   * skips leading/trailing ASCII whitespace
-//   * legal double text: the culture words "NaN" and U+221E/-U+221E (zh-CN
-//     NumberFormatInfo; ASCII "Infinity"/"-Infinity" are NOT legal -> Format
-//     Exception), or a decimal literal with optional sign, fraction and e/E
-//     exponent (validated up front)
-//   * invalid text -> FormatException
-//   * |value| beyond double.MaxValue -> OverflowException (net48 contract;
-//     .NET Core 3.0+ returns Infinity instead); underflow -> 0.0
-//   The conversion itself uses strtod (C locale: the runtime never calls
-//   setlocale, so '.' is the decimal separator); the grammar validator runs
-//   first so strtod's superset inputs (hex floats, "inf"/"nan") are never
-//   accepted.
+// icall_string_parse_double -- double.Parse(string) (net48 default):
+// NumberStyles.Float | AllowThousands against the CURRENT culture, which is
+// what the shared provider-aware core in parse_styles.cpp implements. That
+// means:
+//   * the group separator of the current culture IS accepted ("1,000" ->
+//     1000 on an invariant/zh-CN host, "1.000" -> 1000 on de-DE);
+//   * leading/trailing char.IsWhiteSpace units are trimmed (not just ASCII);
+//   * the special words come from the culture's NumberFormatInfo (zh-CN
+//     U+221E/-U+221E; the ASCII "Infinity"/"-Infinity" spellings are NOT
+//     legal there -> FormatException).
+// Invalid text -> FormatException; |value| beyond double.MaxValue ->
+// OverflowException (net48 contract; .NET Core 3.0+ returns Infinity);
+// underflow -> 0.0.
 //------------------------------------------------------------------------------
 double icall_string_parse_double(Il2CppString* text)
 {
@@ -681,66 +542,20 @@ double icall_string_parse_double(Il2CppString* text)
     {
         il2cpp_throw_format_exception("String reference not set to an instance of a String.");
     }
-    // Special words first, on the ORIGINAL UTF-16 text: net48 reads the
-    // infinity words from the culture's NumberFormatInfo (zh-CN = the U+221E
-    // symbol), so U+221E/-U+221E parse to +/-Infinity while the ASCII
-    // "Infinity"/"-Infinity" spellings fall through below and fail the
-    // validator -> FormatException (net48 zh-CN probe-pinned).
+    double value = 0.0;
+    switch (il2cpp_parse_double_default(text->chars, text->length, nullptr, &value))
     {
-        double special = 0.0;
-        if (TryMatchInfinityWord(text->chars, text->chars + text->length, &special))
-        {
-            return special;
-        }
-    }
-    // The byte buffer holds the ASCII projection of the text. It is sized to
-    // the full text (a .NET double literal has no length limit: a 200-digit
-    // integer is legal and parses to ~1e199 -- never truncate silently).
-    // RAII frees on every path, including the exception paths below (iron
-    // rule: zero leaks on the exceptional path).
-    const size_t byteLen = static_cast<size_t>(text->length) + 1; // + NUL
-    std::unique_ptr<char, void (*)(void*)> ownedBuf(
-        static_cast<char*>(std::malloc(byteLen)), &std::free);
-    if (ownedBuf == nullptr)
-    {
-        il2cpp_throw_new("System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
-                         "Insufficient memory to continue the execution of the program.");
-    }
-    std::unique_ptr<char, void (*)(void*)> ownedClean(
-        static_cast<char*>(std::malloc(byteLen)), &std::free);
-    if (ownedClean == nullptr)
-    {
-        il2cpp_throw_new("System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
-                         "Insufficient memory to continue the execution of the program.");
-    }
-    char* const buf = ownedBuf.get();
-    char* const clean = ownedClean.get();
-    for (int32_t i = 0; i < text->length; ++i)
-    {
-        const char16_t c = text->chars[i];
-        if (c > 0x7F)
-        {
-            // Non-ASCII text is never legal under the supported grammar.
-            il2cpp_throw_format_exception("Input string was not in a correct format.");
-        }
-        buf[i] = static_cast<char>(c);
-    }
-    buf[text->length] = '\0';
-    if (!IsValidDoubleText(buf, clean))
-    {
-        il2cpp_throw_format_exception("Input string was not in a correct format.");
-    }
-    errno = 0;
-    char* end = nullptr;
-    const double result = std::strtod(clean, &end);
-    (void)end; // the validator guarantees the full buffer was consumed
-    if (errno == ERANGE && std::isinf(result))
-    {
-        // net48: out-of-range magnitude -> OverflowException (double.MaxValue
-        // itself does not set ERANGE, so it parses fine).
+    case 0:
+        return value;
+    case 2:
         il2cpp_throw_overflow_exception("Value was either too large or too small for a Double.");
+        break;
+    default:
+        il2cpp_throw_format_exception("Input string was not in a correct format.");
+        break;
     }
-    return result;
+    return 0.0; // unreachable (the throw helpers do not return)
 }
 
 }} // namespace il2cpp::runtime
+

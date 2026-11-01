@@ -249,6 +249,10 @@ public static class CodeGenerator
         // M6 include-table rebuild dropped it, so TryParse emitting cases
         // (numchain/parsecase) failed to compile against the namespace.
         generatedHeader.Line("#include \"il2cpp_parse.h\"");
+        // impl-input-contracts: the IFormatProvider/NumberStyles-aware numeric
+        // parse icalls (double.Parse/TryParse with an explicit style/provider)
+        // live in their own header; the mapper routes those overloads there.
+        generatedHeader.Line("#include \"il2cpp_parse_styles.h\"");
         // tuple1 (ValueTuple): the C# tuple struct helpers
         // (il2cpp_tuple_element_to_string / _hash / _combine_hash).
         generatedHeader.Line("#include \"il2cpp_valuetuple.h\"");

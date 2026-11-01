@@ -13,6 +13,7 @@
 
 #include "decimal_format.h"
 
+#include "cultureinfo.h" // provider NumberFormatInfo (group/decimal separators)
 #include "il2cpp_exception_ext.h"
 
 #include <cstdio>
@@ -961,6 +962,13 @@ bool MulAdd96(uint32_t& hi32, uint64_t& lo64, uint32_t d)
 
 ParseStatus ParseCore(Il2CppString* text, Il2CppDecimal* out)
 {
+    // net48 decimal.Parse(string) is NumberStyles.Number against the CURRENT
+    // culture, so the group and decimal separators come from that culture's
+    // NumberFormatInfo (measured: de-DE parses "1.000" as 1000 and "1,000"
+    // as 1.000). The provider is implicitly the current culture here.
+    Il2CppCultureNumberInfo ci;
+    il2cpp_culture_number_info(nullptr, &ci);
+
     const char16_t* p = text->chars;
     int32_t n = text->length;
 
@@ -998,7 +1006,7 @@ ParseStatus ParseCore(Il2CppString* text, Il2CppDecimal* out)
     uint32_t hi32 = 0;
     uint64_t lo64 = 0;
 
-    for (; i < static_cast<size_t>(n); ++i)
+    while (i < static_cast<size_t>(n))
     {
         const char16_t c = p[i];
         if (c >= '0' && c <= '9')
@@ -1028,29 +1036,30 @@ ParseStatus ParseCore(Il2CppString* text, Il2CppDecimal* out)
                     return ParseStatus::Overflow; // mantissa > 2^96 - 1
                 }
             }
+            ++i;
+            continue;
         }
-        else if (c == '.')
+        if (!sawPoint && ci.numberDecimalSeparatorLength > 0 &&
+            static_cast<int32_t>(n - i) >= ci.numberDecimalSeparatorLength &&
+            std::memcmp(p + i, ci.numberDecimalSeparator,
+                        sizeof(char16_t) * static_cast<size_t>(ci.numberDecimalSeparatorLength)) == 0)
         {
-            if (sawPoint)
-            {
-                return ParseStatus::Format;
-            }
             sawPoint = true;
+            i += static_cast<size_t>(ci.numberDecimalSeparatorLength);
+            continue;
         }
-        else if (c == ',')
+        // Group separators are skipped WITHOUT grouping validation, but only
+        // after the first digit and before the decimal point (net48: "1,,2"
+        // -> 12 and "1," -> 1 are legal; ",1" is a FormatException).
+        if (sawDigit && !sawPoint && ci.numberGroupSeparatorLength > 0 &&
+            static_cast<int32_t>(n - i) >= ci.numberGroupSeparatorLength &&
+            std::memcmp(p + i, ci.numberGroupSeparator,
+                        sizeof(char16_t) * static_cast<size_t>(ci.numberGroupSeparatorLength)) == 0)
         {
-            // thousands separator (NumberStyles.Number AllowThousands):
-            // tolerated only between digits
-            if (!sawDigit || i + 1 >= static_cast<size_t>(n) ||
-                p[i + 1] < '0' || p[i + 1] > '9')
-            {
-                return ParseStatus::Format;
-            }
+            i += static_cast<size_t>(ci.numberGroupSeparatorLength);
+            continue;
         }
-        else
-        {
-            return ParseStatus::Format;
-        }
+        return ParseStatus::Format;
     }
 
     if (!sawDigit)
@@ -1143,7 +1152,27 @@ struct StyledNumber
 
 // net48 Number.TryParseNumber (comnumber.cpp). Returns false on malformed
 // input (FormatException); on success 'nb' holds the digit string + scale.
-bool ParseStyledNumber(const char16_t* p, int32_t n, int32_t styles, StyledNumber& nb)
+// The separator/symbol characters come from 'ci' (the PROVIDER's
+// NumberFormatInfo -- cultureinfo.cpp / il2cpp_culture_number_info), never
+// from a hardcoded ',' / '.'.
+bool UnicodeEquals(const char16_t* p, const char16_t* end, const char16_t* sym, int32_t symLen)
+{
+    if (symLen <= 0 || end - p < symLen)
+    {
+        return false;
+    }
+    for (int32_t i = 0; i < symLen; ++i)
+    {
+        if (p[i] != sym[i])
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ParseStyledNumber(const char16_t* p, int32_t n, int32_t styles,
+                       const Il2CppCultureNumberInfo& ci, StyledNumber& nb)
 {
     const char16_t* const end = p + n;
     const int32_t StateSign = 0x01;
@@ -1182,7 +1211,8 @@ bool ParseStyledNumber(const char16_t* p, int32_t n, int32_t styles, StyledNumbe
                 state |= StateSign | StateParens;
                 nb.negative = true;
             }
-            else if (currencyPending && ch == kInvariantCurrencySymbol)
+            else if (currencyPending && ci.currencySymbolLength == 1 &&
+                     ch == ci.currencySymbol[0])
             {
                 state |= StateCurrency;
                 currencyPending = false;
@@ -1227,15 +1257,22 @@ bool ParseStyledNumber(const char16_t* p, int32_t n, int32_t styles, StyledNumbe
             }
         }
         else if ((styles & kStyleAllowDecimalPoint) != 0 && (state & StateDecimal) == 0 &&
-                 ch == u'.')
+                 UnicodeEquals(p, end, ci.numberDecimalSeparator, ci.numberDecimalSeparatorLength))
         {
             state |= StateDecimal;
+            p += ci.numberDecimalSeparatorLength;
+            ch = p < end ? *p : u'\0';
+            continue;
         }
         else if ((styles & kStyleAllowThousands) != 0 && (state & StateDigits) != 0 &&
-                 (state & StateDecimal) == 0 && ch == u',')
+                 (state & StateDecimal) == 0 &&
+                 UnicodeEquals(p, end, ci.numberGroupSeparator, ci.numberGroupSeparatorLength))
         {
             // Group separators are skipped (net48 accepts them anywhere after
             // the first digit, including trailing/double separators).
+            p += ci.numberGroupSeparatorLength;
+            ch = p < end ? *p : u'\0';
+            continue;
         }
         else
         {
@@ -1323,7 +1360,8 @@ bool ParseStyledNumber(const char16_t* p, int32_t n, int32_t styles, StyledNumbe
             {
                 state &= ~StateParens;
             }
-            else if (currencyPending && ch == kInvariantCurrencySymbol)
+            else if (currencyPending && ci.currencySymbolLength == 1 &&
+                     ch == ci.currencySymbol[0])
             {
                 currencyPending = false;
             }
@@ -1593,16 +1631,17 @@ void icall_decimal_parse_styles(Il2CppDecimal* result, Il2CppString* text,
 {
     // Argument validation order matches net48 (styles before the null text).
     ValidateParseStyles(styles);
-    // 'provider' is intentionally UNUSED beyond this point: the runtime
-    // culture is invariant-only (decimal_format.h trade-off note), so a null
-    // provider (current culture) and any explicit provider are equivalent.
-    (void)provider;
+    // The provider is the culture NAME (CultureInfo handle-gap); nullptr means
+    // the CURRENT culture, exactly like net48. Its NumberFormatInfo decides
+    // the accepted group/decimal separators and currency symbol.
+    Il2CppCultureNumberInfo ci;
+    il2cpp_culture_number_info(provider, &ci);
     if (text == nullptr)
     {
         il2cpp_throw_argument_null_exception("String");
     }
     StyledNumber nb = StyledNumber();
-    if (!ParseStyledNumber(text->chars, text->length, styles, nb))
+    if (!ParseStyledNumber(text->chars, text->length, styles, ci, nb))
     {
         il2cpp_throw_format_exception(nullptr);
     }
@@ -1624,7 +1663,9 @@ bool icall_decimal_try_parse_styles(Il2CppString* text, int32_t styles,
     // net48 validates the STYLE before anything else, so TryParse still
     // throws ArgumentException for hex / undefined style values.
     ValidateParseStyles(styles);
-    (void)provider; // invariant-only culture (see the header trade-off note)
+    // Provider == culture name (nullptr = current culture), same as Parse.
+    Il2CppCultureNumberInfo ci;
+    il2cpp_culture_number_info(provider, &ci);
     if (result != nullptr)
     {
         std::memset(result, 0, sizeof(*result));
@@ -1634,7 +1675,7 @@ bool icall_decimal_try_parse_styles(Il2CppString* text, int32_t styles,
         return false;
     }
     StyledNumber nb = StyledNumber();
-    if (!ParseStyledNumber(text->chars, text->length, styles, nb))
+    if (!ParseStyledNumber(text->chars, text->length, styles, ci, nb))
     {
         return false;
     }
@@ -1642,3 +1683,5 @@ bool icall_decimal_try_parse_styles(Il2CppString* text, int32_t styles,
 }
 
 }} // namespace il2cpp::runtime
+
+

@@ -42,6 +42,33 @@ bool IsDashPosition(int32_t i)
     return i == 8 || i == 13 || i == 18 || i == 23;
 }
 
+// char.IsWhiteSpace over UTF-16 code units -- the literal set net48's
+// Guid input trimming uses (System.String.Trim() trims exactly the
+// char.IsWhiteSpace set). Listed literally so the runtime never depends on
+// the host C++ locale; U+FEFF and U+180E are NOT whitespace in net48
+// (measured: Guid.TryParse rejects them at the edges).
+bool IsGuidWhitespace(char16_t c)
+{
+    switch (c)
+    {
+        case u'\t': case u'\n': case u'\v': case u'\f': case u'\r':
+        case u' ':
+        case u'\x0085':  // NEL
+        case u'\x00A0':  // NBSP
+        case u'\x1680':  // OGHAM SPACE MARK
+        case u'\x2000': case u'\x2001': case u'\x2002': case u'\x2003':
+        case u'\x2004': case u'\x2005': case u'\x2006': case u'\x2007':
+        case u'\x2008': case u'\x2009': case u'\x200A':
+        case u'\x2028': case u'\x2029':
+        case u'\x202F':  // NARROW NBSP
+        case u'\x205F':  // MEDIUM MATHEMATICAL SPACE
+        case u'\x3000':  // IDEOGRAPHIC SPACE
+            return true;
+        default:
+            return false;
+    }
+}
+
 // Hex nibble value of a UTF-16 unit; -1 when not a hex digit.
 int32_t HexValue(char16_t c)
 {
@@ -170,8 +197,24 @@ void il2cpp_guid_ctor_bytes(uint8_t bytes[16], Il2CppArray* b)
 }
 
 //------------------------------------------------------------------------------
-// Parse -- strict "D" (36-char, dashes at 8/13/18/23) or "N" (32-char, no
-// dashes) form, both net48-accepted (TryParse-style, verify-then-mutate).
+// Parse -- net48 Guid.TryParse/Parse input grammar (MEASURED on a real net48
+// CLR; the earlier "strict D/N only" reading was wrong about B and P):
+//   1. Trim leading/trailing char.IsWhiteSpace code units. net48 trims the
+//      outer text BEFORE looking at the decoration, so "  {D}  " is legal,
+//      and so are U+00A0 / U+2003 edges; U+FEFF / U+180E are NOT whitespace
+//      there and fail.
+//   2. After trimming, exactly one of:
+//        N -- 32 hex chars, no dashes
+//        D -- 36 chars, dashes at 8/13/18/23, hex elsewhere
+//        B -- "{" + D + "}"
+//        P -- "(" + D + ")"
+//      Anything else (mismatched braces/parens, doubled decoration,
+//      whitespace INSIDE the braces -- which also changes the length --,
+//      an N body inside braces, wrong length/positions) is rejected.
+// The "X" form ("{0x…,0x…,0x…,{0x…}}") IS accepted by net48 but is NOT
+// implemented here (recorded deviation, see guid.h).
+// TryParse-style: verify-then-mutate, so a rejected input never touches the
+// output buffer.
 //------------------------------------------------------------------------------
 bool il2cpp_guid_parse(Il2CppString* s, uint8_t bytes[16])
 {
@@ -179,28 +222,45 @@ bool il2cpp_guid_parse(Il2CppString* s, uint8_t bytes[16])
     {
         return false;
     }
-    if (s->length == 36)
+    int32_t begin = 0;
+    int32_t end = s->length;
+    while (begin < end && IsGuidWhitespace(s->chars[begin]))
+    {
+        ++begin;
+    }
+    while (end > begin && IsGuidWhitespace(s->chars[end - 1]))
+    {
+        --end;
+    }
+    const char16_t* p = s->chars + begin;
+    int32_t n = end - begin;
+    if (n == 38 && ((p[0] == u'{' && p[37] == u'}') || (p[0] == u'(' && p[37] == u')')))
+    {
+        ++p;    // B ("{D}") / P ("(D)"): the decoration is not part of the body
+        n = 36;
+    }
+    if (n == 36)
     {
         for (int32_t i = 0; i < 36; ++i)
         {
             if (IsDashPosition(i))
             {
-                if (s->chars[i] != u'-')
+                if (p[i] != u'-')
                 {
                     return false;
                 }
             }
-            else if (HexValue(s->chars[i]) < 0)
+            else if (HexValue(p[i]) < 0)
             {
                 return false;
             }
         }
     }
-    else if (s->length == 32)
+    else if (n == 32)
     {
         for (int32_t i = 0; i < 32; ++i)
         {
-            if (HexValue(s->chars[i]) < 0)
+            if (HexValue(p[i]) < 0)
             {
                 return false;
             }
@@ -210,13 +270,13 @@ bool il2cpp_guid_parse(Il2CppString* s, uint8_t bytes[16])
     {
         return false;
     }
-    const CharPair* pairs = (s->length == 36) ? kPairs : kNFormatPairs;
+    const CharPair* pairs = (n == 36) ? kPairs : kNFormatPairs;
     uint8_t out[16];
     for (int32_t k = 0; k < 16; ++k)
     {
         const CharPair& pair = pairs[k];
-        const int32_t hi = HexValue(s->chars[pair.c0]);
-        const int32_t lo = HexValue(s->chars[pair.c1]);
+        const int32_t hi = HexValue(p[pair.c0]);
+        const int32_t lo = HexValue(p[pair.c1]);
         out[pair.byteIdx] = static_cast<uint8_t>((hi << 4) | lo);
     }
     std::memcpy(bytes, out, 16);

@@ -170,4 +170,36 @@ Il2CppString* il2cpp_culture_get_percent_group_separator();
 // NumberFormatInfo.PerMilleSymbol of the invariant culture: U+2030.
 Il2CppString* il2cpp_culture_get_per_mille_symbol();
 
+// --- Provider-resolved NumberFormatInfo (parse-side) --------------------
+//
+// The parse/serialize surfaces receive an IFormatProvider. This runtime has
+// no IFormatProvider object model: a provider IS its culture-NAME string
+// (CultureInfo handle-gap, see above), so a provider argument is read as a
+// culture name. nullptr means "no provider" == the CURRENT culture, exactly
+// like net48 (double.Parse(string) uses NumberStyles.Float|AllowThousands
+// with CurrentCulture).
+//
+// `Il2CppCultureNumberInfo` carries the NumberFormatInfo members the numeric
+// parsers need. Every field is a UTF-16 string so a multi-unit symbol would
+// work; the measured table below is one code unit per field except the
+// infinity words.
+struct Il2CppCultureNumberInfo
+{
+    const char16_t* numberGroupSeparator;   // ","
+    int32_t numberGroupSeparatorLength;
+    const char16_t* numberDecimalSeparator; // "."
+    int32_t numberDecimalSeparatorLength;
+    const char16_t* currencySymbol;         // U+00A4 (invariant)
+    int32_t currencySymbolLength;
+    // Infinity words: invariant spells them in ASCII, every other culture the
+    // runtime knows uses U+221E / -U+221E (measured).
+    bool asciiInfinityWords;
+};
+
+// Resolve 'provider' (a culture-name string or nullptr) to the values above.
+// The name is compared case-insensitively against the culture table
+// (cultureinfo.cpp); an UNKNOWN name falls back to the invariant row, which
+// is the same fallback il2cpp_culture_get_current documents.
+void il2cpp_culture_number_info(Il2CppObject* provider, Il2CppCultureNumberInfo* out);
+
 }} // namespace il2cpp::runtime
