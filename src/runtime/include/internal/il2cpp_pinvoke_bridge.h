@@ -54,14 +54,13 @@
 // il2cpp_exception.h; no include cycle -- that header pulls only the C++
 // standard <exception>). <exception> is brought in transitively.
 #include "il2cpp_exception.h"
-// array parameters: Il2CppArray payload addressing + the GC root/pin contract
-// (il2cpp_gc_add_static_root = strong root, il2cpp_gc_add_pinned = immovable).
-#include "il2cpp_array.h"
-#include "il2cpp_gc.h"
-
-// array P/Invoke parameters: the pinned-array helpers below read Il2CppArray's
-// payload and register the array with the collector, so both contracts must be
-// visible (both headers are cycle-free -- they pull only object/metadata).
+// array parameters: the pinned-array helpers below read Il2CppArray's payload
+// and register the array with the collector, so both contracts must be visible:
+//   * il2cpp_array.h -- Il2CppArray payload addressing;
+//   * il2cpp_gc.h    -- il2cpp_gc_add_static_root (strong root) and
+//                       il2cpp_gc_add_pinned (immovable) -- the pin alone does
+//                       NOT root the object.
+// Both headers are cycle-free (they pull only object/metadata).
 #include "il2cpp_array.h"
 #include "il2cpp_gc.h"
 
@@ -195,7 +194,6 @@ inline Il2CppPinvokeBoolRef il2cpp_pinvoke_bool_ref(int32_t& slot)
     return Il2CppPinvokeBoolRef(slot);
 }
 
-//------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
 // ARRAY parameters (managed array -> native buffer).
 //
