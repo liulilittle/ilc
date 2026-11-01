@@ -39,6 +39,7 @@
 #include "decimal.h"      // P0LINQ1: runtime::Il2CppDecimal (the zip value result)
 #include "il2cpp_time.h"  // P0LINQ1: runtime::Il2CppDateTime / Il2CppTimeSpan
 #include "guid.h"         // P0LINQ1: Il2CppGuid (the zip value result)
+#include "il2cpp_string_ext2.h" // impl-collation: il2cpp_string_compare_culture (string Min/Max)
 
 #include <cstdio>
 #include <cstdint>
@@ -564,6 +565,109 @@ Il2CppGuid il2cpp_linq_max_guid(Il2CppArray* src)
         if (il2cpp_guid_compare(elem, best.b) > 0)
         {
             std::memcpy(best.b, elem, sizeof(best.b));
+        }
+    }
+    return best;
+}
+
+//------------------------------------------------------------------------------
+// impl-collation: Enumerable.Min/Max over a System.String SOURCE.
+//
+// net48 compares the elements with Comparer<string>.Default, i.e.
+// CultureInfo.CurrentCulture.CompareInfo (CompareOptions.None) -- CULTURE
+// collation, not ordinal ("a" sorts before "B"). The comparison goes through
+// runtime::il2cpp_string_compare_culture (stringext2.cpp), which on Windows is
+// the same OS NLS primitive net48 uses (CompareStringEx), so the ordering is
+// equivalent by construction, and on non-Windows is the documented ASCII fold.
+//
+// net48 null contract (probe-pinned on the zh-CN host, .opencode/tmp/
+// impl-collation NOTES):
+//   * an EMPTY source or an ALL-NULL source answers NULL -- Min/Max over
+//     string does NOT throw (unlike the numeric entries);
+//   * a null element sorts BEFORE every non-null element, and the WINNING
+//     OPERAND is returned (so a single-null-plus-values source answers the
+//     smallest value, not null: new[]{"b",null,"A"}.Min() == "A").
+//     Equivalent formulation, used below: the running best starts as the
+//     first NON-NULL element and a null candidate never replaces it.
+// The result is a reference (the winning element itself, never a copy).
+//------------------------------------------------------------------------------
+namespace {
+
+// The first non-null slot of 'src' at or after 'from', or -1.
+int32_t FirstNonNullRef(Il2CppArray* src, int32_t from)
+{
+    const int32_t n = src->length;
+    for (int32_t i = from; i < n; ++i)
+    {
+        Il2CppObject* elem = *reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(src, i));
+        if (elem != nullptr)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+} // namespace
+
+Il2CppObject* il2cpp_linq_min_string(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (!src->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "LINQ string aggregate: source is not a reference-element array.");
+    }
+    int32_t found = FirstNonNullRef(src, 0);
+    if (found < 0)
+    {
+        return nullptr; // empty or all-null -> null (net48)
+    }
+    Il2CppObject* best = *reinterpret_cast<Il2CppObject**>(
+        il2cpp_array_get_elem_ptr(src, found));
+    for (int32_t i = found + 1; i < src->length; ++i)
+    {
+        Il2CppObject* elem = *reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(src, i));
+        if (elem == nullptr)
+        {
+            continue; // null never wins once a value exists (net48)
+        }
+        if (runtime::il2cpp_string_compare_culture(elem, best, 0) < 0)
+        {
+            best = elem;
+        }
+    }
+    return best;
+}
+
+Il2CppObject* il2cpp_linq_max_string(Il2CppArray* src)
+{
+    CheckSource(src);
+    if (!src->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "LINQ string aggregate: source is not a reference-element array.");
+    }
+    int32_t found = FirstNonNullRef(src, 0);
+    if (found < 0)
+    {
+        return nullptr; // empty or all-null -> null (net48)
+    }
+    Il2CppObject* best = *reinterpret_cast<Il2CppObject**>(
+        il2cpp_array_get_elem_ptr(src, found));
+    for (int32_t i = found + 1; i < src->length; ++i)
+    {
+        Il2CppObject* elem = *reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(src, i));
+        if (elem == nullptr)
+        {
+            continue;
+        }
+        if (runtime::il2cpp_string_compare_culture(elem, best, 0) > 0)
+        {
+            best = elem;
         }
     }
     return best;

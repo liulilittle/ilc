@@ -576,5 +576,18 @@ runtime::Il2CppTimeSpan  il2cpp_linq_max_ts(Il2CppArray* src);
 Il2CppGuid               il2cpp_linq_min_guid(Il2CppArray* src);
 Il2CppGuid               il2cpp_linq_max_guid(Il2CppArray* src);
 
+//------------------------------------------------------------------------------
+// impl-collation: Enumerable.Min/Max over a System.String SOURCE -- net48 uses
+// Comparer<string>.Default (CultureInfo.CurrentCulture.CompareInfo with
+// CompareOptions.None), i.e. CULTURE collation. The comparison goes through
+// runtime::il2cpp_string_compare_culture (the same OS NLS primitive net48 uses
+// on Windows). net48 answers the WINNING ELEMENT by reference; an empty or
+// all-null source answers null (string Min/Max never throws InvalidOperation-
+// Exception -- unlike the numeric entries); a null element orders before every
+// non-null element but is never the winner when a non-null element exists.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_min_string(Il2CppArray* src);
+Il2CppObject* il2cpp_linq_max_string(Il2CppArray* src);
+
 } // namespace il2cpp
 

@@ -197,9 +197,13 @@ Il2CppArray* il2cpp_linq_then_by_key_desc_i4_d(Il2CppArray* src, Il2CppObject* k
 //        reader -- a 4-byte float return read through a double fn-pointer
 //        mixes the callee's XMM0 residue into every key, the b5-gaps §14
 //        misread);
-//   _ref TKey is a reference: strings compare ORDINAL (Comparer<string>.Default
-//        -- the arraysort ordinal contract), any other reference type defers to
+//   _ref TKey is a reference of statically unknown type: a System.String key is
+//        detected at instance level and compared with CULTURE collation
+//        (impl-collation: net48 Comparer<string>.Default; see
+//        il2cpp_string_compare_culture), any other reference type defers to
 //        IComparable.CompareTo on the first key (Comparer<T>.Default).
+//        A key that is STATICALLY System.String uses the _ref_string entry
+//        below, which pins the culture comparison at the call site.
 // Keys are cached EXACTLY ONCE per element (net48 EnumerableSorter). The
 // result is a NEW reference array; the source is never modified. `desc`
 // non-zero flips the order.
@@ -213,6 +217,35 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_f(Il2CppArray* src, Il2CppObject* keyS
                                             int32_t desc);
 Il2CppArray* il2cpp_linq_order_by_key_ref_ref(Il2CppArray* src, Il2CppObject* keySel,
                                               int32_t desc);
+// impl-collation: OrderBy / OrderByDescending over a reference-element source
+// with a STATICALLY System.String key. net48 compares those keys with
+// Comparer<string>.Default => CultureInfo.CurrentCulture.CompareInfo,
+// CompareOptions.None (CULTURE collation: "a" before "B"; for case-only
+// differences the lowercase string sorts first). Implemented with
+// runtime::il2cpp_string_compare_culture (the OS NLS CompareStringEx primitive
+// net48 uses on Windows). null keys order first (net48) -- the null check runs
+// before the comparator, so a null key never reaches CompareStringEx. Stable
+// (net48 OrderBy is stable), single key cache per element, fresh result array.
+Il2CppArray* il2cpp_linq_order_by_key_ref_string(Il2CppArray* src, Il2CppObject* keySel,
+                                                 int32_t desc);
+
+// impl-collation: the reference-element ThenBy / ThenByDescending FUSED
+// COMPOSITE, i.e. the net48 EnumerableSorter chain for
+// OrderBy(k1).ThenBy(k2). The primary key's comparison wins and the secondary
+// key only breaks ties; equal (k1, k2) pairs keep their source order (stable).
+// Each selector runs exactly once per element.
+//
+// The two key families are independent and ride trailing literals, the same
+// contract as the value-source composites (impl-thenbyfam) extended with the
+// collation family:
+//   family 0 = int32, 1 = int64, 2 = double, 3 = float, 4 = System.String
+// A String family compares through runtime::il2cpp_string_compare_culture
+// (null-first, then CompareStringEx). The transpiler gates both families
+// compile-time; an out-of-range pair is a LOUD InvalidOperationException,
+// never a guessed reader.
+Il2CppArray* il2cpp_linq_then_by_key_ref(Il2CppArray* src, Il2CppObject* k1Sel,
+                                         Il2CppObject* k2Sel, int32_t k1desc,
+                                         int32_t k2desc, int32_t k1fam, int32_t k2fam);
 
 //------------------------------------------------------------------------------
 // p0conv2 (D3): Enumerable.OrderBy / OrderByDescending over an int64 (long[] /

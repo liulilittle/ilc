@@ -48,6 +48,7 @@
 #include "guid.h"        // impl-linq3 (B): the System.Guid key carrier + compare
 #include "il2cpp_time.h" // impl-linq3 (B): the System.DateTime key carrier
 #include "il2cpp_dtoffset.h" // impl-vtsel: the System.DateTimeOffset key carrier
+#include "il2cpp_string_ext2.h" // impl-collation: il2cpp_string_compare_culture (string keys)
 
 #include <cstdint>
 #include <cstdlib>
@@ -1590,37 +1591,35 @@ Il2CppArray* SortRefsKeyCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc
 
 // Ordering of two reference KEYS.
 //
-// A string key is rejected OUT LOUD, never routed through an ordinal shortcut:
-// Enumerable.OrderBy compares keys with Comparer<TKey>.Default, and net48's
-// Comparer<string>.Default is CULTURE-aware (it sorts "a" before "A" and
-// applies OS-NLS collation weights). This runtime has no collation
-// infrastructure, so an ordinal comparison would SILENTLY MISORDER mixed-case
-// input -- a wrong value, not a documented deviation. The transpiler rejects a
-// STATICALLY string TKey (MethodMap.Linq.cs); an `object`/interface key cannot
-// be judged at compile time, so the runtime instance check below is the only
-// correct place for those.
+// impl-collation: a System.String key orders through
+// runtime::il2cpp_string_compare_culture -- net48's Comparer<string>.Default
+// (CultureInfo.CurrentCulture.CompareInfo, CompareOptions.None), implemented on
+// the same OS NLS primitive (CompareStringEx with the current locale) net48
+// itself uses on Windows. It is NOT an ordinal shortcut: an ordinal comparison
+// would silently misorder mixed-case input ("a" sorts before "A" under culture,
+// after it under ordinal), which is a wrong value rather than a deviation.
 //
 // Every other reference type defers to IComparable.CompareTo on the first key
 // (Comparer<T>.Default), null-first.
 //
 // The NULL checks come FIRST, deliberately: net48 orders a null key before
 // every non-null key without consulting the comparer at all, so
-// `object[] { null, "a" }.OrderBy(x => x)` must return ",a" -- rejecting that
-// would be a LOUD misfire (a shape the runtime CAN answer correctly). The
-// collation rejection therefore only fires when two NON-NULL keys are compared
-// and at least one is a string.
+// `object[] { null, "a" }.OrderBy(x => x)` must return ",a". The string arm
+// therefore only runs when BOTH keys are non-null.
+//
+// A mixed key pair (one string, one non-string) cannot happen for a
+// Comparer<string>.Default sort: net48 throws ArgumentException ("Object must
+// be of type String") -- and it is what the default comparer's own String arm
+// does (arraysort.cpp TryCompareBoxedBuiltin). This comparator reproduces that
+// through il2cpp_icomparable_compare_to, whose String arm throws the same way.
 int32_t CompareRefKeys(Il2CppObject* a, Il2CppObject* b)
 {
     if (a == b) return 0;
     if (a == nullptr) return -1;
     if (b == nullptr) return 1;
-    if (a->klass == il2cpp_string_class() || b->klass == il2cpp_string_class())
+    if (a->klass == il2cpp_string_class() && b->klass == il2cpp_string_class())
     {
-        il2cpp_throw_not_supported_exception(
-            "Enumerable.OrderBy: a System.String key requires culture-aware collation, "
-            "which the runtime does not implement (see docs/audit/b5-gaps.md); an ordinal "
-            "comparison would silently misorder mixed-case input (net48 "
-            "Comparer<string>.Default sorts a before A)");
+        return runtime::il2cpp_string_compare_culture(a, b, 0);
     }
     return il2cpp_icomparable_compare_to(a, b);
 }
@@ -1678,6 +1677,209 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_ref(Il2CppArray* src, Il2CppObject* ke
     Il2CppDelegate* d = RequireKeySelector(keySel);
     return SortRefsKeyCopy<Il2CppObject*>(s, d, desc != 0, InvokeKeyRefRef,
         CompareRefKeys);
+}
+
+//------------------------------------------------------------------------------
+// impl-collation: OrderBy / OrderByDescending over a REFERENCE-element source
+// with a STATICALLY System.String key (Func<TSource,string>).
+//
+// net48 compares those keys with Comparer<string>.Default, i.e.
+// CultureInfo.CurrentCulture.CompareInfo with CompareOptions.None -- CULTURE
+// collation, so "a" sorts before "B" and, for strings equal apart from case,
+// the lowercase form comes first. The comparison is
+// runtime::il2cpp_string_compare_culture (the same OS NLS primitive net48 uses
+// on Windows; the documented ASCII fold on non-Windows).
+//
+// This has its own entry (rather than reusing the generic _ref one) so the
+// ordering is pinned at the call site: a string key never falls into the
+// IComparable dispatch and never into an ordinal shortcut. Keys are cached
+// EXACTLY ONCE per element and the sort is the shared STABLE merge sort
+// (MergeSortStable -- net48 OrderBy is stable). null keys order first (net48)
+// and the null checks run before the comparator, so a null key never reaches
+// CompareStringEx. The result is a NEW reference array; the source is never
+// written; the slot stores run the write barrier.
+//------------------------------------------------------------------------------
+namespace {
+
+// net48 Comparer<string>.Default for a (source element) key pair: null-first,
+// then the culture collation.
+int32_t CompareStringKeys(Il2CppObject* a, Il2CppObject* b)
+{
+    if (a == b) return 0;
+    if (a == nullptr) return -1;
+    if (b == nullptr) return 1;
+    return runtime::il2cpp_string_compare_culture(a, b, 0);
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_order_by_key_ref_string(Il2CppArray* src, Il2CppObject* keySel,
+                                                 int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortRefsKeyCopy<Il2CppObject*>(s, d, desc != 0, InvokeKeyRefRef,
+        CompareStringKeys);
+}
+
+//------------------------------------------------------------------------------
+// impl-collation: the REFERENCE-element ThenBy / ThenByDescending FUSED
+// COMPOSITE (net48 EnumerableSorter chain for OrderBy(k1).ThenBy(k2)). The
+// primary key's comparison wins; the secondary key only breaks ties; equal
+// (k1, k2) pairs keep their source order (stable). Each selector is invoked
+// EXACTLY ONCE per element.
+//
+// The two key families are independent and ride trailing literals, the same
+// contract as the numeric composites (0=int32, 1=int64, 2=double, 3=float,
+// 4=System.String). A STRING key compares through
+// runtime::il2cpp_string_compare_culture -- net48's Comparer<string>.Default,
+// the same OS NLS primitive (CompareStringEx) with the same null-first rule.
+//
+// GC: elements are read through the ROOTED source array on every access and
+// the result is allocated only after the last selector call, exactly like
+// SortRefsKeyCopy.
+//------------------------------------------------------------------------------
+template <typename TK1, typename TK2, typename Invoke1, typename Invoke2,
+          typename Cmp1, typename Cmp2>
+Il2CppArray* SortRefsTwoKeysCopy(Il2CppArray* src, Il2CppDelegate* k1Sel,
+                                 Il2CppDelegate* k2Sel, bool k1Desc, bool k2Desc,
+                                 Invoke1 invoke1, Invoke2 invoke2,
+                                 Cmp1 cmp1, Cmp2 cmp2)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&k1Sel));
+    roots.Add(reinterpret_cast<void**>(&k2Sel));
+
+    if (n == 0)
+    {
+        return il2cpp_array_new(src->elemClass, sizeof(void*), true, 0);
+    }
+
+    std::vector<TK1> k1(static_cast<size_t>(n));
+    std::vector<TK2> k2(static_cast<size_t>(n));
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        order[i] = i;
+        k1[i] = invoke1(k1Sel, RefSlot(src, i));
+    }
+    for (int32_t i = 0; i < n; ++i)
+    {
+        k2[i] = invoke2(k2Sel, RefSlot(src, i));
+    }
+
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        const int32_t c1 = cmp1(k1[a], k1[b]);
+                        if (c1 != 0)
+                        {
+                            return k1Desc ? -c1 : c1;
+                        }
+                        const int32_t c2 = cmp2(k2[a], k2[b]);
+                        return k2Desc ? -c2 : c2;
+                    });
+
+    Il2CppArray* result = il2cpp_array_new(src->elemClass, sizeof(void*), true, n);
+    roots.Add(reinterpret_cast<void**>(&result));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(result, i));
+        *slot = RefSlot(src, order[i]);
+    }
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(result->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        il2cpp_write_barrier(reinterpret_cast<void**>(&slots[i]), slots[i]);
+    }
+    return result;
+}
+
+namespace {
+
+// The (k1fam, k2fam) dispatch for the reference-element composite. 0=int32,
+// 1=int64, 2=double, 3=float, 4=string -- the LinqValKeyFamilyCode contract
+// extended with the collation family.
+Il2CppArray* SortRefsTwoKeysFamDispatch(Il2CppArray* s, Il2CppDelegate* d1,
+                                        Il2CppDelegate* d2, bool k1Desc,
+                                        bool k2Desc, int32_t k1fam, int32_t k2fam)
+{
+#define REFSAM_K2_CASES(K1TYPE, K1INV, K1CMP)                                              \
+    case 0: return SortRefsTwoKeysCopy<K1TYPE, int32_t>(s, d1, d2, k1Desc, k2Desc, K1INV,  \
+        InvokeKeyRefI4, K1CMP, CmpKeyValue<int32_t>);                                      \
+    case 1: return SortRefsTwoKeysCopy<K1TYPE, int64_t>(s, d1, d2, k1Desc, k2Desc, K1INV,  \
+        InvokeKeyRefI8, K1CMP, CmpKeyValue<int64_t>);                                      \
+    case 2: return SortRefsTwoKeysCopy<K1TYPE, double>(s, d1, d2, k1Desc, k2Desc, K1INV,   \
+        InvokeKeyRefD, K1CMP, CmpKeyValue<double>);                                        \
+    case 3: return SortRefsTwoKeysCopy<K1TYPE, float>(s, d1, d2, k1Desc, k2Desc, K1INV,    \
+        InvokeKeyRefF, K1CMP, CmpKeyValue<float>);                                         \
+    case 4: return SortRefsTwoKeysCopy<K1TYPE, Il2CppObject*>(s, d1, d2, k1Desc, k2Desc,   \
+        K1INV, InvokeKeyRefRef, K1CMP, CompareStringKeys);
+
+    switch (k1fam)
+    {
+    case 0:
+        switch (k2fam)
+        {
+            REFSAM_K2_CASES(int32_t, InvokeKeyRefI4, CmpKeyValue<int32_t>)
+        default: break;
+        }
+        break;
+    case 1:
+        switch (k2fam)
+        {
+            REFSAM_K2_CASES(int64_t, InvokeKeyRefI8, CmpKeyValue<int64_t>)
+        default: break;
+        }
+        break;
+    case 2:
+        switch (k2fam)
+        {
+            REFSAM_K2_CASES(double, InvokeKeyRefD, CmpKeyValue<double>)
+        default: break;
+        }
+        break;
+    case 3:
+        switch (k2fam)
+        {
+            REFSAM_K2_CASES(float, InvokeKeyRefF, CmpKeyValue<float>)
+        default: break;
+        }
+        break;
+    case 4:
+        switch (k2fam)
+        {
+            REFSAM_K2_CASES(Il2CppObject*, InvokeKeyRefRef, CompareStringKeys)
+        default: break;
+        }
+        break;
+    default:
+        break;
+    }
+#undef REFSAM_K2_CASES
+
+    il2cpp_throw_not_supported_exception(
+        "Enumerable.ThenBy over a reference-element source: the composite key "
+        "family pair is not wired.");
+    return nullptr;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_then_by_key_ref(Il2CppArray* src, Il2CppObject* k1Sel,
+                                         Il2CppObject* k2Sel, int32_t k1desc,
+                                         int32_t k2desc, int32_t k1fam, int32_t k2fam)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    return SortRefsTwoKeysFamDispatch(s, d1, d2, k1desc != 0, k2desc != 0, k1fam, k2fam);
 }
 
 //------------------------------------------------------------------------------

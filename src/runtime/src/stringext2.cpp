@@ -41,6 +41,10 @@
 #include <cstring>
 #include <vector>
 
+#if defined(_WIN32)
+#include <windows.h>  // CompareStringEx + LOCALE_NAME_USER_DEFAULT (collation)
+#endif
+
 namespace il2cpp {
 namespace runtime {
 
@@ -566,9 +570,15 @@ bool IsIgnoreCaseMode(int32_t comparisonType)
 
 // ASCII case folding for the culture ignore-case comparison modes:
 // 'A'-'Z' -> 'a'-'z'; every other unit is returned unchanged. This is the
-// ordinal/ASCII-fold fallback documented in the header W7 collation record
-// (culture modes degrade to the fold; net48's OS-NLS collation is not
-// replicated). Note ToUpperUnit/ToLowerUnit in stringext.cpp are culture-wide
+// ordinal/ASCII-fold fallback documented in the header W7 collation record.
+// SCOPE (impl-collation): the String.Compare/Equals/StartsWith comparison-MODE
+// entry points still fold here, so their culture modes remain ASCII-domain on
+// every platform. The ORDERING entry points that net48 implements through
+// Comparer<string>.Default -- Enumerable.OrderBy/ThenBy string keys and
+// Enumerable.Min/Max over a string source -- do NOT use this fold any more;
+// they call il2cpp_string_compare_culture, which on Windows runs the same OS
+// NLS primitive (CompareStringEx) net48 itself uses (see that entry below).
+// Note ToUpperUnit/ToLowerUnit in stringext.cpp are culture-wide
 // (stringcase.cpp tables) and are NOT the mapping used here.
 char16_t FoldUnit(char16_t c)
 {
@@ -1197,6 +1207,105 @@ Il2CppObject* icall_string_concat_enumerable(Il2CppObject* source, int32_t elemK
     il2cpp_gc_remove_root_range(reinterpret_cast<void**>(roots));
     return reinterpret_cast<Il2CppObject*>(
         il2cpp_string_new(units.data(), static_cast<int32_t>(units.size())));
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_string_compare_culture -- the CULTURE-AWARE string order used by
+// Comparer<string>.Default (net48: CultureInfo.CurrentCulture.CompareInfo with
+// CompareOptions.None). This is the ordering Enumerable.OrderBy/ThenBy applies
+// to a System.String key and Enumerable.Min/Max applies to a string source.
+//
+// EQUIVALENCE (not approximation): on Windows net48's CompareInfo is built on
+// the OS NLS collation this runtime already calls elsewhere (cultureinfo.cpp
+// includes <windows.h> and reads GetUserDefaultLCID). The one-shot
+// CompareStringEx with LOCALE_NAME_USER_DEFAULT and the NORM_IGNORECASE flag
+// only when requested is the SAME primitive, with the same locale, the same
+// case-sensitivity default (CompareOptions.None is case-SENSITIVE, ordering the
+// lowercase form before its uppercase counterpart for an otherwise-equal
+// string) and the same weight tables -- so the answers agree BY CONSTRUCTION.
+// Measured on the zh-CN verification host: 18/18 pairs identical to the net48
+// oracle (see .opencode/tmp/impl-collation NOTES).
+//
+// Return contract: net48's negative / zero / positive. CompareStringEx answers
+// CSTR_LESS_THAN(1) / CSTR_EQUAL(2) / CSTR_GREATER_THAN(3) and returns 0 when
+// it FAILS (invalid flags, out of memory, an unpaired surrogate it cannot
+// weigh). 0 is a real failure: it throws NotSupportedException instead of
+// silently reporting "equal" (the whole point of this entry -- a silent 0 would
+// collapse an ordered pair in every sort and Min/Max).
+//
+// Null policy: the CALLERS apply net48's null-first rule before calling here
+// (OrderBy: null key sorts before every non-null key without consulting the
+// comparer; Min/Max: null is skipped/ordered first). This function therefore
+// treats null defensively as the empty string -- the same value
+// CompareStringEx would see for a null LPWSTR with cchCount == -1.
+//
+// Non-Windows: there is no NLS, so the existing ASCII fold (FoldUnit, the
+// documented W7 deviation -- NOT a collation) is the fallback. The deviation is
+// therefore Windows-only missing, exactly as documented in the header.
+//------------------------------------------------------------------------------
+int32_t il2cpp_string_compare_culture(Il2CppObject* a, Il2CppObject* b, int32_t ignoreCase)
+{
+    const Il2CppString* sa = reinterpret_cast<const Il2CppString*>(a);
+    const Il2CppString* sb = reinterpret_cast<const Il2CppString*>(b);
+#if defined(_WIN32)
+    // CompareStringEx with cchCount == -1 requires NUL-terminated input. The
+    // managed payload carries no guaranteed terminator, so the EXPLICIT lengths
+    // are passed instead (cchCount is the character count, not a byte count).
+    // A null array pointer with length 0 is a valid empty string.
+    static const char16_t kEmpty[1] = { 0 };
+    const char16_t* pa = sa != nullptr ? sa->chars : kEmpty;
+    const int32_t la = sa != nullptr ? sa->length : 0;
+    const char16_t* pb = sb != nullptr ? sb->chars : kEmpty;
+    const int32_t lb = sb != nullptr ? sb->length : 0;
+    const DWORD flags = ignoreCase != 0 ? NORM_IGNORECASE : 0u;
+    const int raw = ::CompareStringEx(LOCALE_NAME_USER_DEFAULT, flags,
+                                      reinterpret_cast<const wchar_t*>(pa), la,
+                                      reinterpret_cast<const wchar_t*>(pb), lb,
+                                      nullptr, nullptr, 0);
+    if (raw == 0)
+    {
+        // NOT "equal": CompareStringEx answers 0 only on failure.
+        il2cpp_throw_not_supported_exception(
+            "Culture-sensitive string comparison failed (CompareStringEx returned 0): "
+            "the OS NLS collation could not weigh the input");
+    }
+    // CSTR_LESS_THAN(1) -> -1, CSTR_EQUAL(2) -> 0, CSTR_GREATER_THAN(3) -> 1.
+    return raw - CSTR_EQUAL;
+#else
+    // Non-Windows documented fallback: the ASCII case fold (W7 deviation).
+    const int32_t alen = sa != nullptr ? sa->length : 0;
+    const int32_t blen = sb != nullptr ? sb->length : 0;
+    const int32_t common = (alen < blen) ? alen : blen;
+    for (int32_t i = 0; i < common; ++i)
+    {
+        const char16_t fa = FoldUnit(sa->chars[i]);
+        const char16_t fb = FoldUnit(sb->chars[i]);
+        if (fa != fb)
+        {
+            return fa < fb ? -1 : 1;
+        }
+    }
+    if (alen != blen)
+    {
+        return alen < blen ? -1 : 1;
+    }
+    if (ignoreCase != 0)
+    {
+        return 0;
+    }
+    for (int32_t i = 0; i < alen; ++i)
+    {
+        if (sa->chars[i] != sb->chars[i])
+        {
+            const bool al = sa->chars[i] >= u'a' && sa->chars[i] <= u'z';
+            const bool bl = sb->chars[i] >= u'a' && sb->chars[i] <= u'z';
+            if (al && !bl) return -1;
+            if (!al && bl) return 1;
+            return sa->chars[i] < sb->chars[i] ? -1 : 1;
+        }
+    }
+    return 0;
+#endif
 }
 
 } // namespace runtime

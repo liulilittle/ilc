@@ -241,6 +241,29 @@ Il2CppObject* icall_string_join(Il2CppObject* separator, Il2CppObject* valuesArr
 // ""); null -> ArgumentNullException. One managed allocation.
 Il2CppObject* icall_string_copy(Il2CppObject* s);
 
+// CULTURE-AWARE string COMPARISON -- the ordering of net48's
+// Comparer<string>.Default (CultureInfo.CurrentCulture.CompareInfo with
+// CompareOptions.None). 'ignoreCase' non-zero adds the culture IgnoreCase
+// option (NORM_IGNORECASE); the default (0) is case-SENSITIVE but
+// culture-ordered, so for two strings equal apart from case the LOWERCASE form
+// sorts first ("a" < "A").
+//
+// On Windows the body is CompareStringEx(LOCALE_NAME_USER_DEFAULT, flags, ...)
+// -- the SAME OS NLS primitive net48's CompareInfo uses on Windows, with the
+// same locale and weight tables, so the answer is equivalent BY CONSTRUCTION
+// (measured: 18/18 pairs identical to the net48 oracle on the zh-CN host; see
+// the impl-collation NOTES). On non-Windows hosts there is no NLS and the body
+// falls back to the ASCII case fold -- the documented W7 deviation.
+//
+// Returns net48's negative / zero / positive. CompareStringEx returns 0 ONLY
+// on failure; a 0 result therefore throws NotSupportedException instead of
+// being reported as "equal" (a silent 0 would collapse an ordered pair in
+// every sort and Min/Max).
+//
+// Null arguments are treated as the empty string (defensive; the LINQ callers
+// apply net48's null-first key rule BEFORE calling this).
+int32_t il2cpp_string_compare_culture(Il2CppObject* a, Il2CppObject* b, int32_t ignoreCase);
+
 // string indexer get_Chars: the UTF-16 unit at 'index' as int32.
 // Out-of-range -> IndexOutOfRangeException; null receiver -> NRE (defensive).
 // INLINE (perf1 fast path): the string layout is known at every call site, so
