@@ -9324,13 +9324,46 @@ default: return false;                           // primitives/VAR(handled by ca
         var retByte = sig.ReadByte();
         if (retByte != 0x11) return null; // not a VALUETYPE return
         var owner = sig.ReadTypeHandle();
-        var name = owner.Kind switch
+        if (owner.Kind is not (HandleKind.TypeDefinition or HandleKind.TypeReference))
+            throw new NotSupportedException(
+                $"P/Invoke return is a value type with a '{owner.Kind}' type token -- the native layout cannot be named");
+        var name = owner.Kind == HandleKind.TypeDefinition
+            ? md.GetFullName((TypeDefinitionHandle)owner)
+            : md.GetFullName((TypeReferenceHandle)owner);
+        // REGISTERED native-layout structs keep their canonical C++ twin
+        // (Il2CppPinvokePoint / Rect / Msg).
+        if (PinvokeStructCppType(name) is { } registered) return registered;
+        // SAME-ASSEMBLY TypeDef: mirror the by-value PARAM fallback
+        // (:9409-9412) -- the generated value-type struct is defined as
+        // TypeEmitter.Sanitize(full name), so the resolve cast AND the
+        // il2cpp_pinvoke_call<Ret> carrier name a DEFINED type. Returning
+        // null here (the old behaviour) silently collapsed the value to
+        // int32_t and the call site then projected a field out of an int
+        // (measured: `request for member 'cx' in ... non-class type
+        // 'int32_t'`).
+        if (owner.Kind == HandleKind.TypeDefinition)
         {
-            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)owner),
-            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)owner),
-            _ => null,
-        };
-        return name == null ? null : PinvokeStructCppType(name);
+            // A managed ENUM's native ABI is its int32 backing. Its generated
+            // C++ struct is NOT a 4-byte value: enums carry the object header
+            // (_obj) and are 16 bytes, so naming that struct as the native
+            // return type makes the C++ caller pass a hidden sret pointer
+            // while a real native int32 callee returns in EAX (measured
+            // garbage on every enum row of tests/cases/pinvoke-structreturn).
+            var td = md.GetTypeDefinition((TypeDefinitionHandle)owner);
+            var baseName = td.BaseType.Kind switch
+            {
+                HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)td.BaseType),
+                HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)td.BaseType),
+                _ => null,
+            };
+            if (baseName == "System.Enum") return "int32_t";
+            return TypeEmitter.Sanitize(name);
+        }
+        // A TypeRef into a FOREIGN assembly has no readable layout in this
+        // model (the nonblittable-struct family). An int32_t guess would
+        // truncate/mis-lay-out the value silently, so fail explicitly.
+        throw new NotSupportedException(
+            $"P/Invoke return type '{name}' is a value type from another assembly with no registered native layout -- refusing to guess an int32_t carrier (nonblittable-struct family)");
     }
 
     // P/Invoke parameter list (M4: int32 and string (-> const char*)).
