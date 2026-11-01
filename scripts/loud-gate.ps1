@@ -52,8 +52,15 @@ foreach ($raw in [System.IO.File]::ReadAllLines($ExcludeList)) {
 }
 
 if ($loudCases.Count -eq 0) {
-    Write-Output "loud-gate: FAIL -- no 'LOUD contract' entries found in $ExcludeList"
-    exit 1
+    # impl-collation: an EMPTY LOUD list is a PASS, not a failure. Every shape
+    # that used to be rejected here is now implemented for real (culture
+    # collation for string keys + string Min/Max), so the exclude list carries
+    # no active LOUD rows. Failing on zero entries would force a permanent
+    # dead row into the list just to keep this gate green -- the opposite of
+    # what the gate is for. The gate still verifies every row the list DOES
+    # carry, so a future LOUD case is protected the moment it is added.
+    Write-Output "loud-gate: PASS -- no active 'LOUD contract' entries in $ExcludeList (every listed shape is now wired byte-exact)"
+    exit 0
 }
 
 # Evidence that the case rejected the shape instead of returning a value.

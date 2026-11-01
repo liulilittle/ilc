@@ -13,11 +13,15 @@ p-adb-loud        # RUNTIME-CONTRACT probe: net48 deliberately diverges (returns
 # run-time NotSupportedException that prevents a silent wrong value. They are
 # excluded from the byte-exact sweep because a PASS for them means "threw the
 # documented exception", which scripts/loud-gate.ps1 verifies instead.
-loud-p0-14-strkey-loud   # LOUD contract: string key ordering requires culture-aware collation (transpile-time NotSupported)
-loud-p0-16-objkey-loud   # LOUD contract: object/string key ordering rejected at runtime (NotSupportedException)
+# impl-collation: loud-p0-14-strkey-loud is now WIRED (culture collation via
+# CompareStringEx, net48 Comparer<string>.Default) and byte-exact.
+# impl-collation: loud-p0-16-objkey-loud is now WIRED (a runtime System.String
+# key under an object/interface TKey uses the same culture collation) and
+# byte-exact.
 # BATCH4: loud-p0-17-zipres-loud is now WIRED (the narrow 1/2-byte Zip result
 # cell ABI) and was removed from this list.
-loud-p0-18-strmin-loud   # LOUD contract: string Min/Max requires culture-aware collation (transpile-time NotSupported)
+# impl-collation: loud-p0-18-strmin-loud is now WIRED (string Min/Max culture
+# collation) and byte-exact.
 # BATCH4: loud-p0-grp-key-long (long/ulong/decimal/DateTime/Guid key carriers) and
 # loud-p0-grp-dec-op (decimal-bucket aggregate/Contains operators) are now WIRED
 # real cases, so they were removed from this list.
