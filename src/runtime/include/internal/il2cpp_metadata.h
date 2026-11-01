@@ -58,6 +58,39 @@ struct Il2CppClass
     // vtable[slotMap[ifaceSlot]]. Null when the type implements no interfaces.
     const InterfaceMapEntry* interfaces;
     int32_t                  interfaceCount;
+
+    //--------------------------------------------------------------------------
+    // net48 ValueType.GetHashCode field model -- USER VALUE TYPES only. Every
+    // reference type and every builtin descriptor leaves these zero (C++
+    // aggregate initialization value-initializes the trailing members, so no
+    // existing descriptor needs an edit).
+    //
+    // The generated C++ struct is NOT the net48 layout: the emitter places a
+    // `short`/`byte` field in a whole int32_t slot while net48 packs it at its
+    // true width. The default hash needs the NET48 image, so the transpiler
+    // describes each instance field here:
+    //   cppOffset : offset in the GENERATED C++ struct (where to read)
+    //   netOffset : offset in the net48 natural layout (where the value belongs)
+    //   size      : net48 width in bytes (1/2/4/8/pointerSize/...)
+    //   kind      : 1 integral 4-byte, 2 GC reference, 3 8-byte integer,
+    //               4 double, 5 single, 6 other value struct
+    // vtPackedSize  : the net48 natural-layout size
+    // vtFastHashable: 1 when the struct is tightly packed AND holds no GC
+    //                 references (the measured fast-path gate)
+    //--------------------------------------------------------------------------
+    const struct Il2CppVtField* vtFields;
+    int32_t                     vtFieldCount;
+    int32_t                     vtPackedSize;
+    int32_t                     vtFastHashable;
+};
+
+// One instance field of a user value type, as the default hash sees it.
+struct Il2CppVtField
+{
+    int32_t cppOffset;
+    int32_t netOffset;
+    int32_t size;
+    int32_t kind;
 };
 
 // One interface-dispatch map entry (see Il2CppClass.interfaces above).

@@ -60,6 +60,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h"
+#include "il2cpp_metadata.h" // Il2CppClass / Il2CppVtField (the user-struct default hash)
 #include "il2cpp_string.h"
 
 #include <cstdint>
@@ -165,55 +166,49 @@ int32_t icall_value_type_get_hash_code(int32_t typeHash, int32_t fieldKind, cons
 
 //------------------------------------------------------------------------------
 // icall_user_struct_default_hash -- the net48 ValueType.GetHashCode default for
-// a TRANSLATED user struct, reproducing BOTH halves of the real net48 rule.
+// a TRANSLATED user struct.
 //
-// net48 (desktop CLR, mscorlib ValueType.GetHashCode -- MEASURED, see
-// docs/audit/b5-gaps.md):
+// net48 (desktop CLR mscorlib ValueType.GetHashCode) -- MEASURED against .NET
+// Framework 4.8; see docs/audit/b5-gaps.md for the probe record:
 //
 //     hash = munge(typeID) ^ fieldImage
-//     munge(id)          = id * 711650207 + 2506965631U     (32-bit wrap)
-//     fieldImage         = FAST path, when the struct is "CanCompareBits"-able
-//                          (no GC references, no float/double field, tightly
-//                          packed with NO padding bytes):
-//                            XOR of every 4-byte word of the struct image
-//                            (a trailing 1..3-byte tail is DROPPED -- the
-//                            loop is `for (i = 0; i < size/4; i++)`)
-//                          REGULAR path otherwise: the hash of the FIRST
-//                          non-null field (a reference field that is null is
-//                          skipped; the typeID is XORed in either way).
+//     munge(id) = id * 711650207 + 2506965631U          (32-bit wrap)
+//
+//   FAST path (the struct is tightly packed -- NO padding bytes -- and holds
+//   no GC reference):
+//       fieldImage = XOR of every complete 4-byte word of the NET48 image
+//                    (a trailing 1..3-byte remainder is DROPPED)
+//
+//   REGULAR path (any padding, or any GC reference):
+//       fieldImage = XOR of the FIRST NON-NULL field's own bytes, 4-byte words
+//                    (so a 1/2-byte field contributes 0, a 4-byte field its
+//                    value, an 8-byte field lo32^hi32, a float its raw bits);
+//                    a NULL reference field is skipped and the next one is
+//                    tried; a non-null reference contributes its object hash.
+//
+//   `fields` describes the instance fields in DECLARATION order (the transpiler
+//   emits it next to the generated struct, because the generated C++ layout
+//   WIDENS short/byte fields into int32 slots while net48 packs them).
 //
 // 'typeID' is the CLR ValueType typeID: assigned LAZILY on the first
-// ValueType.GetHashCode call for that type, from a per-AppDomain counter that
-// starts at 3 and advances by 2. The runtime owns that counter
-// (il2cpp_user_struct_type_id) so the PLAIN `struct.GetHashCode()` path and
-// the TUPLE-ELEMENT path draw from the SAME sequence, exactly as net48 does.
-//
-//   klass   : the struct's class descriptor (identity key + the fast-path
-//             gate reads name/size; null -> 0).
-//   data    : the struct VALUE address (field 0 at offset 0).
-//   fieldImage: the caller-computed net48 field image (packed bytes). The
-//             transpiler knows the real metadata field widths, so it emits the
-//             packed image itself instead of trusting the generated C++
-//             struct layout (which widens short/byte to int32 slots).
-//   fastPath: 1 when the net48 CanCompareBits fast path applies, 0 when the
-//             regular first-field path applies.
-//   firstFieldKind / firstFieldData: the regular-path first-field descriptor
-//             (kind mirrors icall_value_type_get_hash_code's fieldKind: 1
-//             int32 slot, 3 int64, 4 double, 2 reference). Only read when
-//             fastPath == 0.
+// ValueType.GetHashCode call for that type from a counter that starts at 3 and
+// advances by 2. il2cpp_user_struct_type_id owns that ONE counter, shared by
+// this path and the tuple-element path, exactly as net48 does.
 //------------------------------------------------------------------------------
 int32_t icall_user_struct_default_hash(const Il2CppClass* klass,
                                        const void* data,
-                                       int32_t fieldImage,
-                                       int32_t fastPath,
-                                       int32_t firstFieldKind,
-                                       const void* firstFieldData);
+                                       const Il2CppVtField* fields,
+                                       int32_t fieldCount,
+                                       int32_t packedSize,
+                                       int32_t fastHashable);
 
 // The shared lazy ValueType typeID counter (3, 5, 7, ... in first-call order).
-// Both the plain default-hash path and the tuple-element path MUST draw from
-// this one counter -- net48 assigns a single id per type, whichever path
-// touches it first.
 int32_t il2cpp_user_struct_type_id(const Il2CppClass* klass);
+
+// Upper bound on a user struct's net48 natural-layout size for the default
+// hash's image assembly (the transpiler rejects larger structs from the fast
+// path; a struct beyond this uses the regular first-field path).
+static const int32_t kMaxVtPackedSize = 512;
 
 } // namespace runtime
 } // namespace il2cpp

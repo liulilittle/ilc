@@ -1184,67 +1184,77 @@ int32_t il2cpp_user_struct_type_id(const Il2CppClass* klass)
 
 //------------------------------------------------------------------------------
 // icall_user_struct_default_hash -- the net48 ValueType.GetHashCode default for
-// a translated user struct (see il2cpp_value_semantics.h for the measured
-// rule and the two paths).
+// a translated user struct (see il2cpp_value_semantics.h for the measured rule
+// and the two paths).
 //
 //   hash = munge(typeID) ^ fieldImage
-//     fast path    : fieldImage = XOR of every complete 4-byte word of the
-//                    PACKED field image (a 1..3-byte tail is dropped);
-//     regular path : fieldImage = the FIRST non-null field's own hash.
+//     FAST path    : XOR of every complete 4-byte word of the NET48 image
+//                    (assembled from `fields`, since the generated C++ struct
+//                    widens narrow fields);
+//     REGULAR path : XOR of the first NON-NULL field's own 4-byte words (a null
+//                    reference is skipped; a non-null one contributes its
+//                    object hash instead of its bytes).
 //------------------------------------------------------------------------------
 int32_t icall_user_struct_default_hash(const Il2CppClass* klass,
                                        const void* data,
-                                       int32_t fieldImage,
-                                       int32_t fastPath,
-                                       int32_t firstFieldKind,
-                                       const void* firstFieldData)
+                                       const Il2CppVtField* fields,
+                                       int32_t fieldCount,
+                                       int32_t packedSize,
+                                       int32_t fastHashable)
 {
     if (klass == nullptr) return 0;
     const int32_t typeID = il2cpp_user_struct_type_id(klass);
-    int32_t image;
-    if (fastPath != 0)
+    int32_t image = 0;
+    if (fastHashable != 0)
     {
-        image = fieldImage;
+        // Fast path: XOR the net48 image 32 bits at a time. The image is
+        // assembled into a bounded scratch buffer from the ACTUAL field bytes
+        // (netOffset is where each field belongs; the generated struct's
+        // cppOffset is where it actually lives). A 1..3-byte tail is dropped
+        // exactly like the CLR's `for (i = 0; i < size/4; i++)`.
+        uint8_t buf[kMaxVtPackedSize];
+        std::memset(buf, 0, sizeof(buf));
+        for (int32_t i = 0; i < fieldCount; ++i)
+        {
+            const Il2CppVtField& f = fields[i];
+            if (f.netOffset < 0 || f.size <= 0) continue;
+            if (f.netOffset + f.size > static_cast<int32_t>(sizeof(buf))) continue;
+            const uint8_t* src = reinterpret_cast<const uint8_t*>(data) + f.cppOffset;
+            for (int32_t b = 0; b < f.size; ++b) buf[f.netOffset + b] = src[b];
+        }
+        for (int32_t i = 0; i < packedSize / 4; ++i)
+        {
+            int32_t word = 0;
+            std::memcpy(&word, buf + i * 4, sizeof(word));
+            image ^= word;
+        }
     }
     else
     {
-        // Regular path: the FIRST field's hash (never the raw image).
-        const void* f = firstFieldData != nullptr ? firstFieldData : data;
-        switch (firstFieldKind)
+        // Regular path: the FIRST field that is not a null reference. Its own
+        // bytes are XORed in 4-byte words (so a 1/2-byte field contributes 0,
+        // an 8-byte field lo32^hi32, a float its raw pattern). A non-null
+        // reference field contributes the object's hash instead.
+        for (int32_t i = 0; i < fieldCount; ++i)
         {
-            case 1:
-                image = *reinterpret_cast<const int32_t*>(f);
-                break;
-            case 3:
+            const Il2CppVtField& f = fields[i];
+            if (f.cppOffset < 0 || f.size <= 0) continue;
+            const uint8_t* p = reinterpret_cast<const uint8_t*>(data) + f.cppOffset;
+            if (f.kind == 2)
             {
-                // Int64.GetHashCode: low 32 bits XOR high 32 bits.
-                int64_t v = 0;
-                std::memcpy(&v, f, sizeof(v));
-                const uint32_t lo = static_cast<uint32_t>(static_cast<uint64_t>(v));
-                const uint32_t hi = static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32);
-                image = static_cast<int32_t>(lo ^ hi);
+                Il2CppObject* obj = *reinterpret_cast<Il2CppObject* const*>(p);
+                if (obj == nullptr) continue; // net48 skips null references
+                image = icall_object_get_hash_code(obj);
                 break;
             }
-            case 4:
+            const int32_t words = f.size / 4;
+            for (int32_t w = 0; w < words; ++w)
             {
-                // Double.GetHashCode: the bit pattern halves XORed, +-0 -> 0.
-                double d = 0.0;
-                std::memcpy(&d, f, sizeof(d));
-                image = d == 0.0 ? 0 : icall_double_get_hash_code(d);
-                break;
+                int32_t word = 0;
+                std::memcpy(&word, p + w * 4, sizeof(word));
+                image ^= word;
             }
-            case 2:
-            {
-                // First field is a GC reference: the object's own hash; a null
-                // field is SKIPPED by net48 (there is no later field to fall
-                // back to here, so null contributes 0).
-                Il2CppObject* obj = *reinterpret_cast<Il2CppObject* const*>(f);
-                image = obj != nullptr ? icall_object_get_hash_code(obj) : 0;
-                break;
-            }
-            default:
-                image = 0;
-                break;
+            break;
         }
     }
     const uint32_t munged = static_cast<uint32_t>(typeID) * 711650207u + 2506965631u;

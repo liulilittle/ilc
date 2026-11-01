@@ -75,43 +75,13 @@ int32_t ReflectedSlot(const Il2CppClass* klass, const char* name)
     }
 
     //--------------------------------------------------------------------------
-    // The CLR ValueType type ID (net48 ValueTypeHelper::GetHashCode):
-    //   hashCode = typeID * 711650207 + 2506965631U;
-    // The CLR assigns each MethodTable its typeID LAZILY, on the first
-    // ValueType.GetHashCode call for that type, from a per-AppDomain counter
-    // that starts at 3 and advances by 2 (observed: the first hashed user
-    // struct gets 3, the second 5, the third 7 -- IL-verified against net48
-    // with single-int-field structs). The runtime reproduces that exact order
-    // (the transpiled program hashes its user structs in the same order the
-    // oracle does), so the munged hash matches byte-for-byte.
+    // The user-struct default hash (typeID munge + field image) lives in
+    // valuesemantics.cpp as icall_user_struct_default_hash, because the PLAIN
+    // `struct.GetHashCode()` path must run the SAME function from the SAME lazy
+    // typeID counter. net48 assigns one typeID per type, in first-hash order,
+    // whichever path touches the type first -- a private counter here (this
+    // file's original shape) made the two paths hand out different ids.
     //--------------------------------------------------------------------------
-    uint32_t UserStructTypeId(const Il2CppClass* klass)
-    {
-        static std::unordered_map<const Il2CppClass*, uint32_t> typeIds;
-        static uint32_t nextId = 3;
-        if (klass == nullptr) return 0;
-        auto it = typeIds.find(klass);
-        if (it != typeIds.end()) return it->second;
-        const uint32_t id = nextId;
-        nextId += 2;
-        typeIds.emplace(klass, id);
-        return id;
-    }
-
-    // The net48 fast path: XOR the instance bytes 32 bits at a time
-    // (FastGetValueTypeHashCodeHelper -- GetNumInstanceFieldBytes() is the
-    // struct's C++ size for a translated user value type).
-    int32_t FastUserStructHash(const Il2CppClass* klass, const void* valueAddr)
-    {
-        if (klass == nullptr || valueAddr == nullptr) return 0;
-        const int32_t size = klass->instanceSize;
-        if (size <= 0) return 0;
-        const int32_t* words = reinterpret_cast<const int32_t*>(valueAddr);
-        int32_t acc = 0;
-        for (int32_t i = 0; i < size / static_cast<int32_t>(sizeof(int32_t)); ++i)
-            acc ^= words[i];
-        return acc;
-    }
 
 } // namespace
 
@@ -274,11 +244,12 @@ Il2CppObject* il2cpp_tuple_user_struct_to_string(Il2CppClass* klass, const void*
 //------------------------------------------------------------------------------
 // il2cpp_tuple_user_struct_hash -- a translated USER struct element's hash.
 // The type's own reflected GetHashCode override when it has one; otherwise the
-// net48 CLR ValueType.GetHashCode default:
-//   hashCode = typeID * 711650207 + 2506965631U;
-//   hashCode ^= FastGetValueTypeHashCodeHelper(...);   // XOR of int32 words
-// (see UserStructTypeId / FastUserStructHash above; IL-verified against net48
-// -- the struct's own C++ instance size is GetNumInstanceFieldBytes).
+// net48 CLR ValueType.GetHashCode default, which is EXACTLY the same function
+// the plain `struct.GetHashCode()` path runs (one lazy typeID counter, one
+// field-image rule -- see icall_user_struct_default_hash). Routing both paths
+// through one implementation is what keeps net48's typeID ASSIGNMENT ORDER:
+// net48 hands the ids out in FIRST-HASH order, whichever path touches the type
+// first, so a separate counter here would desynchronize the two.
 //------------------------------------------------------------------------------
 int32_t il2cpp_tuple_user_struct_hash(Il2CppClass* klass, const void* valueAddr)
 {
@@ -291,13 +262,10 @@ int32_t il2cpp_tuple_user_struct_hash(Il2CppClass* klass, const void* valueAddr)
             return reinterpret_cast<GetHashCodeFn>(klass->vtable[slot])(valueAddr);
         }
     }
-    // No override: the net48 ValueType.GetHashCode default. A null klass (an
-    // untracked element) yields 0, matching the historical fallback.
     if (klass == nullptr) return 0;
-    const uint32_t typeID = UserStructTypeId(klass);
-    int32_t h = static_cast<int32_t>(typeID * 711650207u + 2506965631u);
-    h ^= FastUserStructHash(klass, valueAddr);
-    return h;
+    return icall_user_struct_default_hash(klass, valueAddr, klass->vtFields,
+                                          klass->vtFieldCount, klass->vtPackedSize,
+                                          klass->vtFastHashable);
 }
 
 //------------------------------------------------------------------------------
