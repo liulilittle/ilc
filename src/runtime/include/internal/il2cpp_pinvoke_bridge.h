@@ -104,6 +104,84 @@ inline T il2cpp_pinvoke_result(R r)
 }
 
 //------------------------------------------------------------------------------
+// byref-scalar (ref/out SCALAR DllImport parameters): NARROW native cells.
+//
+// net48 hands the native callee the ADDRESS of the managed slot for a
+// blittable `ref`/`out` scalar. This model stores some managed scalars in
+// WIDER C++ slots than the native cell the DllImport signature names:
+//   * bool / sbyte / byte / int16 / uint16 -> int32_t slot
+//   * Single                                -> double slot
+// so the slot address is NOT the native image and cannot be passed directly.
+// The generated call site wraps such an argument in
+// il2cpp_pinvoke_narrow_ref<Narrow>(slot):
+//   * the owner temporary holds a Narrow cell initialised from the slot (the
+//     `ref` copy-IN -- net48 reads the managed value),
+//   * the conversion operator yields &cell, the exact native pointer the
+//     native declaration / dynamic resolve cast names,
+//   * the callee writes the cell; the OWNER's destructor copies it BACK into
+//     the managed slot at the end of the call's full-expression -- after the
+//     native call returns, exactly the interop stub's copy-out point.
+// The argument travels BY VALUE through il2cpp_pinvoke_call, so every copy
+// propagates the OWNER's cell pointer (`cell`), never a per-copy buffer: the
+// bytes the callee writes are the bytes copied back regardless of how many
+// copies the parameter pack makes. The owner is the outermost temporary and is
+// therefore destroyed LAST (reverse construction order).
+//
+// bool is the BOOL (4-byte) special case: net48 normalises the copy-back (a
+// native 2 reads back as managed true), so il2cpp_pinvoke_bool_ref stores 0/1
+// in both directions.
+//------------------------------------------------------------------------------
+template <typename Narrow, typename Wide>
+struct Il2CppPinvokeNarrowRef
+{
+    Wide* slot;
+    Narrow* cell;
+    Narrow storage;
+    bool owner;
+    explicit Il2CppPinvokeNarrowRef(Wide& s)
+        : slot(&s), cell(&storage), storage(static_cast<Narrow>(s)), owner(true) {}
+    Il2CppPinvokeNarrowRef(const Il2CppPinvokeNarrowRef& o)
+        : slot(o.slot), cell(o.cell), storage(o.storage), owner(false) {}
+    Il2CppPinvokeNarrowRef& operator=(const Il2CppPinvokeNarrowRef&) = delete;
+    ~Il2CppPinvokeNarrowRef()
+    {
+        if (owner) *slot = static_cast<Wide>(*cell);
+    }
+    operator Narrow*() { return cell; }
+};
+
+template <typename Narrow, typename Wide>
+inline Il2CppPinvokeNarrowRef<Narrow, Wide> il2cpp_pinvoke_narrow_ref(Wide& slot)
+{
+    return Il2CppPinvokeNarrowRef<Narrow, Wide>(slot);
+}
+
+// The managed bool slot is the 4-byte BOOL cell already; only the copy-back
+// normalisation differs.
+struct Il2CppPinvokeBoolRef
+{
+    int32_t* slot;
+    int32_t* cell;
+    int32_t storage;
+    bool owner;
+    explicit Il2CppPinvokeBoolRef(int32_t& s)
+        : slot(&s), cell(&storage), storage(s != 0 ? 1 : 0), owner(true) {}
+    Il2CppPinvokeBoolRef(const Il2CppPinvokeBoolRef& o)
+        : slot(o.slot), cell(o.cell), storage(o.storage), owner(false) {}
+    Il2CppPinvokeBoolRef& operator=(const Il2CppPinvokeBoolRef&) = delete;
+    ~Il2CppPinvokeBoolRef()
+    {
+        if (owner) *slot = (*cell != 0) ? 1 : 0;
+    }
+    operator int32_t*() { return cell; }
+};
+
+inline Il2CppPinvokeBoolRef il2cpp_pinvoke_bool_ref(int32_t& slot)
+{
+    return Il2CppPinvokeBoolRef(slot);
+}
+
+//------------------------------------------------------------------------------
 // GN-17: P/Invoke exception boundary (see the header comment).
 //
 // The chain handed to il2cpp_throw_new follows the exceptionext/com.cpp

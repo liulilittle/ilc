@@ -2854,6 +2854,50 @@ public static class CodeGenerator
             // RootSlotPass liveness filter -- interior struct fields are
             // address-taken and the liveness analysis tracks local NAMES only).
             var structFieldRoots = new List<string>();
+            // byref-scalar: `out` LOCALS of a real DllImport start ZEROED.
+            // net48 zeroes every local at method ENTRY (.locals init) -- it is
+            // NOT the marshal stub that zeroes: a slot which already holds a
+            // value passes THAT value to the callee (probe-pinvoke-byref pins
+            // both records: fresh out -> callee sees 0, pre-set out -> 123).
+            // This model declares scalars UNINITIALISED, so the out targets
+            // are zero-initialised after their declarations (method entry),
+            // reproducing both measurements. `ref` locals need nothing: C#
+            // definite assignment guarantees a prior store.
+            var pinvokeOutLocals = new HashSet<string>(StringComparer.Ordinal);
+            void CollectPinvokeOutTargets(Expr e)
+            {
+                if (e is CallExpr pc && pc.Resolved is { IsPInvoke: true, ParamOutFlags: { } outFlags })
+                {
+                    for (var oi = 0; oi < pc.Args.Count && oi < outFlags.Length; oi++)
+                        if (outFlags[oi] && pc.Args[oi] is LocAddrExpr outLa)
+                            pinvokeOutLocals.Add(outLa.Name);
+                }
+                switch (e)
+                {
+                    case BinaryExpr b: CollectPinvokeOutTargets(b.Left); CollectPinvokeOutTargets(b.Right); break;
+                    case UnaryExpr u: CollectPinvokeOutTargets(u.Operand); break;
+                    case CallExpr c: foreach (var a in c.Args) CollectPinvokeOutTargets(a); break;
+                    case VirtualCallExpr v: foreach (var a in v.Args) CollectPinvokeOutTargets(a); break;
+                    case DelegateInvokeExpr d: foreach (var a in d.Args) CollectPinvokeOutTargets(a); break;
+                    case DelegateNewExpr dn: CollectPinvokeOutTargets(dn.Target); break;
+                    case MarshalUtf8Expr m: CollectPinvokeOutTargets(m.Arg); break;
+                    case FieldExpr f: CollectPinvokeOutTargets(f.Object); break;
+                    case FieldAddrExpr fa: CollectPinvokeOutTargets(fa.Object); break;
+                }
+            }
+            for (var i = 0; i < stmts.Count; i++)
+            {
+                if (!reachable[i]) continue;
+                switch (stmts[i])
+                {
+                    case AssignStmt a: CollectPinvokeOutTargets(a.Value); break;
+                    case CallStmt vc: foreach (var a in vc.Args) CollectPinvokeOutTargets(a); break;
+                    case ExprStmt es: CollectPinvokeOutTargets(es.Value); break;
+                    case RetStmt r when r.Value != null: CollectPinvokeOutTargets(r.Value); break;
+                    case BranchStmt b when b.Condition != null: CollectPinvokeOutTargets(b.Condition); break;
+                    case FieldAssignStmt f: CollectPinvokeOutTargets(f.Object); CollectPinvokeOutTargets(f.Value); break;
+                }
+            }
             foreach (var d in declared)
             {
                 // boxdeep/boxdeep2 (-Wunused-but-set-variable): a compiler TEMP
@@ -3459,6 +3503,21 @@ public static class CodeGenerator
                 w.Line($"{mu}{kind} {d};");
             else
                 w.Line(kind == "ref" ? $"{mu}Il2CppObject* {d};" : $"{mu}int32_t {d};");
+        }
+        // byref-scalar: the method-entry zero image for `out` P/Invoke locals
+        // (see pinvokeOutLocals). Only VALUE slots get the initializer -- a
+        // reference slot is already declared `Il2CppObject* = nullptr` and a
+        // struct/registered-layout slot is not in the scalar by-ref group.
+        // `{}` value-initialises scalars (0) and aggregates alike.
+        if (pinvokeOutLocals.Count > 0)
+        {
+            foreach (var zd in declared)
+            {
+                if (!pinvokeOutLocals.Contains(zd)) continue;
+                var zk = locKind.TryGetValue(zd, out var zkv) ? zkv : "val";
+                if (zk is "val" or "l" or "d" or "f" or "ptr" or "uptr" or "guid" or "guidv")
+                    w.Line($"{zd} = {{}}; // byref-scalar: out local, method-entry zero (.locals init)");
+            }
         }
         if (declared.Count > 0) w.Line();
 
@@ -9323,8 +9382,22 @@ default: return false;                           // primitives/VAR(handled by ca
             {
                 var inner = PinvokeStructCppType(p[4..]);
                 if (inner != null) return inner + "*";
-                return TypeEmitter.Sanitize(p[4..]) + "*";
+                // byref-scalar (out Guid): TypeCppName resolves the BCL value
+                // structs (System.Guid -> il2cpp::Il2CppGuid) -- its default
+                // arm is TypeEmitter.Sanitize, so every unregistered USER
+                // struct keeps the exact pre-existing name.
+                return TypeCppName(p[4..]) + "*";
             }
+            // byref-scalar: net48 hands the native callee the ADDRESS of the
+            // managed slot (blittable scalars are pinned, not copied), so the
+            // native parameter is the exact scalar POINTER. The kinds whose
+            // managed slot this model WIDENS (bool/i1/u1/i2/u2 -> int32_t,
+            // f -> double) still declare the NATIVE cell width here; the
+            // call-site bridge (EmitIcallCallArgs) owns the narrow cell and
+            // its in/out conversion.
+            if (p.Length > 2 && p[0] == 'B' && p[1] == ':'
+                && PinvokeByrefScalarCpp(p[2..]) is { } byrefCpp)
+                return byrefCpp + "*";
             if (p.StartsWith("V:", StringComparison.Ordinal))
             {
                 var inner = PinvokeStructCppType(p[2..]);
@@ -9386,17 +9459,48 @@ default: return false;                           // primitives/VAR(handled by ca
             // delegatecb.cs:19-27 claims this rejection but no code
             // existed). fnptr (F:) and pointer (P:) params are the P-D3
             // work items; they must not silently downgrade either.
+            // byref-scalar: every scalar B: shape is handled above. The
+            // remaining B: shapes are genuinely different marshals:
+            //   * B:r:<ref> (ref/out string / class) needs a native buffer or
+            //     an object-to-interface marshal;
+            //   * B:c (ref/out char) needs the CharSet-dependent ANSI/UTF-16
+            //     conversion and net48's best-fit ANSI mapping;
+            //   * B:tr (TypedReference) is not addressable.
             var r when r.StartsWith("r:", StringComparison.Ordinal)
                 || r.StartsWith("F:", StringComparison.Ordinal)
                 || r.StartsWith("P:", StringComparison.Ordinal)
                 || r.StartsWith("B:", StringComparison.Ordinal) =>
                 throw new NotSupportedException(
-                    $"P/Invoke parameter type '{r}' on {methodName} is not supported: reference-typed (delegate/array/object), fnptr, pointer and by-ref DllImport parameters are LOUDLY rejected (no marshalling bridge exists -- P-D3 wires fnptr)"),
+                    $"P/Invoke parameter type '{r}' on {methodName} is not supported: reference-typed (delegate/array/object), fnptr and pointer parameters have no marshalling bridge, and by-ref of a string/class/char/TypedReference needs a marshal conversion this emitter does not implement (scalar int/uint/long/ulong/short/ushort/byte/sbyte/bool/float/double/IntPtr/UIntPtr/Guid by-ref IS supported)"),
                 var other => throw new NotSupportedException(
                     $"P/Invoke parameter encoding '{other}' on {methodName} is not supported"),
             };
         }));
     }
+
+    // byref-scalar: the native CELL type of a `ref`/`out` blittable scalar
+    // DllImport parameter (the raw MethodSignatureCoder inner encoding after
+    // the B: prefix). The widths are net48's: bool is a 4-byte BOOL, the
+    // narrow integers keep their real 1/2-byte native width even though THIS
+    // model stores the managed slot widened (int32_t / double). null = the
+    // inner encoding is not a supported scalar (a struct, string, class,
+    // char or TypedReference -- handled / rejected by the callers).
+    private static string? PinvokeByrefScalarCpp(string inner) => inner switch
+    {
+        "i" => "int32_t",   // int32 AND uint32 (both encode "i" -- same slot)
+        "l" => "int64_t",
+        "q" => "uint64_t",
+        "n" => "intptr_t",
+        "u" => "uintptr_t",
+        "b" => "int32_t",   // native BOOL (4 bytes); the copy-back normalizes
+        "i1" => "int8_t",
+        "u1" => "uint8_t",
+        "i2" => "int16_t",
+        "u2" => "uint16_t",
+        "f" => "float",
+        "d" => "double",
+        _ => null,
+    };
 
     // wfm2: the native C++ type of a registered managed struct full name
     // (System.Drawing.Point/Rectangle/System.Windows.Forms.Message ->
@@ -11548,6 +11652,28 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         => code == "nullptr" ? code : $"il2cpp::runtime::il2cpp_pinvoke_arg({code})";
 
     //--------------------------------------------------------------------------
+    // byref-scalar: the call-site expression for a NARROW by-ref cell (see
+    // EmitIcallCallArgs). `code` is the ADDRESS expression of the managed slot
+    // (ldloca/ldflda/ldsflda/ldelema -- all render as a pointer), so `*({code})`
+    // is the slot lvalue the helper takes by reference. The narrow cell type
+    // is the NATIVE width; Wide is deduced from the slot, so a `ref float` of a
+    // LOCAL (double slot), a FIELD (float slot) or an ARRAY ELEMENT (float
+    // cell) all bind the right conversion without the emitter knowing which.
+    // null = not a narrow by-ref shape (exact-width B: i/l/q/n/u pass their
+    // address straight through).
+    //--------------------------------------------------------------------------
+    private static string? PinvokeNarrowByrefRefCode(string? cast, string code) => cast switch
+    {
+        "B:f" => $"il2cpp::runtime::il2cpp_pinvoke_narrow_ref<float>(*({code}))",
+        "B:i1" => $"il2cpp::runtime::il2cpp_pinvoke_narrow_ref<int8_t>(*({code}))",
+        "B:u1" => $"il2cpp::runtime::il2cpp_pinvoke_narrow_ref<uint8_t>(*({code}))",
+        "B:i2" => $"il2cpp::runtime::il2cpp_pinvoke_narrow_ref<int16_t>(*({code}))",
+        "B:u2" => $"il2cpp::runtime::il2cpp_pinvoke_narrow_ref<uint16_t>(*({code}))",
+        "B:b" => $"il2cpp::runtime::il2cpp_pinvoke_bool_ref(*({code}))",
+        _ => null,
+    };
+
+    //--------------------------------------------------------------------------
     // PinvokeCallWrapCode -- GN-17: P/Invoke exception boundary. Every P/Invoke
     // call site (static extern "C" direct call AND the dynamic
     // il2cpp_pinvoke_resolve cast -- CodeGenerator.cs:9198/4507) is wrapped in
@@ -12065,6 +12191,25 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             }
             var code = EmitExpr(args[srcIdx], md, types);
             var cast = casts2 != null && j < casts2.Length ? casts2[j] : null;
+            // byref-scalar NARROW cells (B:f / B:b / B:i1 / B:u1 / B:i2 /
+            // B:u2): the managed slot in THIS model is WIDER than the native
+            // cell (int32_t for bool/sbyte/byte/int16/uint16, double for
+            // Single), so the slot address can NOT be handed to the callee
+            // (it would reinterpret a widened bit image) nor read back raw.
+            // The runtime helper owns an EXACT-width native cell, copies the
+            // slot in, and copies the callee's write back when its owner
+            // temporary dies at the end of the call's full-expression --
+            // exactly when net48's interop stub returns. bool additionally
+            // NORMALIZES on the way back (net48: native 2 -> managed true).
+            // The helper is NOT wrapped in il2cpp_pinvoke_arg: its conversion
+            // operator already yields the native pointer the declaration /
+            // dynamic cast names (the bridge's reinterpret_cast path cannot
+            // take a class operand).
+            if (PinvokeNarrowByrefRefCode(cast, code) is { } narrowRefCode)
+            {
+                parts.Add(narrowRefCode);
+                continue;
+            }
             // dparse: "lit:<expr>" -- the icall slot takes a compile-time
             // literal INSTEAD of an IL argument (decimal.Parse(string,
             // IFormatProvider) forwards NumberStyles.Number=111 through the

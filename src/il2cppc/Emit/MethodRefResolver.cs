@@ -215,7 +215,14 @@ public sealed record ResolvedMethod(
     // an untracked Type VALUE) wins. Without it the first-pass result starts
     // with "il2cpp::" and the fold's re-resolve gate never fires (the b20
     // ConstructorInfo ".ctor" regression). False everywhere else.
-    bool ReresolveWithReceiver = false)
+    bool ReresolveWithReceiver = false,
+    // byref-scalar: the Param-table `out` bits of a real DllImport (net48
+    // ParameterInfo.IsOut; `ref` is NOT out). The emitter uses them to
+    // zero-initialise an `out` LOCAL at method entry -- net48's .locals-init
+    // contract: a fresh out slot reads 0 in the callee, while a slot that
+    // already held a value passes THAT value (the stub does NOT re-zero at
+    // the call site; probe-pinvoke-byref pins both). Null elsewhere.
+    bool[]? ParamOutFlags = null)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -714,6 +721,24 @@ public static partial class MethodRefResolver
             // utf16 alloc/free and PinvokeParamList's const char16_t*.
             var charSet = (int)import.Attributes & 0x06;
             var utf16Strings = charSet is 0x04 or 0x06; // CharSetUnicode / CharSetAuto
+            // byref-scalar: the Param-table `out` bits, in SIGNATURE order
+            // (the emitter zero-initialises an out LOCAL at method entry --
+            // net48 .locals-init; ref is not out, so a ref slot keeps its
+            // definite-assignment value). Same face MetadataLoader decodes
+            // for ParameterInfo.IsOut.
+            bool[]? paramOutFlags = null;
+            var outRows = new List<(int Seq, bool Out)>();
+            foreach (var ph in m.GetParameters())
+            {
+                var pi = md.GetParameter(ph);
+                outRows.Add((pi.SequenceNumber, ((int)pi.Attributes & 0x2) != 0));
+            }
+            if (outRows.Count > 0)
+            {
+                outRows.Sort((x, y) => x.Seq.CompareTo(y.Seq));
+                if (outRows.Count >= paramCount)
+                    paramOutFlags = outRows.Take(paramCount).Select(r => r.Out).ToArray();
+            }
             // ParamTypeNames = the RAW MethodSignatureCoder encodings (NOT
             // emitter cast codes): they drive the fold's P/Invoke string-arg
             // detection ("r:System.String" -> StringArgIndices -> cstr temps,
@@ -761,7 +786,10 @@ public static partial class MethodRefResolver
                 PinvokeRetType: PinvokeRetCpp(returnType),
                 // P-D4: carry the [DllImport] library name so the call site
                 // can route static vs dynamic (see the record field).
-                PinvokeModule: importModuleName);
+                PinvokeModule: importModuleName,
+                // byref-scalar: the per-parameter out bits (see the record
+                // field -- the emitter's out-local zero-init reads them).
+                ParamOutFlags: paramOutFlags);
         }
         // tuple1 (ValueTuple): a method DEFINITION returning a tuple (the
         // same-assembly call shape) must carry the struct result kind, exactly
