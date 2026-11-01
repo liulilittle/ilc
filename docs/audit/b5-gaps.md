@@ -38,39 +38,80 @@ the MethodSpec generic argument (`genArgs[0]`) the ELEMENT AUTHORITY in
 at all (the `List<T>` instance-method forms). Any future operator that reads the
 element family must follow that order: metadata first, tracked name second.
 
-## 2. String ordering keys -- two-layer LOUD (was a silent defect)
+## 2. String ordering keys -- NOW IMPLEMENTED (culture collation)
 
-`Enumerable.OrderBy` / `OrderByDescending` with a `Func<TSource,string>` key
-selector throws `NotSupportedException` at TRANSPILE time.
+**Status: CLOSED by impl-collation.** Both layers below were replaced by a real
+implementation; the three LOUD cases are retired and pass byte-exact.
 
-Why: net48's `Comparer<string>.Default` is CULTURE-aware (it sorts `"a"` before
-`"A"` and applies OS-NLS collation weights). This runtime has no collation
-infrastructure -- `stringext2.cpp` documents that the culture comparison modes
-degrade to an ASCII case fold and that "net48's OS-NLS collation is not
-replicated"; `string.CompareTo` is ordinal. An ordinal comparison would
-therefore silently misorder mixed-case input.
+`Enumerable.OrderBy` / `OrderByDescending` / `ThenBy` / `ThenByDescending` with
+a `System.String` key, `Enumerable.Min` / `Max` over a string sequence, and the
+`List<string>` faces of all of those are now WIRED.
 
-A STATIC `string` key is caught by the transpiler, but an `object`/interface key
-must be judged at RUN time: `object[] { "b", "A", "c", "a" }.OrderBy(x => x)`
-has `TKey == System.Object`, and its keys happen to BE strings. `CompareRefKeys`
-(linq_sort.cpp) therefore throws `NotSupportedException` when either key
-instance is a `System.String` (registered lock:
-`tests/cases/loud-p0-16-objkey-loud`). Every other reference key type still goes
-through `IComparable.CompareTo` (Comparer<T>.Default semantics), null-first.
+Why it used to be LOUD: net48's `Comparer<string>.Default` is CULTURE-aware (it
+sorts `"a"` before `"A"` and applies OS-NLS collation weights), and an ordinal
+comparison silently misorders mixed-case input.
 
-**NULL keys are NOT rejected.** The null checks run BEFORE the string check,
-because net48 orders a null key before every non-null key without consulting the
-comparer at all -- so `object[] { null, "a" }.OrderBy(x => x)` is answerable and
-returns `{ null, "a" }` (and the descending form puts null last). Rejecting that
-would be a LOUD misfire. Registered lock: `tests/cases/b5nullkey` (ascending,
-descending, two nulls, and null mixed with a non-string `IComparable` key). A
-comparison of two NON-null keys where at least one is a string still throws.
+How it is answered now: `runtime::il2cpp_string_compare_culture`
+(`stringext2.cpp`) calls `CompareStringEx(LOCALE_NAME_USER_DEFAULT, ...)` --
+the SAME OS NLS primitive net48's `Comparer<string>.Default` uses on Windows --
+with the CURRENT process locale (not a pinned table), and maps
+`CSTR_LESS_THAN / CSTR_EQUAL / CSTR_GREATER_THAN` onto
+`-1 / 0 / +1`. A zero return (the API failed) throws
+`NotSupportedException`, never "equal". Non-Windows builds document an ASCII
+fold fallback (that is a platform limitation, not a silent shortcut on the
+supported target).
 
-Honest history: the ordinal branch was introduced by this batch (commit
-2a2cf2cf's `SortRefsKeyCopy`/`CompareRefKeys`), and the first e2e case was
-narrowed to single-case input to avoid the mismatch. Both were wrong; the
-current state is the compile-time rejection (arrays and `List<T>`, lock:
-`tests/cases/loud-p0-14-strkey-loud`) plus the runtime instance check above.
+Measured equivalence (this machine, culture `zh-CN`, LCID 2052): net48
+`Comparer<string>.Default` and `CompareStringEx` agree on 18/18 probed pairs,
+including `a/A = -1`, `B/a = +1`, `_/a = -1`, `Z/a = +1`, `""/a = -1`,
+`ab/a = +1`, `茅/e = +1`, `盲/z = -1`, `涓?鍥?= +1`, `銇?銈?= +1`, `銇?銇?= +1`.
+
+Wiring:
+
+| Shape | Entry |
+| --- | --- |
+| array, static `string` key | `il2cpp_linq_order_by_key_ref_string` |
+| array, `object`/interface key (instance-dispatched) | `il2cpp_linq_order_by_key_ref_ref` -> `CompareRefKeys` |
+| `List<T>`, static `string` key | `il2cpp_linq_list_order_by_key_ref_string` |
+| `ThenBy`/`ThenByDescending` (fused composite) | `il2cpp_linq_then_by_key_ref` / `il2cpp_linq_list_then_by_key_ref`, key family `4` = string, `5` = other reference |
+| `Min`/`Max` over `string[]` | `il2cpp_linq_min_string` / `il2cpp_linq_max_string` |
+| `Min`/`Max` over `List<string>` | `il2cpp_linq_list_min_string` / `il2cpp_linq_list_max_string` |
+
+Semantics preserved exactly (all measured against net48):
+
+- `null` keys order FIRST without consulting the comparer (net48), so
+  `object[] { null, "a" }.OrderBy(x => x)` returns `{ null, "a" }`. The null
+  checks run before the string comparison, so a null key never reaches
+  `CompareStringEx`. Registered lock: `tests/cases/b5nullkey`.
+- `Min`/`Max` over an EMPTY or ALL-NULL sequence returns `null` (no throw,
+  unlike the numeric entries); a null never wins once a value exists, so
+  `new[]{"b",null,"A"}.Min()` is `"A"` and `.Max()` is `"b"`. The winning
+  ELEMENT is returned (never a copy).
+- Ordering is STABLE (net48 `OrderBy` is stable) and each key selector is
+  invoked EXACTLY ONCE per element (net48 `EnumerableSorter`).
+- A mixed string/non-string key pair still raises net48's
+  `ArgumentException` ("Object must be of type String") through
+  `il2cpp_icomparable_compare_to`.
+
+Registered locks: `tests/cases/collation1` (all nine E15 dimensions, array +
+list + `object` sources, `OrderBy`/`OrderByDescending`/`ThenBy`/
+`ThenByDescending`, Min/Max edge cases, non-ASCII weights, stability),
+`loud-p0-14-strkey-loud`, `loud-p0-16-objkey-loud`, `loud-p0-18-strmin-loud`
+(all three now byte-exact and REMOVED from `scripts/sweep-exclude.txt`).
+
+### 2b. RESIDUAL (registered, separate deviation): `Comparer<string>.Default` itself
+
+`genericcomparer_obj.cpp` still implements `Comparer<string>.Default.Compare`
+(and therefore `Array.Sort(..., Comparer<string>.Default)` and
+`List<string>.Sort()`) with `il2cpp_string_compare_ordinal`. net48 uses culture
+collation there, so those shapes remain a PRE-EXISTING deviation that this
+change did not touch -- `genericcomparer_obj.cpp` is outside the file scope of
+this task. The LINQ surface no longer depends on it: every LINQ string
+comparison goes through `il2cpp_string_compare_culture` directly, which is why
+`collation1` measures culture order through `OrderBy` rather than through the
+`Comparer<T>` singleton. Same for `String.Equals`/`StartsWith` culture modes
+(they still fold), which `collation1` deliberately does not assert.
+
 
 ## 3. Documented semantic deviations
 
@@ -115,11 +156,8 @@ current state is the compile-time rejection (arrays and `List<T>`, lock:
 | `Where` / `Select` | `Func<T,int,...>` (index overload) over a **LIST** source | no list index kernel (the ARRAY forms are wired: `where_idx_i4`, `where_idx_ref`, `select_idx_i4_*`, `select_idx_ref_ref`) |
 | `OrderBy` / `OrderByDescending` | `Func<T,int,TKey>` (index key selector) | no index key-selector entry |
 | `OrderBy` / `OrderByDescending` | a user-STRUCT key (a 0x11 value type that is neither `System.DateTime` nor `System.Guid`) | no field-wise comparison carrier (impl-linq3 B wired the DateTime/Guid carriers over the i4/i8/dec/ref sources; impl-linqleft added the decimal GroupBy bucket) |
-| `OrderBy` / `OrderByDescending` | a `System.String` key -- STATIC (`TKey == string`) | transpile-time rejection (no collation) |
-| `OrderBy` / `OrderByDescending` | a key whose RUNTIME type is `System.String` (`object`/interface key) | runtime rejection in `CompareRefKeys` (no collation) |
-| `ThenBy` / `ThenByDescending` | LIST receiver, or a reference-element source | the chained-sorter fold only rewrites the ARRAY forms (impl-linqleft added the decimal-element and decimal-bucket forms with `System.DateTime` / `System.Guid` secondary keys) |
 | `GroupBy` | non-int32 key family / non-int32 list | the stage-1 grouping surface is int32 keys + int32 elements |
-| `Sum`/`Min`/`Max`/`Average` | reference-element source or LIST | numeric aggregates over a reference family have no kernel |
+| `Sum`/`Min`/`Max`/`Average` | reference-element source or LIST | numeric aggregates over a reference family have no kernel (impl-collation wired the `System.String` Min/Max face only -- `il2cpp_linq[_list]_min_string` / `_max_string`) |
 | `Aggregate` | seed/accumulator family outside i4/i8/f/d/ref/dec/dt/ts/guid | no kernel (impl-aggvt wired the DateTime/TimeSpan/Guid CELL families over a decimal accumulator: `il2cpp_linq_aggregate_seed_{dt,ts,guid}_dec` + the 6 `_rs` projections each, element read at the source array cell width 8/8/16 B) |
 | `Aggregate` | a USER-STRUCT source with any accumulator | no by-value callback ABI for the struct element (impl-aggvt keeps the transpile-time LOUD; the DateTime/TimeSpan/Guid cell families are the only value-struct folds) |
 | `ToList` | reference-element array | `Resolve_ToList_String_ThrowsLoud` (pre-existing) |
@@ -520,443 +558,443 @@ Per-site table (batch-8 implemented sites marked `WIRED`):
 
 | file:line | member | condition | judgment |
 |---|---|---|---|
-| MethodMap.Array.cs:86 | Sort | 娉涘瀷鍙傛暟鏁?arity 涓嶅睘 net48 閲嶈浇 | not-analyzable |
-| MethodMap.Array.cs:196 | Sort | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:222 | Sort | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Array.cs:269 | BinarySearch | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Array.cs:290 | IndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Array.cs:309 | LastIndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Array.cs:345 | Empty | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:348 | Empty | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Array.cs:381 | Reverse | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:423 | Copy | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Array.cs:433 | ConstrainedCopy | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Array.cs:471 | FindIndex | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:500 | Find | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:524 | FindLast | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:545 | FindLastIndex | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:566 | ForEach | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:590 | FindAll | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:610 | Exists | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:629 | TrueForAll | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:643 | ConvertAll | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:672 | Resize | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Array.cs:730 | GetValue | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Array.cs:742 | SetValue | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.ArrayList.cs:51 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.ArraySort.cs:62 | Sort | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.ArraySort.cs:77 | Sort | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.ArraySort.cs:146 | IndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.ArraySort.cs:173 | LastIndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.ArraySort.cs:222 | BinarySearch | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Attribute.cs:174 | IsDefined | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Attribute.cs:180 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Base64.cs:32 | ToBase64String | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable (WIRED batch 8) |
-| MethodMap.Base64.cs:40 | FromBase64String | 杩愯鏃剁己 helper锛堝疄鐜扮己鍙ｏ級 | not-analyzable |
-| MethodMap.Base64.cs:44 | FromBase64CharArray | 杩愯鏃剁己 helper锛堝疄鐜扮己鍙ｏ級 | analyzable (WIRED batch 8) |
-| MethodMap.BigInteger.cs:173 | CompareTo | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
-| MethodMap.BigInteger.cs:179 | Equals | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
-| MethodMap.BinaryIO.cs:78 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.BinaryIO.cs:88 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.BinaryIO.cs:94 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.BinaryIO.cs:101 | Write | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.BinaryIO.cs:109 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.BinaryIO.cs:115 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.BinaryIO.cs:122 | Write | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.BinaryIO.cs:142 | Write | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BinaryIO.cs:143 | Write | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BinaryIO.cs:157 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BinaryIO.cs:165 | get_BaseStream | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.BinaryIO.cs:209 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BinaryIO.cs:217 | get_BaseStream | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.BitConverter.cs:85 | GetBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BitConverter.cs:87 | GetBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BitConverter.cs:101 | SingleToInt32Bits | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | not-analyzable |
-| MethodMap.BitConverter.cs:105 | Int32BitsToSingle | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BitConverter.cs:129 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BitConverter.cs:134 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BitConverter.cs:156 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.BitConverter.cs:157 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Buffer.cs:26 | BlockCopy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Buffer.cs:32 | ByteLength | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Buffer.cs:42 | MemoryCopy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Buffer.cs:57 | GetByte | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Buffer.cs:59 | SetByte | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Calendar.cs:96 | ToDateTime | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Console.cs:151 | Write | net48 鏃犳閲嶈浇/arity | not-analyzable |
-| MethodMap.Console.cs:289 | WriteLine | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Console.cs:310 | WriteLine | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Console.cs:356 | Dispose | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Console.cs:388 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Console.cs:414 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Console.cs:417 | Dispose | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Convert.cs:78 | ToInt32 | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | not-analyzable |
-| MethodMap.Convert.cs:90 | ToInt32 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Convert.cs:127 | ToInt64 | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | not-analyzable |
-| MethodMap.Convert.cs:129 | ToInt64 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Convert.cs:162 | ToDouble | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:165 | ToDouble | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.Convert.cs:227 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:238 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:242 | ToBoolean | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Convert.cs:258 | ToBoolean | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:260 | ToBoolean | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:261 | ToBoolean | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:266 | ToBoolean | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:270 | ToChar | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Convert.cs:283 | ToChar | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:285 | ToChar | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:286 | ToChar | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
-| MethodMap.Convert.cs:292 | ToChar | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable (WIRED batch 8) |
-| MethodMap.ConvertExtra.cs:73 | ToUInt16 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.ConvertExtra.cs:110 | ToUInt16 | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.ConvertExtra.cs:116 | ToUInt32 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.ConvertExtra.cs:143 | ToUInt32 | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.ConvertExtra.cs:149 | ToUInt64 | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.ConvertExtra.cs:172 | ToUInt64 | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.ConvertExtra.cs:178 | ToSingle | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.ConvertExtra.cs:216 | ToSingle | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.ConvertExtra.cs:243 | ToDecimal | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable (WIRED batch 8) |
-| MethodMap.ConvertExtra.cs:266 | ToDecimal | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Crypto.cs:65 | Create | 渚濊禆鏈哄櫒绾?CryptoConfig/machine.config 閰嶇疆 | not-analyzable |
-| MethodMap.Crypto.cs:69 | Create | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Crypto.cs:74 | Create | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Crypto.cs:112 | TransformBlock | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Crypto.cs:125 | TransformBlock | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Crypto.cs:133 | TransformFinalBlock | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Crypto.cs:142 | TransformFinalBlock | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Crypto.cs:201 | get_IV | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Crypto.cs:207 | get_IV | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Crypto.cs:222 | get_IV | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Crypto.cs:243 | CreateDecryptor | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Crypto.cs:265 | GetBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Crypto.cs:272 | GetNonZeroBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Crypto.cs:353 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Crypto.cs:365 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Crypto.cs:369 | ComputeHash | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Crypto.cs:392 | ComputeHash | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.Crypto.cs:394 | ComputeHash | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.CultureInfo.cs:60 | GetCultureInfo | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| analyzable |
-| MethodMap.CultureInfo.cs:76 | get_DisplayName | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
-| MethodMap.CustomAttributeExtensions.cs:47 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.CustomAttributeExtensions.cs:62 | IsDefined | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.DateTime.cs:58 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.DateTime.cs:127 | Subtract | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.DateTime.cs:182 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.DateTime.cs:183 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.DateTimeExtra.cs:68 | ToUniversalTime | 杩愯鏃剁己 icall锛堝疄鐜扮己鍙ｏ紝缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Debug.cs:65 | Assert | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Debug.cs:71 | WriteLine | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | not-analyzable |
-| MethodMap.Debug.cs:72 | WriteLine | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
-| MethodMap.Debug.cs:77 | Fail | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Debug.cs:87 | Write | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
-| MethodMap.Debug.cs:91 | WriteLine | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
-| MethodMap.Debugger.cs:55 | Log | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Decimal.cs:200 | CompareTo | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
-| MethodMap.Decimal.cs:207 | Equals | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
-| MethodMap.Delegate.cs:54 | RemoveAll | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Delegate.cs:92 | CreateDelegate | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.DependentHandle.cs:92 | nFree | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Dictionary.cs:102 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.Dtoffset.cs:114 | CompareTo | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
-| MethodMap.Dtoffset.cs:121 | Equals | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
-| MethodMap.Encoding.cs:139 | GetBytes | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Encoding.cs:155 | GetByteCount | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Encoding.cs:168 | GetCharCount | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Encoding.cs:181 | GetString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Encoding.cs:201 | GetChars | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Encoding.cs:233 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Enum.cs:250 | Parse | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | analyzable |
-| MethodMap.Enum.cs:276 | TryParse | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| analyzable |
-| MethodMap.Enum.cs:279 | TryParse | 娉涘瀷瀹炲弬鏃忔湭鎺ョ嚎锛堝厹搴曡噦锛氬厓绱?閿?缁撴灉鏃忎笉鍦ㄥ凡鎺ョ嚎闆嗗悎锛?| not-analyzable |
-| MethodMap.Enum.cs:311 | ToString | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Enum.cs:528 | (鍔ㄦ€佸潡/鍏滃簳) | 鏋氫妇娉ㄥ唽瀹归噺瓒呴檺锛坘MaxRegisteredEnums锛?| not-analyzable |
-| MethodMap.EnvironmentExtra.cs:93 | get_StackTrace | 杩愯鏃舵棤鍖归厤 icall | not-analyzable |
-| MethodMap.Exception.cs:146 | get_Message | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Format.cs:69 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
-| MethodMap.GC.cs:38 | Collect | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.GCHandle.cs:51 | Alloc | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.GCHandle.cs:76 | ToIntPtr | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.GCHandle.cs:83 | FromIntPtr | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.GCHandle.cs:97 | op_Inequality | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Guid.cs:63 | ToString | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Guid.cs:115 | Equals | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
-| MethodMap.Guid.cs:129 | CompareTo | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
-| MethodMap.Guid.cs:133 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Hash.cs:59 | ComputeHash | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Hash.cs:71 | ComputeHash | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.HashSet.cs:400 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.IntPtr.cs:91 | CompareTo | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.IO.cs:57 | Copy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.IO.cs:61 | Move | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.IO.cs:98 | Delete | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.IO.cs:119 | GetFiles | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.IO.cs:130 | GetDirectories | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.IO.cs:156 | Combine | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.IO.cs:187 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Legacy.cs:40 | System.Runtime.Remoting.Channels.ChannelServices | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
-| MethodMap.Legacy.cs:184 | nUnload | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
-| MethodMap.Legacy.cs:203 | GetType | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
-| MethodMap.Legacy.cs:212 | System.Runtime.Remoting.ObjectHandle | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
-| MethodMap.Legacy.cs:215 | System.ArgIterator | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
-| MethodMap.Legacy.cs:222 | System.Threading.ReaderWriterLock | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
-| MethodMap.Linq.cs:147 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:202 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:208 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:216 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:282 | f | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:354 | f | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:475 | FirstOrDefault | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:481 | FirstOrDefault | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:517 | FirstOrDefault | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:527 | FirstOrDefault | 鏃犳硶鍒嗙被锛堢己 TypeDef/杞戒綋锛?| analyzable |
-| MethodMap.Linq.cs:536 | FirstOrDefault | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Linq.cs:599 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:616 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:679 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:684 | OrderByDescending | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
-| MethodMap.Linq.cs:690 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:770 | GroupBy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:827 | GroupBy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:955 | System.TimeSpan | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
-| MethodMap.Linq.cs:964 | System.TimeSpan | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:1080 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:1094 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:1108 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:1224 | OrderBy | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:1242 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:1277 | ThenByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:1338 | GroupBy | 鏃犳硶鍒嗙被锛堢己 TypeDef/杞戒綋锛?| analyzable |
-| MethodMap.Linq.cs:1395 | GroupBy | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
-| MethodMap.Linq.cs:1470 | Zip | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
-| MethodMap.Linq.cs:1479 | Zip | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:1589 | Aggregate | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:1857 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
-| MethodMap.Linq.cs:1893 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:2340 | Where | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:2349 | Select | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:2472 | Zip | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:2478 | Zip | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
-| MethodMap.Linq.cs:2506 | OrderByDescending | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
-| MethodMap.Linq.cs:2512 | OrderByDescending | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
-| MethodMap.Linq.cs:2519 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:2555 | Sum | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:2770 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:2783 | OrderByDescending | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Linq.cs:2852 | Zip | 鍙傛暟/鍏冪礌鏃忔湭鎺ョ嚎 | analyzable |
-| MethodMap.Linq.cs:2861 | Zip | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.List.cs:172 | (鍔ㄦ€佸潡/鍏滃簳) | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
-| MethodMap.List.cs:202 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Marshal.cs:86 | (鍔ㄦ€佸潡/鍏滃簳) | 鍩熸帓闄わ紙閬楃暀/COM/Remoting 鍩燂級 | not-analyzable |
-| MethodMap.Marshal.cs:255 | SizeOf | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Marshal.cs:258 | SizeOf | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | not-analyzable |
-| MethodMap.Marshal.cs:259 | SizeOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Marshal.cs:280 | OffsetOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Marshal.cs:282 | OffsetOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Marshal.cs:307 | PtrToStructure | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
-| MethodMap.Marshal.cs:309 | PtrToStructure | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.Math.cs:128 | Round | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.MathExtra.cs:142 | SinCos | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.MathExtra.cs:153 | SplitFractionDouble | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.MathExtra.cs:167 | BigMul | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Module.cs:52 | get_Module | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Net.cs:92 | System.Net.WebClient | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Net.cs:124 | ToString | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Object.cs:340 | System.Reflection.MemberInfo | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Object.cs:363 | System.Reflection.MemberInfo | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Process.cs:98 | Start | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Process.cs:107 | WaitForExit | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Process.cs:196 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.ProcessInfo.cs:46 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Queue.cs:61 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.RandomExtra.cs:26 | Sample | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Reflect.cs:90 | GetValue | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:112 | SetValue | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:125 | GetGetMethod | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:131 | GetSetMethod | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:159 | Invoke | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| not-analyzable |
-| MethodMap.Reflect.cs:161 | Invoke | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:179 | AddEventHandler | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:186 | RemoveEventHandler | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:200 | MakeGenericMethod | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:215 | GetParameters | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:337 | CreateInstance | net48 鏃犳閲嶈浇/arity | not-analyzable |
-| MethodMap.Reflect.cs:339 | CreateInstance | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| analyzable |
-| MethodMap.Reflect.cs:369 | GetType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:396 | get_Name | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:401 | get_ParameterType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:406 | get_Position | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Reflect.cs:412 | IsOut | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.ReflectHandle.cs:45 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.ReflectHandle.cs:78 | GetRuntimeType | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.ReflectHandle.cs:83 | GetRuntimeType | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.ReflectionExtensions.cs:36 | GetTypeCode | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.ReflectionExtensions.cs:72 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.ReflectionExtensions.cs:81 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Regex.cs:76 | Replace | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Regex.cs:99 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Regex.cs:104 | (鍔ㄦ€佸潡/鍏滃簳) | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.RuntimeHelpers.cs:50 | GetHashCode | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.RuntimeHelpers.cs:57 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.RuntimeHelpers.cs:64 | GetObjectValue | arity/閲嶈浇褰㈢姸鏈帴绾?| not-analyzable |
-| MethodMap.RuntimeHelpers.cs:67 | PrepareDelegate | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:69 | PrepareContractedDelegate | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:71 | EnsureSufficientExecutionStack | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:73 | ProbeForSufficientStack | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:75 | ExecuteCodeWithGuaranteedCleanup | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:77 | _RunClassConstructor | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:79 | _RunModuleConstructor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.RuntimeHelpers.cs:86 | InitializeArray | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.SafeHandle.cs:45 | DangerousAddRef | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.SortedList.cs:73 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.SortedList.cs:118 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.SortedList.cs:220 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Stack.cs:56 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:117 | WriteLine | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:126 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:155 | Seek | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:162 | SetLength | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:175 | Read | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:182 | Peek | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:217 | CopyTo | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:224 | ReadByte | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:241 | Write | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:249 | WriteByte | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:287 | System.IO.FileStream | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:319 | System.IO.MemoryStream | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:328 | System.IO.StreamReader | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StreamIO.cs:357 | System.IO.StreamWriter | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:73 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:90 | IndexOf | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:113 | IndexOfAny | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:131 | LastIndexOfAny | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:155 | Replace | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:167 | ToUpperInvariant | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:175 | ToLowerInvariant | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:262 | PadRight | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:273 | Contains | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:281 | GetHashCode | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:297 | Normalize | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:305 | IsNormalized | 渚濊禆鏂囧寲鐩稿叧鎺掑簭锛圕omparer<string> 涓?culture-aware锛?| analyzable |
-| MethodMap.String.cs:356 | CompareOrdinal | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:387 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:397 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:398 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:403 | op_Equality | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:418 | op_Inequality | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:456 | Format | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:483 | Concat | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | not-analyzable |
-| MethodMap.String.cs:508 | Concat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.String.cs:605 | Join | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:31 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:46 | Append | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:55 | Append | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:89 | Append | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:111 | Insert | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:121 | Insert | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:132 | AppendLine | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:154 | AppendFormat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:157 | AppendFormat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:163 | AppendFormat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:170 | AppendFormat | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:183 | Replace | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:185 | Replace | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:188 | Replace | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:195 | CopyTo | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:200 | EnsureCapacity | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:205 | Equals | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:319 | AppendFormatted | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | analyzable |
-| MethodMap.StringBuilder.cs:331 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:342 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:347 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:367 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:376 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:406 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:413 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:429 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringBuilder.cs:432 | AppendFormatted | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringIO.cs:65 | Read | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringIO.cs:92 | Write | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringIO.cs:99 | WriteLine | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringIO.cs:124 | Dispose | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.StringIO.cs:126 | Dispose | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.StringIO.cs:142 | Write | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.StringIO.cs:148 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Task.cs:114 | (鍔ㄦ€佸潡/鍏滃簳) | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Thread.cs:148 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.TimeExt2.cs:59 | Parse | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeExt2.cs:85 | ParseExact | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeExt2.cs:101 | TryParseExact | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeSpan.cs:34 | .ctor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeZone.cs:123 | GetUtcOffset | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeZone.cs:160 | ToLocalTime | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeZone.cs:165 | ToUniversalTime | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeZone.cs:174 | IsDaylightSavingTime | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeZone.cs:182 | IsInvalidTime | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeZone.cs:195 | FindSystemTimeZoneById | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeZone.cs:204 | ConvertTimeFromUtc | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.TimeZone.cs:223 | GetDaylightChanges | 杩愯鏃舵棤 per-zone 娉ㄥ唽琛?| not-analyzable |
-| MethodMap.Type.cs:90 | GetTypeCode | 缂鸿繍琛屾椂 box 绫?鎻忚堪绗︼紙鏈墿鍖?BCL 鍊肩被鍨嬶級 | analyzable |
-| MethodMap.Type.cs:116 | Equals | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
-| MethodMap.Type.cs:163 | GetProperty | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:186 | GetMethod | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:194 | GetField | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:214 | GetMethods | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:222 | GetFields | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:230 | GetProperties | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:238 | GetConstructors | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:251 | GetConstructor | net48 鏃犳閲嶈浇/arity | not-analyzable |
-| MethodMap.Type.cs:252 | GetConstructor | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:257 | GetInterfaces | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:272 | GetInterface | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:285 | GetNestedTypes | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:305 | GetNestedType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:323 | GetMembers | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:345 | GetMember | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:357 | MakeGenericType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:372 | GetEvents | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:382 | GetEvent | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:397 | op_Equality | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:488 | GetArrayRank | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:510 | MakeArrayType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:516 | MakeByRefType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:522 | MakePointerType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:541 | GetEnumNames | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:551 | GetEnumValues | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:559 | GetEnumName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:568 | GetEnumUnderlyingType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:599 | get_IsGenericTypeDefinition | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Type.cs:622 | GetGenericArguments | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:627 | GetGenericTypeDefinition | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:638 | GetTypeFromProgID | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:643 | GetTypeFromCLSID | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:659 | InvokeMember | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:707 | get_AssemblyQualifiedName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:713 | get_Assembly | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:752 | GetName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:762 | GetType | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:769 | GetTypes | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:775 | get_FullName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:781 | GetExecutingAssembly | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:787 | GetEntryAssembly | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:808 | get_Name | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.Type.cs:814 | get_FullName | arity/閲嶈浇褰㈢姸鏈帴绾?| analyzable |
-| MethodMap.UIntPtr.cs:70 | CompareTo | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | not-analyzable |
-| MethodMap.Uri.cs:69 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Uri.cs:105 | ToString | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.ValueType.cs:497 | GetHashCode | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.ValueType.cs:535 | GetHashCode | 鏃犳硶鍒嗙被锛堢己 TypeDef/杞戒綋锛?| analyzable |
-| MethodMap.ValueType.cs:541 | GetHashCode | 鏃犳硶鍒嗙被锛堢己 TypeDef/杞戒綋锛?| not-analyzable |
-| MethodMap.Version.cs:52 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Version.cs:109 | GetHashCode | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.WeakReference.cs:44 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.WeakReference.cs:74 | Finalize | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Xml.cs:69 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Xml.cs:146 | get_InnerXml | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Xml.cs:190 | .ctor | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
-| MethodMap.Xml.cs:216 | Create | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
-| MethodMap.Xml.cs:224 | Create | 渚濊禆杩愯鏃剁被鍨?鏈拷韪疄鍙傦紙鍔ㄦ€佸垎娲撅級 | analyzable |
-| MethodMap.Xml.cs:269 | Close | 褰㈢姸鏈帴绾匡紙缂栬瘧鏈熶俊鎭畬鏁达級 | analyzable |
+| MethodMap.Array.cs:86 | Sort | 濞夋稑鐎烽崣鍌涙殶閺?arity 娑撳秴鐫?net48 闁插秷娴?| not-analyzable |
+| MethodMap.Array.cs:196 | Sort | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:222 | Sort | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Array.cs:269 | BinarySearch | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Array.cs:290 | IndexOf | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Array.cs:309 | LastIndexOf | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Array.cs:345 | Empty | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:348 | Empty | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Array.cs:381 | Reverse | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:423 | Copy | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Array.cs:433 | ConstrainedCopy | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Array.cs:471 | FindIndex | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:500 | Find | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:524 | FindLast | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:545 | FindLastIndex | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:566 | ForEach | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:590 | FindAll | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:610 | Exists | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:629 | TrueForAll | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:643 | ConvertAll | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:672 | Resize | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Array.cs:730 | GetValue | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Array.cs:742 | SetValue | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.ArrayList.cs:51 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.ArraySort.cs:62 | Sort | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.ArraySort.cs:77 | Sort | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.ArraySort.cs:146 | IndexOf | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.ArraySort.cs:173 | LastIndexOf | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.ArraySort.cs:222 | BinarySearch | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Attribute.cs:174 | IsDefined | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Attribute.cs:180 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Base64.cs:32 | ToBase64String | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable (WIRED batch 8) |
+| MethodMap.Base64.cs:40 | FromBase64String | 鏉╂劘顢戦弮鍓佸繁 helper閿涘牆鐤勯悳鎵繁閸欙綇绱?| not-analyzable |
+| MethodMap.Base64.cs:44 | FromBase64CharArray | 鏉╂劘顢戦弮鍓佸繁 helper閿涘牆鐤勯悳鎵繁閸欙綇绱?| analyzable (WIRED batch 8) |
+| MethodMap.BigInteger.cs:173 | CompareTo | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | not-analyzable |
+| MethodMap.BigInteger.cs:179 | Equals | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | not-analyzable |
+| MethodMap.BinaryIO.cs:78 | Write | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.BinaryIO.cs:88 | Write | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.BinaryIO.cs:94 | Write | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.BinaryIO.cs:101 | Write | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.BinaryIO.cs:109 | Write | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.BinaryIO.cs:115 | Write | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.BinaryIO.cs:122 | Write | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.BinaryIO.cs:142 | Write | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BinaryIO.cs:143 | Write | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BinaryIO.cs:157 | Dispose | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BinaryIO.cs:165 | get_BaseStream | 鏉╂劘顢戦弮鍓佸繁 icall閿涘牆鐤勯悳鎵繁閸欙綇绱濈紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.BinaryIO.cs:209 | Dispose | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BinaryIO.cs:217 | get_BaseStream | 鏉╂劘顢戦弮鍓佸繁 icall閿涘牆鐤勯悳鎵繁閸欙綇绱濈紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.BitConverter.cs:85 | GetBytes | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BitConverter.cs:87 | GetBytes | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BitConverter.cs:101 | SingleToInt32Bits | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| not-analyzable |
+| MethodMap.BitConverter.cs:105 | Int32BitsToSingle | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BitConverter.cs:129 | ToString | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BitConverter.cs:134 | ToString | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BitConverter.cs:156 | (閸斻劍鈧礁娼?閸忔粌绨? | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.BitConverter.cs:157 | (閸斻劍鈧礁娼?閸忔粌绨? | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Buffer.cs:26 | BlockCopy | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Buffer.cs:32 | ByteLength | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Buffer.cs:42 | MemoryCopy | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Buffer.cs:57 | GetByte | 鏉╂劘顢戦弮鍓佸繁 icall閿涘牆鐤勯悳鎵繁閸欙綇绱濈紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Buffer.cs:59 | SetByte | 鏉╂劘顢戦弮鍓佸繁 icall閿涘牆鐤勯悳鎵繁閸欙綇绱濈紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Calendar.cs:96 | ToDateTime | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Console.cs:151 | Write | net48 閺冪姵顒濋柌宥堟祰/arity | not-analyzable |
+| MethodMap.Console.cs:289 | WriteLine | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Console.cs:310 | WriteLine | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Console.cs:356 | Dispose | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Console.cs:388 | Dispose | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Console.cs:414 | Dispose | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Console.cs:417 | Dispose | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Convert.cs:78 | ToInt32 | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| not-analyzable |
+| MethodMap.Convert.cs:90 | ToInt32 | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Convert.cs:127 | ToInt64 | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| not-analyzable |
+| MethodMap.Convert.cs:129 | ToInt64 | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Convert.cs:162 | ToDouble | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:165 | ToDouble | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.Convert.cs:227 | ToString | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:238 | ToString | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:242 | ToBoolean | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Convert.cs:258 | ToBoolean | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:260 | ToBoolean | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:261 | ToBoolean | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:266 | ToBoolean | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:270 | ToChar | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Convert.cs:283 | ToChar | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:285 | ToChar | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:286 | ToChar | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable (WIRED batch 8) |
+| MethodMap.Convert.cs:292 | ToChar | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable (WIRED batch 8) |
+| MethodMap.ConvertExtra.cs:73 | ToUInt16 | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.ConvertExtra.cs:110 | ToUInt16 | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.ConvertExtra.cs:116 | ToUInt32 | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.ConvertExtra.cs:143 | ToUInt32 | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.ConvertExtra.cs:149 | ToUInt64 | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.ConvertExtra.cs:172 | ToUInt64 | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.ConvertExtra.cs:178 | ToSingle | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.ConvertExtra.cs:216 | ToSingle | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.ConvertExtra.cs:243 | ToDecimal | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable (WIRED batch 8) |
+| MethodMap.ConvertExtra.cs:266 | ToDecimal | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Crypto.cs:65 | Create | 娓氭繆绂嗛張鍝勬珤缁?CryptoConfig/machine.config 闁板秶鐤?| not-analyzable |
+| MethodMap.Crypto.cs:69 | Create | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Crypto.cs:74 | Create | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Crypto.cs:112 | TransformBlock | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Crypto.cs:125 | TransformBlock | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Crypto.cs:133 | TransformFinalBlock | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Crypto.cs:142 | TransformFinalBlock | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Crypto.cs:201 | get_IV | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Crypto.cs:207 | get_IV | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Crypto.cs:222 | get_IV | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Crypto.cs:243 | CreateDecryptor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Crypto.cs:265 | GetBytes | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Crypto.cs:272 | GetNonZeroBytes | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Crypto.cs:353 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Crypto.cs:365 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Crypto.cs:369 | ComputeHash | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Crypto.cs:392 | ComputeHash | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.Crypto.cs:394 | ComputeHash | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.CultureInfo.cs:60 | GetCultureInfo | 娓氭繆绂嗛弬鍥у閻╃鍙ч幒鎺戠碍閿涘湑omparer<string> 娑?culture-aware閿?| analyzable |
+| MethodMap.CultureInfo.cs:76 | get_DisplayName | 娓氭繆绂嗛弬鍥у閻╃鍙ч幒鎺戠碍閿涘湑omparer<string> 娑?culture-aware閿?| not-analyzable |
+| MethodMap.CustomAttributeExtensions.cs:47 | (閸斻劍鈧礁娼?閸忔粌绨? | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.CustomAttributeExtensions.cs:62 | IsDefined | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.DateTime.cs:58 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.DateTime.cs:127 | Subtract | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.DateTime.cs:182 | ToString | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.DateTime.cs:183 | ToString | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.DateTimeExtra.cs:68 | ToUniversalTime | 鏉╂劘顢戦弮鍓佸繁 icall閿涘牆鐤勯悳鎵繁閸欙綇绱濈紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Debug.cs:65 | Assert | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Debug.cs:71 | WriteLine | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| not-analyzable |
+| MethodMap.Debug.cs:72 | WriteLine | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| analyzable |
+| MethodMap.Debug.cs:77 | Fail | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Debug.cs:87 | Write | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| analyzable |
+| MethodMap.Debug.cs:91 | WriteLine | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| analyzable |
+| MethodMap.Debugger.cs:55 | Log | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Decimal.cs:200 | CompareTo | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | not-analyzable |
+| MethodMap.Decimal.cs:207 | Equals | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | not-analyzable |
+| MethodMap.Delegate.cs:54 | RemoveAll | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Delegate.cs:92 | CreateDelegate | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.DependentHandle.cs:92 | nFree | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Dictionary.cs:102 | (閸斻劍鈧礁娼?閸忔粌绨? | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.Dtoffset.cs:114 | CompareTo | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | not-analyzable |
+| MethodMap.Dtoffset.cs:121 | Equals | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | not-analyzable |
+| MethodMap.Encoding.cs:139 | GetBytes | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Encoding.cs:155 | GetByteCount | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Encoding.cs:168 | GetCharCount | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Encoding.cs:181 | GetString | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Encoding.cs:201 | GetChars | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Encoding.cs:233 | (閸斻劍鈧礁娼?閸忔粌绨? | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Enum.cs:250 | Parse | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | analyzable |
+| MethodMap.Enum.cs:276 | TryParse | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| analyzable |
+| MethodMap.Enum.cs:279 | TryParse | 濞夋稑鐎风€圭偛寮弮蹇旀弓閹恒儳鍤庨敍鍫濆幑鎼存洝鍣﹂敍姘帗缁?闁?缂佹挻鐏夐弮蹇庣瑝閸︺劌鍑￠幒銉у殠闂嗗棗鎮庨敍?| not-analyzable |
+| MethodMap.Enum.cs:311 | ToString | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Enum.cs:528 | (閸斻劍鈧礁娼?閸忔粌绨? | 閺嬫矮濡囧▔銊ュ斀鐎瑰綊鍣虹搾鍛存閿涘潣MaxRegisteredEnums閿?| not-analyzable |
+| MethodMap.EnvironmentExtra.cs:93 | get_StackTrace | 鏉╂劘顢戦弮鑸垫￥閸栧綊鍘?icall | not-analyzable |
+| MethodMap.Exception.cs:146 | get_Message | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Format.cs:69 | (閸斻劍鈧礁娼?閸忔粌绨? | 娓氭繆绂嗛弬鍥у閻╃鍙ч幒鎺戠碍閿涘湑omparer<string> 娑?culture-aware閿?| not-analyzable |
+| MethodMap.GC.cs:38 | Collect | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.GCHandle.cs:51 | Alloc | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.GCHandle.cs:76 | ToIntPtr | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.GCHandle.cs:83 | FromIntPtr | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.GCHandle.cs:97 | op_Inequality | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Guid.cs:63 | ToString | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Guid.cs:115 | Equals | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | not-analyzable |
+| MethodMap.Guid.cs:129 | CompareTo | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | not-analyzable |
+| MethodMap.Guid.cs:133 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Hash.cs:59 | ComputeHash | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Hash.cs:71 | ComputeHash | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.HashSet.cs:400 | (閸斻劍鈧礁娼?閸忔粌绨? | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.IntPtr.cs:91 | CompareTo | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.IO.cs:57 | Copy | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.IO.cs:61 | Move | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.IO.cs:98 | Delete | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.IO.cs:119 | GetFiles | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.IO.cs:130 | GetDirectories | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.IO.cs:156 | Combine | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.IO.cs:187 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Legacy.cs:40 | System.Runtime.Remoting.Channels.ChannelServices | 閸╃喐甯撻梽銈忕礄闁鏆€/COM/Remoting 閸╃噦绱?| not-analyzable |
+| MethodMap.Legacy.cs:184 | nUnload | 閸╃喐甯撻梽銈忕礄闁鏆€/COM/Remoting 閸╃噦绱?| not-analyzable |
+| MethodMap.Legacy.cs:203 | GetType | 閸╃喐甯撻梽銈忕礄闁鏆€/COM/Remoting 閸╃噦绱?| not-analyzable |
+| MethodMap.Legacy.cs:212 | System.Runtime.Remoting.ObjectHandle | 閸╃喐甯撻梽銈忕礄闁鏆€/COM/Remoting 閸╃噦绱?| not-analyzable |
+| MethodMap.Legacy.cs:215 | System.ArgIterator | 閸╃喐甯撻梽銈忕礄闁鏆€/COM/Remoting 閸╃噦绱?| not-analyzable |
+| MethodMap.Legacy.cs:222 | System.Threading.ReaderWriterLock | 閸╃喐甯撻梽銈忕礄闁鏆€/COM/Remoting 閸╃噦绱?| not-analyzable |
+| MethodMap.Linq.cs:147 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:202 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:208 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:216 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:282 | f | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:354 | f | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:475 | FirstOrDefault | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:481 | FirstOrDefault | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:517 | FirstOrDefault | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:527 | FirstOrDefault | 閺冪姵纭堕崚鍡欒閿涘牏宸?TypeDef/鏉炴垝缍嬮敍?| analyzable |
+| MethodMap.Linq.cs:536 | FirstOrDefault | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Linq.cs:599 | Select | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:616 | Select | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:679 | OrderByDescending | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:684 | OrderByDescending | 娓氭繆绂嗛弬鍥у閻╃鍙ч幒鎺戠碍閿涘湑omparer<string> 娑?culture-aware閿?| not-analyzable |
+| MethodMap.Linq.cs:690 | OrderByDescending | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:770 | GroupBy | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:827 | GroupBy | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:955 | System.TimeSpan | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| analyzable |
+| MethodMap.Linq.cs:964 | System.TimeSpan | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:1080 | Select | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:1094 | Select | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:1108 | Select | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:1224 | OrderBy | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:1242 | OrderByDescending | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:1277 | ThenByDescending | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:1338 | GroupBy | 閺冪姵纭堕崚鍡欒閿涘牏宸?TypeDef/鏉炴垝缍嬮敍?| analyzable |
+| MethodMap.Linq.cs:1395 | GroupBy | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| analyzable |
+| MethodMap.Linq.cs:1470 | Zip | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| analyzable |
+| MethodMap.Linq.cs:1479 | Zip | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:1589 | Aggregate | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:1857 | (閸斻劍鈧礁娼?閸忔粌绨? | 娓氭繆绂嗛弬鍥у閻╃鍙ч幒鎺戠碍閿涘湑omparer<string> 娑?culture-aware閿?| not-analyzable |
+| MethodMap.Linq.cs:1893 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:2340 | Where | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:2349 | Select | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:2472 | Zip | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:2478 | Zip | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| analyzable |
+| MethodMap.Linq.cs:2506 | OrderByDescending | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| analyzable |
+| MethodMap.Linq.cs:2512 | OrderByDescending | 娓氭繆绂嗛弬鍥у閻╃鍙ч幒鎺戠碍閿涘湑omparer<string> 娑?culture-aware閿?| not-analyzable |
+| MethodMap.Linq.cs:2519 | OrderByDescending | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:2555 | Sum | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:2770 | OrderByDescending | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:2783 | OrderByDescending | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Linq.cs:2852 | Zip | 閸欏倹鏆?閸忓啰绀岄弮蹇旀弓閹恒儳鍤?| analyzable |
+| MethodMap.Linq.cs:2861 | Zip | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.List.cs:172 | (閸斻劍鈧礁娼?閸忔粌绨? | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable |
+| MethodMap.List.cs:202 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Marshal.cs:86 | (閸斻劍鈧礁娼?閸忔粌绨? | 閸╃喐甯撻梽銈忕礄闁鏆€/COM/Remoting 閸╃噦绱?| not-analyzable |
+| MethodMap.Marshal.cs:255 | SizeOf | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Marshal.cs:258 | SizeOf | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | not-analyzable |
+| MethodMap.Marshal.cs:259 | SizeOf | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Marshal.cs:280 | OffsetOf | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Marshal.cs:282 | OffsetOf | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Marshal.cs:307 | PtrToStructure | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable |
+| MethodMap.Marshal.cs:309 | PtrToStructure | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.Math.cs:128 | Round | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.MathExtra.cs:142 | SinCos | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.MathExtra.cs:153 | SplitFractionDouble | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.MathExtra.cs:167 | BigMul | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Module.cs:52 | get_Module | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Net.cs:92 | System.Net.WebClient | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Net.cs:124 | ToString | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Object.cs:340 | System.Reflection.MemberInfo | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Object.cs:363 | System.Reflection.MemberInfo | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Process.cs:98 | Start | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Process.cs:107 | WaitForExit | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Process.cs:196 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.ProcessInfo.cs:46 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Queue.cs:61 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.RandomExtra.cs:26 | Sample | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Reflect.cs:90 | GetValue | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:112 | SetValue | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:125 | GetGetMethod | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:131 | GetSetMethod | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:159 | Invoke | 娓氭繆绂嗛弬鍥у閻╃鍙ч幒鎺戠碍閿涘湑omparer<string> 娑?culture-aware閿?| not-analyzable |
+| MethodMap.Reflect.cs:161 | Invoke | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:179 | AddEventHandler | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:186 | RemoveEventHandler | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:200 | MakeGenericMethod | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:215 | GetParameters | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:337 | CreateInstance | net48 閺冪姵顒濋柌宥堟祰/arity | not-analyzable |
+| MethodMap.Reflect.cs:339 | CreateInstance | 娓氭繆绂嗛弬鍥у閻╃鍙ч幒鎺戠碍閿涘湑omparer<string> 娑?culture-aware閿?| analyzable |
+| MethodMap.Reflect.cs:369 | GetType | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:396 | get_Name | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:401 | get_ParameterType | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:406 | get_Position | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Reflect.cs:412 | IsOut | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.ReflectHandle.cs:45 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.ReflectHandle.cs:78 | GetRuntimeType | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.ReflectHandle.cs:83 | GetRuntimeType | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.ReflectionExtensions.cs:36 | GetTypeCode | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.ReflectionExtensions.cs:72 | (閸斻劍鈧礁娼?閸忔粌绨? | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.ReflectionExtensions.cs:81 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Regex.cs:76 | Replace | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Regex.cs:99 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Regex.cs:104 | (閸斻劍鈧礁娼?閸忔粌绨? | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:50 | GetHashCode | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:57 | Equals | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:64 | GetObjectValue | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:67 | PrepareDelegate | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:69 | PrepareContractedDelegate | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:71 | EnsureSufficientExecutionStack | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:73 | ProbeForSufficientStack | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:75 | ExecuteCodeWithGuaranteedCleanup | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:77 | _RunClassConstructor | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:79 | _RunModuleConstructor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.RuntimeHelpers.cs:86 | InitializeArray | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.SafeHandle.cs:45 | DangerousAddRef | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.SortedList.cs:73 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.SortedList.cs:118 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.SortedList.cs:220 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Stack.cs:56 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:117 | WriteLine | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:126 | Dispose | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:155 | Seek | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:162 | SetLength | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:175 | Read | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:182 | Peek | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:217 | CopyTo | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:224 | ReadByte | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:241 | Write | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:249 | WriteByte | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:287 | System.IO.FileStream | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:319 | System.IO.MemoryStream | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:328 | System.IO.StreamReader | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StreamIO.cs:357 | System.IO.StreamWriter | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:73 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:90 | IndexOf | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:113 | IndexOfAny | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:131 | LastIndexOfAny | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:155 | Replace | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:167 | ToUpperInvariant | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:175 | ToLowerInvariant | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:262 | PadRight | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:273 | Contains | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:281 | GetHashCode | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:297 | Normalize | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:305 | IsNormalized | 娓氭繆绂嗛弬鍥у閻╃鍙ч幒鎺戠碍閿涘湑omparer<string> 娑?culture-aware閿?| analyzable |
+| MethodMap.String.cs:356 | CompareOrdinal | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:387 | Equals | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:397 | Equals | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:398 | Equals | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:403 | op_Equality | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:418 | op_Inequality | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:456 | Format | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:483 | Concat | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| not-analyzable |
+| MethodMap.String.cs:508 | Concat | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.String.cs:605 | Join | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:31 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:46 | Append | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:55 | Append | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:89 | Append | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:111 | Insert | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:121 | Insert | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:132 | AppendLine | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:154 | AppendFormat | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:157 | AppendFormat | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:163 | AppendFormat | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:170 | AppendFormat | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:183 | Replace | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:185 | Replace | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:188 | Replace | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:195 | CopyTo | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:200 | EnsureCapacity | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:205 | Equals | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:319 | AppendFormatted | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | analyzable |
+| MethodMap.StringBuilder.cs:331 | AppendFormatted | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:342 | AppendFormatted | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:347 | AppendFormatted | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:367 | AppendFormatted | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:376 | AppendFormatted | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:406 | AppendFormatted | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:413 | AppendFormatted | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:429 | AppendFormatted | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringBuilder.cs:432 | AppendFormatted | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringIO.cs:65 | Read | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringIO.cs:92 | Write | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringIO.cs:99 | WriteLine | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringIO.cs:124 | Dispose | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.StringIO.cs:126 | Dispose | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.StringIO.cs:142 | Write | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.StringIO.cs:148 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Task.cs:114 | (閸斻劍鈧礁娼?閸忔粌绨? | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Thread.cs:148 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.TimeExt2.cs:59 | Parse | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeExt2.cs:85 | ParseExact | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeExt2.cs:101 | TryParseExact | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeSpan.cs:34 | .ctor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeZone.cs:123 | GetUtcOffset | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeZone.cs:160 | ToLocalTime | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeZone.cs:165 | ToUniversalTime | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeZone.cs:174 | IsDaylightSavingTime | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeZone.cs:182 | IsInvalidTime | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeZone.cs:195 | FindSystemTimeZoneById | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeZone.cs:204 | ConvertTimeFromUtc | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.TimeZone.cs:223 | GetDaylightChanges | 鏉╂劘顢戦弮鑸垫￥ per-zone 濞夈劌鍞界悰?| not-analyzable |
+| MethodMap.Type.cs:90 | GetTypeCode | 缂傞缚绻嶇悰灞炬 box 缁?閹诲繗鍫粭锔肩礄閺堫亞澧块崠?BCL 閸婅偐琚崹瀣剁礆 | analyzable |
+| MethodMap.Type.cs:116 | Equals | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable |
+| MethodMap.Type.cs:163 | GetProperty | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:186 | GetMethod | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:194 | GetField | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:214 | GetMethods | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:222 | GetFields | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:230 | GetProperties | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:238 | GetConstructors | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:251 | GetConstructor | net48 閺冪姵顒濋柌宥堟祰/arity | not-analyzable |
+| MethodMap.Type.cs:252 | GetConstructor | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:257 | GetInterfaces | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:272 | GetInterface | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:285 | GetNestedTypes | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:305 | GetNestedType | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:323 | GetMembers | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:345 | GetMember | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:357 | MakeGenericType | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:372 | GetEvents | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:382 | GetEvent | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:397 | op_Equality | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:488 | GetArrayRank | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:510 | MakeArrayType | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:516 | MakeByRefType | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:522 | MakePointerType | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:541 | GetEnumNames | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:551 | GetEnumValues | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:559 | GetEnumName | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:568 | GetEnumUnderlyingType | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:599 | get_IsGenericTypeDefinition | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Type.cs:622 | GetGenericArguments | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:627 | GetGenericTypeDefinition | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:638 | GetTypeFromProgID | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:643 | GetTypeFromCLSID | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:659 | InvokeMember | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:707 | get_AssemblyQualifiedName | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:713 | get_Assembly | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:752 | GetName | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:762 | GetType | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:769 | GetTypes | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:775 | get_FullName | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:781 | GetExecutingAssembly | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:787 | GetEntryAssembly | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:808 | get_Name | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.Type.cs:814 | get_FullName | arity/闁插秷娴囪ぐ銏㈠Ц閺堫亝甯寸痪?| analyzable |
+| MethodMap.UIntPtr.cs:70 | CompareTo | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| not-analyzable |
+| MethodMap.Uri.cs:69 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Uri.cs:105 | ToString | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.ValueType.cs:497 | GetHashCode | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.ValueType.cs:535 | GetHashCode | 閺冪姵纭堕崚鍡欒閿涘牏宸?TypeDef/鏉炴垝缍嬮敍?| analyzable |
+| MethodMap.ValueType.cs:541 | GetHashCode | 閺冪姵纭堕崚鍡欒閿涘牏宸?TypeDef/鏉炴垝缍嬮敍?| not-analyzable |
+| MethodMap.Version.cs:52 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Version.cs:109 | GetHashCode | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.WeakReference.cs:44 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.WeakReference.cs:74 | Finalize | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Xml.cs:69 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Xml.cs:146 | get_InnerXml | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Xml.cs:190 | .ctor | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
+| MethodMap.Xml.cs:216 | Create | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable |
+| MethodMap.Xml.cs:224 | Create | 娓氭繆绂嗘潻鎰攽閺冨墎琚崹?閺堫亣鎷烽煪顏勭杽閸欏偊绱欓崝銊︹偓浣稿瀻濞叉拝绱?| analyzable |
+| MethodMap.Xml.cs:269 | Close | 瑜般垻濮搁張顏呭复缁惧尅绱欑紓鏍槯閺堢喍淇婇幁顖氱暚閺佽揪绱?| analyzable |
 
 Totals: analyzable=303, not-analyzable=134
 
@@ -1528,8 +1566,8 @@ silent path hides there.
 
 ### 14.1 FIXED (impl-orderfam): the three float-through-double residuals + the wide element-source OrderBy surface
 
-The three 搂14 residuals each got their own float reader and entry, and
-the wide element-source OrderBy surface was wired (RED鈫扜REEN, measured).
+The three 鎼?4 residuals each got their own float reader and entry, and
+the wide element-source OrderBy surface was wired (RED閳墱REEN, measured).
 
 - (a) DEC fused composite: `LinqKeyFamilyCode` now carries 6=float
   (the pre-existing 0..5 codes keep their meaning: 3=decimal,
@@ -2283,7 +2321,7 @@ Remaining, registered deviations -- format divergences, never rejections:
    types declaring the same method name can resolve to the deepest one.
 5. **`Environment.StackTrace` between frames uses CRLF**, one
    `   at Ns.Type.Method(params)` line per frame, innermost first, matching the
-   net48 separator; the localized marker word of the host (zh-CN "在") is not
+   net48 separator; the localized marker word of the host (zh-CN "鍦?) is not
    reproduced -- the runtime emits the invariant "at".
 6. `GetStackFramesInternal` (mscorlib-internal enumerator) stays a no-op: user
    code cannot reach it and the transpiled StackTrace ctors do not call it.
