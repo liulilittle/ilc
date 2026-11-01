@@ -86,11 +86,42 @@ int32_t icall_string_get_hash_code(Il2CppObject* str);
 
 // string.GetHashCode(StringComparison) (net core 2.0+; net48 has no such
 // overload). Ordinal is the legacy ordinal hash; OrdinalIgnoreCase folds
-// ASCII before hashing (equal-under-fold strings hash equally); the culture
-// modes degrade to the ordinal hash (documented culture deviation). A mode
-// outside 0..5 throws ArgumentException (the StringComparison contract).
+// ASCII before hashing (equal-under-fold strings hash equally). The four
+// CULTURE modes are net48-EXACT: they route through the culture hash below
+// (see il2cpp_culture_hash's contract). A mode outside 0..5 throws
+// ArgumentException (the StringComparison contract).
 int32_t icall_string_get_hash_code_mode(Il2CppObject* str, int32_t comparisonType);
 int32_t icall_bool_get_hash_code(bool value);
+
+// Culture-aware string hash -- EXACTLY net48's
+// CultureInfo.CompareInfo.GetHashCode(string, CompareOptions) /
+// StringComparer.{Current,Invariant}Culture[IgnoreCase].GetHashCode(string).
+//
+// Measured construction (net48 probe, 2026-11-01; see
+// tests/runtime/test_urihash.cpp): .NET does NOT case-fold and then re-use
+// the ordinal hash. It asks the NLS/ICU layer for the string's SORT KEY and
+// folds the sort-key BYTES with the same two-accumulator (5381 base, *33)
+// combiner the ordinal hash uses over UTF-16 units:
+//
+//   key = LCMapStringEx(locale, LCMAP_SORTKEY | (ignoreCase ? NORM_IGNORECASE : 0),
+//                       chars, length, ...)            // n = cchResult - 1 (the API
+//                                                      // counts the terminating NUL)
+//   h1 = h2 = 5381;
+//   for (i = 0; i < n; i += 2) { h1 = ((h1 << 5) + h1) ^ key[i];
+//                                if (i + 1 < n) h2 = ((h2 << 5) + h2) ^ key[i + 1]; }
+//   return h1 + h2 * 1566083941;                        // 32-bit wrap
+//
+// 'locale' is "" (LOCALE_NAME_INVARIANT) for the invariant culture and the
+// culture NAME for a current-culture query; "" and the user-default locale
+// agree on the invariant identity. NORM_IGNORECASE is the ONLY flag the
+// oracle uses -- SORT_STRINGSORT / NORM_IGNORENONSPACE / NORM_IGNORESYMBOLS /
+// NORM_IGNOREWIDTH / LINGUISTIC_IGNORECASE all measurably DIVERGE from it.
+//
+// The empty string hashes to 0 (net48) and a null string throws
+// ArgumentNullException. Hosts without an NLS sort-key API fall back to the
+// ASCII case fold over UTF-16 units (a documented, deterministic POSIX
+// fallback -- it is NOT net48-exact, and no Windows/Android target takes it).
+int32_t il2cpp_culture_hash(const Il2CppString* s, const char* locale, bool ignoreCase);
 
 // The narrow integral/char GetHashCode family (net48-exact). The value rides the
 // int32 slot (the CLR widens every narrow cell to the int32 parameter); 'kind'

@@ -49,7 +49,14 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 namespace il2cpp {
 namespace runtime {
@@ -175,6 +182,139 @@ int32_t HashStringOrdinal(const Il2CppString* s)
     }
     return static_cast<int32_t>(hash1 + hash2 * 1566083941u);
 }
+
+//------------------------------------------------------------------------------
+// Culture-aware string hash (net48-exact on Windows; see the header for the
+// full contract). net48's CultureInfo.CompareInfo.GetHashCode does NOT fold
+// case and reuse the ordinal hash: it asks the NLS layer for the string's
+// SORT KEY and folds the sort-key BYTES with the SAME two-accumulator
+// combiner the ordinal hash applies to UTF-16 units.
+//
+// Measured 2026-11-01 (net48 probe; every candidate construction was swept
+// against StringComparer.InvariantCultureIgnoreCase.GetHashCode, 83 strings
+// + 7 long strings 1..500000 units, all exact; tests/runtime/test_urihash.cpp
+// pins the resulting integers):
+//   * the flag set is exactly LCMAP_SORTKEY|NORM_IGNORECASE -- SORT_STRINGSORT,
+//     NORM_IGNORENONSPACE, NORM_IGNORESYMBOLS, NORM_IGNOREWIDTH and
+//     LINGUISTIC_IGNORECASE each measurably DIVERGE from the oracle;
+//   * the API's cchResult INCLUDES the terminating NUL, and .NET folds only
+//     the first cchResult-1 bytes (dropping the NUL is what makes the
+//     integers line up);
+//   * the empty string is 0 (net48) and null throws ArgumentNullException.
+//
+// Locale selection: "" is LOCALE_NAME_INVARIANT and nullptr is
+// LOCALE_NAME_USER_DEFAULT -- measured to agree with net48 for both the
+// invariant and the current-culture comparers (the user default IS what
+// net48's CurrentCulture follows).
+//------------------------------------------------------------------------------
+// The two-accumulator (5381, *33) fold over a byte buffer; identical shape to
+// HashStringOrdinal, deliberately shared so the two stay recognisably the same
+// algorithm.
+static int32_t FoldSortKeyBytes(const unsigned char* key, std::size_t count)
+{    if (count == 0)
+    {
+        return 0;
+    }
+    uint32_t hash1 = 5381u;
+    uint32_t hash2 = hash1;
+    for (std::size_t i = 0; i < count; i += 2)
+    {
+        hash1 = ((hash1 << 5) + hash1) ^ static_cast<uint32_t>(key[i]);
+        if (i + 1 < count)
+        {
+            hash2 = ((hash2 << 5) + hash2) ^ static_cast<uint32_t>(key[i + 1]);
+        }
+    }
+    return static_cast<int32_t>(hash1 + hash2 * 1566083941u);
+}
+
+// Non-Windows fallback: ASCII fold over the UTF-16 units with the same
+// accumulator shape. NOT net48-exact (documented): only Windows targets see
+// the NLS sort-key path; this keeps POSIX hosts deterministic instead of
+// returning 0 or throwing.
+int32_t FoldAsciiUnits(const Il2CppString* s, bool ignoreCase)
+{
+    if (s->length <= 0)
+    {
+        return 0;
+    }
+    uint32_t hash1 = 5381u;
+    uint32_t hash2 = hash1;
+    for (int32_t i = 0; i < s->length; i += 2)
+    {
+        char16_t c0 = s->chars[i];
+        if (ignoreCase && c0 >= u'A' && c0 <= u'Z')
+        {
+            c0 = static_cast<char16_t>(c0 + 32);
+        }
+        hash1 = ((hash1 << 5) + hash1) ^ static_cast<uint32_t>(c0);
+        if (i + 1 < s->length)
+        {
+            char16_t c1 = s->chars[i + 1];
+            if (ignoreCase && c1 >= u'A' && c1 <= u'Z')
+            {
+                c1 = static_cast<char16_t>(c1 + 32);
+            }
+            hash2 = ((hash2 << 5) + hash2) ^ static_cast<uint32_t>(c1);
+        }
+    }
+    return static_cast<int32_t>(hash1 + hash2 * 1566083941u);
+}
+
+} // namespace
+
+int32_t il2cpp_culture_hash(const Il2CppString* s, const char* locale, bool ignoreCase)
+{
+    if (s == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("s");
+    }
+    if (s->length <= 0)
+    {
+        // net48: String.Empty hashes to 0 for EVERY comparer.
+        return 0;
+    }
+#if defined(_WIN32)
+    // LOCALE_NAME_INVARIANT for "", LOCALE_NAME_USER_DEFAULT for nullptr.
+    std::wstring wideLocale;
+    const wchar_t* localeName = nullptr;
+    if (locale != nullptr)
+    {
+        const std::size_t n = std::strlen(locale);
+        wideLocale.resize(n);
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            wideLocale[i] = static_cast<wchar_t>(static_cast<unsigned char>(locale[i]));
+        }
+        localeName = wideLocale.c_str();
+    }
+    const DWORD flags = LCMAP_SORTKEY | (ignoreCase ? NORM_IGNORECASE : 0u);
+    const wchar_t* src = reinterpret_cast<const wchar_t*>(s->chars);
+    const int cchSrc = s->length;
+    const int needed = ::LCMapStringEx(localeName, flags, src, cchSrc,
+                                       nullptr, 0, nullptr, nullptr, 0);
+    if (needed > 1)
+    {
+        std::vector<unsigned char> key(static_cast<std::size_t>(needed));
+        const int written = ::LCMapStringEx(
+            localeName, flags, src, cchSrc,
+            reinterpret_cast<wchar_t*>(key.data()), needed, nullptr, nullptr, 0);
+        if (written > 1)
+        {
+            // The API counts the terminating NUL; .NET folds cchResult-1 bytes.
+            return FoldSortKeyBytes(key.data(), static_cast<std::size_t>(written - 1));
+        }
+    }
+    // Detectable failure (unsupported locale / API limit): stay deterministic
+    // and non-throwing with the documented ASCII fallback.
+    return FoldAsciiUnits(s, ignoreCase);
+#else
+    (void)locale;
+    return FoldAsciiUnits(s, ignoreCase);
+#endif
+}
+
+namespace {
 
 // net48 Int64.GetHashCode: unchecked((int)value) ^ (int)(value >> 32) --
 // the uint64 view makes the low/high split explicit and well-defined.
@@ -877,11 +1017,12 @@ int32_t icall_string_get_hash_code(Il2CppObject* str)
 
 //------------------------------------------------------------------------------
 // icall_string_get_hash_code_mode -- string.GetHashCode(StringComparison)
-// (net core 2.0+; net48 has NO such overload). The ordinal form keeps the
-// legacy net48 hash; the ignore-case form folds ASCII BEFORE the same
-// pair-scan (so strings equal under OrdinalIgnoreCase hash equally); the
-// culture modes degrade to the ordinal hash (documented culture deviation).
-// An invalid mode throws ArgumentException (the StringComparison contract).
+// (net core 2.0+; net48 has NO such overload). The ordinal modes keep the
+// legacy net48 hash; OrdinalIgnoreCase folds ASCII before the same pair-scan
+// (equal-under-fold strings hash equally). The four CULTURE modes route
+// through il2cpp_culture_hash -- net48-exact on Windows (NLS sort key), which
+// is what CurrentCulture[IgnoreCase] / InvariantCulture[IgnoreCase] do. An
+// invalid mode throws ArgumentException (the StringComparison contract).
 //------------------------------------------------------------------------------
 int32_t icall_string_get_hash_code_mode(Il2CppObject* str, int32_t comparisonType)
 {
@@ -891,26 +1032,38 @@ int32_t icall_string_get_hash_code_mode(Il2CppObject* str, int32_t comparisonTyp
     }
     ThrowIfNull(str);
     const Il2CppString* s = reinterpret_cast<const Il2CppString*>(str);
-    const bool ignoreCase = comparisonType == 1 || comparisonType == 3 || comparisonType == 5;
-    if (!ignoreCase)
+    switch (comparisonType)
     {
+    case 0: // Ordinal
         return HashStringOrdinal(s);
-    }
-    uint32_t hash1 = 5381u;
-    uint32_t hash2 = hash1;
-    for (int32_t i = 0; i < s->length; i += 2)
+    case 1: // OrdinalIgnoreCase
     {
-        char16_t c0 = s->chars[i];
-        if (c0 >= u'A' && c0 <= u'Z') c0 = static_cast<char16_t>(c0 + 32);
-        hash1 = ((hash1 << 5) + hash1) ^ static_cast<uint32_t>(c0);
-        if (i + 1 < s->length)
+        uint32_t hash1 = 5381u;
+        uint32_t hash2 = hash1;
+        for (int32_t i = 0; i < s->length; i += 2)
         {
-            char16_t c1 = s->chars[i + 1];
-            if (c1 >= u'A' && c1 <= u'Z') c1 = static_cast<char16_t>(c1 + 32);
-            hash2 = ((hash2 << 5) + hash2) ^ static_cast<uint32_t>(c1);
+            char16_t c0 = s->chars[i];
+            if (c0 >= u'A' && c0 <= u'Z') c0 = static_cast<char16_t>(c0 + 32);
+            hash1 = ((hash1 << 5) + hash1) ^ static_cast<uint32_t>(c0);
+            if (i + 1 < s->length)
+            {
+                char16_t c1 = s->chars[i + 1];
+                if (c1 >= u'A' && c1 <= u'Z') c1 = static_cast<char16_t>(c1 + 32);
+                hash2 = ((hash2 << 5) + hash2) ^ static_cast<uint32_t>(c1);
+            }
         }
+        return static_cast<int32_t>(hash1 + hash2 * 1566083941u);
     }
-    return static_cast<int32_t>(hash1 + hash2 * 1566083941u);
+    case 2: // CurrentCulture -- nullptr is LOCALE_NAME_USER_DEFAULT, which is
+            // exactly the locale net48's CurrentCulture follows.
+        return il2cpp_culture_hash(s, nullptr, false);
+    case 3: // CurrentCultureIgnoreCase
+        return il2cpp_culture_hash(s, nullptr, true);
+    case 4: // InvariantCulture -- "" is LOCALE_NAME_INVARIANT.
+        return il2cpp_culture_hash(s, "", false);
+    default: // 5: InvariantCultureIgnoreCase
+        return il2cpp_culture_hash(s, "", true);
+    }
 }
 
 //------------------------------------------------------------------------------
