@@ -1555,6 +1555,13 @@ public static class StackFold
                             : unboxType is "System.DateTime" ? "dt"
                             : unboxType is "System.TimeSpan" ? "ts"
                             : unboxType is "System.Guid" ? "guid"
+                            // dtoiface: the 16-byte DateTimeOffset unbox temp
+                            // must be the runtime value struct too -- without
+                            // this the temp collapsed to int32_t and the
+                            // icall_unbox_date_time_offset result could not be
+                            // assigned (a compile error, proven by
+                            // tests/cases/dtoiformattable1).
+                            : unboxType is "System.DateTimeOffset" ? "dto"
                             : UnboxUserStructKind(unboxType, types);
                         Push(new CallExpr { Function = $"unbox_{ins.Operand}", ReturnsRef = false, ResultKind = kind, Args = { stack.Pop() } }, ins);
                     }

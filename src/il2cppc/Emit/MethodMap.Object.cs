@@ -35,19 +35,11 @@ public static partial class MethodRefResolver
     // Int64) and a user-enum box is registration-dependent, so a boxed-klass
     // dispatch cannot reproduce the member-name text. They stay a
     // self-identifying transpile-time LOUD, registered in docs/audit/b5-gaps.md.
-    //
-    // System.DateTimeOffset is ALSO not listed: it implements IFormattable in
-    // net48 and the runtime formatter exists (icall_dtoffset_to_string_format),
-    // but the transpiler's `box` arm (CodeGenerator.cs, owned by another seat
-    // this batch) has no System.DateTimeOffset helper, so the cast rejects at
-    // the BOX instruction before this arm is reached. Registered in
-    // docs/audit/b5-gaps.md; wiring the two-line box helper is the whole
-    // change surface.
     private static bool IsFormattableReceiver(string? t) => t is
         "System.Int32" or "System.Int64" or "System.UInt32" or "System.UInt64"
         or "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16"
         or "System.Double" or "System.Single" or "System.Decimal"
-        or "System.DateTime" or "System.TimeSpan" or "System.Guid";
+        or "System.DateTime" or "System.DateTimeOffset" or "System.TimeSpan" or "System.Guid";
 
     private static ResolvedMethod? TryMapObject(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)

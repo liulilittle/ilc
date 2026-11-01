@@ -10376,6 +10376,9 @@ default: return false;                           // primitives/VAR(handled by ca
             "System.DateTime" => $"il2cpp::runtime::icall_unbox_date_time({objCode})",
             "System.TimeSpan" => $"il2cpp::runtime::icall_unbox_time_span({objCode})",
             "System.Guid" => $"il2cpp::runtime::icall_unbox_guid({objCode})",
+            // dtoiface: Nullable<DateTimeOffset>.Value -- the same 16-byte
+            // boxed-payload read (the helper returns the value struct).
+            "System.DateTimeOffset" => $"il2cpp::runtime::icall_unbox_date_time_offset({objCode})",
             _ when tDef is { IsValueType: true } =>
                 $"(*reinterpret_cast<{TypeEmitter.TypeCppName(tDef)}*>(il2cpp::runtime::il2cpp_unbox_user_struct({objCode})))",
             _ => throw new NotSupportedException(
@@ -10602,6 +10605,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "System.DateTime" => $"il2cpp::runtime::icall_box_date_time({boxVal})",
                 "System.TimeSpan" => $"il2cpp::runtime::icall_box_time_span({boxVal})",
                 "System.Guid" => $"il2cpp::runtime::icall_box_guid(&static_cast<const il2cpp::Il2CppGuid&>({boxVal}))",
+                // dtoiface: DateTimeOffset is the fourth 16-byte BCL value
+                // struct with a real box class (System_DateTimeOffset_class,
+                // metadata.cpp) and a box icall (nullable.cpp). It takes the
+                // 16-byte payload BY ADDRESS, so it binds through a const
+                // reference exactly like Guid/Decimal. Without this arm
+                // `((IFormattable)dto)` fell to the `_ => throw` LOUD at the
+                // BOX instruction even though every runtime piece existed.
+                "System.DateTimeOffset" => $"il2cpp::runtime::icall_box_date_time_offset(&static_cast<const il2cpp::runtime::Il2CppDateTimeOffset&>({boxVal}))",
                 // box of System.Object is a no-op (already a reference type)
                 "System.Object" => boxVal,
                 // BCL pointer-wrapper handles (ModuleHandle, RuntimeTypeHandle,
@@ -10663,6 +10674,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 "System.DateTime" => $"il2cpp::runtime::icall_unbox_date_time({unboxVal})",
                 "System.TimeSpan" => $"il2cpp::runtime::icall_unbox_time_span({unboxVal})",
                 "System.Guid" => $"il2cpp::runtime::icall_unbox_guid({unboxVal})",
+                // dtoiface: the inverse of the DateTimeOffset box arm above.
+                // The helper validates the klass (ICE on a foreign box) and
+                // returns the 16-byte value struct BY VALUE.
+                "System.DateTimeOffset" => $"il2cpp::runtime::icall_unbox_date_time_offset({unboxVal})",
                 // P25b (user struct box): a USER value type unboxes through
                 // il2cpp_unbox_user_struct -- the runtime validates the box
                 // (its klass's base chain reaches System.ValueType; NRE/ICE on
