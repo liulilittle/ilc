@@ -1108,3 +1108,71 @@ python <repo>/tools/audit/verify_winforms_report.py <repo>
 
 第 3 步的 `classified.tsv` 是逐条明细（1317 行，含 `klass`/`needs`/`reason` 三列），审计时可直接 diff。
 
+
+## 10. `struct-return` 重新实测（2026-11-02，基线 `c5cf04c8`，impl-struct-return 席位）
+
+> 本节更正 §2.1 / §4.3 对 `struct-return` 的旧归因。证据均在
+> `.opencode/tmp/impl-struct-return/NOTES.md`（原始 oracle/runtime 记录、ABI 数值、变异红绿
+> 原始输出），不引用旧文档自身的结论。
+
+### 10.1 9 条 `struct-return` 行全部是 `ret-enum:`，不是结构体返回
+
+`classified.tsv` 里带 `struct-return` 的 9 行逐条是：
+
+| 行 | 真实返回编码 |
+|---|---|
+| `GetAwarenessFromDpiAwarenessContext` | `ret-enum:...DPI_AWARENESS` |
+| `GetCaretPos` / `GetPhysicalCursorPos` | `ret-enum:...BOOL` |
+| `CombineRgn` ×2（Forms/Drawing `IntUnsafeNativeMethods`） | `ret-enum:...RegionFlags` |
+| `GetRgnBox` ×2 | `ret-enum:...RegionFlags` |
+| `SelectClipRgn` ×2 | `ret-enum:...RegionFlags` |
+
+实测（`tests/cases/pinvoke-structreturn/`，net48 oracle == 转译运行时逐字节）：把它们当
+「by-value 结构体返回」命名生成枚举类型是**错误**的——本模型的用户枚举 C++ 结构体带对象头
+（`Il2CppObject _obj` + `int32_t value__`，16 字节），而原生枚举是 4 字节 int32；16 字节聚合走
+隐藏 sret 指针，造成参数/返回全部错位（实测 `[enum.dpi]=-1619005961089843198`、
+`[enum.caret.ret]=8589934593`、`[enum.combine]=0`）。因此修复里枚举返回**保持 `int32_t`**
+（这正是 CLR 的枚举 ABI）。这 9 条真正缺的是 `handleref`（已实现）+ 枚举返回的 int32 语义；
+新 case 用相同的 1/2/3 个 HandleRef 参数形态验证通过。
+
+另外 4 条 `CombineRgn`/`GetRgnBox`/`SelectClipRgn` 的 `int` 返回重载从来不是
+`struct-return` 缺陷，只差 `handleref`。
+
+### 10.2 真正的 by-value 结构体返回缺陷（已修复并钉住）
+
+任务书的原始输入（`SZP { int cx, cy; }`、`static extern SZP Query();`）在本基线实测为
+`il2cpp_pinvoke_call<int32_t>(...).cx`，mingw 原始报错：
+
+```
+error: request for member 'cx' in 'il2cpp::runtime::il2cpp_pinvoke_call<...>(...)',
+       which is of non-class type 'int'
+```
+
+根因：`PinvokeReturnStructNameOfHandle` 只认注册表（Point/Rectangle/Message），同程序集
+TypeDef 返回 null，`PinvokeReturnTypeCppOf` 兜底成 `int32_t`；而 by-value/by-ref 参数路径
+（`:9407-9412` / `:9387-9395`）早就有 `TypeEmitter.Sanitize` 兜底。修复后：
+
+* 同程序集 TypeDef 结构体返回 -> 生成的 C++ 结构体名（与参数侧一致）；
+* 同程序集枚举返回 -> `int32_t`（见 10.1 的实测理由）；
+* 外部程序集 TypeRef 且无注册布局 -> 显式 `NotSupportedException`（不再静默猜 int32）；
+* 桥头 `il2cpp_pinvoke_bridge.h` **无需改动**：`il2cpp_pinvoke_call<Ret>` 本来就按值返回
+  `Ret`，`il2cpp_pinvoke_native_convert` 对聚合是合法拷贝；已用 BUILD+ORACLE 验证
+  `AbiPair(2×int32, 8B)`、`AbiWide(int64, 8B)`、`AbiTriple(3×int32, 12B)`、
+  `AbiFour(4B)` 四种 ABI 形态字段值全部逐字节一致。
+
+新 case：`tests/cases/pinvoke-structreturn/`（338B，oracle/runtime 同 sha256；不在
+`sweep-exclude.txt`）。变异证明：把同程序集兜底改回 `return null` -> 重新生成
+`il2cpp_pinvoke_call<int32_t>` -> mingw 报 `no match for 'operator=' (... and 'int')`
+（红）；恢复 -> 0 错、17 条记录全绿。
+
+### 10.3 仍存在、但不属于本缺陷的实测残余（供后续能力项）
+
+1. **STATIC 链接模块**的同程序集结构体返回：`MethodRefResolver.PinvokeRetCpp`（:2934）只映射
+   标量，调用点仍发 `il2cpp_pinvoke_call<int32_t>`；动态（SHARED）/Windows probe 路径已绿。
+   修它需要改 `MethodRefResolver.cs`（本席位允许文件之外）。
+2. 结构体返回结果经**用户方法内联参数临时槽**取字段时，临时槽可能被通用 temp-slot 分配成
+   `int32_t`（实测 `int64_t` 字段只写低 32 位）；直接 `call().field` 形态已绿。
+3. **枚举 by-value 参数**仍按 16 字节枚举结构体传（实测 `[enum.combine]=0` 当传入枚举类型；
+   传 `int` 后绿）。属枚举参数族，不是结构体返回。
+4. `System.Drawing.Point.X/Y` 属性访问会发射未声明的 `System_Drawing_Point_get_X_...`
+   helper（与本缺陷无关的既有缺口；新 case 用原生回读避开）。
