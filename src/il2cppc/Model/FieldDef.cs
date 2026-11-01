@@ -77,6 +77,25 @@ public sealed class FieldDef
     // change -- this FieldDef already carries it.
     public string FieldTypeName { get; init; } = "";
 
+    // P/Invoke fixed-buffer marshalling ([MarshalAs] decode). net48 lays these
+    // fields INLINE in the value type -- a ByValTStr field is a WCHAR[SizeConst]
+    // buffer inside the struct (measured: Marshal.SizeOf(LOGFONTW{3*int32,
+    // ByValTStr(32)}) == 76, face offset 12), NOT a GC reference. The emitted
+    // C++ member is therefore a fixed char16_t array, the field is EXCLUDED
+    // from the refFieldBitmap, and every store/read goes through the inline
+    // buffer copy helpers. Kind None = an ordinary field with normal semantics.
+    public FieldMarshalKind MarshalKind { get; init; } = FieldMarshalKind.None;
+    // The [MarshalAs(SizeConst = N)] unit count (0 when the attribute is absent
+    // or has no SizeConst).
+    public int MarshalSizeConst { get; init; }
+    // Bytes per character of a ByValTStr buffer: 2 for CharSet.Unicode / Auto
+    // (WCHAR -- the only encoding this model implements), 1 for Ansi/None.
+    public int MarshalCharSize { get; init; } = 1;
+    // ByValArray: the unmanaged element kind (ArraySubType) when declared, else
+    // empty. The layout/emission of fixed array fields is not implemented yet
+    // (the emitter rejects them LOUDLY -- see TypeEmitter.LayoutValueTypeFields).
+    public string MarshalElementTypeName { get; init; } = "";
+
     // R2b P2 (parallel VAR channel): the field signature's type byte is a
     // generic parameter (0x13 VAR / 0x1E MVAR). TypeKind/FieldTypeName keep
     // the M3 default (Int32/"") -- this flag lets a closed generic clone
@@ -149,4 +168,14 @@ public enum FieldTypeKind
     UserStruct, // a translated user value type -- embedded as the generated C++ struct value
     Nullable,   // System.Nullable`1<T> -- expanded to a T value slot + a hasValue(bool) slot
     Reference // managed GC reference
+}
+
+// P/Invoke fixed-buffer field marshalling ([MarshalAs] decode, see
+// FieldDef.MarshalKind). Values are the UnmanagedType enum ordinals:
+// 23 = ByValTStr, 30 = ByValArray.
+public enum FieldMarshalKind
+{
+    None,      // ordinary field (no [MarshalAs] fixed buffer)
+    ByValTStr, // inline WCHAR[SizeConst] buffer (CharSet.Unicode/Auto)
+    ByValArray // inline T[SizeConst] fixed array (decode only; emission LOUD)
 }

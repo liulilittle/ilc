@@ -44,9 +44,69 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_object.h"  // Il2CppObject
+#include "il2cpp_string.h"  // Il2CppString (ByValTStr inline buffers)
 #include <cstdint>
+#include <cstring>
 
 namespace il2cpp {
+
+//------------------------------------------------------------------------------
+// ByValTStr inline-buffer helpers ([MarshalAs(UnmanagedType.ByValTStr,
+// SizeConst = N)]). net48 lays the field out as WCHAR[N] INSIDE the value
+// type, so the generated struct member is a plain char16_t[N] and the managed
+// string is converted at the field access, not stored as a GC pointer:
+//
+//   load  : buffer -> managed string (stops at the first NUL, or at
+//           'capacity' units when the native side filled the buffer without a
+//           terminator -- measured net48 PtrToStructure behaviour).
+//   store : managed string -> buffer (copies at most capacity-1 units and
+//           NUL-terminates; a null string zero-fills -- measured net48
+//           StructureToPtr behaviour: a 32-unit input into SizeConst=32 keeps
+//           31 units + NUL).
+//
+// The helpers own no GC roots: the buffer is plain native memory, the string
+// is a managed object the caller roots, exactly like any other string temp.
+//------------------------------------------------------------------------------
+inline Il2CppObject* il2cpp_pinvoke_byvaltstr_load(const char16_t* buffer, int32_t capacity)
+{
+    int32_t length = 0;
+    if (buffer != nullptr)
+    {
+        while (length < capacity && buffer[length] != 0)
+        {
+            ++length;
+        }
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(buffer, length));
+    }
+    return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(u"", 0));
+}
+
+inline void il2cpp_pinvoke_byvaltstr_store(char16_t* buffer, int32_t capacity, Il2CppObject* value)
+{
+    if (buffer == nullptr || capacity <= 0)
+    {
+        return;
+    }
+    int32_t length = 0;
+    if (value != nullptr)
+    {
+        const Il2CppString* str = reinterpret_cast<const Il2CppString*>(value);
+        length = str->length;
+        const int32_t limit = capacity - 1;
+        if (length > limit)
+        {
+            length = limit;
+        }
+        if (length > 0)
+        {
+            std::memcpy(buffer, str->chars, static_cast<size_t>(length) * sizeof(char16_t));
+        }
+    }
+    for (int32_t i = length; i < capacity; ++i)
+    {
+        buffer[i] = 0;
+    }
+}
 
 //------------------------------------------------------------------------------
 // Native struct kinds (canonical Win32 sequential layouts).

@@ -96,6 +96,10 @@ public static class MetadataLoader
                 typeDef.InterfaceNames.Add(ifaceName);
             }
 
+            // P/Invoke fixed-buffer fields: the STRUCT-level CharSet decides
+            // the ByValTStr character width (Unicode/Auto = 2 bytes). Read
+            // once per type (an ordinary type pays one attribute scan).
+            var structCharSize = ReadStructCharSizeBytes(md, tdHandle);
             foreach (var fh in td.GetFields())
             {
                 var fd = md.GetFieldDefinition(fh);
@@ -141,6 +145,32 @@ public static class MetadataLoader
                     // parameter index; MVAR (0x1E) is method-level -> -1.
                     if (fb == 0x13) fieldVarIndex = fsig.ReadCompressedInteger();
                 }
+                // P/Invoke fixed-buffer decode ([MarshalAs]); see
+                // ReadFieldMarshalAs. Only VALID UTF-16 ByValTStr fields are
+                // representable today: every other fixed-buffer shape is a
+                // LOUD rejection instead of the old silent GC-pointer degrade.
+                var (marshalKind, marshalSizeConst, marshalElem) = ReadFieldMarshalAs(md, fh);
+                if (marshalKind != FieldMarshalKind.None)
+                {
+                    if (isStatic)
+                        throw new NotSupportedException(
+                            $"field '{typeDef.FullName}.{fName}': [MarshalAs] fixed buffers are only supported on instance fields of a value type");
+                    if (!typeDef.IsValueType)
+                        throw new NotSupportedException(
+                            $"field '{typeDef.FullName}.{fName}': [MarshalAs] fixed buffers are only supported inside a value type (struct), not a class");
+                    if (marshalKind == FieldMarshalKind.ByValTStr)
+                    {
+                        if (kind != FieldTypeKind.Reference || typeName != "System.String")
+                            throw new NotSupportedException(
+                                $"field '{typeDef.FullName}.{fName}': [MarshalAs(ByValTStr)] must be declared on a System.String field (decoded '{typeName}')");
+                        if (marshalSizeConst <= 0)
+                            throw new NotSupportedException(
+                                $"field '{typeDef.FullName}.{fName}': [MarshalAs(ByValTStr)] without a positive SizeConst has no native buffer size (net48 requires SizeConst)");
+                        if (structCharSize != 2)
+                            throw new NotSupportedException(
+                                $"field '{typeDef.FullName}.{fName}': [MarshalAs(ByValTStr)] with a 1-byte CharSet (Ansi/None) is not implemented -- only CharSet.Unicode/Auto (WCHAR) is supported");
+                    }
+                }
                 var field = new FieldDef
                 {
                     Name = fName,
@@ -164,6 +194,10 @@ public static class MetadataLoader
                     ConstantValue = TryReadConstant(md, fd),
                     TypeKind = kind,
                     FieldTypeName = typeName,
+                    MarshalKind = marshalKind,
+                    MarshalSizeConst = marshalSizeConst,
+                    MarshalCharSize = structCharSize,
+                    MarshalElementTypeName = marshalElem,
                     IsGenericVar = fieldIsVar,
                     GenericVarIndex = fieldVarIndex,
                     // p-refl2-gapmatrix (B05/E04): the ECMA FieldDef token
@@ -828,6 +862,63 @@ public static class MetadataLoader
             result.Add(new CustomAttributeDef(attrType, ctorName, MetadataTokens.GetToken(ca.Constructor), fixedArgs, namedArgs));
         }
         return result;
+    }
+
+    //--------------------------------------------------------------------------
+    // MarshalAs / StructLayout decode (P/Invoke fixed-buffer fields).
+    //
+    // [MarshalAs(UnmanagedType.ByValTStr, SizeConst = N)] is NOT just a hint:
+    // net48 lays the field out INLINE in the value type as WCHAR[N] (measured:
+    // LOGFONTW{int,int,int,ByValTStr(32)} -> Marshal.SizeOf == 76, face offset
+    // 12; a 32-unit input truncates to 31 + NUL; a full 32-unit no-NUL buffer
+    // reads back as 32 chars). The transpiler used to ignore the attribute
+    // entirely because it is NOT a CustomAttribute row: the C# compiler lowers
+    // it into the FieldMarshal metadata table (ECMA II.22.17), so every
+    // decoder that only walked GetCustomAttributes() saw nothing and the
+    // field silently degraded to a GC reference (24-byte struct, pointer at
+    // offset 16) -- a silent size/ABI/GC mismatch.
+    //
+    // The FieldMarshal blob (ECMA II.23.4) starts with the native type byte
+    // (the UnmanagedType value) followed by its operands:
+    //   FIXEDSYSSTRING (0x17 = ByValTStr) <SizeConst>
+    //   FIXEDARRAY     (0x1E = ByValArray) <SizeConst> [<element native type>]
+    // The struct-level CharSet is likewise NOT a CustomAttribute: it lives in
+    // TypeAttributes.StringFormatMask (0x30000; UnicodeClass 0x10000,
+    // AutoClass 0x20000 -> WCHAR on Windows, AnsiClass 0 -> 1 byte).
+    //--------------------------------------------------------------------------
+    private const int NativeTypeByValTStr = 0x17;   // NATIVE_TYPE_FIXEDSYSSTRING
+    private const int NativeTypeByValArray = 0x1E;  // NATIVE_TYPE_FIXEDARRAY
+
+    public static (FieldMarshalKind Kind, int SizeConst, string ElementTypeName) ReadFieldMarshalAs(
+        MetadataReader md, FieldDefinitionHandle fh)
+    {
+        var descriptor = md.GetFieldDefinition(fh).GetMarshallingDescriptor();
+        if (descriptor.IsNil) return (FieldMarshalKind.None, 0, "");
+        var blob = md.GetBlobReader(descriptor);
+        var nativeType = blob.ReadByte();
+        if (nativeType == NativeTypeByValTStr)
+        {
+            var sizeConst = blob.RemainingBytes > 0 ? blob.ReadCompressedInteger() : 0;
+            return (FieldMarshalKind.ByValTStr, sizeConst, "");
+        }
+        if (nativeType == NativeTypeByValArray)
+        {
+            var sizeConst = blob.RemainingBytes > 0 ? blob.ReadCompressedInteger() : 0;
+            var elem = blob.RemainingBytes > 0
+                ? "0x" + blob.ReadByte().ToString("x2", System.Globalization.CultureInfo.InvariantCulture)
+                : "";
+            return (FieldMarshalKind.ByValArray, sizeConst, elem);
+        }
+        return (FieldMarshalKind.None, 0, "");
+    }
+
+    // The struct-level [StructLayout(CharSet = ...)] as BYTES per character:
+    // 2 for Unicode/Auto (WCHAR on Windows), 1 for Ansi/None/no CharSet
+    // (net48's default is Ansi).
+    public static int ReadStructCharSizeBytes(MetadataReader md, TypeDefinitionHandle tdHandle)
+    {
+        var format = (int)md.GetTypeDefinition(tdHandle).Attributes & 0x00030000;
+        return format is 0x00010000 or 0x00020000 ? 2 : 1;
     }
 
     // The ctor signature (calling convention 0x20 + param count + void return +

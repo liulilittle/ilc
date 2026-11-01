@@ -1291,6 +1291,67 @@ bridge.h:88: error: invalid 'static_cast' from type 'Cases_Ret2Pair' to type 'in
 
 C0：`dotnet build src/il2cppc/il2cppc.csproj -c Debug --no-incremental` → **0 警 0 错**。
 单测：`dotnet test tests/unit/unit.csproj` → **4149 通过 / 0 失败 / 0 跳过**（先跑 `scripts/build-unit-fixtures.ps1` 生成 net48 fixture）。
+## 13. `[MarshalAs(ByValTStr)]` 内联固定缓冲区(本席实现)
+
+### 12.1 缺陷与根因
+
+`[MarshalAs(UnmanagedType.ByValTStr, SizeConst = N)]` 在 net48 是**内联**字段(native 结构体内 `WCHAR[N]`),不是 GC 指针。旧模型把它当普通 `string` 引用:结构体尺寸、按值 ABI、GC 语义三者全错,且是静默错误。
+
+根因:C# 编译器把 `[MarshalAs]` 落到 **FieldMarshal 元数据表**(ECMA II.22.17),不是 CustomAttribute 表;`[StructLayout(CharSet=...)]` 也落在 `TypeAttributes.StringFormatMask`(0x30000)。旧代码只扫 CustomAttribute 表,所以全项目 `ByValTStr` 零命中,字段退化成 GC 指针。
+
+### 12.2 实现
+
+- `MetadataLoader.ReadFieldMarshalAs`:`FieldDefinition.GetMarshallingDescriptor()` 解码 blob —— `0x17`(NATIVE_TYPE_FIXEDSYSSTRING = ByValTStr)后跟 `SizeConst`;`0x1E`(NATIVE_TYPE_FIXEDARRAY = ByValArray)后跟 `SizeConst` 与可选元素类型。
+- `MetadataLoader.ReadStructCharSizeBytes`:`TypeAttributes & 0x30000`;UnicodeClass(0x10000)/AutoClass(0x20000) => 2 字节 WCHAR,AnsiClass(0)=>1。
+- 模型:`FieldDef.MarshalKind / MarshalSizeConst / MarshalCharSize / MarshalElementTypeName`。
+- 布局/发射(`TypeEmitter`):`LayoutValueTypeFields` 把该字段按 `SizeConst*charSize` 字节、charSize 对齐内联放置,并且**不置 refFieldBitmap**;`EmitClassStruct` 发 `char16_t <field>[N]`;`ComputeVtHashModel` 对该结构返回 null(不再把缓冲字节当指针 hash);typeinfo 字段表 `isRef=0`。
+- 读/写(`CodeGenerator`):`stfld` -> `il2cpp_pinvoke_byvaltstr_store`;`ldfld` -> `il2cpp_pinvoke_byvaltstr_load`;`ldflda` LOUD 拒绝;结构体局部作为 GC 帧根时排除该字段(否则收集器会把 UTF-16 字节当指针扫描)。
+- 运行时 `il2cpp_pinvoke_struct.h` 两个 inline helper:store 复制 `min(length, N-1)` 个单元并补 NUL(null => 全 0);load 读到第一个 NUL 或满 N(满缓冲无 NUL => N 个字符)。
+
+### 12.3 net48 实测(oracle,`Marshal.SizeOf/OffsetOf/StructureToPtr/PtrToStructure`)
+
+| 结构体 | Marshal.SizeOf | 字段偏移 |
+|---|---|---|
+| `LOGFONTW { int32, int32, int32, ByValTStr(32) }` | **76** | `lfFaceName` @ **12** |
+| `BvtHeadTail { int32, ByValTStr(8), int32 }` | **24** | `name` @ **4**,`tail` @ **20** |
+
+输入 32 单元字符串 => 缓冲只保留 31 单元 + NUL;native 写满 32 单元且无 NUL => 读回 32 字符。两侧实现按同一实测语义对齐。
+
+### 12.4 新 case
+
+`tests/cases/pinvoke-bvaltstr/`(net48 oracle + 自建 `bvaltstrprobe` native fixture;fixture 通过指针读/写同一结构体并返回 `sizeof`/`offsetof`)。
+
+net48 oracle == transpiled runtime:**332B, sha256 = `ba475e9b0fde82a4a3725c0def31d35f0fa9b52354f370275cab9f033c90ca58`**(两侧同 sha)。
+
+`pinvoke-nameclash` 锚仍是 **182B `6fe3b4b1f46a1849e0f57c62e91139b4ad0fe3ea77ff02cae7f937a2c6a33f67`**:该 case 的 ByValTStr 字段现在真的内联,输出语义不变(既有 ByValTStr 输入的零回归证据)。
+
+### 12.5 变异证明
+
+变异 `MetadataLoader.ReadFieldMarshalAs` 的 ByValTStr `SizeConst` 解码(`N` -> `N-1`)后同一 case RED;恢复后 GREEN(原始输出见本席执行报告)。marker grep 0 命中、`git status --porcelain` 为空。
+
+### 12.6 11 个 EntryPoint 修好本项后各自还差什么
+
+| EntryPoint | 本项修复后仍缺 |
+|---|---|
+| `RegisterClass` | `WNDCLASSEX` 的 `LPWStr` 字符串字段(当前仍是 GC 指针,指向 `Il2CppString` 头而不是 chars)+ `WNDPROC` 委托字段 -> 函数指针 |
+| `SystemParametersInfoForDpi` | `NONCLIENTMETRICS` 内嵌真实 `LOGFONTW` 的 8 个 BYTE 字段仍按 4 字节 int32 排布(`FieldNativeShape(Int32)=(4,4)`),内嵌 LOGFONTW 的尺寸/偏移仍错;ByValTStr 本身已修 |
+| `SystemParametersInfo` | 同上(BYTE 打包)+ 10 个重载中的 string/StringBuilder 参数 |
+| `InsertMenuItem` | `MENUITEMINFO` 变体的 `LPWStr`/string 字段(其余 IntPtr 字段已可);字符串回填方向 |
+| `GetMenuItemInfo` | 同上(还需把 native 写入的字符串读回) |
+| `SetMenuItemInfo` | 同上 |
+| `GetMonitorInfo` | 本项修复后 `MONITORINFOEX`(RECT, RECT, int, ByValTStr(32))布局应已正确;无已知模型缺口,剩余项 = 真 user32 端到端验证(尚未执行) |
+| `CreateDIBSection` | `BITMAPINFO` 的 **ByValArray** 固定数组字段(第二阶段未实现,当前 LOUD);数组参数/元素桥接已具备 |
+| `GetDIBits` | 同上(ByValArray) |
+| `GetObject` | 真实 `LOGFONT` 的 8 个 BYTE 字段的字节级打包(ByValTStr 已修) |
+| `SendMessage` | `CHARFORMATW`/`LOGFONT` 的 BYTE 打包 + StringBuilder 参数(LOUD)+ `ref object`(LOUD)+ `LPWStr` 字段 |
+
+`ByValArray`(固定数组字段)仍**未实现**:decode 已识别(FieldMarshal `0x1E`),布局/发射遇到即 LOUD 拒绝(`TypeEmitter.LayoutValueTypeFields`),不再静默退化成 GC 指针 —— 这是 `CreateDIBSection`/`GetDIBits` 的明确剩余项。
+
+### 12.7 门禁与锚回归
+
+- C0:`dotnet build src/il2cppc/il2cppc.csproj -c Debug --no-incremental` => **0 警告 0 错误**。
+- 单测:`dotnet test tests/unit/unit.csproj` => **4149 通过 / 0 失败 / 0 跳过**(需先跑 `scripts/build-fixtures.ps1` 与 `scripts/build-unit-fixtures.ps1`)。
+- 21 个锚逐个复跑(本 worktree difftest,oracle==runtime,全部未变):
 
 | case | 字节 | sha256 |
 |---|---|---|
@@ -1313,3 +1374,14 @@ C0：`dotnet build src/il2cppc/il2cppc.csproj -c Debug --no-incremental` → **0
 | corelibp0 | 887 | `391cb96fe4862f2af565c2ef9b56037cbf7a0ccb6c48dd25e24550a6fc577d56` |
 
 未验证：本席只跑上述 17 个锚 + 新 case，未跑全量 sweep；external TypeRef struct 返回仍是既有的 LOUD 拒绝（非本次范围）。
+| structbox | 207 | `db5d98659457d790dc5da56d5f6b6196631566dcf492ac14b17ee47ce4d48c27` |
+| structeq1 | 79 | `809768d4bb67d9b2b152e279c8a6d870dd7b2978146f1b5c7e398dc588a35ab2` |
+| tuple1 | 88 | `a79c09c2436c5d4fb454fce69dbc06f31dc9f92125fe33ac5e8b2882b5a9cb4c` |
+| tuple2 | 52 | `8446deab13dd70fb6b4d58a005fdc2980ff0cff81375b1ba38a606db9aebc9e8` |
+| tuple3 | 91 | `d27bc54822247e891ff6be2cdd05cecee1a85894cfa7595e46891167bc5c9e24` |
+| vtcreate1 | 301 | `a456778acff8be0bc972343b9dde3843b97b6a0c842b487194fd7a19df844819` |
+| vtmeta1 | 270 | `9768f3a89feba6decca00774bfb24a914790feb1466233017e6b1ef118588748` |
+| probe-pinvoke-array | 845 | `b8f5d7e861eb5e6acf723e1a32815a91326d6987bad91dbc9da1b52008cba657` |
+| probe-handleref | 217 | `a089ccbfc400627c7d360a0deb5b8d8ad6cf66c50dd92aa5ee87b1cfc05b766a` |
+| dtoiformattable1 | 1421 | `3c919969fe9229b0593f53ebce2d432fa66625d9fac7b84930332ab7f7d30195` |
+| corelibp0 | 887 | `391cb96fe4862f2af565c2ef9b56037cbf7a0ccb6c48dd25e24550a6fc577d56` |

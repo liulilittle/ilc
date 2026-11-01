@@ -789,6 +789,10 @@ public static class CodeGenerator
                     IsPublic = f.IsPublic, IsPrivate = f.IsPrivate, AccessMask = f.AccessMask,
                     TypeKind = RefVar(f) ? FieldTypeKind.Reference : f.TypeKind,
                     FieldTypeName = RefVar(f) ? "System.Object" : f.FieldTypeName,
+                    MarshalKind = f.MarshalKind,
+                    MarshalSizeConst = f.MarshalSizeConst,
+                    MarshalCharSize = f.MarshalCharSize,
+                    MarshalElementTypeName = f.MarshalElementTypeName,
                     IsGenericVar = f.IsGenericVar,
                     GenericVarIndex = f.GenericVarIndex,
                 });
@@ -800,6 +804,10 @@ public static class CodeGenerator
                     IsPublic = f.IsPublic, IsPrivate = f.IsPrivate, AccessMask = f.AccessMask,
                     TypeKind = RefVar(f) ? FieldTypeKind.Reference : f.TypeKind,
                     FieldTypeName = RefVar(f) ? "System.Object" : f.FieldTypeName,
+                    MarshalKind = f.MarshalKind,
+                    MarshalSizeConst = f.MarshalSizeConst,
+                    MarshalCharSize = f.MarshalCharSize,
+                    MarshalElementTypeName = f.MarshalElementTypeName,
                     IsGenericVar = f.IsGenericVar,
                     GenericVarIndex = f.GenericVarIndex,
                 });
@@ -3322,7 +3330,10 @@ public static class CodeGenerator
                 // struct is address-taken via ldloca; RootSlotPass liveness
                 // cannot track interior fields).
                 var vtTypeDef = TypeLookup.Find(types, ilKind[2..]);
-                if (vtTypeDef != null && vtTypeDef.InstanceFields.Any(f => f.TypeKind == FieldTypeKind.Reference))
+                // [MarshalAs] fixed buffers are INLINE arrays, not GC
+                // references -- they must NOT be registered as root slots
+                // (the collector would scan the UTF-16 payload as a pointer).
+                if (vtTypeDef != null && vtTypeDef.InstanceFields.Any(f => f.TypeKind == FieldTypeKind.Reference && f.MarshalKind == FieldMarshalKind.None))
                 {
                     // Nested structs (async state machines): declare with the
                     // PREFIXED TypeCppName (Cases_AsyncCase__B_d__1), not the
@@ -3330,7 +3341,7 @@ public static class CodeGenerator
                     // emits prefixed since the r78 nested-collision fix.
                     w.Line($"{TypeEmitter.TypeCppName(vtTypeDef)} {d} = {{ }};");
                     foreach (var rf in vtTypeDef.InstanceFields)
-                        if (rf.TypeKind == FieldTypeKind.Reference)
+                        if (rf.TypeKind == FieldTypeKind.Reference && rf.MarshalKind == FieldMarshalKind.None)
                             structFieldRoots.Add($"{d}.{TypeEmitter.Sanitize(rf.Name)}");
                 }
                 else
@@ -4600,6 +4611,19 @@ public static class CodeGenerator
                 if (faNullable is { TypeKind: FieldTypeKind.Nullable })
                 {
                     EmitNullableFieldStore(w, fa, faNullable, md, types);
+                    break;
+                }
+                // [MarshalAs(ByValTStr)]: the member is an INLINE char16_t
+                // buffer, so a store COPIES the managed string into it (at most
+                // SizeConst-1 units + NUL; null zero-fills) instead of writing
+                // a GC pointer and a write barrier. net48 measured semantics:
+                // a 32-unit string into SizeConst=32 keeps 31 units + NUL.
+                if (faNullable is { MarshalKind: FieldMarshalKind.ByValTStr })
+                {
+                    var bvtTarget = FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject, _curLocKinds);
+                    var bvtValue = NullSafePtrCast("Il2CppObject*", EmitExpr(fa.Value, md, types));
+                    w.LineAligned($"il2cpp::il2cpp_pinvoke_byvaltstr_store({bvtTarget}, {faNullable.MarshalSizeConst}, {bvtValue});",
+                        $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- copy managed string into the ByValTStr inline buffer of {fa.OwnerFullName}.{fa.FieldCppName}");
                     break;
                 }
                 var faValueCpp = TypeEmitter.ReferenceCppType(fa.RefTargetFullName, types);
@@ -5887,6 +5911,13 @@ public static class CodeGenerator
                 // representation -- temps/parameters/returns are all Il2CppObject*; cross-type field read/write aligns via casts).
                 // M3 Task 11: value-type receivers are plain values ('.' access, no null check).
                 var fval = $"{FieldAccess(f.Object, f.OwnerFullName, f.FieldCppName, md, types, f.IsValueTypeObject, _curLocKinds)}";
+                // [MarshalAs(ByValTStr)]: the member is an INLINE char16_t
+                // buffer (no GC reference). A field read constructs the managed
+                // string from the buffer -- mirroring net48's copy-back
+                // semantics (NUL-terminated or full capacity).
+                var fMarshal = ResolveInstanceField(types, f.OwnerFullName, f.FieldCppName);
+                if (fMarshal is { MarshalKind: FieldMarshalKind.ByValTStr })
+                    return $"il2cpp::il2cpp_pinvoke_byvaltstr_load({fval}, {fMarshal.MarshalSizeConst})";
                 return f.IsRefField ? $"reinterpret_cast<Il2CppObject*>({fval})" : fval;
             case FieldAddrExpr fa:
                 // An expanded Nullable<T> field has no single addressable
@@ -5895,6 +5926,12 @@ public static class CodeGenerator
                 if (ResolveInstanceField(types, fa.OwnerFullName, fa.FieldCppName) is { TypeKind: FieldTypeKind.Nullable })
                     throw new NotSupportedException(
                         $"address-of captured Nullable field '{fa.OwnerFullName}.{fa.FieldCppName}' is not supported -- use HasValue / Value / GetValueOrDefault");
+                // A ByValTStr field is an inline char16_t buffer; its address
+                // is NOT an Il2CppObject** slot. Reject LOUD rather than let a
+                // caller treat the buffer bytes as a PINNED STRING reference.
+                if (ResolveInstanceField(types, fa.OwnerFullName, fa.FieldCppName) is { MarshalKind: FieldMarshalKind.ByValTStr })
+                    throw new NotSupportedException(
+                        $"address-of [MarshalAs(ByValTStr)] field '{fa.OwnerFullName}.{fa.FieldCppName}' is not supported -- the field is an inline UTF-16 buffer, not a GC reference slot");
                 // Instance field address (ldflda): &obj->field. Null-check the receiver first.
                 // batch 156c (asynccase): VALUE-TYPE receivers (the async state
                 // machine's builder/awaiter fields) skip the null check -- a

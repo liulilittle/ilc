@@ -180,6 +180,10 @@ public static class TypeEmitter
                 };
                 nested.InterfaceNames.Add(ifaceName);
             }
+            // P/Invoke fixed-buffer fields ([MarshalAs]): the same decode the
+            // top-level loader applies (nested structs must not silently keep
+            // the old GC-pointer degrade).
+            var nestedCharSize = MetadataLoader.ReadStructCharSizeBytes(md, tdHandle);
             foreach (var fh in td.GetFields())
             {
                 var fd = md.GetFieldDefinition(fh);
@@ -207,6 +211,19 @@ public static class TypeEmitter
                           ?? throw new NotSupportedException(
                               $"nested type '{nested.FullName}' field '{fName}': cannot decode the underlying T of '{typeName}'")
                         : "";
+                    var (marshalKind, marshalSizeConst, marshalElem) = MetadataLoader.ReadFieldMarshalAs(md, fh);
+                    if (marshalKind == FieldMarshalKind.ByValTStr)
+                    {
+                        if (!nested.IsValueType || kind != FieldTypeKind.Reference || typeName != "System.String")
+                            throw new NotSupportedException(
+                                $"nested type '{nested.FullName}' field '{fName}': [MarshalAs(ByValTStr)] requires a System.String field of a value type");
+                        if (marshalSizeConst <= 0)
+                            throw new NotSupportedException(
+                                $"nested type '{nested.FullName}' field '{fName}': [MarshalAs(ByValTStr)] without a positive SizeConst");
+                        if (nestedCharSize != 2)
+                            throw new NotSupportedException(
+                                $"nested type '{nested.FullName}' field '{fName}': [MarshalAs(ByValTStr)] with a 1-byte CharSet is not implemented");
+                    }
                     nested.InstanceFields.Add(new FieldDef
                     {
                         Name = fName,
@@ -217,6 +234,10 @@ public static class TypeEmitter
                         AccessMask = (int)fd.Attributes & 0x7,
                         TypeKind = kind,
                         FieldTypeName = typeName,
+                        MarshalKind = marshalKind,
+                        MarshalSizeConst = marshalSizeConst,
+                        MarshalCharSize = nestedCharSize,
+                        MarshalElementTypeName = marshalElem,
                         NullableUnderlyingName = nullableUnderlying,
                     });
                 }
@@ -1175,6 +1196,24 @@ public static class TypeEmitter
         int maxAlign = 1;
         foreach (var f in t.InstanceFields)
         {
+            // P/Invoke fixed-buffer field ([MarshalAs]): net48 lays it INLINE
+            // (WCHAR[SizeConst] for ByValTStr), so the member is a fixed array
+            // and there is NO GC reference to record. Size/alignment follow the
+            // array: SizeConst * charSize bytes, charSize alignment.
+            if (f.MarshalKind != FieldMarshalKind.None)
+            {
+                if (f.MarshalKind != FieldMarshalKind.ByValTStr)
+                    throw new NotSupportedException(
+                        $"struct '{t.FullName}' field '{f.Name}': [MarshalAs(ByValArray)] fixed array fields are not implemented yet");
+                var marshalSize = f.MarshalSizeConst * f.MarshalCharSize;
+                var marshalAlign = f.MarshalCharSize;
+                if (marshalAlign > maxAlign) maxAlign = marshalAlign;
+                offset = (offset + marshalAlign - 1) / marshalAlign * marshalAlign;
+                f.ByteOffset = offset;
+                f.SlotIndex = offset / t.PointerSize;
+                offset += marshalSize;
+                continue;
+            }
             // Embedded user struct / Nullable<T> (a NESTED struct may carry
             // them; top-level struct fields of a value type are decoded by
             // MetadataLoader). The member pair emitted by EmitClassStruct is
@@ -1474,6 +1513,15 @@ public static class TypeEmitter
             {
                 usedNames.Add(canonical);
             }
+            // P/Invoke fixed-buffer field: the INLINE native array net48
+            // marshals (ByValTStr -> WCHAR[SizeConst]). No GC reference lives
+            // here, so the layout pass excluded it from refFieldBitmap; reads
+            // and stores are buffer copies (CodeGenerator route).
+            if (f.MarshalKind == FieldMarshalKind.ByValTStr)
+            {
+                w.Line($"char16_t {memberName}[{f.MarshalSizeConst}]; // slot {f.SlotIndex} at offset {f.ByteOffset} (ByValTStr: inline UTF-16 buffer, {f.MarshalSizeConst} units, no GC reference)");
+                continue;
+            }
             // A captured Nullable<T> expands to the underlying T value slot
             // plus a hasValue(bool) slot (a whole pointer slot, padded), so
             // the member offsets match the layout pass exactly.
@@ -1770,6 +1818,11 @@ public static class TypeEmitter
         bool fast = true;
         foreach (var f in t.InstanceFields)
         {
+            // [MarshalAs] fixed-buffer fields have native inline semantics
+            // (a WCHAR buffer) and no net48 default-hash model here -- keep
+            // the type out of the table (the caller falls back) instead of
+            // hashing the bytes as if they were a GC pointer.
+            if (f.MarshalKind != FieldMarshalKind.None) return null;
             int size, align, kind;
             switch (f.TypeKind)
             {
@@ -2463,7 +2516,10 @@ public static class TypeEmitter
         // (int32 carrier with no name).
         var fieldEntries = t.InstanceFields
             .Select(f => (f.Name, TypeName: f.TypeKind == FieldTypeKind.Reference || !string.IsNullOrEmpty(f.FieldTypeName) ? f.FieldTypeName : "System.Int32",
-                Offset: f.ByteOffset, IsRef: f.TypeKind == FieldTypeKind.Reference ? 1 : 0,
+                // [MarshalAs] fixed buffers are INLINE native arrays, not GC
+                // references -- the physical isRef bit must say so (a 1 here
+                // would make reflection treat the buffer bytes as a pointer).
+                Offset: f.ByteOffset, IsRef: f.TypeKind == FieldTypeKind.Reference && f.MarshalKind == FieldMarshalKind.None ? 1 : 0,
                 Addr: "nullptr",
                 // p-refl2-gapmatrix (B17): the IsInitOnly predicate is the
                 // dedicated field-flag bit 0x80 (the literal const flag is bit2).
