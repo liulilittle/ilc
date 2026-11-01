@@ -53,7 +53,17 @@ struct Il2CppDataColumn
     Il2CppObject _obj;      // slot 0
     Il2CppString* name;     // slot 1: the column name
     Il2CppString* dataType; // slot 2: DataType full name ("System.Int32", "" = untyped)
+    // net48's DataColumn IS the table-owned object, so a DataType write through
+    // `table.Columns[i]` must reach the TABLE's schema. Columns[index] therefore
+    // hands back a column that remembers where it came from (table + index) and
+    // set_DataType writes through. Both are null/-1 for a detached column
+    // (`new DataColumn(...)` not yet added), which keeps its own state only.
+    Il2CppObject* owner;    // slot 3: the owning DataTable (null = detached)
+    int32_t       index;    // slot 4 low half: the column's index in the owner
 };
+
+// The 0-based index used by a detached column's owner (no table).
+static const int32_t kNoColumnIndex = -1;
 
 struct Il2CppDataRow
 {

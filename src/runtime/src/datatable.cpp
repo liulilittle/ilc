@@ -19,6 +19,7 @@
 #include "il2cpp_gcroot.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
+#include "il2cpp_value_semantics.h" // icall_object_to_string (untyped MIN/MAX text)
 #include "decimal.h"               // Il2CppDecimal arithmetic (decimal-column aggregates)
 
 #include <cstdio>      // std::snprintf (the DataException message)
@@ -51,8 +52,8 @@ Il2CppClass System_Data_DataTable_class = {
 Il2CppClass System_Data_DataColumn_class = {
     "System.Data.DataColumn",                // name
     static_cast<int32_t>(sizeof(Il2CppDataColumn)), // instanceSize
-    0b00110u,                                // refFieldBitmap: bits 1+2 (name/dataType)
-    2,                                       // refFieldCount
+    0b01110u,                                // refFieldBitmap: bits 1+2+3 (name/dataType/owner)
+    3,                                       // refFieldCount
     nullptr,                                 // baseClass
     nullptr,                                 // vtable
     0,                                       // vtableSize
@@ -399,6 +400,12 @@ Il2CppObject* icall_datatable_get_column(Il2CppObject* self, int32_t index)
     col->dataType = reinterpret_cast<Il2CppString*>(typeObj);
     il2cpp_write_barrier(reinterpret_cast<void**>(&col->dataType),
                          reinterpret_cast<Il2CppObject*>(col->dataType));
+    // Bind the column to its table so a DataType write through
+    // Columns[index] reaches the TABLE's schema (net48 semantics).
+    col->owner = self;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&col->owner),
+                         reinterpret_cast<Il2CppObject*>(col->owner));
+    col->index = index;
     return reinterpret_cast<Il2CppObject*>(col);
 }
 
@@ -467,6 +474,20 @@ void icall_datacolumn_set_data_type(Il2CppObject* self, Il2CppObject* typeName)
     col->dataType = reinterpret_cast<Il2CppString*>(typeName);
     il2cpp_write_barrier(reinterpret_cast<void**>(&col->dataType),
                          reinterpret_cast<Il2CppObject*>(col->dataType));
+    // A table-owned column writes through to the schema (net48: the DataColumn
+    // returned by Columns[i] IS the table's column object).
+    if (col->owner != nullptr)
+    {
+        Il2CppDataTable* t = AsTable(col->owner);
+        if (t->colTypes != nullptr && col->index >= 0 && col->index < t->colCount)
+        {
+            reinterpret_cast<Il2CppObject**>(t->colTypes->data)[col->index] = typeName;
+            il2cpp_write_barrier(
+                reinterpret_cast<void**>(
+                    &reinterpret_cast<Il2CppObject**>(t->colTypes->data)[col->index]),
+                typeName);
+        }
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1644,7 +1665,14 @@ Il2CppObject* icall_datatable_compute(Il2CppObject* self, Il2CppObject* expressi
             if (kind == kMin ? cmp < 0 : cmp > 0) best = cell;
         }
         if (best == nullptr) return DbNullValue();
-        return const_cast<Il2CppObject*>(best);
+        // net48's default String column: MIN/MAX answer the coerced STRING
+        // (the value is a boxed number in this row store, so ToString it).
+        if (best->klass == &System_String_class)
+        {
+            return const_cast<Il2CppObject*>(best);
+        }
+        return reinterpret_cast<Il2CppObject*>(icall_object_to_string(
+            const_cast<Il2CppObject*>(best)));
     }
 }
 //------------------------------------------------------------------------------
