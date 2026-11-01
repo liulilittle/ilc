@@ -1661,6 +1661,31 @@ bool TryCompareBoxedBuiltin(Il2CppObject* a, Il2CppObject* b, int32_t* result)
         *result = x < y ? -1 : (x > y ? 1 : 0);
         return true;
     }
+    // dtoffset (delta 2 follow-up): a BOXED DateTimeOffset receiver through
+    // the IComparable interface -- `((IComparable)dto).CompareTo(obj)` boxes
+    // the receiver (the interface cast erases the value), so the call lands
+    // here instead of icall_dtoffset_compare_object. The DateTimeOffset box
+    // has no reflected vtable (System_DateTimeOffset_class carries none), so
+    // without this arm the dispatch fell to the NotSupportedException
+    // "no reflected virtual CompareTo slot". net48 contract (oracle
+    // tests/cases/dtoobjcmp1): null -> 1, a non-DateTimeOffset object ->
+    // ArgumentException "Object must be of type DateTimeOffset.", a boxed
+    // DateTimeOffset -> -1/0/1 on the UTC instants.
+    if (std::strcmp(an, "System.DateTimeOffset") == 0)
+    {
+        if (b == nullptr)
+        {
+            *result = 1;
+            return true;
+        }
+        if (!SameKlassName(a, b)) ThrowComparandTypeMismatch("DateTimeOffset");
+        const il2cpp::runtime::Il2CppDateTimeOffset va =
+            il2cpp::runtime::icall_unbox_date_time_offset(a);
+        const il2cpp::runtime::Il2CppDateTimeOffset vb =
+            il2cpp::runtime::icall_unbox_date_time_offset(b);
+        *result = il2cpp::runtime::icall_dtoffset_compare(va, vb);
+        return true;
+    }
     return false;
 }
 

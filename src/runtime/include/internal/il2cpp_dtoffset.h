@@ -33,6 +33,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_time.h" // Il2CppDateTime / Il2CppTimeSpan
+#include "il2cpp_object.h" // Il2CppObject (the object-typed overload argument)
 
 #include <cstdint>
 
@@ -114,6 +115,20 @@ int32_t icall_dtoffset_compare(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
 // Equals(DateTimeOffset): true iff the UTC instants are equal (offsets may
 // differ).
 bool icall_dtoffset_equals(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b);
+
+// The OBJECT-typed overloads over an UNBOXED value receiver (the constrained
+// callvirt shape: `dto.Equals(obj)`). net48 contract, oracle-pinned by
+// tests/cases/dtoobjcmp1:
+//   * Equals(object): null -> false, any non-DateTimeOffset object -> false,
+//     a boxed DateTimeOffset -> UTC-INSTANT equality (the offset is not part
+//     of equality: 12:00 +08:00 equals 04:00 +00:00).
+//   * CompareTo(object): null -> 1, a non-DateTimeOffset object ->
+//     ArgumentException "Object must be of type DateTimeOffset.", a boxed
+//     DateTimeOffset -> -1/0/1 on the UTC instants.
+bool icall_dtoffset_equals_object(Il2CppDateTimeOffset dto,
+                                  Il2CppObject* other);
+int32_t icall_dtoffset_compare_object(Il2CppDateTimeOffset dto,
+                                      Il2CppObject* other);
 
 // --- arithmetic -------------------------------------------------------------
 

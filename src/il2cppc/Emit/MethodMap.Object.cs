@@ -76,6 +76,17 @@ public static partial class MethodRefResolver
                     // the generic boxed path.
                     if (receiverType == "System.Guid" && receiverIsAddress)
                         return I("il2cpp::il2cpp_guid_equals_object", 1, true, false, true, new[] { "g", "" });
+                    // boxed-members (DateTimeOffset): the same constrained
+                    // shape -- `dto.Equals(obj)` compiles to
+                    // ldloca + constrained. System.DateTimeOffset + callvirt
+                    // Object::Equals(object), so the receiver is the 16-byte
+                    // VALUE ADDRESS and the generic icall_boxed_equals_ext2
+                    // (two Il2CppObject*) cannot accept it. Route to the
+                    // value-vs-object helper; a BOXED receiver
+                    // (receiverIsAddress == false) keeps the generic path,
+                    // whose DateTimeOffset arm reads the same UTC instant.
+                    if (receiverType == "System.DateTimeOffset" && receiverIsAddress)
+                        return I("il2cpp::runtime::icall_dtoffset_equals_object", 1, true, false, true, new[] { "deref:dto", "" });
                     // boxwire: the same shape for a tracked IPAddress VALUE
                     // receiver (Roslyn emits `callvirt Object::Equals(object)`
                     // for the override). Route to the value-vs-object helper
@@ -89,7 +100,14 @@ public static partial class MethodRefResolver
                     // .NET object.Equals -- the runtime boxed-value equality dispatches
                     // on the box classes (bool/char/int/double/long/...) and falls back
                     // to reference equality, mirroring Object.Equals semantics.
-                    return I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true);
+                    // reresolveWithReceiver: the first (hint-less) pass cannot see
+                    // the receiver, but the DateTimeOffset / Guid / IPAddress arms
+                    // above NEED the receiver hint -- they only fire on the
+                    // receiver-aware re-resolve. For every other receiver the
+                    // re-resolve returns this same arm, so the flag is inert
+                    // there.
+                    return I("il2cpp::runtime::icall_boxed_equals_ext2", 1, true, false, true,
+                        reresolveWithReceiver: true);
                 }
                 // M5 wiring: STATIC object.Equals(a, b) -- the value_semantics domain
                 // (reference identity first, strings by content, boxes by value).

@@ -24,10 +24,17 @@ namespace Il2Cpp.Transpiler.Emit;
 // icall_dtoffset_ctor(out, local, offset) / icall_dtoffset_ctor_ymd(out, ...).
 //
 // Known-unwireable members throw NotSupportedException (LOUD):
-//   * Equals(object) / CompareTo(object) -- a boxed DateTimeOffset has no
-//     runtime box class, so the boxed value cannot reach the icall.
 //   * ToLocalTime / ToUniversalTime / Add* / Subtract -- the DateTimeOffset
 //     arithmetic surface is out of scope for this domain.
+//
+// NOT in that list any more: CompareTo(object) / Equals(object). They used to
+// be rejected with "a boxed DateTimeOffset has no runtime box class" -- a
+// justification that stopped being true when System_DateTimeOffset_class,
+// icall_box_date_time_offset / icall_unbox_date_time_offset and the
+// icall_boxed_equals_ext2 DateTimeOffset arm landed. Both overloads are
+// analyzable static code and are now wired (icall_dtoffset_compare_object /
+// icall_dtoffset_equals_object, dtoffset.cpp); the oracle for them is
+// tests/cases/dtoobjcmp1.
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
@@ -110,20 +117,26 @@ public static partial class MethodRefResolver
             case "CompareTo":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_dtoffset_compare", 1, true, false, true, new[] { "deref:dto", "" });
+                // int CompareTo(object) -- the EXPLICIT IComparable
+                // implementation (net48 datetimeoffset.cs). The receiver is the
+                // value ADDRESS (the constrained callvirt shape), dereferenced
+                // to the Il2CppDateTimeOffset value; the argument is the
+                // managed object. net48: null -> 1, a non-DateTimeOffset
+                // object -> ArgumentException, a boxed DateTimeOffset ->
+                // the UTC-instant compare. Oracle: dtoobjcmp1.
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    // impl-tz2: whitelist 3 -- a boxed DateTimeOffset has no
-                    // runtime box class, so the boxed value cannot reach the
-                    // icall (the header's OBJECT MODEL note).
-                    throw new NotSupportedException("CompareTo(object) not wired: LOUD whitelist (runtime descriptor: a boxed DateTimeOffset has no runtime box class, so the boxed value cannot reach the icall) [Reference Source mscorlib/system/datetimeoffset.cs:455,468]");
+                    return I("il2cpp::runtime::icall_dtoffset_compare_object", 1, true, false, true, new[] { "deref:dto", "" });
                 return null;
             // bool Equals(DateTimeOffset): UTC-instant equality.
             case "Equals":
                 if (ps.Length == 1 && ps[0] == 0x11)
                     return I("il2cpp::runtime::icall_dtoffset_equals", 1, true, false, true, new[] { "deref:dto", "" });
+                // bool Equals(object) -- net48: null -> false, a
+                // non-DateTimeOffset object -> false, a boxed DateTimeOffset ->
+                // UTC-instant equality (the offset is NOT part of it).
+                // Oracle: dtoobjcmp1.
                 if (ps.Length == 1 && ps[0] == 0x1C)
-                    // impl-tz2: whitelist 3 -- same boxed-value wall as
-                    // CompareTo(object) (the header's OBJECT MODEL note).
-                    throw new NotSupportedException("Equals(object) not wired: LOUD whitelist (runtime descriptor: a boxed DateTimeOffset has no runtime box class, so the boxed value cannot reach the icall) [Reference Source mscorlib/system/datetimeoffset.cs:482,489]");
+                    return I("il2cpp::runtime::icall_dtoffset_equals_object", 1, true, false, true, new[] { "deref:dto", "" });
                 return null;
             // AddDays/AddHours/AddMinutes/AddSeconds/AddMilliseconds(double):
             // the double rides the "d" cast, the receiver is the deref:dto

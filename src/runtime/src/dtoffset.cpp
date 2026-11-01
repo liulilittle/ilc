@@ -1,4 +1,4 @@
-//------------------------------------------------------------------------------
+﻿//------------------------------------------------------------------------------
 // dtoffset.cpp -- System.DateTimeOffset runtime support (see il2cpp_dtoffset.h).
 //
 // A DateTimeOffset is a UTC instant plus a fixed offset from UTC. The
@@ -10,6 +10,8 @@
 #include "il2cpp_dtoffset.h"
 
 #include "il2cpp_exception_ext.h" // il2cpp_throw_argument_out_of_range_exception
+#include "il2cpp_metadata.h"      // System_DateTimeOffset_class (the box identity)
+#include "il2cpp_nullable.h"      // icall_unbox_date_time_offset
 #include "il2cpp_string.h"        // il2cpp_string_new
 #include "il2cpp_time_fmt.h"      // shared date/time formatting engine
 #include "timezone.h"             // il2cpp_timezone_get_utc_offset (Now)
@@ -234,6 +236,53 @@ int32_t icall_dtoffset_compare(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
 bool icall_dtoffset_equals(Il2CppDateTimeOffset a, Il2CppDateTimeOffset b)
 {
     return a.utcTicks == b.utcTicks;
+}
+
+//------------------------------------------------------------------------------
+// The OBJECT-typed overloads over an UNBOXED value receiver.
+//
+// `dto.Equals(obj)` and `((IComparable)dto).CompareTo(obj)` compile to a
+// CONSTRAINED callvirt (ldloca + constrained. System.DateTimeOffset), so the
+// receiver arrives as the 16-byte value ADDRESS while the argument is the
+// managed object. The counterpart on a BOXED receiver (`((object)dto).Equals(x)`)
+// goes through icall_boxed_equals_ext2's DateTimeOffset arm instead, which
+// reads the same UTC instant off the box payload -- the two receivers agree
+// (oracle: boxed and unboxed receivers produce identical results).
+//
+// net48 (measured, tests/cases/dtoobjcmp1): a non-DateTimeOffset argument is
+// NOT a cast error -- Equals answers false and CompareTo throws
+// ArgumentException "Object must be of type DateTimeOffset." (the decimal /
+// guid boxed-member contract).
+//------------------------------------------------------------------------------
+namespace {
+
+bool IsDateTimeOffsetBox(const Il2CppObject* obj)
+{
+    return obj != nullptr && obj->klass == &System_DateTimeOffset_class;
+}
+
+} // namespace
+
+bool icall_dtoffset_equals_object(Il2CppDateTimeOffset dto, Il2CppObject* other)
+{
+    if (!IsDateTimeOffsetBox(other))
+    {
+        return false;
+    }
+    return icall_dtoffset_equals(dto, icall_unbox_date_time_offset(other));
+}
+
+int32_t icall_dtoffset_compare_object(Il2CppDateTimeOffset dto, Il2CppObject* other)
+{
+    if (other == nullptr)
+    {
+        return 1;
+    }
+    if (!IsDateTimeOffsetBox(other))
+    {
+        il2cpp_throw_argument_exception("Object must be of type DateTimeOffset.");
+    }
+    return icall_dtoffset_compare(dto, icall_unbox_date_time_offset(other));
 }
 
 //------------------------------------------------------------------------------
@@ -462,3 +511,4 @@ Il2CppObject* icall_dtoffset_to_string(Il2CppDateTimeOffset dto)
 }
 
 }} // namespace il2cpp::runtime
+
