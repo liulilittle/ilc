@@ -170,29 +170,8 @@ public static partial class MethodRefResolver
                 }
                 if (name == "Parse" && ps.Length == 1)
                     return I("il2cpp::runtime::icall_string_parse_double", 1, true, false, false, new[] { "s" }, "d");
-                // double.Parse(string, NumberStyles[, IFormatProvider]) and the
-                // TryParse twins: the styles/provider-aware icalls added with
-                // the group-separator fix (il2cpp_parse_styles.h). The provider
-                // is a culture-NAME string or nullptr ("no provider" == the
-                // current culture), so it passes through UNCAST; the missing
-                // provider on the (string, NumberStyles) form is injected as a
-                // nullptr literal, and the missing styles on the
-                // (string, IFormatProvider) form as NumberStyles.Float (the
-                // net48 provider-only default for floating point).
-                if (name == "Parse" && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
-                    return I("il2cpp::runtime::icall_string_parse_double_styles", 2, true, false, false,
-                        new[] { "s", "i", "" }, "d", argOrder: new[] { 0, 1, -1 });
-                if (name == "Parse" && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x12)
-                    return I("il2cpp::runtime::icall_string_parse_double_styles", 2, true, false, false,
-                        new[] { "s", "lit:231", "" }, "d", argOrder: new[] { 0, 1, 1 });
-                if (name == "Parse" && ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x12)
-                    return I("il2cpp::runtime::icall_string_parse_double_styles", 3, true, false, false,
-                        new[] { "s", "i", "" }, "d");
                 if (name == "TryParse" && ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x0D)
                     return I("il2cpp::runtime::icall_try_parse_double", 2, true, false, false, new[] { "", "addr:d" });
-                if (name == "TryParse" && ps.Length == 4 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x12 && ps[3] == 0x0D)
-                    return I("il2cpp::runtime::icall_try_parse_double_styles", 4, true, false, false,
-                        new[] { "", "i", "", "addr:d" });
                 if (name == "GetHashCode" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_double_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:d" : "unbox:d" });
@@ -580,4 +559,3 @@ public static partial class MethodRefResolver
             "[Reference Source: net48 mscorlib System.ValueType.GetHashCode]");
     }
 }
-

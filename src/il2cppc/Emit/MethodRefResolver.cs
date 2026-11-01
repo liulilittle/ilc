@@ -1655,6 +1655,12 @@ public static partial class MethodRefResolver
                 return TryMapFormat(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                     ?? TryMapValueType(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Double":
+                // impl-input-contracts: the NumberStyles/IFormatProvider-aware
+                // Parse/TryParse overloads live in their own mapper file
+                // (MethodMap.ParseStyles.cs), so MethodMap.ValueType.cs keeps
+                // its value-semantics ownership untouched.
+                if (TryMapParseStyles(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type) is { } styleMapped)
+                    return styleMapped;
                 // D-ME2-2 (2026-08-12): System.Double STATIC predicates
                 // (IsNaN/IsPositiveInfinity/IsNegativeInfinity/IsInfinity) --
                 // TryMapDouble (MethodMap.Math.cs) tried AFTER the Format /
