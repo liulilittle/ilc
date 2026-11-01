@@ -3658,6 +3658,25 @@ Il2CppObject* il2cpp_linq_list_max_string(Il2CppObject* list, int32_t kind)
     return il2cpp_linq_max_string(snap);
 }
 
+// impl-collation: the List<T> face of the reference-element fused composite.
+// The list is snapped ONCE through its own reference-element accessor (every
+// reference element family -- string/object/class -- snapshots to a pointer
+// array, so the kind is fixed at IL2CPP_LIST_KIND_REF), then the array
+// composite runs. Key families 0..3 numeric, 4 = System.String (culture
+// collation), 5 = other reference (instance dispatch: string => culture,
+// anything else => IComparable).
+Il2CppArray* il2cpp_linq_list_then_by_key_ref(Il2CppObject* list, Il2CppObject* k1,
+                                              Il2CppObject* k2, int32_t k1Desc,
+                                              int32_t k2Desc, int32_t k1Fam,
+                                              int32_t k2Fam)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, IL2CPP_LIST_KIND_REF);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_then_by_key_ref(snap, k1, k2, k1Desc, k2Desc, k1Fam, k2Fam);
+}
+
 //------------------------------------------------------------------------------
 // The DOUBLE-element list key-selector entries: the snapshot is a double array
 // (8-byte cells) and the key crosses in the F-stack slot. The list is snapped

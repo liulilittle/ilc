@@ -5439,6 +5439,31 @@ public static class StackFold
                 // and the PRIMARY key family ride the OrderBy entry's appended
                 // literals; the SECONDARY key family rides the ThenBy marker's.
                 "il2cpp::il2cpp_linq_order_by_key_vt" => "src_vt",
+                // impl-collation: the REFERENCE-element primaries over an
+                // ARRAY source. The suffix names the primary key family; the
+                // source shape ("arr"/"list") rides along because the list
+                // entry keeps the desc flag in an appended literal while the
+                // array entry encodes it in the entry NAME.
+                "il2cpp::il2cpp_linq_order_by_key_ref_i4"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_i4" => "_ref_arr_i4",
+                "il2cpp::il2cpp_linq_order_by_key_ref_i8"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_i8" => "_ref_arr_i8",
+                "il2cpp::il2cpp_linq_order_by_key_ref_d"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_d" => "_ref_arr_d",
+                "il2cpp::il2cpp_linq_order_by_key_ref_f"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_f" => "_ref_arr_f",
+                "il2cpp::il2cpp_linq_order_by_key_ref_ref"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_ref" => "_ref_arr_ref",
+                "il2cpp::il2cpp_linq_order_by_key_ref_string"
+                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_string" => "_ref_arr_string",
+                // impl-collation: the same over a List<T> receiver (the list is
+                // snapped once; the desc flag is AppendLiterals[0]).
+                "il2cpp::il2cpp_linq_list_order_by_key_ref_i4" => "_ref_list_i4",
+                "il2cpp::il2cpp_linq_list_order_by_key_ref_i8" => "_ref_list_i8",
+                "il2cpp::il2cpp_linq_list_order_by_key_ref_d" => "_ref_list_d",
+                "il2cpp::il2cpp_linq_list_order_by_key_ref_f" => "_ref_list_f",
+                "il2cpp::il2cpp_linq_list_order_by_key_ref_ref" => "_ref_list_ref",
+                "il2cpp::il2cpp_linq_list_order_by_key_ref_string" => "_ref_list_string",
                 // impl-vtsel: the same over a List<struct> receiver (the list
                 // snapshot rides the array kernel; the composite stays on the
                 // list entry so the snapshot happens once).
@@ -5596,6 +5621,57 @@ public static class StackFold
                     {
                         primaryDesc ? "1" : "0", thenDesc ? "1" : "0",
                         vtSrcKind, vtK1Fam, vtK2Fam,
+                    };
+                }
+                else if (familySuffix.StartsWith("_ref_arr_", StringComparison.Ordinal)
+                    || familySuffix.StartsWith("_ref_list_", StringComparison.Ordinal))
+                {
+                    // impl-collation: the REFERENCE-element composite
+                    // (string[]/object[]/List<string> sources). The primary key
+                    // family is encoded in the suffix; the secondary family
+                    // rides the ThenBy marker's AppendLiterals (4 = System.String
+                    // -- culture collation, 5 = another reference type).
+                    bool refList = familySuffix.StartsWith("_ref_list_", StringComparison.Ordinal);
+                    string refPrimaryFam = familySuffix.Substring(
+                        (refList ? "_ref_list_" : "_ref_arr_").Length);
+                    string refPrimaryCode = refPrimaryFam switch
+                    {
+                        "i4" => "0",
+                        "i8" => "1",
+                        "d" => "2",
+                        "f" => "3",
+                        "string" => "4",
+                        "ref" => "5",
+                        _ => throw new NotSupportedException(
+                            $"Enumerable.ThenBy over primary entry suffix '{familySuffix}' has no " +
+                            "reference fused-composite mapping (impl-collation)"),
+                    };
+                    string? refSecondaryCode = resolved.AppendLiterals is { Length: >= 1 }
+                        ? resolved.AppendLiterals[0] : null;
+                    if (refSecondaryCode is not ("0" or "1" or "2" or "3" or "4" or "5"))
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.ThenBy receiver '{recvLoc.Name}' marker carries no reference " +
+                            "secondary key family literal (impl-collation); the fused composite must " +
+                            "know both key families to pick the right key readers");
+                    }
+                    // The ARRAY entry encodes the primary direction in its NAME;
+                    // the LIST entry carries it as AppendLiterals[0] alongside
+                    // the element kind.
+                    bool refPrimaryDesc = refList
+                        ? obValue.Resolved!.AppendLiterals is { Length: >= 1 } refLits && refLits[0] == "1"
+                        : primaryDesc;
+                    compositeEntry = refList
+                        ? "il2cpp::il2cpp_linq_list_then_by_key_ref"
+                        : "il2cpp::il2cpp_linq_then_by_key_ref";
+                    compositeParamNames = refList
+                        ? new[] { "", "", "" }
+                        : new[] { "a", "", "" };
+                    compositeReturnType = obValue.Resolved!.ReturnTypeName ?? "System.Object[]";
+                    compositeLiterals = new[]
+                    {
+                        refPrimaryDesc ? "1" : "0", thenDesc ? "1" : "0",
+                        refPrimaryCode, refSecondaryCode,
                     };
                 }
                 else
@@ -10249,8 +10325,8 @@ public static class StackFold
             if (mr.Parent.Kind == HandleKind.TypeSpecification)
                 genArgs = DelegateInvokeTypeSpecGenBytes(md, (TypeSpecificationHandle)mr.Parent);
         }
-        else
-        {
+                else
+                {
             return null; // MethodSpec etc.: int32 default
         }
         var sig = md.GetBlobReader(sigHandle);

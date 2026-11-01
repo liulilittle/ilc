@@ -275,6 +275,16 @@ Il2CppArray* il2cpp_linq_list_order_by_key_ref_string(Il2CppObject* list,
                                                       Il2CppObject* keySel,
                                                       int32_t desc, int32_t kind);
 
+// impl-collation: the List<T> face of the reference-element fused composite
+// (OrderBy(k1).ThenBy(k2) over List<T> with reference elements). The list is
+// snapped once and the array composite runs; key families are 0=int32,
+// 1=int64, 2=double, 3=float, 4=System.String (culture collation), 5=other
+// reference (instance dispatch).
+Il2CppArray* il2cpp_linq_list_then_by_key_ref(Il2CppObject* list, Il2CppObject* k1,
+                                              Il2CppObject* k2, int32_t k1Desc,
+                                              int32_t k2Desc, int32_t k1Fam,
+                                              int32_t k2Fam);
+
 // The DOUBLE-element list key-selector entries: the snapshot is a double array
 // and the key crosses in the F-stack slot. The snapshot is taken through the
 // list's own accessor, so a List<double> is never cast to an array header.

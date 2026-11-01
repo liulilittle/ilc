@@ -2004,7 +2004,7 @@ public static partial class MethodRefResolver
                     // CompareOptions.None) at the call site instead of letting a
                     // string key drift into the reference/IComparable dispatch.
                     if (genArgs[1] == 0x0E)
-                        keySuffix = "ref_string";
+                        keySuffix = "string";
                     if (keySuffix.Length == 0)
                         throw new NotSupportedException(
                             $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
@@ -2016,6 +2016,38 @@ public static partial class MethodRefResolver
                         TwoArg,
                         returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { name == "OrderBy" ? "0" : "1" });
+                }
+                // impl-collation: ThenBy / ThenByDescending over a
+                // REFERENCE-element source. The chained sorter is fused by
+                // StackFold into il2cpp_linq_then_by_key_ref (the receiver must
+                // be an OrderBy(keySelector) assignment, exactly as for the
+                // numeric composites). The marker carries the SECONDARY key
+                // family code: 4 = System.String (culture collation), 5 = any
+                // other reference (instance dispatch -- a runtime string key
+                // still gets culture collation, everything else defers to
+                // IComparable.CompareTo). A value-type secondary key over a
+                // reference source has no reference composite reader, so it
+                // stays LOUD.
+                case "ThenBy":
+                case "ThenByDescending":
+                {
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    string? refK2 = genArgs[1] == 0x0E ? "4"
+                        : IsRefFamilyByte(genArgs[1]) ? "5"
+                        : null;
+                    if (refK2 is null)
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])}," +
+                            $"{GenericArgTypeName(genArgs[1])}> over a reference-element source is not " +
+                            "wired: the reference composite covers a System.String or other reference " +
+                            "secondary key only (il2cpp_linq_then_by_key_ref)");
+                    return I(name == "ThenBy"
+                            ? ResolvedMethod.ThenByCombineMarker
+                            : ResolvedMethod.ThenByDescCombineMarker,
+                        2, false, false, false, new[] { "", "" },
+                        returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { refK2 });
                 }
                 // D-LINQ-FAM: the family-generic element operators over a
                 // REFERENCE source (string[]/object[]/class[]). The runtime
@@ -3953,7 +3985,7 @@ public static partial class MethodRefResolver
             if (name is "Min" or "Max")
                 return I(name == "Min" ? "il2cpp::il2cpp_linq_min_string"
                                        : "il2cpp::il2cpp_linq_max_string",
-                    1, true, true, false, OneArg, returnTypeName: "System.String");
+                    1, true, true, false, new[] { "a" }, returnTypeName: "System.String");
             throw new NotSupportedException(
                 $"Enumerable.{name}<System.String> not wired: net48 has no Sum/Average " +
                 "overload for System.String [Reference Source: " +
@@ -5609,6 +5641,38 @@ public static partial class MethodRefResolver
                 return I($"il2cpp::il2cpp_linq_list_order_by_key_ref_{keySuffix}", 2, true, true, false,
                     L2, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                     appendLiterals: new[] { desc ? "1" : "0", K });
+            }
+            case "ThenBy":
+            case "ThenByDescending":
+            {
+                // impl-collation: ThenBy over a REFERENCE-element List<T>. The
+                // fused composite is built by StackFold from the OrderBy
+                // assignment; this marker carries the SECONDARY key family code
+                // (4 = System.String -- culture collation, 5 = any other
+                // reference -- instance dispatch). A value-type secondary key
+                // over a reference-element list has no reference composite
+                // reader, so it stays LOUD.
+                if (K != "1")
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a List of the element family kind {K} is not wired " +
+                        "(the fused reference composite covers string/object/class elements)");
+                if (genArgs is not { Length: >= 2 })
+                    return null;
+                string? listK2 = genArgs[1] == 0x0E ? "4"
+                    : IsRefFamilyByte(genArgs[1]) ? "5"
+                    : null;
+                if (listK2 is null)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])}," +
+                        $"{GenericArgTypeName(genArgs[1])}> over a List is not wired: the fused " +
+                        "reference composite covers a System.String or other reference secondary key " +
+                        "only (il2cpp_linq_list_then_by_key_ref)");
+                return I(name == "ThenBy"
+                        ? ResolvedMethod.ThenByCombineMarker
+                        : ResolvedMethod.ThenByDescCombineMarker,
+                    2, false, false, false, new[] { "", "" },
+                    returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                    appendLiterals: new[] { listK2 });
             }
             case "Sum" or "Min" or "Max" or "Average":
             {
