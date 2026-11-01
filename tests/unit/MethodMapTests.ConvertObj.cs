@@ -39,10 +39,13 @@ public class MethodMapTestsConvertObj
 
     [Theory]
     // batch 8: the ToString sources the batch-5 sweep left LOUD (uint/ulong
-    // render the full unsigned range; float rides the double slot; decimal).
+    // render the full unsigned range; the float source keeps the "d" carrier
+    // but formats at FLOAT width -- floatfmt; decimal).
     [InlineData("ToString", 0x0E, 0x09, "il2cpp::runtime::icall_uint32_to_string", "u4", null)]
     [InlineData("ToString", 0x0E, 0x0B, "il2cpp::runtime::icall_uint64_to_string", "q", null)]
-    [InlineData("ToString", 0x0E, 0x0C, "il2cpp::runtime::icall_convert_to_string_d", "d", null)]
+    // floatfmt: the Single source must NOT ride the double G15 engine --
+    // net48 Convert.ToString(0.1f) is "0.1", the FLOAT-width default text.
+    [InlineData("ToString", 0x0E, 0x0C, "il2cpp::runtime::icall_single_to_string", "d", null)]
     // NOTE: ToString(decimal) is pinned by the conv-obj difftest (the 0x11
     // VALUETYPE source needs a TypeDefOrRef token this synthesizer lacks).
     public void Resolve_Convert_ToStringSource_MapsToIcall(

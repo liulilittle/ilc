@@ -320,14 +320,25 @@ public static partial class MethodRefResolver
                                 0x0D => I("il2cpp::runtime::icall_convert_to_string_d", 2, true, true, false,
                                     new[] { "d", "drop" }),
                                 // BATCH 8: the remaining primitive sources (the
-                                // provider is ignored for uint/ulong/float and for
-                                // the string source, which returns itself).
+                                // provider is ignored for uint/ulong and for the
+                                // string source, which returns itself; the float
+                                // arm below forwards it -- floatfmt).
                                 0x09 => I("il2cpp::runtime::icall_uint32_to_string", 2, true, true, false,
                                     new[] { "u4", "drop" }),
                                 0x0B => I("il2cpp::runtime::icall_uint64_to_string", 2, true, true, false,
                                     new[] { "q", "drop" }),
-                                0x0C => I("il2cpp::runtime::icall_convert_to_string_d", 2, true, true, false,
-                                    new[] { "d", "drop" }),
+                                // floatfmt: Convert.ToString(float) is Single.ToString(), i.e.
+                                // the FLOAT-width formatter -- NOT the double G15 engine. net48
+                                // oracle: Convert.ToString(0.1f) -> "0.1" (not
+                                // "0.100000001490116"), Convert.ToString(float.MaxValue) ->
+                                // "3.402823E+38". The provider IS honored for the non-finite
+                                // spellings (InvariantCulture +Inf -> "Infinity"; the zh-CN
+                                // default -> U+221E), so the 2-arg form forwards it through the
+                                // trailing slot with a null format literal: the IL args are
+                                // (value, provider), the icall is (value, format, provider).
+                                0x0C => I("il2cpp::runtime::icall_format_float_custom", 2, true, true, false,
+                                    new[] { "d", "drop", "drop" }, providerCulture: true,
+                                    argOrder: new[] { 0, -1, 1 }),
                                 0x0E => I("il2cpp::runtime::icall_convert_to_string_obj", 2, true, true, false,
                                     new[] { "", "drop" }),
                                 // BATCH 8: decimal -- net48 renders it with the
@@ -356,7 +367,11 @@ public static partial class MethodRefResolver
                             // float source rides the double slot.
                             0x09 => I("il2cpp::runtime::icall_uint32_to_string", 1, true, true, false, new[] { "u4" }),
                             0x0B => I("il2cpp::runtime::icall_uint64_to_string", 1, true, true, false, new[] { "q" }),
-                            0x0C => I("il2cpp::runtime::icall_convert_to_string_d", 1, true, true, false, new[] { "d" }),
+                            // floatfmt: the Single overload defaults to the FLOAT "G7" text
+                            // (Convert.ToString(0.1f) -> "0.1"), exactly Single.ToString()
+                            // (icall_single_to_string). The float value rides the widened
+                            // double slot ("d"), and the icall narrows it back to float.
+                            0x0C => I("il2cpp::runtime::icall_single_to_string", 1, true, true, false, new[] { "d" }),
                             0x11 => I("il2cpp::runtime::icall_decimal_to_string", 1, true, true, false, new[] { "dec" }),
                             _ => throw new NotSupportedException($"LOUD whitelist (net48 has no such overload): Convert.ToString param type 0x{ps[0]:X2} -- net48 has the primitive value overloads [Reference convert.cs:1797-1964]"),
                         };
