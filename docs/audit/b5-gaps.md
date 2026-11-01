@@ -2290,3 +2290,58 @@ Remaining, registered deviations -- format divergences, never rejections:
 7. `Exception.ToString()` (the probe's [S5.ex] record) still prints only the
    exception type: the exception-message surface is a separate, pre-existing
    divergence (`MethodMap.Exception.cs`), unchanged by this work.
+
+## 25. impl-format-fidelity: Single ToString widening + IFormattable over the BCL value types
+
+### 25.1 Convert.ToString(float) rode the double G15 engine (FIXED)
+
+`src/il2cppc/Emit/MethodMap.Convert.cs` routed the 0x0C (Single) source of
+`Convert.ToString` to `icall_convert_to_string_d`, so the widened double was
+formatted at the DOUBLE digit width (net48 oracle: `Convert.ToString(0.1f)` ->
+"0.1", the runtime printed "0.100000001490116"; `float.MaxValue` ->
+"3.402823E+38" vs "3.40282346638529E+38"). It now routes the 1-arg form to
+`icall_single_to_string` (the FLOAT G7 text) and the provider form to
+`icall_format_float_custom` with a null format, so the non-finite spellings
+follow the provider ("Infinity" invariant, U+221E in the default zh-CN
+culture). e2e: `tests/cases/convsingle1` (128 records, byte-exact).
+
+### 25.2 IFormattable.ToString over DateTime / TimeSpan / Guid (FIXED)
+
+`IsFormattableReceiver` (MethodMap.Object.cs) listed the numeric primitives +
+decimal only and claimed that set was complete. Oracle (net48 4.8,
+`typeof(X).GetInterfaces()`): `System.DateTime`, `System.DateTimeOffset`,
+`System.TimeSpan` and `System.Guid` also implement `IFormattable`;
+`System.Char` / `System.Boolean` / `System.String` do not (a cast to
+IFormattable does not compile, CS0030). DateTime, TimeSpan and Guid are now
+listed and the composite engine gained the System.TimeSpan and
+System.DateTimeOffset arms (DateTime/Guid already had theirs), so the former
+`System.IFormattable::ToString: not wired in M5 (receiverType='System.DateTime')`
+rejection is gone and the whole method is no longer dropped. The boxed
+DateTime arm now passes the provider to the format engine on the NULL-format
+path too (net48 `((IFormattable)dt).ToString(null, InvariantCulture)` ->
+"02/29/2024 13:45:06"). e2e: `tests/cases/iformattable1` (20 records,
+byte-exact).
+
+### 25.3 Registered residuals
+
+1. **`System.DateTimeOffset` through IFormattable.** The type really
+   implements IFormattable and the runtime formatter exists
+   (`icall_dtoffset_to_string_format`), but the transpiler's `box` arm
+   (`CodeGenerator.cs`, owned by a different seat this batch) has no
+   System.DateTimeOffset branch, so `((IFormattable)dto)` rejects at the BOX
+   instruction ("box of System.DateTimeOffset not supported -- no runtime box
+   helper"). The runtime helpers already exist in `nullable.cpp`
+   (`icall_box_date_time_offset` / `icall_unbox_date_time_offset`).
+   **Change surface**: two lines in the CodeGenerator box/unbox switches
+   (mirroring the existing DateTime/TimeSpan/Guid arms) plus removing the
+   explicit exclusion comment in `MethodMap.Object.IsFormattableReceiver`.
+   Until then the cast stays a self-identifying transpile-time LOUD; the
+   type stays OUT of the receiver list rather than pretending to support it.
+2. **ENUM receivers through IFormattable.** net48 enums implement
+   IFormattable, but the runtime's BCL-enum box erases the enum identity
+   (boxed as Int64 via `icall_box_long`) and a user-enum box is
+   registration-dependent, so the boxed-klass dispatch cannot reproduce the
+   member-name text. They stay a self-identifying transpile-time LOUD.
+   **Change surface**: a proper enum box descriptor for BCL enums (the
+   `System.DayOfWeek` table precedent) before the composite dispatch can
+   serve them.

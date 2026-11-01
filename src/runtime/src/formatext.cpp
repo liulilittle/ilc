@@ -48,6 +48,7 @@
 #include "il2cpp_value_semantics.h" // icall_object_to_string (composite fallback)
 #include "decimal_format.h"        // icall_decimal_to_string_custom (boxed decimal)
 #include "il2cpp_time_ext.h"       // icall_datetime_to_string_format (boxed DateTime)
+#include "il2cpp_dtoffset.h"       // icall_dtoffset_to_string_format (boxed DateTimeOffset)
 #include "guid.h"                  // il2cpp_guid_to_string_format (boxed Guid)
 #include "enumext.h"               // il2cpp_enum_boxed_to_string_format (boxed enum)
 
@@ -2162,10 +2163,14 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
             // offset 8 (the valuesemantics.cpp box contract).
             Il2CppDateTime v;
             std::memcpy(&v, reinterpret_cast<const char*>(boxed) + 8, sizeof(v));
+            // iformatb: a null format is IFormattable.ToString(null, provider)
+            // -- the PROVIDER-selected General "G" pattern (net48 oracle:
+            // null + InvariantCulture -> "02/29/2024 13:45:06"; the old
+            // icall_datetime_to_string(v) hard-coded the zh-CN pattern and
+            // dropped the provider). icall_datetime_to_string_format handles
+            // the null/empty-format General arm itself.
             text = reinterpret_cast<Il2CppString*>(
-                format != nullptr
-                    ? icall_datetime_to_string_format(v, format, provider)
-                    : icall_datetime_to_string(v));
+                icall_datetime_to_string_format(v, format, provider));
         }
         else if (name != nullptr && std::strcmp(name, "System.Guid") == 0)
         {
@@ -2175,6 +2180,31 @@ Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* for
                 format != nullptr
                     ? il2cpp_guid_to_string_format(bytes, reinterpret_cast<Il2CppString*>(format))
                     : il2cpp_guid_to_string(bytes));
+        }
+        else if (name != nullptr && std::strcmp(name, "System.TimeSpan") == 0)
+        {
+            // net48 TimeSpan implements IFormattable; ToString(format,
+            // provider) is the dedicated c/g/G/t/T/custom formatter (the
+            // provider is accepted and ignored -- every TimeSpan layout is
+            // culture-invariant). A null format is the "c" default. The box
+            // payload sits at byte offset 8 (the valuesemantics.cpp box
+            // contract), same as the DateTime arm above.
+            Il2CppTimeSpan v;
+            std::memcpy(&v, reinterpret_cast<const char*>(boxed) + 8, sizeof(v));
+            text = reinterpret_cast<Il2CppString*>(
+                icall_timespan_to_string_format(v, format));
+        }
+        else if (name != nullptr && std::strcmp(name, "System.DateTimeOffset") == 0)
+        {
+            // net48 DateTimeOffset implements IFormattable. A null/empty
+            // format is the provider-selected General pattern PLUS " zzz";
+            // a standard/custom specifier runs the dedicated formatter. The
+            // 16-byte Il2CppDateTimeOffset image sits at byte offset 8
+            // (nullable.cpp icall_box_date_time_offset).
+            Il2CppDateTimeOffset v;
+            std::memcpy(&v, reinterpret_cast<const char*>(boxed) + 8, sizeof(v));
+            text = reinterpret_cast<Il2CppString*>(
+                icall_dtoffset_to_string_format(v, format, provider));
         }
         else if (il2cpp_enum_is_registered(boxed->klass))
         {

@@ -19,12 +19,35 @@ public static partial class MethodRefResolver
         or "System.Int16" or "System.UInt16" or "System.Double" or "System.Single"
         or "System.Decimal" or "System.String";
 
-    // IFormattable is implemented by the numeric primitives + decimal ONLY
-    // (bool/char/string do not implement it -- net48 rejects the cast).
+    // The receivers whose IFormattable.ToString implementation this runtime
+    // reproduces: the numeric primitives + decimal, AND the BCL value types
+    // that really implement IFormattable.
+    //
+    // Oracle (net48 4.8, typeof(X).GetInterfaces(), seat journal): of the
+    // non-numeric candidates exactly System.DateTime, System.DateTimeOffset,
+    // System.TimeSpan and System.Guid carry System.IFormattable.
+    // System.Char / System.Boolean / System.String do NOT (the oracle does
+    // not even compile a `(IFormattable)char/bool` cast -- CS0030), so the
+    // previous "numeric primitives + decimal ONLY" comment was wrong.
+    //
+    // ENUM receivers are NOT listed here: net48 enums implement IFormattable,
+    // but this runtime's BCL-enum box erases the enum identity (boxed as
+    // Int64) and a user-enum box is registration-dependent, so a boxed-klass
+    // dispatch cannot reproduce the member-name text. They stay a
+    // self-identifying transpile-time LOUD, registered in docs/audit/b5-gaps.md.
+    //
+    // System.DateTimeOffset is ALSO not listed: it implements IFormattable in
+    // net48 and the runtime formatter exists (icall_dtoffset_to_string_format),
+    // but the transpiler's `box` arm (CodeGenerator.cs, owned by another seat
+    // this batch) has no System.DateTimeOffset helper, so the cast rejects at
+    // the BOX instruction before this arm is reached. Registered in
+    // docs/audit/b5-gaps.md; wiring the two-line box helper is the whole
+    // change surface.
     private static bool IsFormattableReceiver(string? t) => t is
         "System.Int32" or "System.Int64" or "System.UInt32" or "System.UInt64"
         or "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16"
-        or "System.Double" or "System.Single" or "System.Decimal";
+        or "System.Double" or "System.Single" or "System.Decimal"
+        or "System.DateTime" or "System.TimeSpan" or "System.Guid";
 
     private static ResolvedMethod? TryMapObject(string owner, string name, byte[] ps, int count, byte[]? genArgs,
         string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
@@ -308,6 +331,16 @@ public static partial class MethodRefResolver
                 // alignment 0 -- the SAME boxed-klass dispatch (including the
                 // narrow hex width and the decimal payload), so every row
                 // above is reproduced by one arm.
+                //
+                // The non-numeric IFormattable receivers route the same way:
+                // icall_format_composite_item gained the System.TimeSpan and
+                // System.DateTimeOffset arms (DateTime and Guid were already
+                // there) and calls the type's real formatter, so
+                // `((IFormattable)dt).ToString(fmt, inv)` no longer hits the
+                // "not wired in M5" rejection. Oracle (net48 4.8): DateTime
+                // "d" -> "02/29/2024", TimeSpan null/"c" ->
+                // "1.02:03:04.0050000", Guid "X" -> the 0x... braced hex,
+                // DateTimeOffset null -> General + " +02:00".
                 if (name == "ToString" && count == 2 && IsFormattableReceiver(receiverType))
                     return I("il2cpp::runtime::icall_format_iface_tostring", 2, true, true, true,
                         new[] { "", "", "drop" }, providerCulture: true);

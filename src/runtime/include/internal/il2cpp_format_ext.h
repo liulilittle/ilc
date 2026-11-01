@@ -203,10 +203,13 @@ Il2CppObject* icall_format_narrow_custom(int32_t value, Il2CppObject* format,
 //
 // Dispatch (net48 composite semantics): boxed Int32/Int64/Double/Single route
 // through the icall_format_*_custom engine (so "f2"/"x"/"X"/... work); boxed
-// Decimal through the decimal custom icall; a STRING arg returns its payload
-// unchanged (the specifier is ignored -- System.String is not IFormattable);
-// any other object prints its plain ToString() text (specifier ignored). The
-// result is then space-padded to the alignment width. Returns a fresh string.
+// Decimal through the decimal custom icall; boxed DateTime / TimeSpan / Guid /
+// DateTimeOffset (all IFormattable in net48) through their dedicated format
+// engine; a registered enum through the enum format engine; a STRING arg
+// returns its payload unchanged (the specifier is ignored -- System.String is
+// not IFormattable); any other object prints its plain ToString() text
+// (specifier ignored). The result is then space-padded to the alignment
+// width. Returns a fresh string.
 //------------------------------------------------------------------------------
 Il2CppObject* icall_format_composite_item(Il2CppObject* boxed, Il2CppObject* format, int32_t alignment,
                                           Il2CppObject* provider = nullptr);
