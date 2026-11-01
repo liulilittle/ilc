@@ -5,8 +5,10 @@
 #include "il2cpp_runtime.h"       // il2cpp_object_new / il2cpp_class_register /
                                   // il2cpp_is_instance
 #include "il2cpp_string.h"        // Il2CppString / il2cpp_string_new_from_utf8
+#include "il2cpp_value_semantics.h" // il2cpp_culture_hash (Uri.GetHashCode)
 
 #include <cstring>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -1217,16 +1219,352 @@ std::string CanonicalAbsolutePath(const std::string& raw)
     }
     return RemoveDotSegments(raw); // C3 only -- escapes preserved
 }
-int32_t OrdinalFoldHash(const std::string& text)
+//------------------------------------------------------------------------------
+// net48 Uri.GetHashCode() -- the text net48 hashes is EXACTLY
+//   GetComponents(UriComponents.HttpRequestUrl, UriFormat.SafeUnescaped)
+// and the hash is the INVARIANT-culture ignore-case string hash of that text.
+//
+// Measured 2026-11-01 against real net48 Uri.GetHashCode() (see
+// tests/runtime/test_urihash.cpp for the pinned integers). The candidate that
+// reproduces it is the SafeUnescaped HttpRequestUrl projection -- 42/42 URLs
+// exactly, versus 39/42 for "AbsoluteUri minus fragment" and 26/42 for
+// AbsoluteUri itself. The projection's rules, each measured:
+//   1. FRAGMENT dropped                          (http://h/p?a#b == http://h/p?a)
+//   2. USERINFO dropped                          (http://u:pw@h/p == http://h/p)
+//   3. scheme lowercased, host lowercased
+//   4. default port dropped, non-default kept verbatim     (h:0080 -> h)
+//   5. the path is unescaped FIRST (SafeUnescaped) and only THEN dot-folded,
+//      so "%2E" DOES fold ("%2E%2E/a" -> "/a") -- the reverse of the
+//      AbsoluteUri rebuild (C3 before C4, where "%2E" never folds)
+//   6. SafeUnescaped decodes ONLY the bytes it considers safe: alnum, space,
+//      '"', '-', '.', '<', '>', '^', '_', '`', '{', '|', '}', '~', plus any
+//      complete valid UTF-8 sequence. Every other byte -- including '%'
+//      itself and every RFC 3986 reserved char -- keeps its "%XX" text with
+//      the ORIGINAL hex casing ("a%2fb" keeps "%2f", not "%2F").
+//      Invalid/incomplete UTF-8 re-escapes uppercased ("a%ffb" -> "a%FFb").
+//   7. mailto: the userinfo is part of the opaque remainder and IS dropped
+//      ("mailto:a@b" -> "mailto:b"); no other scheme splits it.
+//------------------------------------------------------------------------------
+namespace {
+
+bool HashHexDigit(char c)
 {
-    uint32_t h = 2166136261u;
-    for (std::size_t i = 0; i < text.size(); ++i)
-    {
-        h ^= static_cast<uint8_t>(text[i]);
-        h *= 16777619u;
-    }
-    return static_cast<int32_t>(h);
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
+
+unsigned HashHexValue(char c)
+{
+    if (c >= '0' && c <= '9') return static_cast<unsigned>(c - '0');
+    if (c >= 'a' && c <= 'f') return static_cast<unsigned>(c - 'a') + 10u;
+    return static_cast<unsigned>(c - 'A') + 10u;
+}
+
+// The byte set net48's UriFormat.SafeUnescaped decodes verbatim. Measured by
+// sweeping all 256 "%XX" values through a net48 Uri (see the header note);
+// everything outside this set keeps its escape text.
+bool IsSafeUnescapedByte(unsigned b)
+{
+    if (b >= 0x30u && b <= 0x39u) return true; // 0-9
+    if (b >= 0x41u && b <= 0x5Au) return true; // A-Z
+    if (b >= 0x61u && b <= 0x7Au) return true; // a-z
+    switch (b)
+    {
+    case 0x20u: case 0x22u: case 0x2Du: case 0x2Eu: case 0x3Cu: case 0x3Eu:
+    case 0x5Eu: case 0x5Fu: case 0x60u: case 0x7Bu: case 0x7Cu: case 0x7Du:
+    case 0x7Eu:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Decode one "%XX" at s[i]; returns 3 on success (and sets *value) else 0.
+std::size_t HashHex2At(const std::string& s, std::size_t i, unsigned* value)
+{
+    if (i + 2 >= s.size()) return 0;
+    if (s[i] != '%' || !HashHexDigit(s[i + 1]) || !HashHexDigit(s[i + 2])) return 0;
+    *value = HashHexValue(s[i + 1]) * 16u + HashHexValue(s[i + 2]);
+    return 3;
+}
+
+// Encode one Unicode scalar as UTF-8 and append it.
+void AppendUtf8(std::string* out, unsigned cp)
+{
+    if (cp < 0x80u)
+    {
+        out->push_back(static_cast<char>(cp));
+    }
+    else if (cp < 0x800u)
+    {
+        out->push_back(static_cast<char>(0xC0u | (cp >> 6)));
+        out->push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    }
+    else if (cp < 0x10000u)
+    {
+        out->push_back(static_cast<char>(0xE0u | (cp >> 12)));
+        out->push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+        out->push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    }
+    else
+    {
+        out->push_back(static_cast<char>(0xF0u | (cp >> 18)));
+        out->push_back(static_cast<char>(0x80u | ((cp >> 12) & 0x3Fu)));
+        out->push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+        out->push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    }
+}
+
+// UriFormat.SafeUnescaped over an already-escaped component (see rule 6).
+std::string SafeUnescapeForHash(const std::string& s)
+{
+    std::string out;
+    out.reserve(s.size());
+    std::size_t i = 0;
+    while (i < s.size())
+    {
+        unsigned b = 0;
+        if (HashHex2At(s, i, &b) == 0)
+        {
+            out.push_back(s[i]);
+            ++i;
+            continue;
+        }
+        if (b < 0x80u)
+        {
+            if (IsSafeUnescapedByte(b))
+            {
+                out.push_back(static_cast<char>(b));
+            }
+            else
+            {
+                out.append(s, i, 3); // keep the escape text, ORIGINAL casing
+            }
+            i += 3;
+            continue;
+        }
+        // >= 0x80: decode only a COMPLETE, well-formed UTF-8 sequence.
+        std::size_t need = 0;
+        if (b >= 0xF0u) need = 4;
+        else if (b >= 0xE0u) need = 3;
+        else if (b >= 0xC0u) need = 2;
+        bool decoded = false;
+        if (need != 0)
+        {
+            unsigned cp = 0;
+            bool ok = true;
+            std::size_t j = i;
+            for (std::size_t k = 0; k < need; ++k)
+            {
+                unsigned w = 0;
+                if (HashHex2At(s, j, &w) == 0)
+                {
+                    ok = false;
+                    break;
+                }
+                if (k == 0)
+                {
+                    if (w < 0xC0u || w > 0xF4u)
+                    {
+                        ok = false;
+                        break;
+                    }
+                    cp = (need == 4) ? (w & 0x07u)
+                        : (need == 3) ? (w & 0x0Fu) : (w & 0x1Fu);
+                }
+                else
+                {
+                    if (w < 0x80u || w > 0xBFu)
+                    {
+                        ok = false;
+                        break;
+                    }
+                    cp = (cp << 6) | (w & 0x3Fu);
+                }
+                j += 3;
+            }
+            if (ok)
+            {
+                // Reject overlong forms, encoded surrogates and > U+10FFFF.
+                const bool overlong = (need == 2 && cp < 0x80u)
+                    || (need == 3 && cp < 0x800u)
+                    || (need == 4 && cp < 0x10000u);
+                const bool surrogate = (cp >= 0xD800u && cp <= 0xDFFFu);
+                const bool tooBig = cp > 0x10FFFFu;
+                if (!overlong && !surrogate && !tooBig)
+                {
+                    AppendUtf8(&out, cp);
+                    i = j;
+                    decoded = true;
+                }
+            }
+        }
+        if (!decoded)
+        {
+            // Re-escape UPPERCASED (net48's UriHelper re-escape form).
+            static const char* kHexUpper = "0123456789ABCDEF";
+            out.push_back('%');
+            out.push_back(kHexUpper[(b >> 4) & 0x0Fu]);
+            out.push_back(kHexUpper[b & 0x0Fu]);
+            i += 3;
+        }
+    }
+    return out;
+}
+
+// RFC 3986 dot-segment removal, run over the ALREADY-UNESCAPED path (rule 5).
+// Kept separate from RemoveDotSegments so the AbsoluteUri rebuild (C3 before
+// C4) stays untouched.
+std::string FoldDotSegmentsForHash(const std::string& path)
+{
+    std::vector<std::string> kept;
+    const bool leadingSlash = !path.empty() && path[0] == '/';
+    std::size_t i = 0;
+    while (i <= path.size())
+    {
+        std::size_t slash = path.find('/', i);
+        if (slash == std::string::npos)
+        {
+            slash = path.size();
+        }
+        const std::string seg = path.substr(i, slash - i);
+        if (seg == "..")
+        {
+            if (!kept.empty() && !kept.back().empty() && kept.back() != "..")
+            {
+                kept.pop_back();
+            }
+        }
+        else if (seg != ".")
+        {
+            kept.push_back(seg);
+        }
+        i = slash + 1;
+    }
+    std::string out;
+    for (std::size_t k = 0; k < kept.size(); ++k)
+    {
+        if (k != 0)
+        {
+            out += '/';
+        }
+        out += kept[k];
+    }
+    if (leadingSlash && (out.empty() || out[0] != '/'))
+    {
+        out = "/" + out;
+    }
+    if (path.size() >= 2 && path.compare(path.size() - 2, 2, "/.") == 0)
+    {
+        if (out.empty() || out[out.size() - 1] != '/')
+        {
+            out += '/';
+        }
+    }
+    else if (path.size() >= 3 && path.compare(path.size() - 3, 3, "/..") == 0)
+    {
+        if (out.empty() || out[out.size() - 1] != '/')
+        {
+            out += '/';
+        }
+    }
+    return out;
+}
+
+// The exact text net48 hashes (rules 1..7). Slots are null-checked so an
+// un-ctor'd instance degrades instead of faulting.
+std::string BuildUriHashText(const Il2CppUriObject* u)
+{
+    std::string scheme = ManagedToAscii(u->scheme);
+    AsciiToLowerInPlace(&scheme);
+
+    if (u->opaque != nullptr)
+    {
+        // Opaque "scheme:rest": drop the fragment; for mailto ALSO drop the
+        // userinfo (the only scheme net48 splits that way).
+        std::string rest = ManagedToAscii(u->opaque);
+        const std::size_t hash = rest.find('#');
+        if (hash != std::string::npos)
+        {
+            rest.erase(hash);
+        }
+        if (scheme == "mailto")
+        {
+            const std::size_t slash = rest.find('/');
+            const std::size_t beforeLen = (slash == std::string::npos) ? rest.size() : slash;
+            const std::size_t at = rest.rfind('@', beforeLen - 1);
+            if (at != std::string::npos)
+            {
+                rest.erase(0, at + 1);
+            }
+        }
+        return scheme + ":" + SafeUnescapeForHash(rest);
+    }
+
+    std::string text;
+    text += scheme;
+    text += "://";
+
+    // Authority: numeric port canonicalized and a scheme default dropped; the
+    // userinfo and the host proper are lowercased/handled exactly as the
+    // AbsoluteUri rebuild does, then projected. NormalizeAuthority already
+    // lowercases the host and drops the default port; it keeps the userinfo,
+    // so strip that here.
+    const std::string authority = NormalizeAuthority(ManagedToAscii(u->host), scheme);
+    std::string hostPort = authority;
+    const std::size_t at = authority.rfind('@');
+    if (at != std::string::npos)
+    {
+        hostPort.assign(authority, at + 1, std::string::npos);
+    }
+    text += SafeUnescapeForHash(hostPort);
+
+    std::string path = ManagedToAscii(u->path);
+    if (path.empty())
+    {
+        path = "/";
+    }
+    std::string query;
+    const std::size_t q = path.find('?');
+    if (q != std::string::npos)
+    {
+        query.assign(path, q, std::string::npos);
+        path.erase(q);
+    }
+    const std::size_t hash = query.find('#');
+    if (hash != std::string::npos)
+    {
+        query.erase(hash); // rule 1: the fragment rides on the query text
+    }
+
+    // net48 maps '\' to '/' inside the path before unescaping.
+    for (std::size_t i = 0; i < path.size(); ++i)
+    {
+        if (path[i] == '\\')
+        {
+            path[i] = '/';
+        }
+    }
+
+    std::string folded = FoldDotSegmentsForHash(SafeUnescapeForHash(path));
+    if (folded.empty())
+    {
+        folded = "/";
+    }
+    else if (folded[0] != '/')
+    {
+        folded = "/" + folded;
+    }
+    text += folded;
+    text += SafeUnescapeForHash(query);
+    return text;
+}
+
+Il2CppString* StringFromUtf8ForHash(const std::string& text)
+{
+    return reinterpret_cast<Il2CppString*>(il2cpp_string_new_from_utf8(text.c_str()));
+}
+
+} // namespace
 
 // Ordinal compare of two managed strings (null-safe; un-ctor'd slots read
 // as null -- GC-safe by construction).
@@ -1584,18 +1922,18 @@ bool icall_uri_equals(Il2CppObject* self, Il2CppObject* other)
     return BuildAbsoluteText(a) == BuildAbsoluteText(b);
 }
 
-// GetHashCode() (URI-FIX P3 -- accepted deviation, see versionuri.h): the
-// deterministic ordinal fold over the SAME text Equals compares, so
-// Equals(a,b) implies GetHashCode(a)==GetHashCode(b) by construction.
+// GetHashCode() -- net48-exact (see BuildUriHashText above): the invariant
+// culture, ignore-case string hash of the HttpRequestUrl/SafeUnescaped
+// projection. For a RELATIVE uri net48 hashes OriginalString the same way, so
+// Equals(a,b) still implies GetHashCode(a)==GetHashCode(b).
 int32_t icall_uri_get_hash_code(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     const Il2CppUriObject* u = AsUri(self);
-    if (u->isAbsolute == 0)
-    {
-        return OrdinalFoldHash(ManagedToAscii(u->original));
-    }
-    return OrdinalFoldHash(BuildAbsoluteText(u));
+    const std::string text = (u->isAbsolute == 0)
+        ? ManagedToAscii(u->original)
+        : BuildUriHashText(u);
+    return il2cpp_culture_hash(StringFromUtf8ForHash(text), "", true);
 }
 
 }} // namespace il2cpp::runtime
