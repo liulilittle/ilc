@@ -53,6 +53,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <unordered_map> // il2cpp_user_struct_type_id (the lazy ValueType typeID map)
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -880,6 +881,14 @@ Il2CppString* icall_object_to_string(Il2CppObject* obj)
     {
         return reinterpret_cast<Il2CppString*>(icall_uri_to_string(obj));
     }
+    // System.DBNull: net48's DBNull.ToString() is the EMPTY string (its
+    // IConvertible.ToString implementation short-circuits before the type
+    // name). Without this arm the klass-name fallback below printed
+    // "System.DBNull" -- measured against the net48 oracle.
+    if (HasKlassName(obj, "System.DBNull"))
+    {
+        return il2cpp_string_new_from_utf8("");
+    }
     if (obj->klass == &System_Diagnostics_StackTrace_class)
     {
         // stacktrace-real: Roslyn emits `callvirt Object::ToString` for
@@ -1145,6 +1154,101 @@ int32_t icall_value_type_get_hash_code(int32_t typeHash, int32_t fieldKind, cons
             // Fall through to the value path (defensive -- never UB).
             return *reinterpret_cast<const int32_t*>(data);
     }
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_user_struct_type_id -- the ONE lazy ValueType typeID counter.
+//
+// net48 assigns a MethodTable its ValueType typeID lazily, on the FIRST
+// ValueType.GetHashCode call for that type, from a per-AppDomain counter that
+// starts at 3 and advances by 2. Crucially there is ONE sequence per type --
+// whether the caller is a plain `struct.GetHashCode()` or a user struct used
+// as a TUPLE ELEMENT (whose hash goes through the same ValueType default).
+// Both callers therefore draw from this single function, preserving net48's
+// assignment ORDER (which is first-hash order, NOT metadata declaration order:
+// MEASURED with three structs declared Alpha/Beta/Gamma and hashed
+// Gamma/Alpha/Beta, which produce typeIDs 3/5/7 in that hashed order).
+//------------------------------------------------------------------------------
+int32_t il2cpp_user_struct_type_id(const Il2CppClass* klass)
+{
+    static std::unordered_map<const Il2CppClass*, int32_t> typeIds;
+    static int32_t nextId = 3;
+    if (klass == nullptr) return 0;
+    auto it = typeIds.find(klass);
+    if (it != typeIds.end()) return it->second;
+    const int32_t id = nextId;
+    nextId += 2;
+    typeIds.emplace(klass, id);
+    return id;
+}
+
+//------------------------------------------------------------------------------
+// icall_user_struct_default_hash -- the net48 ValueType.GetHashCode default for
+// a translated user struct (see il2cpp_value_semantics.h for the measured
+// rule and the two paths).
+//
+//   hash = munge(typeID) ^ fieldImage
+//     fast path    : fieldImage = XOR of every complete 4-byte word of the
+//                    PACKED field image (a 1..3-byte tail is dropped);
+//     regular path : fieldImage = the FIRST non-null field's own hash.
+//------------------------------------------------------------------------------
+int32_t icall_user_struct_default_hash(const Il2CppClass* klass,
+                                       const void* data,
+                                       int32_t fieldImage,
+                                       int32_t fastPath,
+                                       int32_t firstFieldKind,
+                                       const void* firstFieldData)
+{
+    if (klass == nullptr) return 0;
+    const int32_t typeID = il2cpp_user_struct_type_id(klass);
+    int32_t image;
+    if (fastPath != 0)
+    {
+        image = fieldImage;
+    }
+    else
+    {
+        // Regular path: the FIRST field's hash (never the raw image).
+        const void* f = firstFieldData != nullptr ? firstFieldData : data;
+        switch (firstFieldKind)
+        {
+            case 1:
+                image = *reinterpret_cast<const int32_t*>(f);
+                break;
+            case 3:
+            {
+                // Int64.GetHashCode: low 32 bits XOR high 32 bits.
+                int64_t v = 0;
+                std::memcpy(&v, f, sizeof(v));
+                const uint32_t lo = static_cast<uint32_t>(static_cast<uint64_t>(v));
+                const uint32_t hi = static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32);
+                image = static_cast<int32_t>(lo ^ hi);
+                break;
+            }
+            case 4:
+            {
+                // Double.GetHashCode: the bit pattern halves XORed, +-0 -> 0.
+                double d = 0.0;
+                std::memcpy(&d, f, sizeof(d));
+                image = d == 0.0 ? 0 : icall_double_get_hash_code(d);
+                break;
+            }
+            case 2:
+            {
+                // First field is a GC reference: the object's own hash; a null
+                // field is SKIPPED by net48 (there is no later field to fall
+                // back to here, so null contributes 0).
+                Il2CppObject* obj = *reinterpret_cast<Il2CppObject* const*>(f);
+                image = obj != nullptr ? icall_object_get_hash_code(obj) : 0;
+                break;
+            }
+            default:
+                image = 0;
+                break;
+        }
+    }
+    const uint32_t munged = static_cast<uint32_t>(typeID) * 711650207u + 2506965631u;
+    return static_cast<int32_t>(munged ^ static_cast<uint32_t>(image));
 }
 
 } // namespace runtime

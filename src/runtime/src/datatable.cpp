@@ -13,11 +13,15 @@
 #include "il2cpp_datatable.h"
 
 #include "il2cpp_boxing_ext.h"
+#include "il2cpp_boxing_ext2.h"     // icall_box_long / icall_box_decimal (typed aggregates)
 #include "il2cpp_exception_ext.h"
+#include "il2cpp_gc.h"              // il2cpp_gc_add_static_root (the shared DBNull instance)
 #include "il2cpp_gcroot.h"
 #include "il2cpp_runtime.h"
 #include "il2cpp_string.h"
+#include "decimal.h"               // Il2CppDecimal arithmetic (decimal-column aggregates)
 
+#include <cstdio>      // std::snprintf (the DataException message)
 #include <cstring>
 
 namespace il2cpp {
@@ -35,8 +39,8 @@ namespace {
 Il2CppClass System_Data_DataTable_class = {
     "System.Data.DataTable",                 // name
     static_cast<int32_t>(sizeof(Il2CppDataTable)), // instanceSize
-    0b01110u,                                // refFieldBitmap: bits 1+2+4
-    3,                                       // refFieldCount
+    0b110110u,                               // refFieldBitmap: bits 1+2+4+5 (columns/rows/name/colTypes)
+    4,                                       // refFieldCount
     nullptr,                                 // baseClass
     nullptr,                                 // vtable
     0,                                       // vtableSize
@@ -47,8 +51,8 @@ Il2CppClass System_Data_DataTable_class = {
 Il2CppClass System_Data_DataColumn_class = {
     "System.Data.DataColumn",                // name
     static_cast<int32_t>(sizeof(Il2CppDataColumn)), // instanceSize
-    0b00010u,                                // refFieldBitmap: bit 1
-    1,                                       // refFieldCount
+    0b00110u,                                // refFieldBitmap: bits 1+2 (name/dataType)
+    2,                                       // refFieldCount
     nullptr,                                 // baseClass
     nullptr,                                 // vtable
     0,                                       // vtableSize
@@ -81,10 +85,29 @@ Il2CppClass System_Data_DataSet_class = {
     0,                                       // interfaceCount
 };
 
+//------------------------------------------------------------------------------
+// System.DBNull -- the ADO sentinel value (one shared process-wide instance,
+// exactly like net48's DBNull.Value). instanceSize is just the header: the
+// object carries NO payload (its identity IS the value).
+//------------------------------------------------------------------------------
+Il2CppClass System_DBNull_class = {
+    "System.DBNull",                         // name
+    static_cast<int32_t>(sizeof(Il2CppObject)), // instanceSize (header only)
+    0u,                                      // refFieldBitmap: no reference fields
+    0,                                       // refFieldCount
+    nullptr,                                 // baseClass (Object)
+    nullptr,                                 // vtable
+    0,                                       // vtableSize
+    nullptr,                                 // interfaces
+    0,                                       // interfaceCount
+};
+
 bool g_tableRegistered = false;
 bool g_columnRegistered = false;
 bool g_rowRegistered = false;
 bool g_datasetRegistered = false;
+bool g_dbnullRegistered = false;
+Il2CppObject* g_dbnullInstance = nullptr;
 
 void EnsureTableRegistered()
 {
@@ -105,6 +128,13 @@ void EnsureDataSetRegistered()
     if (g_datasetRegistered) return;
     il2cpp_class_register(&System_Data_DataSet_class);
     g_datasetRegistered = true;
+}
+
+void EnsureDBNullRegistered()
+{
+    if (g_dbnullRegistered) return;
+    il2cpp_class_register(&System_DBNull_class);
+    g_dbnullRegistered = true;
 }
 
 void EnsureRowRegistered()
@@ -179,6 +209,30 @@ Il2CppClass* il2cpp_dataset_class()
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_datatable_dbnull_value / il2cpp_datatable_is_dbnull -- the single
+// shared System.DBNull instance (net48 DBNull.Value is ONE object).
+//
+// Created lazily and registered as a GC static ROOT (the console-stream
+// precedent): every aggregate that answers DBNull hands back this same
+// instance, so identity comparisons and the object's survival across
+// collections both hold.
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_datatable_dbnull_value()
+{
+    if (g_dbnullInstance != nullptr) return g_dbnullInstance;
+    EnsureDBNullRegistered();
+    Il2CppObject* obj = il2cpp_object_new(&System_DBNull_class);
+    g_dbnullInstance = obj;
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&g_dbnullInstance));
+    return g_dbnullInstance;
+}
+
+bool il2cpp_datatable_is_dbnull(const Il2CppObject* obj)
+{
+    return obj != nullptr && obj == g_dbnullInstance;
+}
+
+//------------------------------------------------------------------------------
 // icall_datatable_ctor -- DataTable(): an empty column list and row store.
 //------------------------------------------------------------------------------
 void icall_datatable_ctor(Il2CppObject* self)
@@ -189,6 +243,7 @@ void icall_datatable_ctor(Il2CppObject* self)
     GcRoot<Il2CppDataTable*> root(t, "icall_datatable_ctor");
     Il2CppArray* cols = AllocRefArray(0);
     Il2CppArray* rows = AllocRefArray(0);
+    Il2CppArray* types = AllocRefArray(0);
     t = root.Get();
     t->columns = cols;
     il2cpp_write_barrier(reinterpret_cast<void**>(&t->columns),
@@ -196,15 +251,27 @@ void icall_datatable_ctor(Il2CppObject* self)
     t->rows = rows;
     il2cpp_write_barrier(reinterpret_cast<void**>(&t->rows),
                          reinterpret_cast<Il2CppObject*>(t->rows));
+    t->colTypes = types;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&t->colTypes),
+                         reinterpret_cast<Il2CppObject*>(t->colTypes));
     t->colCount = 0;
     t->rowCount = 0;
 }
 
 //------------------------------------------------------------------------------
-// icall_datatable_columns_add -- Columns.Add(string name): append the column
-// name and return a DataColumn object (the caller usually discards it).
+// icall_datatable_columns_add / _typed -- Columns.Add(string name[, Type]):
+// append the column name (and its declared DataType) and return a DataColumn
+// object (the caller usually discards it).
+//
+// The type is stored as the DataType's FULL-NAME string in the parallel
+// colTypes array -- the same representation a Type VALUE has in this runtime
+// (the simplified Type model: a Type value IS its full name). A null type
+// means "untyped", the historical Add(name) column (net48: String).
 //------------------------------------------------------------------------------
-Il2CppObject* icall_datatable_columns_add(Il2CppObject* self, Il2CppObject* name)
+namespace {
+
+// Append one column (name + optional type name) and return its DataColumn.
+Il2CppObject* AppendColumn(Il2CppObject* self, Il2CppObject* name, Il2CppObject* typeName)
 {
     ThrowIfNullReceiver(self);
     EnsureColumnRegistered();
@@ -212,21 +279,36 @@ Il2CppObject* icall_datatable_columns_add(Il2CppObject* self, Il2CppObject* name
     Il2CppDataTable* t = AsTable(self);
     const int32_t oldCount = t->colCount;
     Il2CppArray* newCols = AllocRefArray(oldCount + 1);
+    Il2CppArray* newTypes = AllocRefArray(oldCount + 1);
     Il2CppArray* newRows = AllocRefArray(t->rowCount); // same row count (no-op grow keeps shape)
     self = root.Get();
     t = AsTable(self);
     Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(newCols->data);
+    Il2CppObject** dstTypes = reinterpret_cast<Il2CppObject**>(newTypes->data);
     Il2CppObject* const* src = reinterpret_cast<Il2CppObject* const*>(t->columns->data);
+    Il2CppObject* const* srcTypes = t->colTypes != nullptr
+        ? reinterpret_cast<Il2CppObject* const*>(t->colTypes->data)
+        : nullptr;
     for (int32_t i = 0; i < oldCount; ++i)
     {
         dst[i] = src[i];
         il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), dst[i]);
+        if (srcTypes != nullptr)
+        {
+            dstTypes[i] = srcTypes[i];
+            il2cpp_write_barrier(reinterpret_cast<void**>(&dstTypes[i]), dstTypes[i]);
+        }
     }
     dst[oldCount] = name;
     il2cpp_write_barrier(reinterpret_cast<void**>(&dst[oldCount]), name);
+    dstTypes[oldCount] = typeName;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&dstTypes[oldCount]), typeName);
     t->columns = newCols;
     il2cpp_write_barrier(reinterpret_cast<void**>(&t->columns),
                          reinterpret_cast<Il2CppObject*>(t->columns));
+    t->colTypes = newTypes;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&t->colTypes),
+                         reinterpret_cast<Il2CppObject*>(t->colTypes));
     t->colCount = oldCount + 1;
     // The row store is rebuilt at the same length (a fresh array each Add so
     // the shape stays uniform; no value changes).
@@ -241,7 +323,39 @@ Il2CppObject* icall_datatable_columns_add(Il2CppObject* self, Il2CppObject* name
     col->name = reinterpret_cast<Il2CppString*>(name);
     il2cpp_write_barrier(reinterpret_cast<void**>(&col->name),
                          reinterpret_cast<Il2CppObject*>(col->name));
+    col->dataType = reinterpret_cast<Il2CppString*>(typeName);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&col->dataType),
+                         reinterpret_cast<Il2CppObject*>(col->dataType));
     return reinterpret_cast<Il2CppObject*>(col);
+}
+
+} // namespace
+
+Il2CppObject* icall_datatable_columns_add(Il2CppObject* self, Il2CppObject* name)
+{
+    return AppendColumn(self, name, nullptr);
+}
+
+Il2CppObject* icall_datatable_columns_add_typed(Il2CppObject* self, Il2CppObject* name,
+                                                Il2CppObject* typeName)
+{
+    return AppendColumn(self, name, typeName);
+}
+
+//------------------------------------------------------------------------------
+// icall_datatable_columns_add_column -- Columns.Add(DataColumn): adopt a
+// DataColumn built by the DataColumn ctor (name + DataType).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_datatable_columns_add_column(Il2CppObject* self, Il2CppObject* column)
+{
+    ThrowIfNullReceiver(self);
+    if (column == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("column");
+    }
+    const Il2CppDataColumn* c = AsColumn(column);
+    return AppendColumn(self, reinterpret_cast<Il2CppObject*>(c->name),
+                        reinterpret_cast<Il2CppObject*>(c->dataType));
 }
 
 //------------------------------------------------------------------------------
@@ -273,13 +387,86 @@ Il2CppObject* icall_datatable_get_column(Il2CppObject* self, int32_t index)
     }
     GcRoot<Il2CppDataTable*> root(t, "icall_datatable_get_column");
     Il2CppObject* nameObj = reinterpret_cast<Il2CppObject* const*>(t->columns->data)[index];
+    Il2CppObject* typeObj = t->colTypes != nullptr
+        ? reinterpret_cast<Il2CppObject* const*>(t->colTypes->data)[index]
+        : nullptr;
     t = root.Get();
     Il2CppDataColumn* col = reinterpret_cast<Il2CppDataColumn*>(
         il2cpp_object_new(&System_Data_DataColumn_class));
     col->name = reinterpret_cast<Il2CppString*>(nameObj);
     il2cpp_write_barrier(reinterpret_cast<void**>(&col->name),
                          reinterpret_cast<Il2CppObject*>(col->name));
+    col->dataType = reinterpret_cast<Il2CppString*>(typeObj);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&col->dataType),
+                         reinterpret_cast<Il2CppObject*>(col->dataType));
     return reinterpret_cast<Il2CppObject*>(col);
+}
+
+//------------------------------------------------------------------------------
+// DataColumn ctor / DataType accessors.
+//
+// net48 DataColumn.DataType DEFAULTS to System.String -- that is the type the
+// untyped Add(name) column has. The runtime keeps "" as the "untyped" marker
+// internally (Compute then answers the net48 String column behaviour), but the
+// GETTER must hand back the real managed name "System.String" so
+// `col.DataType.Name` answers "String" like net48.
+//------------------------------------------------------------------------------
+namespace {
+
+const char* const kUntypedColumnTypeName = "System.String";
+
+Il2CppString* DataTypeOrDefault(Il2CppObject* typeName)
+{
+    if (typeName == nullptr)
+    {
+        return il2cpp_string_new_from_cs(kUntypedColumnTypeName);
+    }
+    const Il2CppString* s = reinterpret_cast<const Il2CppString*>(typeName);
+    if (s->length == 0)
+    {
+        return il2cpp_string_new_from_cs(kUntypedColumnTypeName);
+    }
+    return reinterpret_cast<Il2CppString*>(typeName);
+}
+
+void SetColumn(Il2CppDataColumn* col, Il2CppObject* name, Il2CppObject* typeName)
+{
+    col->name = reinterpret_cast<Il2CppString*>(name);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&col->name),
+                         reinterpret_cast<Il2CppObject*>(col->name));
+    col->dataType = reinterpret_cast<Il2CppString*>(typeName);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&col->dataType),
+                         reinterpret_cast<Il2CppObject*>(col->dataType));
+}
+
+} // namespace
+
+void icall_datacolumn_ctor(Il2CppObject* self, Il2CppObject* name)
+{
+    ThrowIfNullReceiver(self);
+    SetColumn(AsColumn(self), name, nullptr);
+}
+
+void icall_datacolumn_ctor_typed(Il2CppObject* self, Il2CppObject* name, Il2CppObject* typeName)
+{
+    ThrowIfNullReceiver(self);
+    SetColumn(AsColumn(self), name, typeName);
+}
+
+Il2CppObject* icall_datacolumn_get_data_type(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return reinterpret_cast<Il2CppObject*>(
+        DataTypeOrDefault(reinterpret_cast<Il2CppObject*>(AsColumn(self)->dataType)));
+}
+
+void icall_datacolumn_set_data_type(Il2CppObject* self, Il2CppObject* typeName)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppDataColumn* col = AsColumn(self);
+    col->dataType = reinterpret_cast<Il2CppString*>(typeName);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&col->dataType),
+                         reinterpret_cast<Il2CppObject*>(col->dataType));
 }
 
 //------------------------------------------------------------------------------
@@ -1051,15 +1238,133 @@ Il2CppObject* icall_datatable_select_sort(Il2CppObject* self, Il2CppObject* filt
     }
     return matches;
 }
-
 //------------------------------------------------------------------------------
 // ADO stage 3 (batch 154e): DataTable.Compute(expression, filter).
 //------------------------------------------------------------------------------
-// The aggregate family over a numeric column: SUM/COUNT/AVG/MIN/MAX. The
-// expression shape is "FUNC(column)"; the optional filter reuses the Select
-// AND grammar (SelectCond). COUNT returns a boxed int; the numeric
-// aggregates return a boxed double (the net48 decimal result is
-// approximated -- documented deviation).
+// The aggregate family SUM/COUNT/AVG/MIN/MAX over one column; the expression
+// shape is "FUNC(column)" and the optional filter reuses the Select AND
+// grammar (SelectCond).
+//
+// THE RESULT TYPE FOLLOWS THE COLUMN'S DECLARED DataType -- exactly like
+// net48 (MEASURED against .NET Framework 4.8, one process per probe; see
+// docs/audit/b5-gaps.md):
+//
+//   column    MIN / MAX   SUM       AVG                       COUNT
+//   ---------------------------------------------------------------------
+//   int       Int32       Int64     Int32 (INTEGER division)   Int32
+//   double    Double      Double    Double                     Int32
+//   decimal   Decimal     Decimal   Decimal                    Int32
+//
+// Notes measured against the oracle:
+//   * an int AVG TRUNCATES toward zero (-1 / 2 == 0), it is NOT floating point;
+//   * int SUM is Int64, so it survives an int32 overflow (2e9 + 2e9 == 4e9);
+//   * an EMPTY (or all-DBNull) set answers DBNull for MIN/MAX/SUM/AVG and
+//     Int32 0 for COUNT; DBNull cells are SKIPPED by every aggregate;
+//   * a column with NO declared type behaves like net48's default String
+//     column: MIN/MAX answer the value as a string, SUM/AVG throw
+//     System.Data.DataException, COUNT counts the rows.
+//------------------------------------------------------------------------------
+namespace {
+
+// The aggregate kinds (declared here so the typed helpers below can see it).
+enum AggKind { kSum, kCount, kAvg, kMin, kMax };
+
+// The column's declared DataType, as an enum over the shapes the aggregates
+// distinguish. Everything else (including the untyped "" column) is kOther.
+enum ColumnType { kInt32, kInt64, kDouble, kDecimal, kOther };
+
+ColumnType ClassifyColumnType(const Il2CppString* typeName)
+{
+    if (typeName == nullptr || typeName->length == 0) return kOther;
+    struct Entry { const char* name; ColumnType type; };
+    static const Entry kEntries[] = {
+        { "System.Int32", kInt32 },
+        { "System.Int64", kInt64 },
+        { "System.Double", kDouble },
+        { "System.Decimal", kDecimal },
+    };
+    for (const Entry& e : kEntries)
+    {
+        const char* n = e.name;
+        int32_t i = 0;
+        for (; i < typeName->length && n[i] != '\0'; ++i)
+        {
+            if (typeName->chars[i] != static_cast<char16_t>(n[i])) break;
+        }
+        if (i == typeName->length && n[i] == '\0') return e.type;
+    }
+    return kOther;
+}
+
+// net48's DataException for an aggregate that has no meaning for the column
+// type ("Invalid usage of aggregate function Sum() and Type: Object.").
+[[noreturn]] void ThrowInvalidAggregate(const char* fnName, const char* typeName)
+{
+    // The message text is composed once into a static buffer per call site --
+    // the DotNetException carries the pointer without copying, so the buffer
+    // must outlive the throw (file-scope statics below).
+    static char buf[256];
+    std::snprintf(buf, sizeof(buf),
+                  "Invalid usage of aggregate function %s() and Type: %s.",
+                  fnName, typeName);
+    il2cpp_throw_new("System.Data.DataException,System.Data.DataException,System.SystemException,System.Exception",
+                     buf);
+}
+
+// The boxed Int64 result (net48 int/long SUM).
+Il2CppObject* BoxInt64(int64_t v) { return icall_box_long(v); }
+
+// The boxed Int32 result (net48 int AVG / every COUNT).
+Il2CppObject* BoxInt32(int32_t v) { return il2cpp_box_int32(nullptr, v); }
+
+Il2CppObject* DbNullValue() { return il2cpp_datatable_dbnull_value(); }
+
+// Read one numeric cell as an int64 when the cell is an integral box, else
+// report "not integral". net48 coerces the cell to the COLUMN type first; a
+// well-formed DataTable already holds the column type, so a direct kind check
+// is enough and a mismatched cell is skipped (never a silent reinterpret).
+bool TryCellInt64(const Il2CppObject* cell, int64_t* out)
+{
+    if (cell == nullptr || cell->klass == nullptr) return false;
+    if (cell->klass == &System_Int32_class)
+    {
+        *out = icall_unbox_int32(const_cast<Il2CppObject*>(cell));
+        return true;
+    }
+    if (cell->klass == &System_Int64_class)
+    {
+        *out = icall_unbox_long(const_cast<Il2CppObject*>(cell));
+        return true;
+    }
+    return false;
+}
+
+bool TryCellDouble(const Il2CppObject* cell, double* out)
+{
+    if (cell == nullptr || cell->klass == nullptr) return false;
+    if (cell->klass == &System_Double_class)
+    {
+        *out = icall_unbox_double(const_cast<Il2CppObject*>(cell));
+        return true;
+    }
+    if (cell->klass == &System_Int32_class)
+    {
+        *out = static_cast<double>(icall_unbox_int32(const_cast<Il2CppObject*>(cell)));
+        return true;
+    }
+    return false;
+}
+
+bool TryCellDecimal(const Il2CppObject* cell, Il2CppDecimal* out)
+{
+    if (cell == nullptr || cell->klass == nullptr) return false;
+    if (cell->klass != &System_Decimal_class) return false;
+    *out = icall_unbox_decimal(const_cast<Il2CppObject*>(cell));
+    return true;
+}
+
+} // namespace
+
 Il2CppObject* icall_datatable_compute(Il2CppObject* self, Il2CppObject* expression, Il2CppObject* filter)
 {
     ThrowIfNullReceiver(self);
@@ -1094,7 +1399,7 @@ Il2CppObject* icall_datatable_compute(Il2CppObject* self, Il2CppObject* expressi
     int32_t colEnd = flen - 1;
     while (colStart < colEnd && (f[colStart] == u' ' || f[colStart] == u'\t')) ++colStart;
     while (colEnd > colStart && (f[colEnd - 1] == u' ' || f[colEnd - 1] == u'\t')) --colEnd;
-    enum AggKind { kSum, kCount, kAvg, kMin, kMax } kind = kSum;
+    AggKind kind = kSum;
     const int32_t fnLen = fnEnd - fnStart;
     if (fnLen == 3 && (f[fnStart] | 0x20) == u's' && (f[fnStart + 1] | 0x20) == u'u' && (f[fnStart + 2] | 0x20) == u'm')
     {
@@ -1148,6 +1453,12 @@ Il2CppObject* icall_datatable_compute(Il2CppObject* self, Il2CppObject* expressi
     {
         il2cpp_throw_argument_exception("The compute expression references an unknown column.");
     }
+    // The column's declared DataType ("" / null = the untyped String column).
+    const Il2CppString* colTypeName = t->colTypes != nullptr
+        ? reinterpret_cast<const Il2CppString*>(
+              reinterpret_cast<Il2CppObject* const*>(t->colTypes->data)[colIdx])
+        : nullptr;
+    const ColumnType colType = ClassifyColumnType(colTypeName);
     // Parse the optional filter (the Select AND grammar). The filter chars
     // pointer stays valid for the row loop (no allocation happens between
     // the parse and the loop, so no collection can move the filter string).
@@ -1173,70 +1484,168 @@ Il2CppObject* icall_datatable_compute(Il2CppObject* self, Il2CppObject* expressi
     t = AsTable(self);
     const int32_t rowCount = t->rowCount;
     const Il2CppObject* const* rows = reinterpret_cast<const Il2CppObject* const*>(t->rows->data);
-    double acc = 0.0;
-    double accMin = 0.0;
-    double accMax = 0.0;
-    int32_t count = 0;
-    bool firstValue = true;
-    for (int32_t ri = 0; ri < rowCount; ++ri)
-    {
-        const Il2CppObject* const* values = reinterpret_cast<const Il2CppObject* const*>(
-            reinterpret_cast<const Il2CppArray*>(rows[ri])->data);
-        if (hasCond && !cond.Matches(values[cond.colIdx], ff))
-        {
-            continue;
-        }
-        if (kind == kCount)
-        {
-            ++count;
-            continue;
-        }
-        const Il2CppObject* cell = values[colIdx];
-        if (cell == nullptr)
-        {
-            continue;
-        }
-        double v;
-        if (cell->klass == &System_Int32_class)
-        {
-            v = static_cast<double>(icall_unbox_int32(const_cast<Il2CppObject*>(cell)));
-        }
-        else if (cell->klass == &System_Double_class)
-        {
-            v = icall_unbox_double(const_cast<Il2CppObject*>(cell));
-        }
-        else
-        {
-            continue;
-        }
-        if (firstValue)
-        {
-            accMin = v;
-            accMax = v;
-            firstValue = false;
-        }
-        else
-        {
-            if (v < accMin) accMin = v;
-            if (v > accMax) accMax = v;
-        }
-        acc += v;
-        ++count;
-    }
+
+    // ---- pass 1: count the participating rows (COUNT stops here) -----------
     if (kind == kCount)
     {
-        return reinterpret_cast<Il2CppObject*>(il2cpp_box_int32(nullptr, count));
+        // net48 COUNT counts the FILTERED rows that have a non-DBNull cell.
+        int32_t counted = 0;
+        for (int32_t ri = 0; ri < rowCount; ++ri)
+        {
+            const Il2CppObject* const* values = reinterpret_cast<const Il2CppObject* const*>(
+                reinterpret_cast<const Il2CppArray*>(rows[ri])->data);
+            if (hasCond && !cond.Matches(values[cond.colIdx], ff))
+            {
+                continue;
+            }
+            const Il2CppObject* cell = values[colIdx];
+            if (cell == nullptr || il2cpp_datatable_is_dbnull(cell)) continue;
+            ++counted;
+        }
+        return BoxInt32(counted);
     }
-    double result = 0.0;
-    switch (kind)
+
+    // ---- typed aggregates -------------------------------------------------
+    switch (colType)
     {
-        case kSum: result = acc; break;
-        case kAvg: result = count > 0 ? acc / static_cast<double>(count) : 0.0; break;
-        case kMin: result = accMin; break;
-        case kMax: result = accMax; break;
-        default: break;
+    case kInt32:
+    case kInt64:
+    {
+        int64_t acc = 0;
+        int64_t best = 0;
+        int32_t n = 0;
+        for (int32_t ri = 0; ri < rowCount; ++ri)
+        {
+            const Il2CppObject* const* values = reinterpret_cast<const Il2CppObject* const*>(
+                reinterpret_cast<const Il2CppArray*>(rows[ri])->data);
+            if (hasCond && !cond.Matches(values[cond.colIdx], ff))
+            {
+                continue;
+            }
+            const Il2CppObject* cell = values[colIdx];
+            int64_t v = 0;
+            if (!TryCellInt64(cell, &v)) continue; // null / DBNull / foreign type
+            if (n == 0) best = v;
+            else if (kind == kMin ? v < best : v > best) best = v;
+            acc += v;
+            ++n;
+        }
+        if (n == 0) return DbNullValue();
+        if (kind == kMin || kind == kMax) return BoxInt32(static_cast<int32_t>(best));
+        if (kind == kSum) return BoxInt64(acc);
+        // kAvg: net48 truncates toward zero in the COLUMN's integer type.
+        return BoxInt32(static_cast<int32_t>(acc / n));
     }
-    return reinterpret_cast<Il2CppObject*>(icall_box_double(result));
+    case kDouble:
+    {
+        double acc = 0.0;
+        double best = 0.0;
+        int32_t n = 0;
+        for (int32_t ri = 0; ri < rowCount; ++ri)
+        {
+            const Il2CppObject* const* values = reinterpret_cast<const Il2CppObject* const*>(
+                reinterpret_cast<const Il2CppArray*>(rows[ri])->data);
+            if (hasCond && !cond.Matches(values[cond.colIdx], ff))
+            {
+                continue;
+            }
+            double v = 0.0;
+            if (!TryCellDouble(values[colIdx], &v)) continue;
+            if (n == 0) best = v;
+            else if (kind == kMin ? v < best : v > best) best = v;
+            acc += v;
+            ++n;
+        }
+        if (n == 0) return DbNullValue();
+        double result = 0.0;
+        if (kind == kMin || kind == kMax) result = best;
+        else if (kind == kSum) result = acc;
+        else result = acc / static_cast<double>(n);
+        return reinterpret_cast<Il2CppObject*>(icall_box_double(result));
+    }
+    case kDecimal:
+    {
+        Il2CppDecimal acc{};
+        Il2CppDecimal best{};
+        int32_t n = 0;
+        bool haveAcc = false;
+        for (int32_t ri = 0; ri < rowCount; ++ri)
+        {
+            const Il2CppObject* const* values = reinterpret_cast<const Il2CppObject* const*>(
+                reinterpret_cast<const Il2CppArray*>(rows[ri])->data);
+            if (hasCond && !cond.Matches(values[cond.colIdx], ff))
+            {
+                continue;
+            }
+            Il2CppDecimal v{};
+            if (!TryCellDecimal(values[colIdx], &v)) continue;
+            if (!haveAcc)
+            {
+                acc = v;
+                best = v;
+                haveAcc = true;
+            }
+            else
+            {
+                Il2CppDecimal sum{};
+                icall_decimal_add(&sum, &acc, &v);
+                acc = sum;
+                const int32_t cmp = icall_decimal_compare(&v, &best);
+                if (kind == kMin ? cmp < 0 : cmp > 0) best = v;
+            }
+            ++n;
+        }
+        if (n == 0) return DbNullValue();
+        Il2CppDecimal result{};
+        if (kind == kMin || kind == kMax)
+        {
+            result = best;
+        }
+        else if (kind == kSum)
+        {
+            result = acc;
+        }
+        else
+        {
+            Il2CppDecimal divisor{};
+            icall_decimal_ctor_int32(&divisor, n);
+            icall_decimal_div(&result, &acc, &divisor);
+        }
+        return reinterpret_cast<Il2CppObject*>(icall_box_decimal(&result));
+    }
+    case kOther:
+    default:
+        break;
+    }
+
+    // ---- a column with NO numeric declared type ---------------------------
+    // net48's default DataColumn type is System.String: MIN/MAX answer the
+    // string, SUM/AVG throw DataException, COUNT is handled above.
+    if (kind == kSum) ThrowInvalidAggregate("Sum", "String");
+    if (kind == kAvg) ThrowInvalidAggregate("Mean", "String");
+    {
+        const Il2CppObject* best = nullptr;
+        for (int32_t ri = 0; ri < rowCount; ++ri)
+        {
+            const Il2CppObject* const* values = reinterpret_cast<const Il2CppObject* const*>(
+                reinterpret_cast<const Il2CppArray*>(rows[ri])->data);
+            if (hasCond && !cond.Matches(values[cond.colIdx], ff))
+            {
+                continue;
+            }
+            const Il2CppObject* cell = values[colIdx];
+            if (cell == nullptr || il2cpp_datatable_is_dbnull(cell)) continue;
+            if (best == nullptr)
+            {
+                best = cell;
+                continue;
+            }
+            const int32_t cmp = CompareSortCells(cell, best);
+            if (kind == kMin ? cmp < 0 : cmp > 0) best = cell;
+        }
+        if (best == nullptr) return DbNullValue();
+        return const_cast<Il2CppObject*>(best);
+    }
 }
 //------------------------------------------------------------------------------
 // ADO stage 2 (batch 153d): DataSet -- the table collection surface.
@@ -1305,7 +1714,7 @@ Il2CppObject* icall_dataset_get_table(Il2CppObject* self, int32_t index)
 // ADO stage 3 (batch 154g): DataTable.Clone().
 //------------------------------------------------------------------------------
 // A new table with the same column schema and no rows (net48 Clone copies
-// the schema; the minimal surface copies the column names).
+// the schema -- column names AND their DataType).
 Il2CppObject* icall_datatable_clone(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
@@ -1315,18 +1724,31 @@ Il2CppObject* icall_datatable_clone(Il2CppObject* self)
     Il2CppObject* newObj = il2cpp_object_new(il2cpp_datatable_class());
     GcRoot<Il2CppObject*> rootNew(newObj, "icall_datatable_clone_new");
     Il2CppArray* newCols = AllocRefArray(cols);
+    Il2CppArray* newTypes = AllocRefArray(cols);
     newObj = rootNew.Get();
     Il2CppDataTable* nt = AsTable(newObj);
     Il2CppObject* const* srcCols = reinterpret_cast<Il2CppObject* const*>(t->columns->data);
+    Il2CppObject* const* srcTypes = t->colTypes != nullptr
+        ? reinterpret_cast<Il2CppObject* const*>(t->colTypes->data)
+        : nullptr;
     Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(newCols->data);
+    Il2CppObject** dstTypes = reinterpret_cast<Il2CppObject**>(newTypes->data);
     for (int32_t i = 0; i < cols; ++i)
     {
         dst[i] = srcCols[i];
         il2cpp_write_barrier(reinterpret_cast<void**>(&dst[i]), dst[i]);
+        if (srcTypes != nullptr)
+        {
+            dstTypes[i] = srcTypes[i];
+            il2cpp_write_barrier(reinterpret_cast<void**>(&dstTypes[i]), dstTypes[i]);
+        }
     }
     nt->columns = newCols;
     il2cpp_write_barrier(reinterpret_cast<void**>(&nt->columns),
                          reinterpret_cast<Il2CppObject*>(nt->columns));
+    nt->colTypes = newTypes;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&nt->colTypes),
+                         reinterpret_cast<Il2CppObject*>(nt->colTypes));
     nt->colCount = cols;
     Il2CppArray* emptyRows = AllocRefArray(0);
     newObj = rootNew.Get();

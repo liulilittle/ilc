@@ -186,9 +186,35 @@ namespace Il2Cpp.Transpiler.Emit
                             return null;
                     }
                 case "System.Data.DataColumn":
-                    if (name == "get_ColumnName")
-                        return I("il2cpp::runtime::icall_datacolumn_get_name", 0, true, true, true);
-                    return null;
+                    switch (name)
+                    {
+                        case ".ctor":
+                            // DataColumn() / DataColumn(string) / DataColumn(string, Type).
+                            if (count == 0)
+                                return I("il2cpp::runtime::icall_datacolumn_ctor", 0, false, false, true,
+                                    new[] { "" });
+                            if (count == 1 && ps[0] == 0x0E)
+                                return I("il2cpp::runtime::icall_datacolumn_ctor", 1, false, false, true,
+                                    new[] { "", "" });
+                            if (count == 2 && ps[0] == 0x0E)
+                                // The Type VALUE is its full-name string in this
+                                // runtime (the simplified Type model), so the
+                                // second argument rides the reference slot.
+                                return I("il2cpp::runtime::icall_datacolumn_ctor_typed", 2, false, false, true,
+                                    new[] { "", "", "" });
+                            return null;
+                        case "get_ColumnName":
+                            return I("il2cpp::runtime::icall_datacolumn_get_name", 0, true, true, true);
+                        case "get_DataType":
+                            return I("il2cpp::runtime::icall_datacolumn_get_data_type", 0, true, true, true);
+                        case "set_DataType":
+                            if (count == 1)
+                                return I("il2cpp::runtime::icall_datacolumn_set_data_type", 1, false, false, true,
+                                    new[] { "", "" });
+                            return null;
+                        default:
+                            return null;
+                    }
                 case "System.Data.DataColumnCollection":
                 case "System.Data.DataRowCollection":
                 case "System.Data.InternalDataCollectionBase":
@@ -202,8 +228,25 @@ namespace Il2Cpp.Transpiler.Emit
                     switch (name)
                     {
                         case "Add":
+                            // Columns.Add(string[, Type]) / Rows.Add(object[]) /
+                            // Rows.Add(DataRow). The receiver is the folded
+                            // table; the arguments pass through uncast.
+                            //
+                            // The two-argument Columns.Add(string, Type) is the
+                            // TYPED-column constructor: the Type VALUE is its
+                            // full-name string in this runtime (the simplified
+                            // Type model), so it rides the same reference slot
+                            // and the icall stores it as the column's DataType.
+                            if (count == 2 && ps[0] == 0x0E)
+                                return I("il2cpp::runtime::icall_datatable_columns_add_typed", 2, true, true, true,
+                                    new[] { "", "", "" }, returnTypeName: "System.Data.DataColumn");
                             if (count == 1 && ps[0] == 0x0E)
                                 return I("il2cpp::runtime::icall_datatable_columns_add", 1, true, true, true,
+                                    new[] { "", "" }, returnTypeName: "System.Data.DataColumn");
+                            // Columns.Add(DataColumn) -- adopt a constructed column.
+                            if (count == 1 && ps[0] == 0x12
+                                && receiverType != "System.Data.DataRowCollection")
+                                return I("il2cpp::runtime::icall_datatable_columns_add_column", 1, true, true, true,
                                     new[] { "", "" }, returnTypeName: "System.Data.DataColumn");
                             if (count == 1 && ps[0] == 0x1D)
                                 return I("il2cpp::runtime::icall_datatable_rows_add", 1, true, true, true,

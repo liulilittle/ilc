@@ -2707,6 +2707,11 @@ public static class CodeGenerator
             // int32_t and the 16-byte struct copy is ill-typed.
             else if (asf.Value is StaticFieldExpr sd && sd.FieldName.StartsWith("System.Decimal.", StringComparison.Ordinal))
                 locKind[asf.Target] = "dec";
+            // System.DBNull.Value is the shared ADO sentinel INSTANCE (a
+            // managed reference): the read emits the runtime singleton
+            // accessor, so the target local must be Il2CppObject* ("ref").
+            else if (asf.Value is StaticFieldExpr sdb && sdb.FieldName == "System.DBNull.Value")
+                locKind[asf.Target] = "ref";
         }
         // R7-C4244 (winforms1): a static IntPtr/UIntPtr read (storage
         // intptr_t/uintptr_t) assigned to a temp/local must keep the full
@@ -5571,6 +5576,16 @@ public static class CodeGenerator
                     _guidEmptyNeeded = true;
                     return "(*reinterpret_cast<il2cpp::Il2CppGuid*>(il2cpp_guid_empty_bytes))";
                 }
+                // System.DBNull.Value: the ONE shared ADO sentinel instance.
+                // There is no BCL static storage for it (mscorlib types have
+                // no TypeDef in the input assembly), so the read dispatches to
+                // the runtime accessor that owns the singleton -- identity is
+                // the contract (an aggregate's empty-set result IS this same
+                // object, so `r == DBNull.Value` must hold).
+                if (f.FieldName == "System.DBNull.Value")
+                {
+                    return "il2cpp::runtime::il2cpp_datatable_dbnull_value()";
+                }
                 return FieldStorageName(f.FieldName);
             case StaticFieldAddrExpr sa:
                 // ldsflda (ECMA 0x7F): address of a static field -- &<storage>.
@@ -6122,6 +6137,9 @@ public static class CodeGenerator
         // System.Guid.Empty is the shared 16-byte zero slot -- a "guid" slot
         // (Il2CppGuid), never the int32 default.
         StaticFieldExpr f when f.FieldName == "System.Guid.Empty" => "guid",
+        // System.DBNull.Value is the shared ADO sentinel INSTANCE -- a managed
+        // reference (the read emits the runtime singleton accessor).
+        StaticFieldExpr f when f.FieldName == "System.DBNull.Value" => "ref",
         _ => "val",
     };
 
