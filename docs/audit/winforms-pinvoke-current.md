@@ -1242,3 +1242,74 @@ net48 oracle 与 runtime 逐字节一致：**182B，sha=6fe3b4b1f46a1849e0f57c62
 | corelibp0 | 887 | `391cb96fe4862f2af565c2ef9b56037cbf7a0ccb6c48dd25e24550a6fc577d56` |
 
 单位测试：`dotnet test tests/unit/unit.csproj -c Debug` → **4147 通过 / 0 失败 / 0 跳过**；C0 `dotnet build src/il2cppc/il2cppc.csproj -c Debug --no-incremental` → **0 警告 0 错误**。
+
+## 12. 静态链接 struct 返回与结果临时槽（2026-11-02，`structret2` 分支）
+
+### 12.1 两处缺陷
+
+前席 `pinvoke-structreturn` 只修好了**动态**（SHARED / `il2cpp_pinvoke_resolve`）路径的按值 struct 返回。STATIC-direct 路径和结果临时槽仍坏：
+
+- **static 路径**：`PinvokeCallWrapCode`（`CodeGenerator.cs:11975-11984`）在 `PinvokeRetType` 为空时按 `ResultKind` 落到 `int32_t`；而 `MethodRefResolver.PinvokeRetCpp` 只映射标量（`MethodRefResolver.cs:2950-2961`），struct 返回恒为 null。结果生成 `extern "C" Cases_Ret2Pair mk_pair(int32_t);` + `il2cpp_pinvoke_call<int32_t>(mk_pair, ...)`，C++ 直接编译失败。
+- **结果临时槽**：同一处 P/Invoke 解析的 `ResultKind` 对 struct 返回也是 null，StackFold 生成的编译器 temp（`tN = call`）被声明成 `int32_t`。直接 `call().field` 或赋值给 IL struct local 时看不出来；一旦结果要作为参数/多调用表达式落到 temp，就出现 `could not convert 't3' from 'int32_t' to 'Cases_Ret2Pair'`，int64 字段只剩低 32 位。
+- **枚举必须保持 `int32_t`**：生成的枚举 C++ struct 带 16 字节 `_obj` 头，把它当 native 返回类型会让 C++ 调用方走 hidden sret，而原生 int32 返回在 EAX；前席实测为垃圾值。
+
+### 12.2 实现（单一解码源）
+
+- `CodeGenerator.cs:9344-9402`：把原 `PinvokeReturnStructNameOfHandle` 的签名解码抽成 `internal PinvokeReturnStructNameOfSignature(MetadataReader, BlobHandle)`。extern 声明 / 动态 manifest（`PinvokeReturnTypeCpp`，`:9300`）与调用点解析共用同一实现，行为逐字保持：注册 struct → `il2cpp::Il2CppPinvokePoint/Rect/Msg`；同程序集 TypeDef enum → `int32_t`（`:9394`）；同程序集 TypeDef struct → `TypeEmitter.Sanitize`（`:9395`）；外部 TypeRef → LOUD（不猜 int32）。
+- `MethodRefResolver.cs:778`：P/Invoke 解析时调用该共享解码；`:797` 对 struct 返回设置 `ResultKind = "us:{Cpp}"`（P25b struct-slot 约定）；`:815` 把 struct C++ 名填进 `PinvokeRetType`（enum 得到 `"int32_t"`，与旧 fallback 的发射文本一致）。
+- 消费端无需新分支：`CodeGenerator.cs:6113` 的 `"us:"` 手臂把临时槽声明成 struct；`TempSlotPass.cs:277` 已把 `us:` 作为不可与 int32 共享的 struct kind。枚举 `ResultKind` 仍为 null，槽仍是 `int32_t`。
+
+### 12.3 新 case：`tests/cases/pinvoke-structret2`
+
+自建 STATIC fixture `structret2stat`（`CMakeLists.txt` 用 `add_library(... STATIC)`，difftest 自动 `add_subdirectory` 并链进 `il2cpp_gen_exe`；oracle 侧仍由同一 `.cpp` 编 dll）。覆盖：
+
+- `mk_pair`（8B 两 int32）/ `mk_wide`（8B int64）/ `mk_mixed`（16B：int32 + padding + int64）；
+- local、直接 `call().field`、用户方法 struct 形参（强制 temp）、作为另一个 native 入口的按值实参、一个表达式里两次 struct 调用；
+- enum 返回 `mk_mode` 回归（直接与 local 两种形态）。
+
+修复前 red（本 worktree difftest）实测：
+
+```text
+pinvoke-structret2.cs:90: error: no match for 'operator=' (operand types are 'Cases_Ret2Pair' and 'int')
+pinvoke-structret2.cs:99: error: could not convert 't3' from 'int32_t' {aka 'int'} to 'Cases_Ret2Pair'
+pinvoke-structret2.cs:127: error: request for member 'X' in '* & t3', which is of non-class type 'int32_t'
+bridge.h:88: error: invalid 'static_cast' from type 'Cases_Ret2Pair' to type 'int'
+```
+
+修复后 oracle == runtime：**401B，sha256=`052150306292922ba17c6b0d5d83363012c73564e2c11a2368943b292c4dcbab`，15 条记录**。其中 `[s2.wide.temp]=1161981756646125696`、`[s2.mixed.loc]=9,38958474285`、`[s2.mixed.direct]=56273351745` 都是完整 64 位；`[s2.mode.direct]=5` / `[s2.mode.loc]=3` 证明 enum 仍是 int32。
+
+### 12.4 变异证明（两次，均先红后绿）
+
+在 worktree 干净 HEAD 上分别改坏两处判定，单条命令内 apply → 重建 → RED → 恢复 → 重建 → GREEN：
+
+- **变异 1**：`PinvokeRetType: pinvokeStructRet ?? PinvokeRetCpp(returnType)` 改回 `PinvokeRetCpp(returnType)`。RED：`no match for 'operator=' (operand types are 'Cases_Ret2Pair' and 'int')`（wrapper 回到 int32_t）；恢复后 401B 同 sha。
+- **变异 2**：删掉 `ResultKind: pinvokeStructRet is ... ? "us:" + structCpp :` 分支（只保留标量 switch）。RED：`could not convert 't3' from 'int32_t' {aka 'int'} to 'Cases_Ret2Pair'`，而 local/直接投影行已编译通过——精确表明是 temp-slot 缺陷；恢复后 401B 同 sha。
+
+两次变异后 `git grep -n "MUTATION\|TEMPORARY\|MUTANT" -- src tests` 0 命中，`git status --porcelain` 干净。
+
+### 12.5 门禁与锚（本 worktree，`structret2`）
+
+C0：`dotnet build src/il2cppc/il2cppc.csproj -c Debug --no-incremental` → **0 警 0 错**。
+单测：`dotnet test tests/unit/unit.csproj` → **4149 通过 / 0 失败 / 0 跳过**（先跑 `scripts/build-unit-fixtures.ps1` 生成 net48 fixture）。
+
+| case | 字节 | sha256 |
+|---|---|---|
+| pinvoke-structreturn | 356 | `09844a4d68e42d02a78e06439fd2ea828661faa254166a258064ac5b83bb7f61` |
+| pinvoke-nameclash | 182 | `6fe3b4b1f46a1849e0f57c62e91139b4ad0fe3ea77ff02cae7f937a2c6a33f67` |
+| winforms1 | 20521 | `8a4c0011723c4e462ad6240f094841c905e086dde4d9d2a0f2f5a975794c2138` |
+| collation1 | 1356 | `90013e33c575bf609c3d4a50ac2a7a6bd1233237f12908e5885625307853c8ca` |
+| urihash1 | 1417 | `9e622815bf31d62eaaba80863848d7158a59bda584816ed1fc6b67c77d3366d7` |
+| diffuri001 | 585 | `20d4483c1f06658e916a2278c0873bec25cba48dedf7ffa508372d08e09d6061` |
+| datatableagg1 | 1290 | `ff089b4602febadc2ffea05cb5b1f24bb285ea05a335cd9a5d498f09e00175d5` |
+| structdefaulthash1 | 576 | `a71b7e990cd042c845f62621ab35194ae895eda72ae11f9dc4522d4189a75e54` |
+| datatable | 235 | `b9826a7c1c489eaf37d742b367582ac2b307098b014910ab0bcc6762c6a7ae55` |
+| structhash1 | 45 | `ff0ddfb394dcc2236c4c8cb06cdf0c8e9859289c589ceab77317a8d4c245b0b3` |
+| probe-pinvoke-array | 845 | `b8f5d7e861eb5e6acf723e1a32815a91326d6987bad91dbc9da1b52008cba657` |
+| probe-pinvoke-byref | 1185 | `55f3e5c810d2b015af0fca36c58d251e0cb7704fad0a657a02712fd1e085ef66` |
+| probe-pinvoke-byrefother | 648 | `10c90ffd2dc29415a2e6d97e49cfedacfc9367da0f415df92087bf64659d6bb2` |
+| probe-handleref | 217 | `a089ccbfc400627c7d360a0deb5b8d8ad6cf66c50dd92aa5ee87b1cfc05b766a` |
+| dtoiformattable1 | 1421 | `3c919969fe9229b0593f53ebce2d432fa66625d9fac7b84930332ab7f7d30195` |
+| dtoobjcmp1 | 710 | `40fcc5a09d31f6764e3ed7a079367b99c2c5aba9714b0d757fed6b5701faedb5` |
+| corelibp0 | 887 | `391cb96fe4862f2af565c2ef9b56037cbf7a0ccb6c48dd25e24550a6fc577d56` |
+
+未验证：本席只跑上述 17 个锚 + 新 case，未跑全量 sweep；external TypeRef struct 返回仍是既有的 LOUD 拒绝（非本次范围）。
