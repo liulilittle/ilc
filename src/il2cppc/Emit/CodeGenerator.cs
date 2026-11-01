@@ -1275,6 +1275,11 @@ public static class CodeGenerator
                 // keep the M3 shape (no descriptor).
                 if (t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"))
                     generatedHeader.Line($"extern Il2CppClass {TypeEmitter.TypeCppName(t)}_class;");
+                // The default-hash field table is DEFINED in the type's own
+                // .cpp (EmitVtFieldTable) but referenced from every method body
+                // that hashes the struct, so it needs an extern declaration.
+                if (t.InstanceFields.Count > 0)
+                    generatedHeader.Line($"extern const Il2CppVtField {TypeEmitter.TypeCppName(t)}_vtfields[];");
                 continue;
             }
             if (!(t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"))) continue;
@@ -1508,6 +1513,10 @@ public static class CodeGenerator
                 || t.VirtualMethods.Count > 0 || t.IsInterface))
                 || (t.IsValueType && !IsDelegateTypeDef(t) && (t.InstanceFields.Count > 0 || t.Methods.Any(m => m.Name == ".ctor"))))
             {
+                // A user VALUE TYPE's descriptor references its net48
+                // default-hash field table, so the table must be DEFINED before
+                // the descriptor (C++ needs the declarator first).
+                w.Line(TypeEmitter.EmitVtFieldTable(t));
                 w.Line(TypeEmitter.EmitClassDescriptor(t,
                     t.VirtualMethods.Count > 0 && !t.IsInterface ? $"{cppName}_vtable" : null,
                     null, t.VirtualMethods.Count,

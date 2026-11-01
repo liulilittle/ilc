@@ -1195,15 +1195,21 @@ int32_t il2cpp_user_struct_type_id(const Il2CppClass* klass)
 //                    reference is skipped; a non-null one contributes its
 //                    object hash instead of its bytes).
 //------------------------------------------------------------------------------
-int32_t icall_user_struct_default_hash(const Il2CppClass* klass,
-                                       const void* data,
-                                       const Il2CppVtField* fields,
-                                       int32_t fieldCount,
-                                       int32_t packedSize,
-                                       int32_t fastHashable)
+int32_t icall_user_struct_default_hash(const void* data, const Il2CppVtField* fields,
+                                       const Il2CppClass* klass)
 {
     if (klass == nullptr) return 0;
     const int32_t typeID = il2cpp_user_struct_type_id(klass);
+    const int32_t fieldCount = klass->vtFieldCount;
+    const int32_t packedSize = klass->vtPackedSize;
+    const int32_t fastHashable = klass->vtFastHashable;
+    if (fields == nullptr || fieldCount <= 0)
+    {
+        // No field model (a fieldless struct): net48 returns the typeID munge
+        // itself, since the image contributes nothing.
+        const uint32_t m0 = static_cast<uint32_t>(typeID) * 711650207u + 2506965631u;
+        return static_cast<int32_t>(m0);
+    }
     int32_t image = 0;
     if (fastHashable != 0)
     {

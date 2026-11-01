@@ -1689,9 +1689,157 @@ public static class TypeEmitter
             ? $"    nullptr,                                                // interfaces (no implemented interfaces)"
             : $"    {ifaceMapArrayName},                                     // interfaces: {ifaceCount} map entr(ies)");
         w.Line($"    {ifaceCount},                                           // interfaceCount");
+        // net48 default GetHashCode field model (user VALUE types only; every
+        // other descriptor leaves the four trailing members value-initialized
+        // to 0 by the aggregate initializer -- no other descriptor edits
+        // needed). See il2cpp_metadata.h Il2CppClass.vtFields.
+        if (t.IsValueType && !t.IsInterface && t.InstanceFields.Count > 0)
+        {
+            var vt = ComputeVtHashModel(t);
+            if (vt is { } model)
+            {
+                w.Line($"    {TypeCppName(t)}_vtfields,                                 // vtFields (net48 default-hash field model)");
+                w.Line($"    {model.Fields.Count},                                     // vtFieldCount");
+                w.Line($"    {model.PackedSize},                                     // vtPackedSize (net48 natural layout)");
+                w.Line($"    {(model.FastHashable ? 1 : 0)},                                     // vtFastHashable (tightly packed, no GC refs)");
+            }
+            else
+            {
+                w.Line("    nullptr,                                                // vtFields (no default-hash model)");
+                w.Line("    0,                                                      // vtFieldCount");
+                w.Line("    0,                                                      // vtPackedSize");
+                w.Line("    0,                                                      // vtFastHashable");
+            }
+        }
+        else
+        {
+            w.Line("    nullptr,                                                // vtFields (not a user value type)");
+            w.Line("    0,                                                      // vtFieldCount");
+            w.Line("    0,                                                      // vtPackedSize");
+            w.Line("    0,                                                      // vtFastHashable");
+        }
         w.Line($"}};");
         w.Line();
         return w.ToString();
+    }
+
+    //--------------------------------------------------------------------------
+    // The net48 default-hash field model of one user value type.
+    //
+    // The generated C++ struct places a `short`/`byte` field in a whole int32_t
+    // slot (the emitter widens narrow primitives), while net48 packs them at
+    // their true width. The default GetHashCode hashes the NET48 image, so each
+    // field carries BOTH offsets: cppOffset (where the generated struct keeps
+    // it) and netOffset (where net48 places it).
+    //
+    // Returns null when a field has no faithful net48 width (the runtime then
+    // has no default-hash model for this type and the caller falls back).
+    //--------------------------------------------------------------------------
+    private readonly record struct VtFieldModel(int CppOffset, int NetOffset, int Size, int Kind);
+    private readonly record struct VtHashModel(List<VtFieldModel> Fields, int PackedSize, bool FastHashable);
+
+    //--------------------------------------------------------------------------
+    // EmitVtFieldTable -- the net48 default-hash field table of one user value
+    // type (empty output for every other type). Must precede the descriptor
+    // that references it.
+    //--------------------------------------------------------------------------
+    public static string EmitVtFieldTable(TypeDef t)
+    {
+        if (!t.IsValueType || t.IsInterface || t.InstanceFields.Count == 0) return "";
+        var model = ComputeVtHashModel(t);
+        if (model is not { } m) return "";
+        var w = new CppWriter();
+        w.Line($"// net48 default-GetHashCode field model for {t.FullName} (packed {m.PackedSize}B, "
+               + $"{(m.FastHashable ? "fast path" : "regular path")}).");
+        w.Line($"const Il2CppVtField {TypeCppName(t)}_vtfields[] = {{");
+        w.Open();
+        foreach (var f in m.Fields)
+            w.Line($"{{ {f.CppOffset}, {f.NetOffset}, {f.Size}, {f.Kind} }},");
+        w.Close();
+        w.Line("};");
+        w.Line();
+        return w.ToString();
+    }
+
+    private static VtHashModel? ComputeVtHashModel(TypeDef t)
+    {
+        LayoutInstanceFields(t);
+        var fields = new List<VtFieldModel>();
+        int netOffset = 0;
+        int maxAlign = 1;
+        bool fast = true;
+        foreach (var f in t.InstanceFields)
+        {
+            int size, align, kind;
+            switch (f.TypeKind)
+            {
+                // Narrow primitives: net48's TRUE width (the generated struct
+                // widens them to an int32 slot). Reported as the integral kind.
+                case FieldTypeKind.Int32 when f.FieldTypeName is "System.Byte" or "System.SByte":
+                    (size, align, kind) = (1, 1, 1); break;
+                case FieldTypeKind.Int32 when f.FieldTypeName is "System.Int16" or "System.UInt16":
+                    (size, align, kind) = (2, 2, 1); break;
+                case FieldTypeKind.Int32:
+                    (size, align, kind) = (4, 4, 1); break;
+                // 8-byte integer family.
+                case FieldTypeKind.Int64:
+                case FieldTypeKind.UInt64:
+                case FieldTypeKind.TimeSpan:
+                    (size, align, kind) = (8, 8, 3); break;
+                case FieldTypeKind.Double:
+                    (size, align, kind) = (8, 8, 4); break;
+                case FieldTypeKind.Float:
+                    (size, align, kind) = (4, 4, 5); break;
+                case FieldTypeKind.NativeInt:
+                    (size, align, kind) = (t.PointerSize, t.PointerSize, 1); break;
+                case FieldTypeKind.Reference:
+                    // A GC reference: net48 uses the REGULAR path for any struct
+                    // holding one, so the fast flag drops.
+                    (size, align, kind) = (t.PointerSize, t.PointerSize, 2); break;
+                case FieldTypeKind.Guid:
+                    (size, align, kind) = (16, 4, 6); break;
+                case FieldTypeKind.Decimal:
+                case FieldTypeKind.DateTime:
+                case FieldTypeKind.DateTimeOffset:
+                case FieldTypeKind.UserStruct:
+                case FieldTypeKind.Nullable:
+                    // Composite value structs hash through their own default
+                    // path in net48; the model keeps them out of the fast path
+                    // and reports an opaque 8-byte-aligned block.
+                    (size, align, kind) = (f.TypeKind == FieldTypeKind.UserStruct
+                        ? Math.Max(1, f.UserStructType?.InstanceSize ?? 16) : 16, 8, 6); break;
+                default:
+                    return null;
+            }
+            netOffset = (netOffset + align - 1) / align * align;
+            fields.Add(new VtFieldModel(f.ByteOffset, netOffset, size, kind));
+            if (align > maxAlign) maxAlign = align;
+            if (f.TypeKind == FieldTypeKind.Reference || kind == 6) fast = false;
+            netOffset += size;
+        }
+        int packedSize = (netOffset + maxAlign - 1) / maxAlign * maxAlign;
+        // The fast-path gate is "no padding anywhere": the packed size must be
+        // exactly the sum of the field widths PLUS the interior alignment gaps
+        // the natural layout introduced -- i.e. no alignment was needed because
+        // every field already sat at its offset. A simple sufficient test: the
+        // densely packed sum equals the natural extent.
+        int dense = 0;
+        int natural = 0;
+        int maxAl = 1;
+        foreach (var fm in fields)
+        {
+            natural = (natural + 1 - 1); // no-op placeholder (kept explicit)
+            int a = Math.Min(fm.Size, 8);
+            if (a < 1) a = 1;
+            natural = (natural + a - 1) / a * a;
+            if (natural != fm.NetOffset) fast = false;
+            natural += fm.Size;
+            dense += fm.Size;
+            if (a > maxAl) maxAl = a;
+        }
+        if (packedSize != dense) fast = false;
+        if (packedSize > 512) fast = false; // runtime scratch bound (kMaxVtPackedSize)
+        return new VtHashModel(fields, packedSize, fast);
     }
 
     //--------------------------------------------------------------------------

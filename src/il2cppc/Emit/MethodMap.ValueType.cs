@@ -485,21 +485,57 @@ public static partial class MethodRefResolver
         // precise per-kind icall, so this arm only survives hint-less calls.
         if (receiverType == null)
             return I("il2cpp::runtime::icall_value_type_get_hash_code_of_ptr", 0, true, false, true, new[] { "" });
-        var kind = ClassifyValueTypeFirstField(md, receiverType);
-        return kind switch
+        // A tracked USER struct: the net48 ValueType.GetHashCode default --
+        // munge(typeID) ^ fieldImage over the NET48 packed field image, with
+        // the ONE shared lazy typeID counter (the tuple-element path calls the
+        // same runtime function). MEASURED against net48: the earlier per-first-
+        // field-kind arm returned the first field's HASH only, which is right
+        // for a handle of shapes by accident but wrong for every other
+        // (a 1-byte first field contributes 0, not the field hash; the typeID
+        // munge is always XORed in).
+        //
+        // Only a TOP-LEVEL TypeDef has a field model: the runtime function
+        // reads <T>_class's vtFields, which EmitVtFieldTable emits for exactly
+        // those types. A receiver with no TypeDef (a BCL struct -- those
+        // OVERRIDE GetHashCode, so they never reach this arm -- or a nested
+        // type) keeps the OfPtr fallback.
+        return TryEmitUserStructDefaultHash(md, receiverType)
+            ?? I("il2cpp::runtime::icall_value_type_get_hash_code_of_ptr", 0, true, false, true, new[] { "" });
+    }
+
+    // The runtime call for a user struct's net48 default hash, or null when the
+    // receiver type has no field model (no top-level TypeDef / no fields).
+    private static ResolvedMethod? TryEmitUserStructDefaultHash(MetadataReader md, string receiverType)
+    {
+        foreach (var tdh in md.TypeDefinitions)
         {
-            1 => I("il2cpp::runtime::icall_int32_get_hash_code", 0, true, false, true, new[] { "deref:i" }),
-            3 => I("il2cpp::runtime::icall_int64_get_hash_code", 0, true, false, true, new[] { "deref:l" }),
-            4 => I("il2cpp::runtime::icall_double_get_hash_code", 0, true, false, true, new[] { "deref:d" }),
-            2 => I("il2cpp::runtime::icall_value_type_get_hash_code_ref", 0, true, false, true, new[] { "" }),
-            0 => I("il2cpp::runtime::icall_value_type_get_hash_code", 0, true, false, true, new[] { "" },
-                prependCount: true, prependZero: true),
-            _ => throw new NotSupportedException(
-                $"LOUD whitelist (no runtime descriptor/model): System.ValueType::GetHashCode for receiver type " +
-                $"{receiverType}: unclassified first-field kind {kind} -- the classifier (ClassifyValueTypeFirstField) covers the " +
-                "int32/uint32/bool/char/narrow, int64/uint64, float/double, GC-reference and nested-struct first-field kinds only " +
-                "[Reference Source: net48 mscorlib System.ValueType.GetHashCode]"),
-        };
+            if (md.GetFullName(tdh) != receiverType) continue;
+            var td = md.GetTypeDefinition(tdh);
+            var hasInstanceField = false;
+            foreach (var fh in td.GetFields())
+            {
+                if ((md.GetFieldDefinition(fh).Attributes & FieldAttributes.Static) == 0)
+                {
+                    hasInstanceField = true;
+                    break;
+                }
+            }
+            if (!hasInstanceField) return null; // no fields -> no model
+            // Cpp name: TypeEmitter.Sanitize(GetFullName) (the generated
+            // symbol the descriptor and its field table use).
+            var cpp = TypeEmitter.Sanitize(md.GetFullName(tdh));
+            return I("il2cpp::runtime::icall_user_struct_default_hash", 0, true, false, true,
+                new[] { "" },
+                appendLiterals: new[]
+                {
+                    // icall argument order is (data, fields, klass): the IL
+                    // receiver address (data) is emitted FIRST, then the two
+                    // injected constants.
+                    $"{cpp}_vtfields",
+                    $"&{cpp}_class",
+                });
+        }
+        return null;
     }
 
     // The receiver type's FIRST INSTANCE field kind

@@ -195,12 +195,8 @@ int32_t icall_value_type_get_hash_code(int32_t typeHash, int32_t fieldKind, cons
 // advances by 2. il2cpp_user_struct_type_id owns that ONE counter, shared by
 // this path and the tuple-element path, exactly as net48 does.
 //------------------------------------------------------------------------------
-int32_t icall_user_struct_default_hash(const Il2CppClass* klass,
-                                       const void* data,
-                                       const Il2CppVtField* fields,
-                                       int32_t fieldCount,
-                                       int32_t packedSize,
-                                       int32_t fastHashable);
+int32_t icall_user_struct_default_hash(const void* data, const Il2CppVtField* fields,
+                                       const Il2CppClass* klass);
 
 // The shared lazy ValueType typeID counter (3, 5, 7, ... in first-call order).
 int32_t il2cpp_user_struct_type_id(const Il2CppClass* klass);

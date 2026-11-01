@@ -263,9 +263,9 @@ int32_t il2cpp_tuple_user_struct_hash(Il2CppClass* klass, const void* valueAddr)
         }
     }
     if (klass == nullptr) return 0;
-    return icall_user_struct_default_hash(klass, valueAddr, klass->vtFields,
-                                          klass->vtFieldCount, klass->vtPackedSize,
-                                          klass->vtFastHashable);
+    return icall_user_struct_default_hash(valueAddr,
+                                          klass->vtFields != nullptr ? klass->vtFields : nullptr,
+                                          klass);
 }
 
 //------------------------------------------------------------------------------
