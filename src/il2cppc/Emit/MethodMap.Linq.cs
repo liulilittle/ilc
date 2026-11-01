@@ -1997,12 +1997,14 @@ public static partial class MethodRefResolver
                             "OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) shape is a " +
                             ".NET 9 Index() family form (see docs/audit/b5-gaps.md)");
                     string keySuffix = LinqKeyFamilySuffixNamed(genArgs[1], genArgNames, 1);
+                    // impl-collation: a STATICALLY System.String key (0x0E) is a
+                    // real, statically analysable statement now. It binds the
+                    // dedicated culture-collation entry, which pins
+                    // Comparer<string>.Default (CultureInfo.CurrentCulture,
+                    // CompareOptions.None) at the call site instead of letting a
+                    // string key drift into the reference/IComparable dispatch.
                     if (genArgs[1] == 0x0E)
-                        throw new NotSupportedException(
-                            $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},System.String> not wired: " +
-                            "string key ordering requires culture-aware collation, which the runtime does not " +
-                            "implement (see docs/audit/b5-gaps.md); ordinal would silently misorder mixed-case " +
-                            "input (net48 Comparer<string>.Default sorts a before A)");
+                        keySuffix = "ref_string";
                     if (keySuffix.Length == 0)
                         throw new NotSupportedException(
                             $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
@@ -3934,13 +3936,28 @@ public static partial class MethodRefResolver
         // while string Min/Max is culture-aware and must stay LOUD.
         if (IsLinqStringSource(genArgs, receiverType, arg0Type))
         {
-            // Sum/Average do not even EXIST for string in net48 (no overload);
-            // Min/Max do and are culture-aware. Both are unwireable here.
+            // impl-collation: string Min/Max is now REAL. net48's
+            // Comparer<string>.Default is CultureInfo.CurrentCulture.CompareInfo
+            // with CompareOptions.None, i.e. CULTURE collation ("a" sorts before
+            // "B"; for a case-only difference the lowercase string wins). The
+            // runtime answers it with runtime::il2cpp_string_compare_culture --
+            // the same OS NLS primitive (CompareStringEx with the current
+            // locale) net48 itself uses on Windows -- so this is not an ordinal
+            // shortcut. net48 semantics the kernels reproduce: an empty or
+            // all-null sequence yields null, a null never wins once a value
+            // exists, and the winning ELEMENT is returned.
+            //
+            // Sum/Average have no System.String overload in net48 at all, so a
+            // source that reached here can only be a malformed program; keep
+            // them LOUD rather than inventing a numeric result.
+            if (name is "Min" or "Max")
+                return I(name == "Min" ? "il2cpp::il2cpp_linq_min_string"
+                                       : "il2cpp::il2cpp_linq_max_string",
+                    1, true, true, false, OneArg, returnTypeName: "System.String");
             throw new NotSupportedException(
-                $"Enumerable.{name}<System.String> not wired: string Min/Max uses " +
-                "Comparer<string>.Default, which is culture-aware collation (net48 sorts " +
-                "\"a\" before \"B\"); ordinal would silently misorder mixed-case input and " +
-                "this runtime has no collation infrastructure (see docs/audit/b5-gaps.md)");
+                $"Enumerable.{name}<System.String> not wired: net48 has no Sum/Average " +
+                "overload for System.String [Reference Source: " +
+                "System.Core/System/Linq/Enumerable.cs]");
         }
         if (IsLinqDecimalSource(genArgs, receiverType, arg0Type))
         {
@@ -5577,13 +5594,13 @@ public static partial class MethodRefResolver
                         "(the list key-selector surface covers int32, double and reference elements)");
                 if (genArgs is not { Length: >= 2 })
                     return null;
-                if (genArgs[1] == 0x0E)
-                    throw new NotSupportedException(
-                        $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},System.String> over a List not wired: " +
-                        "string key ordering requires culture-aware collation, which the runtime does not " +
-                        "implement (see docs/audit/b5-gaps.md); ordinal would silently misorder mixed-case " +
-                        "input (net48 Comparer<string>.Default sorts a before A)");
-                string keySuffix = LinqKeyFamilySuffix(genArgs[1]);
+                // impl-collation: a STATICALLY System.String key over the
+                // reference-element list source binds the culture-collation
+                // entry (net48 Comparer<string>.Default), the same contract as
+                // the array reference-source face.
+                string keySuffix = genArgs[1] == 0x0E
+                    ? "ref_string"
+                    : LinqKeyFamilySuffix(genArgs[1]);
                 if (keySuffix.Length == 0)
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
@@ -5611,6 +5628,25 @@ public static partial class MethodRefResolver
                     if (K == "12")
                         return I($"il2cpp::il2cpp_linq_list_{shortName}_dec", 1, true, false, false,
                             L1, resultKind: "dec", appendLiterals: new[] { K });
+                    // impl-collation: a List<string> Min/Max. Without this arm
+                    // the reference kind ("1") fell through to the _i4 suffix
+                    // below -- a SILENT wrong value (an int32 cell read out of a
+                    // pointer-sized string slot). The net48 answer is the
+                    // culture-collated winner (Comparer<string>.Default), with
+                    // empty/all-null -> null and nulls never winning.
+                    if (K == "1" && genArgs is { Length: >= 1 } && genArgs[0] == 0x0E)
+                    {
+                        if (name is "Min" or "Max")
+                            return I($"il2cpp::il2cpp_linq_list_{shortName}_string", 1, true, true, false,
+                                L1, returnTypeName: "System.String", appendLiterals: new[] { K });
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<System.String> over a List not wired: net48 has no " +
+                            "Sum/Average overload for System.String");
+                    }
+                    if (K == "1")
+                        throw new NotSupportedException(
+                            $"Enumerable.{shortName} over a List of a reference element type is not wired " +
+                            "unless the element is System.String (Min/Max only)");
                     string suffix = K switch
                     {
                         "2" => "i8",

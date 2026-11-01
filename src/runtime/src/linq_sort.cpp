@@ -1819,7 +1819,9 @@ Il2CppArray* SortRefsTwoKeysFamDispatch(Il2CppArray* s, Il2CppDelegate* d1,
     case 3: return SortRefsTwoKeysCopy<K1TYPE, float>(s, d1, d2, k1Desc, k2Desc, K1INV,    \
         InvokeKeyRefF, K1CMP, CmpKeyValue<float>);                                         \
     case 4: return SortRefsTwoKeysCopy<K1TYPE, Il2CppObject*>(s, d1, d2, k1Desc, k2Desc,   \
-        K1INV, InvokeKeyRefRef, K1CMP, CompareStringKeys);
+        K1INV, InvokeKeyRefRef, K1CMP, CompareStringKeys);                                 \
+    case 5: return SortRefsTwoKeysCopy<K1TYPE, Il2CppObject*>(s, d1, d2, k1Desc, k2Desc,   \
+        K1INV, InvokeKeyRefRef, K1CMP, CompareRefKeys);
 
     switch (k1fam)
     {
@@ -1855,6 +1857,18 @@ Il2CppArray* SortRefsTwoKeysFamDispatch(Il2CppArray* s, Il2CppDelegate* d1,
         switch (k2fam)
         {
             REFSAM_K2_CASES(Il2CppObject*, InvokeKeyRefRef, CompareStringKeys)
+        default: break;
+        }
+        break;
+    case 5:
+        // impl-collation: a key whose static family is a NON-string reference
+        // (object / interface). The family is not judgement call: strings are
+        // detected per instance by CompareRefKeys (culture collation), every
+        // other reference defers to IComparable.CompareTo -- the net48
+        // Comparer<TKey>.Default dispatch for a TKey that is not System.String.
+        switch (k2fam)
+        {
+            REFSAM_K2_CASES(Il2CppObject*, InvokeKeyRefRef, CompareRefKeys)
         default: break;
         }
         break;
