@@ -140,6 +140,13 @@ namespace Cases
             Console.WriteLine("[list.max]=" + Show(list.Max()));
             Console.WriteLine("[list.empty.min]=" + Show(new List<string>().Min()));
             Console.WriteLine("[list.nulls.max]=" + Show(new List<string> { null, "a", "B" }.Max()));
+            var mixedList = new List<string> { "b2", "A1", "b1", "A2", "a3" };
+            Console.WriteLine("[list.thenby.int.then.string]=" + J(
+                mixedList.OrderBy(s => s.Length).ThenBy(s => s)));
+            Console.WriteLine("[list.thenby.string.then.int]=" + J(
+                mixedList.OrderBy(s => s).ThenBy(s => s.Length)));
+            Console.WriteLine("[list.thenby.desc2]=" + J(
+                mixedList.OrderBy(s => s.Length).ThenByDescending(s => s)));
 
             // --- 8. object[] source: the key type is System.Object ---
             // net48 CompareRefKeys-equivalent: the key STATIC type is object, so
