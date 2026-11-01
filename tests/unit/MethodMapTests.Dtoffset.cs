@@ -95,6 +95,26 @@ public class MethodMapTestsDtoffset
         Assert.Equal(new[] { "deref:dto" }, resolved.ParamTypeNames);
     }
 
+    [Fact]
+    public void Resolve_IFormattable_ToString_DtoffsetReceiver_MapsToIfaceFormatter()
+    {
+        // dtoiface: DateTimeOffset really implements IFormattable in net48 (the
+        // oracle's typeof(X).GetInterfaces() carries it) and the runtime
+        // composite engine has the System.DateTimeOffset arm, so the receiver
+        // is ACCEPTED here. It used to be deliberately excluded because the
+        // transpiler's `box` arm had no DateTimeOffset helper, which rejected
+        // the cast at the BOX instruction before this arm could be reached.
+        var resolved = ResolveMember(Synthesize("System", "IFormattable", "ToString",
+            new byte[] { 0x00, 0x02, 0x0E, 0x0E, 0x12, 0x05 }), "ToString",
+            receiverType: "System.DateTimeOffset");
+
+        Assert.Equal("il2cpp::runtime::icall_format_iface_tostring", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.True(resolved.ReturnsRef);
+        Assert.True(resolved.ProviderCulture);
+        Assert.Equal(new[] { "", "", "drop" }, resolved.ParamTypeNames);
+    }
+
     //--------------------------------------------------------------------------
     // Helpers -- synthetic PE construction (same pipeline as the transpiler)
     //--------------------------------------------------------------------------
