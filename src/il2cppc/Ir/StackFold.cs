@@ -5439,23 +5439,19 @@ public static class StackFold
                 // and the PRIMARY key family ride the OrderBy entry's appended
                 // literals; the SECONDARY key family rides the ThenBy marker's.
                 "il2cpp::il2cpp_linq_order_by_key_vt" => "src_vt",
-                // impl-collation: the REFERENCE-element primaries over an
-                // ARRAY source. The suffix names the primary key family; the
-                // source shape ("arr"/"list") rides along because the list
-                // entry keeps the desc flag in an appended literal while the
-                // array entry encodes it in the entry NAME.
-                "il2cpp::il2cpp_linq_order_by_key_ref_i4"
-                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_i4" => "_ref_arr_i4",
-                "il2cpp::il2cpp_linq_order_by_key_ref_i8"
-                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_i8" => "_ref_arr_i8",
-                "il2cpp::il2cpp_linq_order_by_key_ref_d"
-                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_d" => "_ref_arr_d",
-                "il2cpp::il2cpp_linq_order_by_key_ref_f"
-                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_f" => "_ref_arr_f",
-                "il2cpp::il2cpp_linq_order_by_key_ref_ref"
-                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_ref" => "_ref_arr_ref",
-                "il2cpp::il2cpp_linq_order_by_key_ref_string"
-                    or "il2cpp::il2cpp_linq_order_by_key_desc_ref_string" => "_ref_arr_string",
+                // impl-collation: the REFERENCE-element primaries. The
+                // reference OrderBy entries keep the direction in an appended
+                // literal (0 = ascending, 1 = descending) rather than in the
+                // entry name, so the suffix here only names the key family and
+                // the source shape ("arr" for an array source, "list" for a
+                // List<T> receiver -- the list entry keeps the element kind
+                // after the desc flag).
+                "il2cpp::il2cpp_linq_order_by_key_ref_i4" => "_ref_arr_i4",
+                "il2cpp::il2cpp_linq_order_by_key_ref_i8" => "_ref_arr_i8",
+                "il2cpp::il2cpp_linq_order_by_key_ref_d" => "_ref_arr_d",
+                "il2cpp::il2cpp_linq_order_by_key_ref_f" => "_ref_arr_f",
+                "il2cpp::il2cpp_linq_order_by_key_ref_ref" => "_ref_arr_ref",
+                "il2cpp::il2cpp_linq_order_by_key_ref_string" => "_ref_arr_string",
                 // impl-collation: the same over a List<T> receiver (the list is
                 // snapped once; the desc flag is AppendLiterals[0]).
                 "il2cpp::il2cpp_linq_list_order_by_key_ref_i4" => "_ref_list_i4",
@@ -5655,12 +5651,13 @@ public static class StackFold
                             "secondary key family literal (impl-collation); the fused composite must " +
                             "know both key families to pick the right key readers");
                     }
-                    // The ARRAY entry encodes the primary direction in its NAME;
-                    // the LIST entry carries it as AppendLiterals[0] alongside
-                    // the element kind.
-                    bool refPrimaryDesc = refList
-                        ? obValue.Resolved!.AppendLiterals is { Length: >= 1 } refLits && refLits[0] == "1"
-                        : primaryDesc;
+                    // BOTH reference primaries keep the direction in
+                    // AppendLiterals[0] (0 = ascending, 1 = descending) instead
+                    // of in the entry name, so the fused sort must read it from
+                    // there -- the list entry then carries the element kind in
+                    // AppendLiterals[1].
+                    bool refPrimaryDesc = obValue.Resolved!.AppendLiterals is { Length: >= 1 } refLits
+                        && refLits[0] == "1";
                     compositeEntry = refList
                         ? "il2cpp::il2cpp_linq_list_then_by_key_ref"
                         : "il2cpp::il2cpp_linq_then_by_key_ref";

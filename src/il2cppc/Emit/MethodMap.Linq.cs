@@ -2033,15 +2033,20 @@ public static partial class MethodRefResolver
                 {
                     if (genArgs is not { Length: >= 2 })
                         return null;
+                    // The reference composite reads the SECONDARY key in its own
+                    // family slot: 0=int32, 1=int64, 2=double, 3=float,
+                    // 4=System.String (culture collation), 5=other reference
+                    // (instance dispatch). Both keys are cached once each.
                     string? refK2 = genArgs[1] == 0x0E ? "4"
                         : IsRefFamilyByte(genArgs[1]) ? "5"
-                        : null;
+                        : LinqValKeyFamilyCode(genArgs[1]);
                     if (refK2 is null)
                         throw new NotSupportedException(
                             $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])}," +
                             $"{GenericArgTypeName(genArgs[1])}> over a reference-element source is not " +
-                            "wired: the reference composite covers a System.String or other reference " +
-                            "secondary key only (il2cpp_linq_then_by_key_ref)");
+                            "wired: the reference composite covers int32/int64/double/float, " +
+                            "System.String or other reference secondary keys " +
+                            "(il2cpp_linq_then_by_key_ref)");
                     return I(name == "ThenBy"
                             ? ResolvedMethod.ThenByCombineMarker
                             : ResolvedMethod.ThenByDescCombineMarker,
@@ -5660,13 +5665,13 @@ public static partial class MethodRefResolver
                     return null;
                 string? listK2 = genArgs[1] == 0x0E ? "4"
                     : IsRefFamilyByte(genArgs[1]) ? "5"
-                    : null;
+                    : LinqValKeyFamilyCode(genArgs[1]);
                 if (listK2 is null)
                     throw new NotSupportedException(
                         $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])}," +
                         $"{GenericArgTypeName(genArgs[1])}> over a List is not wired: the fused " +
-                        "reference composite covers a System.String or other reference secondary key " +
-                        "only (il2cpp_linq_list_then_by_key_ref)");
+                        "reference composite covers int32/int64/double/float, System.String or other " +
+                        "reference secondary keys (il2cpp_linq_list_then_by_key_ref)");
                 return I(name == "ThenBy"
                         ? ResolvedMethod.ThenByCombineMarker
                         : ResolvedMethod.ThenByDescCombineMarker,
