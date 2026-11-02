@@ -65,17 +65,44 @@ public static class AllocPromoPass
     public const string CtorNopCppName = "il2cpp::runtime::il2cpp_object_ctor_nop";
     public const int MaxPromotedObjectsPerMethod = 64;
 
-    public static (List<Stmt> Stmts, int Promoted) Run(List<Stmt> stmts)
+    //--------------------------------------------------------------------------
+    // A FINALIZABLE type's allocation is an OBSERVABLE side effect: net48 runs
+    // the finalizer once the object becomes unreachable, so `new T();` with no
+    // escaping reference is NOT dead code. Promotion would delete the
+    // allocation entirely (no surviving field -> the alloc statement is
+    // replaced by nothing, line ~194) and silently drop the finalizer run.
+    //
+    // MEASURED (net48): `static void Make(int id){ new Tracked(id); }` where
+    // Tracked has ~Tracked() => Make(1) then GC.Collect();
+    // WaitForPendingFinalizers() reports finalized=1. The promoted emission
+    // reports 0 (tests/cases/gc-suppress, GAP-FIN-1).
+    //
+    // 'isFinalizableType' maps a NewObjExpr.TypeFullName to whether that type
+    // declares its own Finalize (the emitter's type-finalizer registration test,
+    // CodeGenerator ~:14908). A null predicate keeps the historical behaviour
+    // (no finalizer information available) -- callers that have the type table
+    // MUST pass it.
+    //--------------------------------------------------------------------------
+    public static (List<Stmt> Stmts, int Promoted) Run(List<Stmt> stmts,
+        Func<string, bool>? isFinalizableType = null)
     {
         var allocTargets = new HashSet<string>(StringComparer.Ordinal);
+        // A FINALIZABLE type's allocation is observable (the collector runs
+        // the finalizer) and must never be promoted away -- see the Run docblock.
+        var finalizableTargets = new HashSet<string>(StringComparer.Ordinal);
         foreach (var s in stmts)
-            if (s is AssignStmt a && a.Value is NewObjExpr && !a.Target.Contains('.'))
+            if (s is AssignStmt a && a.Value is NewObjExpr n && !a.Target.Contains('.'))
+            {
                 allocTargets.Add(a.Target);
+                if (isFinalizableType != null && isFinalizableType(n.TypeFullName))
+                    finalizableTargets.Add(a.Target);
+            }
 
         var promoted = 0;
         var current = stmts;
         foreach (var root in allocTargets)
         {
+            if (finalizableTargets.Contains(root)) continue;
             if (!TryPromote(current, root, allocTargets, out var rewritten))
                 continue;
             current = rewritten;

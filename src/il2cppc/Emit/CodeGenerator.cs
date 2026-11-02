@@ -1860,7 +1860,17 @@ public static class CodeGenerator
                 // introduced scalar stores/copies. Runs BEFORE Normalize so the
                 // folded scalar arithmetic feeds the algebraic fold.
                 stmts = InlinePass.Inline(stmts, fn => inlineCandidates.TryGetValue(fn, out var c) ? c : null).Stmts;
-                stmts = AllocPromoPass.Run(stmts).Stmts;
+                // GAP-FIN-1: an allocation of a type with a user Finalize is
+                // observable (the collector runs it), so it must not be
+                // promoted away. The predicate mirrors the type-finalizer
+                // registration below (~:14908): a type declares a finalizer iff
+                // its MethodDefs contain "Finalize".
+                stmts = AllocPromoPass.Run(stmts, typeName =>
+                {
+                    var td = types.FirstOrDefault(t =>
+                        string.Equals(t.FullName, typeName, StringComparison.Ordinal));
+                    return td != null && td.Methods.Any(fm => fm.Name == "Finalize");
+                }).Stmts;
                 stmts = DcePass.Run(stmts).Stmts;
                 // mathdeep: a DOUBLE's `v == v`/`v != v` is NaN-aware (.NET
                 // IsNaN = `v != v`, true for NaN), but Normalize folds the

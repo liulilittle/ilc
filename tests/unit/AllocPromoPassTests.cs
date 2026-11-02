@@ -602,4 +602,62 @@ public class AllocPromoPassTests
         Assert.Contains(result.Stmts, s => s is FieldAssignStmt f && f.FieldCppName == "v");
         Assert.DoesNotContain(result.Stmts, s => s is CallStmt c && c.Function == "call_30");
     }
+    //--------------------------------------------------------------------------
+    // A FINALIZABLE type's allocation is an OBSERVABLE side effect even when the
+    // object never escapes and has no fields: net48 runs the finalizer after the
+    // object becomes unreachable, so `new T();` inside a method is NOT dead code.
+    // Promotion (which deletes the allocation entirely when no fields survive)
+    // is therefore WRONG for such a type -- it must be refused.
+    //
+    // Measured: net48 `static void Make(int id){ new Tracked(id); }` where
+    // Tracked has ~Tracked() => Make(1); GC.Collect(); WaitForPendingFinalizers()
+    // reports finalized=1. Without this guard the promoted body emits nothing
+    // and the count is 0.
+    //--------------------------------------------------------------------------
+
+    [Fact]
+    public void FinalizableObject_NoFields_NotPromoted()
+    {
+        var stmts = new List<Stmt>
+        {
+            new AssignStmt { Target = "t0", Value = NewObj("App.Tracked") },
+            new CallStmt { Function = AllocPromoPass.CtorNopCppName, Args = { Loc("t0") } },
+        };
+
+        var result = AllocPromoPass.Run(stmts, t => t == "App.Tracked");
+
+        Assert.Equal(0, result.Promoted);
+        Assert.Contains(result.Stmts, s => s is AssignStmt a && a.Value is NewObjExpr);
+    }
+
+    [Fact]
+    public void FinalizableObject_WithFields_NotPromoted()
+    {
+        var stmts = new List<Stmt>
+        {
+            new AssignStmt { Target = "t0", Value = NewObj("App.Tracked") },
+            SetField("t0", "v", I(7)),
+            new AssignStmt { Target = "x", Value = GetField("t0", "v") },
+        };
+
+        var result = AllocPromoPass.Run(stmts, t => t == "App.Tracked");
+
+        Assert.Equal(0, result.Promoted);
+        Assert.Contains(result.Stmts, s => s is AssignStmt a && a.Value is NewObjExpr);
+    }
+
+    [Fact]
+    public void NonFinalizableObject_StillPromotedWhenPredicateSupplied()
+    {
+        var stmts = new List<Stmt>
+        {
+            new AssignStmt { Target = "t0", Value = NewObj("Bench.Item") },
+            SetField("t0", "v", I(5)),
+            new AssignStmt { Target = "x", Value = GetField("t0", "v") },
+        };
+
+        var result = AllocPromoPass.Run(stmts, t => t == "App.Tracked");
+
+        Assert.Equal(1, result.Promoted);
+    }
 }
