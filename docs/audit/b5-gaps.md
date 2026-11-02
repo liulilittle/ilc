@@ -2750,3 +2750,167 @@ native GetValue + the same entry/exit ledger). The CCW interface view must also
 answer QI for the declared IID (`icall_com_ccw_register_interface_view`) where
 the CCW has no built-in view. Do NOT wire it with an unbalanced AddRef -- the
 whole point of this stage's ledger is that the count is net-zero after the call.
+---
+
+## 31. The RCW GC finalizer, and why the RCW identity cache must not release
+
+### Status
+
+The runtime RCW (`System.Runtime.InteropServices.__ComObject`) now has a
+TYPE-LEVEL GC finalizer. `RcwClass()` arms it exactly once, at the first class
+descriptor access (a thread-safe function-local static, before any RCW can be
+allocated); `AllocCore` then arms every later instance from the collector's type
+registry (`src/runtime/src/gc.cpp`), so there is no per-allocation registration.
+`RcwFinalize` releases the wrapper's native reference exactly once:
+
+    detach the identity-cache entry   (NO release)
+    r->unknown = nullptr; r->refCount = 0;
+    ReleaseInterface(unknown)         (the one and only release)
+
+The detach also runs in `icall_com_release_com_object` /
+`icall_com_final_release_com_object`, so a released pointer stops being an
+identity key.
+
+### The ownership rule (this is what makes it exactly-once)
+
+Every RCW owns ONE native reference: `WrapUnknown` stores the pointer with
+`refCount = 1` and does NOT AddRef. The identity cache is a pure INDEX
+(`ComRcwCacheInsert` never did AddRef). Therefore the reference has exactly one
+owner and exactly one release path:
+
+  * `Marshal.ReleaseComObject` / `FinalReleaseComObject`, or
+  * `RcwFinalize` when the wrapper was collected without an explicit release.
+
+Before this change `ComRcwCachePrune` released a dead entry's pointer. That
+release was the ONLY release for a dropped RCW, and it became a double release
+once a finalizer also released the same pointer. Two windows were affected:
+
+  1. the collection that clears the weak target runs BEFORE the finalizer that
+     runs at the start of the NEXT collection, so a cleanup call inside that
+     window released a pointer the finalizer was still going to release;
+  2. an RCW released explicitly while its cache entry target was still alive
+     was released again when that entry later turned dead.
+
+Mutation-proved on `tests/cases/pinvoke-com-finalize`: restoring the old prune
+release AND removing the finalizer's detach changes `p1.cleanup` / `p4.cleanup1`
+from 1 to 0 and `p1.release_ours` / `p4.release_ours` from 0 to -1, i.e. a
+refcount underflow on the same pointer (see the seat report). With the detach in
+place, the prune release is harmless, and with the prune detach-only the finalizer
+is the only release. Both guards are kept deliberately: the cache must never own
+a reference again.
+
+Are there cache entries that go dead WITHOUT ever being finalized? No. Every RCW
+is armed at allocation (type registry), so a collected RCW is always pending
+finalization; the collection retains its memory block until the finalizer runs
+(two-collection semantics, gc.cpp). A dead entry therefore always means "the
+finalizer for this pointer will run and will detach this entry", and
+`CleanupUnusedObjectsInCurrentContext` only has to drop entries whose finalizer
+already ran (a pure detach). Entries that are never dead (a live wrapper) are
+never touched by the prune.
+
+### net48 measured contract (oracle: `.opencode/tmp/com-finalize/oracle/c.cs`)
+
+`fakecom.dll` counts every AddRef/Release and its `Release` never frees memory,
+so a double release shows up as `refs 0` / `-1` instead of a crash. The wrapper
+is obtained with `GetTypedObjectForIUnknown(p, typeof(object))` or
+`GetUniqueObjectForIUnknown(p)` -- both AddRef on net48 (refs 1 -> 2), which is
+also this runtime's behaviour, so the absolute counts are comparable. Raw
+output:
+
+    === M1. raw wrap, drop RCW, GC twice ===
+    [m1.after_wrap] refs=2 addrefs=2 releases=1
+    [m1.avail.before_gc]=0
+    [m1.after_gc] refs=1 addrefs=2 releases=2
+    [m1.avail.after_gc]=0
+    [m1.after_cleanup] refs=1 addrefs=2 releases=2
+    [m1.avail.after_cleanup]=0
+    [m1.release_ours]=0
+
+    === M2. cleanup while the wrapper is STILL ALIVE ===
+    [m2.after_wrap] refs=2 addrefs=2 releases=1
+    [m2.after_cleanup_alive] refs=2 addrefs=2 releases=1
+
+    === M2b. cleanup WITHOUT any GC on a dropped RCW ===
+    [m2b.after_wrap] refs=2 addrefs=2 releases=1
+    [m2b.after_cleanup_no_gc] refs=2 addrefs=2 releases=1
+    [m2b.after_gc] refs=1 addrefs=2 releases=2
+
+    === M3. GC.SuppressFinalize(rcw), then drop + GC ===
+    [m3.after_wrap_suppressed] refs=2 addrefs=2 releases=1
+    [m3.after_gc] refs=1 addrefs=2 releases=2
+    [m3.after_cleanup] refs=1 addrefs=2 releases=2
+
+    === M4. explicit ReleaseComObject, then GC ===
+    [m4.raw.after_wrap] refs=2 addrefs=2 releases=1
+    [m4.releasecom.ret]=0
+    [m4.raw.after_releasecom] refs=1 addrefs=2 releases=2
+    [m4.after_gc] refs=1 addrefs=2 releases=2
+    [m4.after_cleanup] refs=1 addrefs=2 releases=2
+
+    === M6. GetUniqueObjectForIUnknown (NOT in the identity cache) ===
+    [m6.after_wrap] refs=2 addrefs=2 releases=1
+    [m6.after_gc] refs=1 addrefs=2 releases=2
+
+    === M8. a LIVE (rooted) RCW survives collections unchanged ===
+    [m8.after_wrap] refs=2 addrefs=2 releases=1
+    [m8.after_gc1] refs=2 addrefs=2 releases=1
+    [m8.after_gc2] refs=2 addrefs=2 releases=1
+    [m8.after_cleanup] refs=2 addrefs=2 releases=1
+
+    === M9. repeated cleanup on a finalized RCW (idempotence) ===
+    [m9.after_gc] refs=1 addrefs=2 releases=2
+    [m9.cleanup1] refs=1 addrefs=2 releases=2
+    [m9.cleanup2] refs=1 addrefs=2 releases=2
+    [m9.gc2] refs=1 addrefs=2 releases=2
+
+Conclusions:
+
+  * the reference IS released by the GC: dropping the wrapper and running
+    `GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();` takes the raw
+    count from 2 back to 1 (M1). `AreComObjectsAvailableForCleanup()` reports 0
+    throughout that sequence, and `CleanupUnusedObjectsInCurrentContext()`
+    changes nothing afterwards;
+  * `CleanupUnusedObjectsInCurrentContext()` releases nothing while the wrapper
+    is alive (M2) and nothing when no collection has happened yet (M2b);
+  * `GC.SuppressFinalize(rcw)` does NOT stop the native release (M3) -- the RCW
+    is not a managed-finalizer object in that sense;
+  * an explicit `ReleaseComObject` followed by a GC does NOT release again
+    (M4: refs stay 1; a second release would read 0);
+  * a wrapper that is NOT in the identity cache (`GetUniqueObjectForIUnknown`)
+    is released by the GC in exactly the same way (M6);
+  * a LIVE, rooted wrapper survives repeated collections and a cleanup unchanged
+    (M8) -- the finalizer only fires for unreachable wrappers.
+
+NOT PINNED (measured race, deliberately excluded): the release timing inside a
+single-collection window is NOT deterministic on net48. A probe that ran
+`GC.Collect(); <record>; CleanupUnusedObjectsInCurrentContext(); <record>` once
+observed the count already back at 1 BEFORE the cleanup, and on other runs it was
+still 2 (the CLR finalizer thread ran asynchronously between the statements).
+That record is therefore excluded from the lock case; only the fully pump-ed
+sequence (`Collect; WaitForPendingFinalizers; Collect`) is pinned. Consequence for
+this runtime: right after ONE collection an RCW is "pending finalization" and a
+cleanup call detaches nothing and releases nothing, which is why the case never
+asserts a count in that window.
+
+### Unlock condition for `B:` (out/ref) COM parameters
+
+The transpiler still LOUD-rejects `B:`/`r:` COM interface parameters. With the
+finalizer present, an `out` RCW that the managed caller drops no longer leaks a
+native reference, so the per-call leak that blocked the out/ref stage is gone.
+What remains for the next stage:
+
+  * `out`: wrap the callee's pointer with the ownership-transfer helper
+    (`WrapUnknown` semantics: the RCW takes the reference, no extra AddRef) and
+    write the managed reference back into the caller's slot. net48's exact
+    per-call reference attribution for `out` is still UNVERIFIED (coreclr's
+    internal QI probes make the ledger non-decomposable), but the end state is
+    pinned: the wrapper is live and `ReleaseComObject` tears it down;
+  * `ref`: the measured contract is "one reference transferred to the callee; the
+    CLR never releases the old pointer" (com-verify NOTES section 3(b)), so the
+    transpiler must NOT release the old RCW itself -- doing so would
+    double-release now that the finalizer exists as well;
+  * both directions need the still-missing borrowed managed-to-native accessor
+    for non-IUnknown IIDs (b5-gaps section 30 / com-verify NOTES section 3).
+
+Lock cases: `tests/cases/pinvoke-com-finalize` (this stage) and
+`tests/cases/pinvoke-com-byval` (the byval ledger, unchanged).

@@ -124,16 +124,52 @@ public static class PInvokeComFinalize
         Rec("p2.cleanup", fin_refs(p2));
         Rec("p2.release_ours", Marshal.Release(p2));
 
-        // ---- P3: null safety on the RCW-creation surface (both sides throw
+        // ---- P3: a LIVE RCW is rooted by a static field: two full
+        //          collections plus a cleanup must NOT release it (the
+        //          finalizer only fires for unreachable wrappers; net48 M8
+        //          oracle: refs stay at 2) --------------------------------
+        IntPtr p3 = fin_new_raw(3);
+        s_rcw = Marshal.GetTypedObjectForIUnknown(p3, typeof(object));
+        Rec("p3.wrap", fin_refs(p3));
+        CollectTwice();
+        Rec("p3.gc1", fin_refs(p3));
+        CollectTwice();
+        Rec("p3.gc2", fin_refs(p3));
+        Marshal.CleanupUnusedObjectsInCurrentContext();
+        Rec("p3.cleanup", fin_refs(p3));
+        Rec("p3.iscom", Marshal.IsComObject(s_rcw) ? 1 : 0);
+        Marshal.ReleaseComObject(s_rcw);
+        Rec("p3.after_releasecom", fin_refs(p3));
+        s_rcw = null;
+        CollectTwice();
+        Rec("p3.release_ours", Marshal.Release(p3));
+
+        // ---- P4: idempotence -- a finalized RCW survives repeated cleanup
+        //          and another collection without a second Release (net48 M9
+        //          oracle: refs stay at 1) ---------------------------------
+        IntPtr p4 = fin_new_raw(0);
+        s_rcw = Marshal.GetTypedObjectForIUnknown(p4, typeof(object));
+        s_rcw = null;
+        CollectTwice();
+        Rec("p4.gc", fin_refs(p4));
+        Marshal.CleanupUnusedObjectsInCurrentContext();
+        Rec("p4.cleanup1", fin_refs(p4));
+        Marshal.CleanupUnusedObjectsInCurrentContext();
+        Rec("p4.cleanup2", fin_refs(p4));
+        CollectTwice();
+        Rec("p4.gc2", fin_refs(p4));
+        Rec("p4.release_ours", Marshal.Release(p4));
+
+        // ---- P5: null safety on the RCW-creation surface (both sides throw
         //          ArgumentNullException) ------------------------------------
         try
         {
             Marshal.GetTypedObjectForIUnknown(IntPtr.Zero, typeof(object));
-            Rec("p3.typed.null", "no-throw");
+            Rec("p5.typed.null", "no-throw");
         }
         catch (Exception e)
         {
-            Rec("p3.typed.null", e.GetType().Name);
+            Rec("p5.typed.null", e.GetType().Name);
         }
     }
 }
