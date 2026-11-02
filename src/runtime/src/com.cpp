@@ -7636,6 +7636,31 @@ Il2CppObject* VariantResultToManaged(const uint8_t* variant)
 } // namespace
 
 //------------------------------------------------------------------------------
+// il2cpp_com_rcw_borrow_iunknown -- the BORROWED native pointer of an RCW (see
+// il2cpp_com.h). This is the P/Invoke byval COM-argument pointer source: it
+// reads AsRcw(...)->unknown WITHOUT adding a reference, so the emitter can
+// compose it with the Il2CppPinvokeComArg holder
+// (il2cpp_pinvoke_bridge.h) that owns the net48 per-call AddRef/Release.
+//
+// Defined here at namespace scope (not inside the anonymous namespace with
+// AsRcw) so the symbol has EXTERNAL linkage for the generated code; AsRcw is
+// anonymous-namespace and still callable from this TU.
+//
+// null -> 0. net48 marshals a null interface argument as NULL and performs no
+// AddRef/Release, so the null case must NOT go through AsRcw (which would
+// throw ArgumentNullException); the non-null case keeps every AsRcw guard
+// (non-RCW -> ArgumentException, released -> InvalidComObjectException).
+//------------------------------------------------------------------------------
+intptr_t il2cpp_com_rcw_borrow_iunknown(Il2CppObject* o)
+{
+    if (o == nullptr)
+    {
+        return 0;
+    }
+    return static_cast<intptr_t>(reinterpret_cast<uintptr_t>(AsRcw(o, "o")->unknown));
+}
+
+//------------------------------------------------------------------------------
 // CcwCacheGetInterface forward declaration (runtime scope -- the anonymous
 // namespace above closes at this point). Defined after icall_com_ccw_create
 // (it needs the fresh-CCW create/QI/release balance); the three Marshal

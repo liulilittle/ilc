@@ -67,6 +67,10 @@
 // chunk buffer and recomputes Length afterwards, so the runtime struct layout
 // must be visible here (il2cpp_stringbuilder.h pulls only array/object).
 #include "il2cpp_stringbuilder.h"
+// COM interface (byval) parameters: the holder below calls the raw
+// IUnknown::AddRef / Release helpers and the borrow accessor, all declared in
+// il2cpp_com.h. Cycle-free: il2cpp_com.h pulls only object/string/array.
+#include "il2cpp_com.h"
 
 namespace il2cpp {
 namespace runtime {
@@ -110,6 +114,62 @@ template <typename U>
 inline Il2CppPinvokeArg<U> il2cpp_pinvoke_arg(U u)
 {
     return Il2CppPinvokeArg<U>{u};
+}
+
+//------------------------------------------------------------------------------
+// BYVAL COM-INTERFACE argument (a [ComImport] interface DllImport parameter).
+//
+// net48's marshaller AddRefs the interface for the DURATION of the call and
+// Releases it afterwards -- measured on the x64 oracle (com-verify NOTES
+// section 3(d), case F13): the callee observes refs = n+1 on entry AND on
+// exit, and the post-call count is back at n. The transpiler therefore emits
+//
+//     il2cpp_pinvoke_com_arg(
+//         il2cpp_com_rcw_borrow_iunknown(static_cast<Il2CppObject*>(obj)))
+//
+// i.e. borrow the RCW's wrapped pointer (no AddRef -- see the helper's
+// contract) and let THIS holder own the +1/-1 pair:
+//   * construction AddRefs, destruction Releases (the temporary's lifetime is
+//     the whole P/Invoke full-expression, exactly the interop stub's span),
+//   * the destructor runs during stack unwinding, so a native throw still
+//     balances the count (no longjmp exists in this codebase's P/Invoke path),
+//   * the COPY constructor AddRefs too: il2cpp_pinvoke_call takes its
+//     arguments BY VALUE, so an extra copy may exist before the callee is
+//     invoked (the Il2CppPinvokeNarrowRef precedent above). Every copy owns
+//     its own reference, so the ledger stays balanced no matter how many
+//     copies the parameter pack makes,
+//   * iface == 0 (a null managed reference) does NOT AddRef and does NOT
+//     Release: net48 passes NULL and never touches the count. This is why
+//     il2cpp_com_rcw_borrow_iunknown maps null to 0 instead of throwing.
+//
+// Assignment is deleted: no argument holder is ever reassigned.
+//------------------------------------------------------------------------------
+struct Il2CppPinvokeComArg
+{
+    intptr_t iface;
+    explicit Il2CppPinvokeComArg(intptr_t p) : iface(p)
+    {
+        if (iface != 0) icall_com_add_ref(iface);
+    }
+    Il2CppPinvokeComArg(const Il2CppPinvokeComArg& o) : iface(o.iface)
+    {
+        if (iface != 0) icall_com_add_ref(iface);
+    }
+    Il2CppPinvokeComArg& operator=(const Il2CppPinvokeComArg&) = delete;
+    ~Il2CppPinvokeComArg()
+    {
+        if (iface != 0) icall_com_release(iface);
+    }
+    template <typename T>
+    operator T() const
+    {
+        return il2cpp_pinvoke_native_convert<T>(iface);
+    }
+};
+
+inline Il2CppPinvokeComArg il2cpp_pinvoke_com_arg(intptr_t p)
+{
+    return Il2CppPinvokeComArg(p);
 }
 
 // Result wrapper: `il2cpp_pinvoke_result<intptr_t>(native_call(...))` folds a

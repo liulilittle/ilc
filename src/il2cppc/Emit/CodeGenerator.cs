@@ -9626,6 +9626,15 @@ default: return false;                           // primitives/VAR(handled by ca
             var rDel when rDel.StartsWith("r:", StringComparison.Ordinal)
                 && MethodRefResolver.DelegateGfpForPinvokeParam(md, rDel[2..]) is { } gfpName
                 => "intptr_t",
+            // COM interface parameter, BYVAL only (com-verify NOTES section
+            // 4.5). ONLY a same-assembly [ComImport] interface with a readable
+            // [Guid] qualifies (PinvokeComInterfaceParamOf). Everything else
+            // -- r:System.Object (VARIANT), any other class, a ComImport
+            // without [Guid], a cross-assembly TypeRef and EVERY B: (out/ref)
+            // form -- falls through to the LOUD throw below unchanged. The
+            // LOUD regex text itself is NOT narrowed.
+            var rCom when PinvokeComInterfaceParamOf(md, rCom) is { } comCpp
+                => comCpp,
             // P-D1 P0-2 (delegate-typed DllImport params): a delegate (or any
             // other reference-typed / fnptr / pointer / byref) param is
             // LOUDLY rejected -- the old fallback emitted int32_t for
@@ -9675,6 +9684,53 @@ default: return false;                           // primitives/VAR(handled by ca
         "d" => "double",
         _ => null,
     };
+
+    //--------------------------------------------------------------------------
+    // COM-interface P/Invoke parameter (stage 1: BYVAL only).
+    //
+    // Returns "void*" -- the native interface pointer -- for a BYVALUE
+    // [ComImport] interface parameter whose [Guid] is readable in THIS
+    // assembly. null for EVERY other encoding, so the caller's LOUD arm stays
+    // the default:
+    //   * B: (out/ref) of ANY shape, including B:r:<ComImport interface>:
+    //     out/ref needs an RCW write-back and the runtime has no RCW finalizer
+    //     yet (com-verify NOTES section 6), so every slot would leak one
+    //     native reference -- deliberately out of scope;
+    //   * System.Object (VARIANT), arrays, strings, delegates: handled by
+    //     earlier arms;
+    //   * any other class: not a COM interface;
+    //   * a [ComImport] interface WITHOUT a readable [Guid], or a cross-
+    //     assembly TypeRef (the transpiler only opens the input assembly, so
+    //     its attributes are not available here): LOUD.
+    //
+    // The encoding the switch arm sees is the MethodSignatureCoder form: a
+    // CLASS (0x12) encodes as "r:<FullName>", so a bare "V:" (VALUETYPE) can
+    // never be a COM interface and is rejected. TypeAttributes.Import (0x1000)
+    // is the [ComImport] flag -- this helper is the first place in
+    // src/il2cppc that decodes it.
+    //
+    // Byval needs no IID: the emitter borrows the RCW's already-QI'd wrapped
+    // pointer (com-verify NOTES section 4.3), so the interface identity is
+    // whatever the caller's RCW holds.
+    //--------------------------------------------------------------------------
+    private static string? PinvokeComInterfaceParamOf(MetadataReader md, string encoded)
+    {
+        if (!encoded.StartsWith("r:", StringComparison.Ordinal)) return null;
+        var name = encoded[2..];
+        if (name.Length == 0) return null;
+        // Same-assembly TypeDef only (md.TypeDefinitions is the input assembly).
+        foreach (var th in md.TypeDefinitions)
+        {
+            if (md.GetFullName(th) != name) continue;
+            var td = md.GetTypeDefinition(th);
+            const System.Reflection.TypeAttributes ifaceAndImport =
+                System.Reflection.TypeAttributes.Interface | System.Reflection.TypeAttributes.Import;
+            if ((td.Attributes & ifaceAndImport) != ifaceAndImport) return null;
+            if (MetadataLoader.GuidAttributeValue(md, td.GetCustomAttributes()) == null) return null;
+            return "void*";
+        }
+        return null;
+    }
 
     // wfm2: the native C++ type of a registered managed struct full name
     // (System.Drawing.Point/Rectangle/System.Windows.Forms.Message ->
@@ -12595,6 +12651,25 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             if (r.IsPInvoke && cast == "r:System.Text.StringBuilder")
             {
                 parts.Add($"il2cpp::runtime::il2cpp_pinvoke_stringbuilder({NullSafePtrCast("Il2CppStringBuilder*", code)})");
+                continue;
+            }
+            // COM interface byval parameter: net48's marshaller AddRefs the
+            // interface for the DURATION of the call and Releases it afterwards
+            // (com-verify NOTES section 3(d), case F13: the callee observes
+            // refs = n+1 on entry AND exit, and the post-call count is back at
+            // n). The bridge borrows the RCW's wrapped pointer WITHOUT AddRef
+            // (il2cpp_com_rcw_borrow_iunknown) and the RAII holder owns the
+            // per-call AddRef/Release pair (Il2CppPinvokeComArg). Emitted
+            // WITHOUT il2cpp_pinvoke_arg: the holder's own templated conversion
+            // operator yields whatever native pointer the declaration / dynamic
+            // resolve cast names (a class value cannot go through the bridge's
+            // reinterpret_cast conversion path). A null managed reference
+            // borrows as 0 and the holder does not touch the count -- net48
+            // passes NULL.
+            if (r.IsPInvoke && cast is not null
+                && PinvokeComInterfaceParamOf(md, cast) is not null)
+            {
+                parts.Add($"il2cpp::runtime::il2cpp_pinvoke_com_arg(il2cpp::runtime::il2cpp_com_rcw_borrow_iunknown(reinterpret_cast<Il2CppObject*>({code})))");
                 continue;
             }
             // dparse: "lit:<expr>" -- the icall slot takes a compile-time

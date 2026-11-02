@@ -879,6 +879,23 @@ Il2CppObject* icall_com_create_instance_from_com_type(Il2CppObject* typeName);
 // ArgumentNullException; a released RCW -> InvalidComObjectException.
 intptr_t icall_com_get_iunknown_for_object(Il2CppObject* o);
 
+// The native IUnknown* an RCW wraps, as a BORROWED pointer: NO AddRef, no
+// ownership change. The caller must not Release it and must keep the RCW alive
+// across the call. This is the only managed->native accessor that READS an
+// RCW's wrapped pointer without perturbing its reference count
+// (icall_com_get_iunknown_for_object AddRefs; icall_com_get_com_interface_for_object
+// restricts the IID to IUnknown/IDispatch). It is the byval P/Invoke COM
+// argument's pointer source: the emitter composes it with the
+// Il2CppPinvokeComArg holder (il2cpp_pinvoke_bridge.h) so the per-call
+// AddRef/Release matches net48's measured byval ledger (+1 during the call,
+// balanced on return).
+//
+// null -> 0 (net48 marshals a null interface parameter as NULL and does NOT
+// call AddRef/Release; the holder passes 0 through untouched). A non-RCW
+// object -> ArgumentException; a released RCW -> InvalidComObjectException
+// (the AsRcw contract, com.cpp).
+intptr_t il2cpp_com_rcw_borrow_iunknown(Il2CppObject* o);
+
 // Marshal.GetObjectForIUnknown(IntPtr pUnk): wrap a raw IUnknown* (intptr
 // carrier) into an RCW managed object, TAKING OWNERSHIP of the reference
 // (net48: the runtime holds the reference the wrapper lives on). pUnk == 0 ->
