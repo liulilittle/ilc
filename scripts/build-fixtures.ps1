@@ -41,6 +41,11 @@ Copy-Item "$Root/tests/fixtures/out/boxlong.exe" "$Root/tests/fixtures/out/boxlo
 dotnet build "$Root/tests/fixtures/props/props.csproj" -c Release -o "$Root/tests/fixtures/out"
 if ($LASTEXITCODE -ne 0) { throw "fixture props build failed" }
 Copy-Item "$Root/tests/fixtures/out/props.exe" "$Root/tests/fixtures/out/props.dll" -Force
+# comguid: [Guid] custom-attribute decoder -- the string SerString ctor AND the
+# 11-argument ctor must both produce the same 16 IID bytes (ComGuidAttributeTests).
+dotnet build "$Root/tests/fixtures/comguid/comguid.csproj" -c Release -o "$Root/tests/fixtures/out"
+if ($LASTEXITCODE -ne 0) { throw "fixture comguid build failed" }
+Copy-Item "$Root/tests/fixtures/out/comguid.exe" "$Root/tests/fixtures/out/comguid.dll" -Force
 # arrneg: loop-bound proof negative cases (param array + i+1 index must keep the check) + get_length upper-bound positive cases.
 dotnet build "$Root/tests/fixtures/arrneg/arrneg.csproj" -c Release -o "$Root/tests/fixtures/out"
 if ($LASTEXITCODE -ne 0) { throw "fixture arrneg build failed" }
