@@ -11077,6 +11077,22 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             // distinguished at runtime anyway -- the checker has one class.
             if (IsCustomDelegateType(typeName, types))
                 return $"reinterpret_cast<Il2CppObject*>({objCode})";
+            // COM-interface cast (necessary for the byval COM P/Invoke
+            // parameter feature): casting an RCW to a same-assembly
+            // [ComImport] interface is a QueryInterface in net48, which this
+            // runtime cannot express -- RcwClass carries NO interface table,
+            // so il2cpp_is_instance would return false and throw
+            // InvalidCastException on every (Interface)rcw. The RCW already
+            // carries the interface pointer the byval marshaller hands to the
+            // callee (com-verify NOTES section 4.3: borrow, no QI), so for the
+            // VALUE the cast is an identity: the interface identity was
+            // established when the RCW was obtained (GetTypedObjectForIUnknown
+            // / the COM factory). A value that is NOT an RCW reaches
+            // il2cpp_com_rcw_borrow_iunknown at the P/Invoke boundary and is
+            // rejected there with a self-identifying NotSupportedException
+            // (docs/audit/b5-gaps.md section 30) -- never silently.
+            if (PinvokeComInterfaceParamOf(md, "r:" + typeName) is not null)
+                return $"reinterpret_cast<Il2CppObject*>({objCode})";
             // M7 CG-FIX (boxdeep2 cmake FAIL): box primitives WITHOUT a GLOBAL
             // descriptor (UInt32/Int64/UInt64/Byte/SByte/Int16/UInt16/Single/
             // Decimal -- boxingext2.cpp's g_*BoxClass are file-local, lazily
@@ -12669,7 +12685,13 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             if (r.IsPInvoke && cast is not null
                 && PinvokeComInterfaceParamOf(md, cast) is not null)
             {
-                parts.Add($"il2cpp::runtime::il2cpp_pinvoke_com_arg(il2cpp::runtime::il2cpp_com_rcw_borrow_iunknown(reinterpret_cast<Il2CppObject*>({code})))");
+                // A nullptr literal must not be reinterpret_cast (that is
+                // ill-formed from std::nullptr_t -- the NullSafePtrCast
+                // precedent); nullptr converts to Il2CppObject* implicitly.
+                var objPtr = code == "nullptr"
+                    ? "nullptr"
+                    : $"reinterpret_cast<Il2CppObject*>({code})";
+                parts.Add($"il2cpp::runtime::il2cpp_pinvoke_com_arg(il2cpp::runtime::il2cpp_com_rcw_borrow_iunknown({objPtr}))");
                 continue;
             }
             // dparse: "lit:<expr>" -- the icall slot takes a compile-time

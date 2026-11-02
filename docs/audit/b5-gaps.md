@@ -2693,3 +2693,60 @@ by content.
 Lock case: `tests/cases/pinvoke-stringbuilder` (Unicode/Auto; 28 records,
 407B both sides; mingw and msvc sha
 `b5ed9717263953d82b856ca0d82add4c3740d251ff3c7c4125c0370b7a66ad29`).
+
+---
+
+## 30. P/Invoke byval COM interface parameters: RCW only; the CCW direction is not wired
+
+Registered residual gap (impl-byval, stage 1). BYVALUE `[ComImport]`-interface
+P/Invoke parameters now compile: the transpiler accepts a same-assembly
+`[ComImport]` interface with a readable `[Guid]` (`TypeAttributes.Interface |
+TypeAttributes.Import`), declares the native slot `void*`, and emits
+
+    il2cpp_pinvoke_com_arg(il2cpp::runtime::il2cpp_com_rcw_borrow_iunknown(...))
+
+The borrow accessor reads the RCW's wrapped `IUnknown*` WITHOUT AddRef; the
+`Il2CppPinvokeComArg` RAII holder owns the per-call AddRef/Release pair, which
+reproduces net48's measured byval ledger (callee sees refs = n+1 on entry and
+exit; the post-call count is back at n). Lock case: `tests/cases/pinvoke-com-byval`.
+
+STATUS -- what works:
+  * an RCW (`System.Runtime.InteropServices.__ComObject`, e.g. from
+    `Marshal.GetObjectForIUnknown` / `Marshal.GetTypedObjectForIUnknown` /
+    a COM factory) passed byval to a `[ComImport]` interface parameter;
+  * a null reference (passes NULL, no AddRef/Release);
+  * `B:` (out/ref) COM parameters REMAIN a transpile-time LOUD rejection -- the
+    runtime has no RCW finalizer, so an out/ref RCW that the caller drops would
+    leak one native reference per call (com-verify NOTES section 6). Finalizer
+    is the next stage.
+
+TRIGGER -- what does NOT work:
+  * a MANAGED object that implements the `[ComImport]` interface (a CCW in
+    net48). This is the common WinForms drag-drop shape:
+    `OleSetClipboard(IDataObject)` / `DoDragDrop(IDataObject, ...)` usually
+    receive a managed data object, not an RCW. `il2cpp_com_rcw_borrow_iunknown`
+    rejects it at the P/Invoke boundary.
+
+SELF-IDENTIFY (the runtime exception carries this exact message):
+
+    P/Invoke byval COM parameter: a managed object implementing a [ComImport] interface is exposed as a CCW; passing it byval is not implemented yet (only an RCW obtained from COM can be passed). See docs/audit/b5-gaps.md section 30.
+
+Related divergence worth recording: casting an RCW to a same-assembly
+`[ComImport]` interface is emitted as an IDENTITY
+(`CodeGenerator` castclass arm), because `RcwClass` carries no interface table
+so `il2cpp_is_instance` would reject every such cast. The RCW already carries
+the interface pointer the byval marshaller passes, so the value is correct for
+the wired path; a cast of the WRONG interface is not detected at the cast (it
+would be a QI failure in net48).
+
+UNLOCK CONDITION (CCW direction): in `il2cpp_com_rcw_borrow_iunknown`, for a
+non-RCW object obtain the CCW interface pointer (`CcwCacheGetInterface(o,
+kComIidIUnknown)` already exists, com.cpp) and make the reference ledger
+explicit: the borrow must either return an OWNED reference that the holder
+releases without a second AddRef, or return a genuinely borrowed pointer whose
+CCW lifetime is guaranteed for the call. Then add a CCW record to
+`tests/cases/pinvoke-com-byval` (a managed `ITestCom` implementer passed byval,
+native GetValue + the same entry/exit ledger). The CCW interface view must also
+answer QI for the declared IID (`icall_com_ccw_register_interface_view`) where
+the CCW has no built-in view. Do NOT wire it with an unbalanced AddRef -- the
+whole point of this stage's ledger is that the count is net-zero after the call.

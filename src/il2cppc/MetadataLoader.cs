@@ -661,8 +661,36 @@ public static class MetadataLoader
             if (paramCount == 1)
             {
                 // [Guid(string)]: a SerString holding the textual GUID.
-                if (blob.ReadByte() == 0xFF) return null; // null string
-                var text = blob.ReadUTF8(blob.ReadCompressedInteger());
+                // ECMA-335 II.23.3: a null SerString is the single byte 0xFF;
+                // otherwise the value is a compressed-uint length followed by
+                // that many UTF-8 bytes. 0xFF is NOT a valid compressed-uint
+                // lead byte, so the lead byte must be decoded as part of the
+                // length -- the old code consumed it as a null marker and then
+                // read the following TEXT as the length (Read out of bounds on
+                // the first real [Guid(string)] type it reached).
+                var lead = blob.ReadByte();
+                if (lead == 0xFF) return null; // null string
+                int textLen;
+                if ((lead & 0x80) == 0)
+                {
+                    textLen = lead;
+                }
+                else if ((lead & 0xC0) == 0x80)
+                {
+                    textLen = ((lead & 0x3F) << 8) | blob.ReadByte();
+                }
+                else if ((lead & 0xE0) == 0xC0)
+                {
+                    var b2 = blob.ReadByte();
+                    var b3 = blob.ReadByte();
+                    var b4 = blob.ReadByte();
+                    textLen = ((lead & 0x1F) << 24) | (b2 << 16) | (b3 << 8) | b4;
+                }
+                else
+                {
+                    return null; // invalid compressed-uint lead byte
+                }
+                var text = blob.ReadUTF8(textLen);
                 return Guid.TryParse(text, out var g) ? g.ToByteArray() : null;
             }
             if (paramCount != 11) return null;

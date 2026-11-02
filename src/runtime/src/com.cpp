@@ -7657,6 +7657,20 @@ intptr_t il2cpp_com_rcw_borrow_iunknown(Il2CppObject* o)
     {
         return 0;
     }
+    if (o->klass != RcwClass())
+    {
+        // A managed object that implements the [ComImport] interface is a CCW
+        // in net48; exposing it to a byval P/Invoke parameter is NOT wired yet
+        // (the CCW path needs its own reference ledger around the call -- see
+        // docs/audit/b5-gaps.md section 30). This is a self-identifying
+        // limitation, not "the caller passed the wrong object": AsRcw's
+        // generic ArgumentException would misattribute the cause.
+        il2cpp_throw_not_supported_exception(
+            "P/Invoke byval COM parameter: a managed object implementing a "
+            "[ComImport] interface is exposed as a CCW; passing it byval is "
+            "not implemented yet (only an RCW obtained from COM can be "
+            "passed). See docs/audit/b5-gaps.md section 30.");
+    }
     return static_cast<intptr_t>(reinterpret_cast<uintptr_t>(AsRcw(o, "o")->unknown));
 }
 

@@ -891,9 +891,11 @@ intptr_t icall_com_get_iunknown_for_object(Il2CppObject* o);
 // balanced on return).
 //
 // null -> 0 (net48 marshals a null interface parameter as NULL and does NOT
-// call AddRef/Release; the holder passes 0 through untouched). A non-RCW
-// object -> ArgumentException; a released RCW -> InvalidComObjectException
-// (the AsRcw contract, com.cpp).
+// call AddRef/Release; the holder passes 0 through untouched). A released RCW
+// -> InvalidComObjectException. A NON-RCW managed object -> NotSupportedException
+// with a self-identifying message: a managed object implementing the
+// [ComImport] interface is a CCW in net48, and the CCW byval path is not wired
+// yet (docs/audit/b5-gaps.md section 30).
 intptr_t il2cpp_com_rcw_borrow_iunknown(Il2CppObject* o);
 
 // Marshal.GetObjectForIUnknown(IntPtr pUnk): wrap a raw IUnknown* (intptr
