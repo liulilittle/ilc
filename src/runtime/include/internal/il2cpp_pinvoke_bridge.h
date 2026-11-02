@@ -63,6 +63,10 @@
 // Both headers are cycle-free (they pull only object/metadata).
 #include "il2cpp_array.h"
 #include "il2cpp_gc.h"
+// StringBuilder parameters: the bridge hands the callee the builder's own
+// chunk buffer and recomputes Length afterwards, so the runtime struct layout
+// must be visible here (il2cpp_stringbuilder.h pulls only array/object).
+#include "il2cpp_stringbuilder.h"
 
 namespace il2cpp {
 namespace runtime {
@@ -348,6 +352,140 @@ inline Il2CppPinvokeStructArrayArg il2cpp_pinvoke_struct_array(
     Il2CppArray* a, int32_t copyIn, int32_t copyOut, int32_t expectedElemSize)
 {
     return Il2CppPinvokeStructArrayArg(a, copyIn, copyOut, expectedElemSize);
+}
+
+//------------------------------------------------------------------------------
+// StringBuilder parameters (System.Text.StringBuilder -> native UTF-16 buffer).
+//
+// MEASURED net48 semantics (tests/cases/pinvoke-stringbuilder -- the case's
+// oracle records; NOT a temp-copy/copy-back marshal):
+//   * the callee receives the builder's OWN chunk buffer, Capacity units wide
+//     (Capacity, NOT Length: a 20-unit write into a 5-unit "hello" with
+//     Capacity 32 lands and reads back whole);
+//   * the buffer is prefilled with the current content and a NUL at index
+//     Length (the marshaller writes that terminator);
+//   * after the call Length = strnlen(buffer, Capacity): a NUL-terminated
+//     shorter write SHRINKS Length, a longer one (up to Capacity) GROWS it,
+//     and content with no NUL inside Capacity reads back as Capacity units;
+//   * residual units between the new and the old length stay visible
+//     ("ab" over "ZZZZZZ" with Capacity 8 -> "abZZZZ", Length 6).
+// The net48 Capacity mutation observed when a callee writes the WHOLE buffer
+// is a marshaller-internal chunk resize, not part of Length semantics: this
+// model keeps the managed Capacity (the buffer the callee already received).
+// The oracle scans an UNBOUNDED strlen over a Capacity+1 temp whose tail is
+// uninitialised, so a no-NUL write that fills all Capacity units is not
+// deterministic there; this model scans exactly Capacity units (the
+// deterministic rule the case asserts -- see the residual-content shape above).
+//
+// CharSet.Ansi is NOT wired: net48 converts through the system ANSI code page
+// (CP_ACP) and this transpiler's ANSI string marshalling is UTF-8 with no
+// CP_ACP conversion, so silently handing UTF-8 to an Ansi callee would corrupt
+// non-ASCII text. The declaration site raises a self-identifying transpile-time
+// NotSupportedException (registered in docs/audit/b5-gaps.md section 29).
+//
+// GC SAFETY (hard requirement, same contract as the array bridge above): the
+// callee may call back into managed code (WndProc / callback) and trigger a
+// compacting collection mid-call (MEASURED: tests/cases/pinvoke-stringbuilder
+// record g1 forces GC.Collect from a delegate while the native side holds the
+// buffer; with the pin removed the chunk moves and the readback falls back to
+// the pre-call content). The chunk address is valid only while the BUILDER and
+// its chars ARRAY are BOTH rooted AND immovable, so the outermost temporary
+// registers the double root/pin pair for the whole call full-expression (a pin
+// alone does not mark, a root alone does not stop the move) and the destructor
+// re-reads both slots (collector-updated) before writing Length back. Copies
+// travel with owner=false; the owner's destructor runs after the native call.
+//------------------------------------------------------------------------------
+namespace detail {
+
+// Register the double root/pin pair on any GC-reference slot (the array
+// helpers above are the typed instance of this contract).
+inline void pin_reference_slot(void** slot)
+{
+    il2cpp_gc_add_static_root(slot);
+    il2cpp_gc_add_pinned(slot);
+}
+
+inline void unpin_reference_slot(void** slot)
+{
+    il2cpp_gc_remove_pinned(slot);
+    il2cpp_gc_remove_static_root(slot);
+}
+
+} // namespace detail
+
+struct Il2CppPinvokeStringBuilderArg
+{
+    Il2CppStringBuilder* builder;
+    Il2CppStringBuilder** builderSlot;
+    Il2CppArray* chars;
+    Il2CppArray** charsSlot;
+    void* data;        // UTF-16 chunk payload (valid while rooted + pinned)
+    char16_t* wide;    // chunk payload as char16_t*
+    int32_t capacity;  // chunk size in UTF-16 units (== chars->length)
+    int32_t contentLength;
+    bool isOwner;
+
+    explicit Il2CppPinvokeStringBuilderArg(Il2CppStringBuilder* sb)
+        : builder(sb), builderSlot(nullptr), chars(nullptr), charsSlot(nullptr),
+          data(nullptr), wide(nullptr), capacity(0), contentLength(0), isOwner(true)
+    {
+        if (sb == nullptr) return; // null builder -> null pointer (net48)
+        builderSlot = &builder;
+        detail::pin_reference_slot(reinterpret_cast<void**>(builderSlot));
+        capacity = builder->capacity;
+        contentLength = builder->length;
+        chars = builder->chars;
+        if (chars != nullptr)
+        {
+            charsSlot = &chars;
+            detail::pin_reference_slot(reinterpret_cast<void**>(charsSlot));
+            wide = reinterpret_cast<char16_t*>(chars->data);
+            data = wide;
+            // net48 prefills the native buffer with the content followed by a
+            // NUL at index Length. The chunk beyond Length is free space, so
+            // the terminator write cannot perturb the managed content.
+            if (contentLength >= 0 && contentLength < capacity && contentLength < chars->length)
+                wide[contentLength] = 0;
+        }
+    }
+    Il2CppPinvokeStringBuilderArg(const Il2CppPinvokeStringBuilderArg& o)
+        : builder(o.builder), builderSlot(o.builderSlot), chars(o.chars),
+          charsSlot(o.charsSlot), data(o.data), wide(o.wide), capacity(o.capacity),
+          contentLength(o.contentLength), isOwner(false)
+    {
+    }
+    Il2CppPinvokeStringBuilderArg& operator=(const Il2CppPinvokeStringBuilderArg&) = delete;
+
+    ~Il2CppPinvokeStringBuilderArg()
+    {
+        if (!isOwner || builderSlot == nullptr) return;
+        // Re-read both roots: a collection during the native call updates the
+        // slot contents (the pin already kept these objects immovable).
+        Il2CppStringBuilder* sb = *builderSlot;
+        Il2CppArray* buf = charsSlot != nullptr ? *charsSlot : nullptr;
+        if (sb != nullptr && buf != nullptr)
+        {
+            const int32_t arrayLength = buf->length;
+            const int32_t limit = capacity < arrayLength ? capacity : arrayLength;
+            const char16_t* text = reinterpret_cast<const char16_t*>(buf->data);
+            int32_t n = 0;
+            while (n < limit && text[n] != 0) ++n;
+            sb->length = n;
+        }
+        if (charsSlot != nullptr) detail::unpin_reference_slot(reinterpret_cast<void**>(charsSlot));
+        detail::unpin_reference_slot(reinterpret_cast<void**>(builderSlot));
+    }
+
+    template <typename T>
+    operator T() const
+    {
+        return reinterpret_cast<T>(data);
+    }
+};
+
+inline Il2CppPinvokeStringBuilderArg il2cpp_pinvoke_stringbuilder(Il2CppStringBuilder* sb)
+{
+    return Il2CppPinvokeStringBuilderArg(sb);
 }
 
 // GN-17: P/Invoke exception boundary (see the header comment).

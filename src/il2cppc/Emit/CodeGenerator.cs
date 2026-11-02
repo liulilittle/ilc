@@ -9570,6 +9570,24 @@ default: return false;                           // primitives/VAR(handled by ca
             // wf2 (winforms1): CharSet.Unicode P/Invoke string param -> UTF-16
             // (const char16_t*), else UTF-8 (const char*).
             if (p == "r:System.String") return utf16PInvoke ? "const char16_t*" : "const char*";
+            // StringBuilder parameter (net48: the callee receives the
+            // builder's OWN chunk buffer, Capacity units, and Length is
+            // recomputed as strnlen(buffer, Capacity) after the call). The
+            // UTF-16 chunk is handed over as char16_t* -- net48 gives the
+            // callee the writable chunk itself, so the uniform CharSet.Auto
+            // GetWindowText shape writes straight into the managed builder.
+            // CharSet.Ansi stays a SELF-IDENTIFYING LOUD rejection: net48
+            // marshals through the system ANSI code page (CP_ACP) while this
+            // transpiler's ANSI string convention is UTF-8 and has no CP_ACP
+            // conversion, so handing UTF-8 to an Ansi callee would corrupt
+            // non-ASCII text (registered in docs/audit/b5-gaps.md section 29).
+            // See il2cpp_pinvoke_bridge.h (Il2CppPinvokeStringBuilderArg).
+            if (p == "r:System.Text.StringBuilder")
+            {
+                if (utf16PInvoke) return "char16_t*";
+                throw new NotSupportedException(
+                    $"P/Invoke StringBuilder parameter on {methodName} with CharSet.Ansi: net48 marshals the builder through the system ANSI code page (CP_ACP); this transpiler's ANSI string marshalling is UTF-8 with no CP_ACP conversion, so non-ASCII text would be corrupted -- declare CharSet.Unicode/Auto for the UTF-16 chunk bridge (b5-gaps section 29)");
+            }
             // P-D1 P0: the marshalling type matrix is COMPLETE -- every branch
             // is either a real native type or a LOUD rejection (never the old
             // flat int32_t fallback). The CLR expands the narrow scalar
@@ -12563,6 +12581,20 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             if (r.IsPInvoke && PinvokeArrayArgCode(cast, code, r, j) is { } arrayArgCode)
             {
                 parts.Add(arrayArgCode);
+                continue;
+            }
+            // StringBuilder params: the runtime bridge hands the callee the
+            // builder's own UTF-16 chunk buffer and recomputes
+            // Length = strnlen(buffer, Capacity) when its temporary dies
+            // (net48 semantics -- see Il2CppPinvokeStringBuilderArg). Emitted
+            // WITHOUT il2cpp_pinvoke_arg: the helper's templated conversion
+            // operator reinterprets the chunk pointer to the native parameter
+            // type (char16_t* from the emitted declaration, wchar_t* from a
+            // windows.h prototype). CharSet.Ansi never reaches this branch --
+            // the declaration site rejects it LOUD (b5-gaps section 29).
+            if (r.IsPInvoke && cast == "r:System.Text.StringBuilder")
+            {
+                parts.Add($"il2cpp::runtime::il2cpp_pinvoke_stringbuilder({NullSafePtrCast("Il2CppStringBuilder*", code)})");
                 continue;
             }
             // dparse: "lit:<expr>" -- the icall slot takes a compile-time
