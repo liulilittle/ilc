@@ -7675,6 +7675,47 @@ intptr_t il2cpp_com_rcw_borrow_iunknown(Il2CppObject* o)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_com_cast_to_interface -- the transpiler's castclass arm for a
+// same-assembly [ComImport] interface (see il2cpp_com.h). net48 performs a
+// QueryInterface when an RCW is cast to a COM interface and throws
+// InvalidCastException when the object does not implement it. An identity
+// reinterpret-cast (the previous behaviour) silently returned the RCW and let a
+// later byval call hand the WRONG interface vtable to native code -- a silent
+// wrong-program. The typed-wrap below reuses
+// icall_com_get_typed_object_for_iunknown (QI -> InvalidCastException on
+// failure, then wrap/cache the QI'd pointer with an AddRef), so a wrong
+// interface is rejected AND the RCW the byval bridge borrows carries the
+// correct QI'd interface pointer (tear-off interfaces included).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_com_cast_to_interface(Il2CppObject* o, const uint8_t iid[16],
+                                           Il2CppClass* ifaceClass)
+{
+    if (o == nullptr)
+    {
+        return nullptr; // ECMA castclass on null is a no-op
+    }
+    if (o->klass == RcwClass())
+    {
+        // typed wrap: QI + identity cache + AddRef; throws InvalidCastException
+        // when the object does not implement 'iid'.
+        return icall_com_get_typed_object_for_iunknown(
+            il2cpp_com_rcw_borrow_iunknown(o), iid);
+    }
+    // A non-RCW managed object that implements the interface stays itself (the
+    // CCW direction -- the byval bridge rejects it later with a self-identifying
+    // message, b5-gaps section 30).
+    if (il2cpp_is_instance(o, ifaceClass))
+    {
+        return o;
+    }
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,"
+        "System.SystemException,System.Exception",
+        "Unable to cast object to the target type.");
+    return nullptr; // unreachable
+}
+
+//------------------------------------------------------------------------------
 // CcwCacheGetInterface forward declaration (runtime scope -- the anonymous
 // namespace above closes at this point). Defined after icall_com_ccw_create
 // (it needs the fresh-CCW create/QI/release balance); the three Marshal

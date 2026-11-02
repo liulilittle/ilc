@@ -1,5 +1,6 @@
 //------------------------------------------------------------------------------
-// pinvoke-com-byval.cs -- a BYVAL [ComImport]-interface P/Invoke parameter.
+// pinvoke-com-byval.cs -- a BYVAL [ComImport]-interface P/Invoke parameter, and
+// the RCW -> COM-interface castclass semantics.
 //
 // MEASURED net48 marshalling contract (com-verify NOTES section 3(d), case
 // F13): a byval COM-interface argument is passed AddRef'd for the DURATION of
@@ -9,6 +10,12 @@
 //     il2cpp_pinvoke_com_arg(il2cpp_com_rcw_borrow_iunknown(obj))
 // (borrow the RCW's wrapped pointer WITHOUT AddRef; the RAII holder owns the
 // per-call +1/-1 pair).
+//
+// CASTCLASS: casting an RCW to a [ComImport] interface is a QueryInterface in
+// net48. A WRONG interface must throw InvalidCastException -- an identity
+// reinterpret-cast would silently let a later byval call hand native code the
+// wrong vtable. The runtime helper (il2cpp_com_cast_to_interface) emits the
+// typed-wrap (QI); this case pins both the good and the bad cast on the oracle.
 //
 // WHY A NATIVE FIXTURE INSTEAD OF AN OS COM OBJECT: this stage has no out/ref
 // COM parameter, so there is no way to obtain an OS object through a P/Invoke
@@ -20,11 +27,6 @@
 // measured just before the call, so the oracle and this runtime agree even
 // though Marshal.GetObjectForIUnknown's own AddRef policy differs (measured
 // divergence, com-verify NOTES section 6).
-//
-// The [Guid] below is the IID the fixture's QueryInterface answers. The
-// interface is declared INSIDE this assembly with [ComImport] +
-// [InterfaceType(InterfaceIsIUnknown)], which is the shape the transpiler's
-// guard accepts (same-assembly TypeDef, Interface | Import, readable [Guid]).
 //------------------------------------------------------------------------------
 using System;
 using System.Runtime.InteropServices;
@@ -35,10 +37,21 @@ public interface ITestCom
     int GetValue();
 }
 
+// A DIFFERENT interface the fixture object does NOT implement: casting an
+// ITestCom RCW to it must throw InvalidCastException (net48 QueryInterface).
+[ComImport, Guid("0BADF00D-1111-2222-3333-444455556666"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IWrongCom
+{
+    int Other();
+}
+
 public static class PinvokeComByval
 {
     [DllImport("combyvalprobe.dll")]
     private static extern IntPtr com_create();
+
+    [DllImport("combyvalprobe.dll")]
+    private static extern IntPtr com_create2();
 
     [DllImport("combyvalprobe.dll")]
     private static extern int probe_byval(ITestCom obj);
@@ -98,12 +111,40 @@ public static class PinvokeComByval
         Record("mixed.ret", mixed);
         Record("mixed.after.delta", com_refcount() - baseMix);
 
-        // ---- 5. a released RCW: the documented net48 behaviour is measured
-        //         on the oracle FIRST (do not assume) ------------------------
-        Marshal.ReleaseComObject(rcw);
+        // ---- 5. casting the RCW to an interface it does NOT implement must
+        //         throw InvalidCastException (net48 QueryInterface) ----------
         try
         {
-            int releasedRet = probe_byval(typed);
+            var bad = (IWrongCom)rcw;
+            Record("badcast.ret", bad.Other());
+        }
+        catch (Exception e)
+        {
+            Record("badcast.ex", e.GetType().Name);
+        }
+
+        // ---- 6. an already-typed RCW (GetTypedObjectForIUnknown) byval ------
+        object typedObj = Marshal.GetTypedObjectForIUnknown(raw, typeof(ITestCom));
+        ITestCom typed2 = (ITestCom)typedObj;
+        int baseTyped = com_refcount();
+        int typedRet = probe_byval(typed2);
+        Record("typed.ret", typedRet);
+        Record("typed.entry.delta", com_entry() - baseTyped);
+        Record("typed.after.delta", com_refcount() - baseTyped);
+
+        // ---- 7. a released RCW: measured on the oracle FIRST. A FRESH,
+        //         independent object (com_create2) and a SINGLE reference: the
+        //         ReleaseComObject below kills the wrapper we then pass, so
+        //         both net48 and this runtime throw InvalidComObjectException
+        //         (do not assume -- the oracle pins it). Using object 0 here
+        //         would keep it alive through the typed / badcast references.
+        IntPtr raw2 = com_create2();
+        object rcw2 = Marshal.GetObjectForIUnknown(raw2);
+        ITestCom typedReleased = (ITestCom)rcw2;
+        Marshal.ReleaseComObject(typedReleased);
+        try
+        {
+            int releasedRet = probe_byval(typedReleased);
             Record("released.ret", releasedRet);
         }
         catch (Exception e)

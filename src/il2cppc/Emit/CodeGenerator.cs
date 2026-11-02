@@ -9714,6 +9714,14 @@ default: return false;                           // primitives/VAR(handled by ca
     // whatever the caller's RCW holds.
     //--------------------------------------------------------------------------
     private static string? PinvokeComInterfaceParamOf(MetadataReader md, string encoded)
+        => PinvokeComInterfaceIidOf(md, encoded) is not null ? "void*" : null;
+
+    // The 16-byte [Guid] of the same-assembly [ComImport] interface named by a
+    // byval "r:<name>" encoding; null for EVERY other encoding (B:, System.Object,
+    // any class, a ComImport without [Guid], a cross-assembly TypeRef). This is
+    // the shared acceptance test for the byval parameter guard AND the castclass
+    // typed-wrap (which needs the IID for the QueryInterface).
+    private static byte[]? PinvokeComInterfaceIidOf(MetadataReader md, string encoded)
     {
         if (!encoded.StartsWith("r:", StringComparison.Ordinal)) return null;
         var name = encoded[2..];
@@ -9726,8 +9734,7 @@ default: return false;                           // primitives/VAR(handled by ca
             const System.Reflection.TypeAttributes ifaceAndImport =
                 System.Reflection.TypeAttributes.Interface | System.Reflection.TypeAttributes.Import;
             if ((td.Attributes & ifaceAndImport) != ifaceAndImport) return null;
-            if (MetadataLoader.GuidAttributeValue(md, td.GetCustomAttributes()) == null) return null;
-            return "void*";
+            return MetadataLoader.GuidAttributeValue(md, td.GetCustomAttributes());
         }
         return null;
     }
@@ -11077,22 +11084,25 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             // distinguished at runtime anyway -- the checker has one class.
             if (IsCustomDelegateType(typeName, types))
                 return $"reinterpret_cast<Il2CppObject*>({objCode})";
-            // COM-interface cast (necessary for the byval COM P/Invoke
-            // parameter feature): casting an RCW to a same-assembly
-            // [ComImport] interface is a QueryInterface in net48, which this
-            // runtime cannot express -- RcwClass carries NO interface table,
-            // so il2cpp_is_instance would return false and throw
-            // InvalidCastException on every (Interface)rcw. The RCW already
-            // carries the interface pointer the byval marshaller hands to the
-            // callee (com-verify NOTES section 4.3: borrow, no QI), so for the
-            // VALUE the cast is an identity: the interface identity was
-            // established when the RCW was obtained (GetTypedObjectForIUnknown
-            // / the COM factory). A value that is NOT an RCW reaches
-            // il2cpp_com_rcw_borrow_iunknown at the P/Invoke boundary and is
-            // rejected there with a self-identifying NotSupportedException
-            // (docs/audit/b5-gaps.md section 30) -- never silently.
-            if (PinvokeComInterfaceParamOf(md, "r:" + typeName) is not null)
-                return $"reinterpret_cast<Il2CppObject*>({objCode})";
+            // COM-interface cast: net48 performs a QueryInterface when an RCW
+            // is cast to a [ComImport] interface and throws InvalidCastException
+            // when the object does not implement it. An IDENTITY reinterpret-cast
+            // is a silent wrong-program: it succeeds for a wrong interface and a
+            // later byval call hands native code the WRONG vtable (crash or data
+            // corruption). Emit the runtime helper instead -- typed-wrap for an
+            // RCW (QI -> InvalidCastException, and the wrapped pointer becomes
+            // the QI'd interface, tear-off interfaces included), identity for a
+            // non-RCW managed implementer (CCW direction; rejected later by the
+            // byval borrow with a self-identifying message, b5-gaps section 30),
+            // InvalidCastException otherwise.
+            var comIidBytes = PinvokeComInterfaceIidOf(md, "r:" + typeName);
+            if (comIidBytes is not null)
+            {
+                var iidLit = new System.Text.StringBuilder("reinterpret_cast<const uint8_t*>(\"");
+                foreach (var by in comIidBytes) iidLit.Append("\\x").Append(by.ToString("x2"));
+                iidLit.Append("\")");
+                return $"il2cpp::runtime::il2cpp_com_cast_to_interface({objCode}, {iidLit}, {BoxClassDescriptorCpp(typeName)})";
+            }
             // M7 CG-FIX (boxdeep2 cmake FAIL): box primitives WITHOUT a GLOBAL
             // descriptor (UInt32/Int64/UInt64/Byte/SByte/Int16/UInt16/Single/
             // Decimal -- boxingext2.cpp's g_*BoxClass are file-local, lazily

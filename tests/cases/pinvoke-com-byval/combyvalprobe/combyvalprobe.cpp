@@ -7,6 +7,11 @@
 // called from managed code. The managed side wraps the returned IUnknown* with
 // Marshal.GetObjectForIUnknown, giving an RCW exactly like the net48 case.
 //
+// TWO independent objects: create()/com_refcount()/probe_* operate on the
+// "current" object (object 0); create2() switches to object 1, used only by the
+// released-RCW record so its reference bookkeeping is free of the other tests'
+// typed-RCW references.
+//
 // The object counts every AddRef/Release and records the refcount it observes
 // at the callee's entry and exit. The managed test prints DELTAS against the
 // refcount sampled immediately before the call, so the oracle (net48) and the
@@ -67,16 +72,11 @@ void* g_vtbl[4] = {
     reinterpret_cast<void*>(&GetValueImpl),
 };
 
-TestCom g_com = {
-    g_vtbl,
-    1,  // refcount -- the creator's reference
-    0,  // addrefs
-    0,  // releases
-    42, // value returned by GetValue
-    0,  // entryRefs
-    0,  // exitRefs
-    0,  // sawNull
+TestCom g_com[2] = {
+    { g_vtbl, 1, 0, 0, 42, 0, 0, 0 },
+    { g_vtbl, 1, 0, 0, 42, 0, 0, 0 },
 };
+TestCom* g_cur = &g_com[0];
 
 bool IidEquals(const void* a, const uint8_t b[16])
 {
@@ -130,21 +130,35 @@ int32_t CallGetValue(void* iface)
     return fn(self);
 }
 
+void Reset(TestCom* t)
+{
+    t->refcount = 1;
+    t->addrefs = 0;
+    t->releases = 0;
+    t->value = 42;
+    t->entryRefs = 0;
+    t->exitRefs = 0;
+    t->sawNull = 0;
+}
+
 } // namespace
 
 extern "C" {
 
-// A fresh object with exactly one reference owned by the caller.
+// A fresh object (index 0) with exactly one reference owned by the caller.
 void* com_create()
 {
-    g_com.refcount = 1;
-    g_com.addrefs = 0;
-    g_com.releases = 0;
-    g_com.value = 42;
-    g_com.entryRefs = 0;
-    g_com.exitRefs = 0;
-    g_com.sawNull = 0;
-    return &g_com;
+    g_cur = &g_com[0];
+    Reset(g_cur);
+    return g_cur;
+}
+
+// A fresh, INDEPENDENT object (index 1) with one caller-owned reference.
+void* com_create2()
+{
+    g_cur = &g_com[1];
+    Reset(g_cur);
+    return g_cur;
 }
 
 // BYVAL COM-interface parameter probe: records the refcount the callee sees at
@@ -152,16 +166,16 @@ void* com_create()
 // answered with -1 (net48 passes NULL for a null interface).
 int32_t probe_byval(void* obj)
 {
-    g_com.sawNull = (obj == nullptr) ? 1 : 0;
+    g_cur->sawNull = (obj == nullptr) ? 1 : 0;
     if (obj == nullptr)
     {
-        g_com.entryRefs = -1;
-        g_com.exitRefs = -1;
+        g_cur->entryRefs = -1;
+        g_cur->exitRefs = -1;
         return -1;
     }
-    g_com.entryRefs = g_com.refcount;
+    g_cur->entryRefs = g_cur->refcount;
     const int32_t v = CallGetValue(obj);
-    g_com.exitRefs = g_com.refcount;
+    g_cur->exitRefs = g_cur->refcount;
     return v;
 }
 
@@ -175,22 +189,22 @@ int32_t probe_mixed(void* obj, int32_t x, const wchar_t* s)
 
 int32_t com_refcount()
 {
-    return g_com.refcount;
+    return g_cur->refcount;
 }
 
 int32_t com_entry()
 {
-    return g_com.entryRefs;
+    return g_cur->entryRefs;
 }
 
 int32_t com_exit()
 {
-    return g_com.exitRefs;
+    return g_cur->exitRefs;
 }
 
 int32_t com_was_null()
 {
-    return g_com.sawNull;
+    return g_cur->sawNull;
 }
 
 } // extern "C"

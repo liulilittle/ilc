@@ -898,6 +898,25 @@ intptr_t icall_com_get_iunknown_for_object(Il2CppObject* o);
 // yet (docs/audit/b5-gaps.md section 30).
 intptr_t il2cpp_com_rcw_borrow_iunknown(Il2CppObject* o);
 
+// The transpiler's castclass arm for a same-assembly [ComImport] interface.
+// net48: casting an RCW to a COM interface performs a QueryInterface and throws
+// InvalidCastException when the object does not implement it. An IDENTITY
+// reinterpret-cast would silently hand the WRONG vtable to a later native call
+// (crash / data corruption), so the cast must validate:
+//   * o == null                -> null (ECMA castclass on null is a no-op);
+//   * o is an RCW              -> typed-wrap: QI 'iid' and return an RCW whose
+//                                 wrapped pointer IS the QI'd interface (the
+//                                 SAME identity cache GetTypedObjectForIUnknown
+//                                 uses); a QI failure -> InvalidCastException.
+//                                 AddRefs (the wrapper owns the new reference);
+//   * o is a non-RCW that      -> o itself (the CCW direction; the byval bridge
+//     implements 'ifaceClass'     rejects it later with a self-identifying
+//                                 message -- b5-gaps section 30);
+//   * anything else            -> InvalidCastException.
+// 'iid' is the 16-byte [Guid] of the target interface (.NET Guid byte layout).
+Il2CppObject* il2cpp_com_cast_to_interface(Il2CppObject* o, const uint8_t iid[16],
+                                           Il2CppClass* ifaceClass);
+
 // Marshal.GetObjectForIUnknown(IntPtr pUnk): wrap a raw IUnknown* (intptr
 // carrier) into an RCW managed object, TAKING OWNERSHIP of the reference
 // (net48: the runtime holds the reference the wrapper lives on). pUnk == 0 ->
