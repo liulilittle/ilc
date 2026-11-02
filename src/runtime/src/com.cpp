@@ -43,6 +43,7 @@
 #include "il2cpp_com.h"
 
 #include "il2cpp_exception_ext.h"
+#include "il2cpp_gc.h"          // RCW type-level finalizer registration (RcwFinalize)
 #include "il2cpp_gchandle.h"
 #include "il2cpp_metadata.h"
 #include "il2cpp_pinvoke_ext.h" // stage 13: il2cpp_pinvoke_string_from_utf16 (BSTRToString decode)
@@ -69,6 +70,12 @@
 
 namespace il2cpp {
 namespace runtime {
+
+// The RCW GC type-finalizer (defined next to the identity-cache helpers, whose
+// detach primitive it uses). Declared in this namespace -- NOT in the helper
+// anonymous namespace below -- so the definition and the function pointer handed
+// to il2cpp_gc_register_type_finalizer are the same entity.
+void RcwFinalize(Il2CppObject* o);
 
 namespace {
 
@@ -7150,6 +7157,18 @@ void ThrowReleasedComObject()
 }
 
 // The RCW class descriptor (runtime-only, g_int32ArrayClass precedent).
+//
+// LIFETIME CONTRACT (the GC finalizer, defined after the identity-cache
+// helpers below because it needs the detach primitive):
+//   * every RCW owns exactly ONE native reference (WrapUnknown stores the
+//     pointer with refCount = 1 and does not AddRef);
+//   * that reference is released EXACTLY ONCE, by whichever of these three
+//     paths observes the ownership first:
+//       - Marshal.ReleaseComObject / FinalReleaseComObject (explicit),
+//       - RcwFinalize (the object was collected without an explicit release),
+//     and NEVER twice;
+//   * the identity cache is a pure INDEX (ComRcwCacheInsert does not AddRef);
+//     it does not own the reference and therefore never releases one.
 Il2CppClass* RcwClass()
 {
     static Il2CppClass cls = {
@@ -7161,6 +7180,17 @@ Il2CppClass* RcwClass()
         nullptr, 0,             // vtable -- RCW has no virtuals in phase 1
         nullptr, 0,             // interfaces -- none in phase 1
     };
+    // Arm the type-level finalizer EXACTLY ONCE, before the first RCW can be
+    // allocated: RcwClass() is the single gate every RCW path goes through
+    // (WrapUnknown allocates with il2cpp_object_new(RcwClass())), and the
+    // collector's type registry arms every later instance of 'cls' at
+    // allocation (gc.cpp AllocCore). A function-local static initializer runs
+    // once and is thread-safe; re-registering would merely replace the
+    // callback (il2cpp_gc_register_type_finalizer replaces), so a guard flag is
+    // the cheapest correct choice -- no per-allocation registration.
+    static const bool rcwFinalizerArmed =
+        (il2cpp_gc_register_type_finalizer(&cls, &RcwFinalize), true);
+    (void)rcwFinalizerArmed;
     return &cls;
 }
 
@@ -8478,10 +8508,21 @@ Il2CppObject* icall_com_get_object_for_iunknown(intptr_t pUnk)
 //     COM-aggregated CCW (pOuter == 0 or o == null -> ArgumentNullException).
 //
 // The cache keys on the wrapped interface pointer and holds a WEAK GCHandle
-// to the managed RCW, so a collected RCW leaves a dead entry (its native
-// reference is still owned by the entry -- that is exactly the "available for
-// cleanup" state) which CleanupUnusedObjectsInCurrentContext prunes by
-// releasing the native reference and freeing the handle.
+// to the managed RCW. It is a pure IDENTITY INDEX: inserting does NOT AddRef,
+// and the entry NEVER releases the native reference -- that reference belongs
+// to the RCW (see the LIFETIME CONTRACT above RcwClass). A collected RCW leaves
+// a dead entry (weak target cleared); it is dropped either by RcwFinalize (as
+// part of the one release) or by CleanupUnusedObjectsInCurrentContext (which,
+// matching net48's measured no-op behaviour, only detaches the entry).
+//
+// WHY PRUNE MUST NOT RELEASE: the collection that kills the wrapper clears the
+// weak target FIRST; the RCW finalizer only runs at the START of the NEXT
+// collection. A CleanupUnusedObjectsInCurrentContext() call inside that window
+// (or right after an explicit ReleaseComObject, which leaves the wrapper alive
+// but already released) would otherwise Release a second time -- a refcount
+// underflow / use-after-free. Detaching alone is always safe: the RCW's own
+// refCount/unknown fields remain the single source of truth for "already
+// released", and RcwFinalize consults them.
 //------------------------------------------------------------------------------
 namespace
 {
@@ -8512,10 +8553,37 @@ bool ComRcwCacheEntryDead(int32_t i)
         && icall_gchandle_get_target(g_comRcwCache[i].handle) == nullptr;
 }
 
+// Drop (WITHOUT releasing) the cache entry for 'iface'. The weak target may
+// already have been cleared by the collection that made the wrapper pending, so
+// this lookup deliberately ignores liveness. 'owner' restricts the removal to
+// entries that belong to that wrapper (or whose target is already gone): a
+// second, still-live wrapper for the same pointer keeps its identity entry.
+// Returns true when at least one entry was removed.
+bool ComRcwCacheDetach(void* iface, Il2CppObject* owner)
+{
+    if (iface == nullptr) return false;
+    bool detached = false;
+    for (int32_t i = 0; i < kComRcwCacheMax; ++i)
+    {
+        if (g_comRcwCache[i].handle == 0 || g_comRcwCache[i].iface != iface) continue;
+        if (owner != nullptr)
+        {
+            Il2CppObject* target = icall_gchandle_get_target(g_comRcwCache[i].handle);
+            if (target != nullptr && target != owner) continue; // another live wrapper
+        }
+        icall_gchandle_free(g_comRcwCache[i].handle);
+        g_comRcwCache[i].handle = 0;
+        g_comRcwCache[i].iface = nullptr;
+        detached = true;
+    }
+    return detached;
+}
+
 int32_t ComRcwCacheInsert(void* iface, Il2CppObject* rcw)
 {
-    // Reuse a dead slot first (its native reference is released by the caller
-    // of this helper -- see ComRcwCachePrune).
+    // Reuse a FREE slot only. A dead-but-not-yet-detached entry keeps its slot
+    // until RcwFinalize / ComRcwCachePrune drops it (it no longer releases
+    // anything, so there is no ownership to hand over).
     for (int32_t i = 0; i < kComRcwCacheMax; ++i)
     {
         if (g_comRcwCache[i].handle != 0) continue;
@@ -8532,7 +8600,12 @@ void ComRcwCachePrune()
     for (int32_t i = 0; i < kComRcwCacheMax; ++i)
     {
         if (!ComRcwCacheEntryDead(i)) continue;
-        ReleaseInterface(g_comRcwCache[i].iface);
+        // Detach ONLY. The native reference is released exactly once, by the
+        // RCW's own release path (RcwFinalize / ReleaseComObject) -- see the
+        // LIFETIME CONTRACT above RcwClass and the WHY PRUNE MUST NOT RELEASE
+        // note above. Releasing here would double-release in the window between
+        // the collection that killed the wrapper and the finalizer that runs at
+        // the start of the NEXT collection.
         icall_gchandle_free(g_comRcwCache[i].handle);
         g_comRcwCache[i].handle = 0;
         g_comRcwCache[i].iface = nullptr;
@@ -8555,6 +8628,49 @@ Il2CppObject* CcwManagedObject(void* iface)
     return icall_gchandle_get_target(ccw->gcHandle);
 }
 } // namespace
+
+//------------------------------------------------------------------------------
+// RcwFinalize -- the RCW type finalizer, armed once by RcwClass().
+//
+// net48 semantics (MEASURED, .opencode/tmp/com-finalize/oracle/c.cs and
+// tests/cases/pinvoke-com-finalize): dropping an RCW without
+// Marshal.ReleaseComObject releases its native reference at COLLECTION time --
+// GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect() takes the raw
+// refcount from 2 (caller's reference + the wrapper's) back to 1, and
+// CleanupUnusedObjectsInCurrentContext() changes nothing afterwards. Without
+// this finalizer every out/ref COM P/Invoke leaks one native reference.
+//
+// EXACTLY-ONCE RELEASE (the whole point of the detach below):
+//   1. null / non-RCW -> return (a finalizer must never throw);
+//   2. refCount <= 0 || unknown == nullptr -> an explicit ReleaseComObject (or
+//      an earlier finalize) already released it -> return;
+//   3. DETACH the identity-cache entry FIRST, without releasing: the entry's
+//      weak target was cleared by the collection that made this object pending,
+//      so the lookup must ignore liveness. This makes every later
+//      ComRcwCachePrune a no-op for this pointer;
+//   4. clear the RCW's own fields, THEN ReleaseInterface(unknown) exactly once.
+// Steps 3-4 are ordered that way on purpose: ReleaseInterface runs arbitrary
+// native code (a COM Release may re-enter managed code through a CCW), and by
+// then both the cache and the RCW fields already say "released", so a reentrant
+// cleanup or finalizer sees nothing left to release.
+//------------------------------------------------------------------------------
+void RcwFinalize(Il2CppObject* o)
+{
+    if (o == nullptr || o->klass != RcwClass())
+    {
+        return; // finalizers must not throw
+    }
+    auto* r = reinterpret_cast<Il2CppComRcw*>(o);
+    if (r->refCount <= 0 || r->unknown == nullptr)
+    {
+        return; // already released (explicit ReleaseComObject or an earlier run)
+    }
+    void* unknown = r->unknown;
+    ComRcwCacheDetach(unknown, o);
+    r->unknown = nullptr;
+    r->refCount = 0;
+    ReleaseInterface(unknown);
+}
 
 //------------------------------------------------------------------------------
 // icall_com_get_typed_object_for_iunknown -- Marshal.GetTypedObjectForIUnknown.
@@ -9344,6 +9460,11 @@ int32_t icall_com_release_com_object(Il2CppObject* rcw)
 {
     Il2CppComRcw* r = AsRcw(rcw, "o");
     void* unknown = r->unknown;
+    // Drop the identity-cache entry first: the pointer stops being an identity
+    // key the moment we release it (a later wrap of the same pointer must build
+    // a fresh wrapper, and the cache must never release this pointer -- see the
+    // LIFETIME CONTRACT above RcwClass).
+    ComRcwCacheDetach(unknown, rcw);
     r->unknown = nullptr;
     r->refCount = 0;
     ReleaseInterface(unknown);
@@ -9364,6 +9485,7 @@ void icall_com_final_release_com_object(Il2CppObject* rcw)
     if (r->refCount > 0 && r->unknown != nullptr)
     {
         void* unknown = r->unknown;
+        ComRcwCacheDetach(unknown, rcw);
         r->unknown = nullptr;
         r->refCount = 0;
         ReleaseInterface(unknown);
