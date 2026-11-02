@@ -3036,3 +3036,95 @@ supported -- no runtime box helper (audit H3 + M5)`), so an e2e case cannot
 currently pass a boxed `IntPtr` through `AsAny` even though the bridge would
 handle it. The bridge's value-type arm covers `IntPtr` already; only the
 box SITE is missing. Unlocking that is a separate gap.
+
+## 33. COM `out`/`ref` P/Invoke parameters: wired, plus a CORRECTION to the earlier `ref` note
+
+### Status
+
+WIRED. `B:r:<ComImport interface>` (i.e. `out IFoo` / `ref IFoo`) now
+declares `void**` in `PinvokeParamListOf` and emits
+`il2cpp_pinvoke_com_outref(slot, inPointer, isOut)` at the call site.
+`out` and `ref` are indistinguishable in the signature blob (both are
+`ELEMENT_TYPE_BYREF`); the Param table's `Out` bit (`ParamOutFlags`) selects
+the write-back. Same-assembly `[ComImport]` with a readable `[Guid]` only --
+every other shape keeps the pre-existing LOUD rejection.
+
+Corpus: `tests/cases/pinvoke-com-outref/` (byte-exact oracle vs runtime).
+
+### The reference-ownership contract (measured, not recalled)
+
+Oracle: `.opencode/tmp/com-outref-oracle/` (three fixtures; every object
+counts `refs` / `addrefs` / `releases`, and none is ever freed, so an extra
+Release is observable as a lowered count instead of a crash).
+
+| Shape | net48 measurement |
+|---|---|
+| `out`, callee hands over one reference | wrapper ADOPTS it: `refs=2` after the call (ours + wrapper) and `Marshal.ReleaseComObject` drives the object to `refs=0` (records `O2`/`R5`, identical to the shipped `F5`). |
+| `ref`, callee does NOT replace | the SAME managed wrapper survives (`O4`/`O10` `same_wrapper=True`); the argument side is a **+1/-1 pair** (see the correction below). |
+| `ref`, callee REPLACES and releases the old | the old object returns to its own baseline (`O6`/`R3`) -- the marshaller adds no Release of its own. |
+| `ref`, callee REPLACES and does NOT release | the old stays at baseline **+1** (`O5`, shipped `F16`/`R2`). net48 does not "fix" the callee's contract violation and neither do we. |
+| callee writes NULL (`out` or `ref`) | the managed variable becomes `null`; nothing throws (`O3`, `O7`). |
+| null IN value on `ref` | the callee sees `NULL` (`O8`). |
+
+### CORRECTION: `com-verify` NOTES section 3(a) under-counted the `ref` argument side
+
+The earlier transcript note claimed the `ref` argument side is *borrowed* and
+that "the marshaller adds ZERO references of its own". **That is wrong: the
+net is +1.** The note's own numbers contradict its prose:
+
+```
+[F14.baseline] refs=2 addrefs=2 releases=1
+[F14.after_ref_noop] refs=3 addrefs=7 releases=5
+[F14.same_wrapper] = True
+```
+
+* `refs: 2 -> 3` is a NET **+1**;
+* `addrefs 2 -> 7` (+5) against `releases 1 -> 5` (+4) leaves a **+1**;
+* the note called the +5/-4 growth "a balanced pair", but it is not balanced
+  -- the missing 1 is exactly the argument-side reference.
+
+Independently re-measured here with a callee-entry/exit ledger
+(`oracle2.log`, records `R1`-`R4`):
+
+```
+=== R1. ref, callee does nothing ===
+[R1.pre] refs=3 addrefs=4 releases=2
+[R1.callee.entry] refs=4 addrefs=5 releases=2
+[R1.callee.exit] refs=4 addrefs=5 releases=2
+[R1.same_wrapper_after] = True
+[R1.post] refs=3 addrefs=7 releases=5
+```
+
+Entry is `refs=4` against a pre-call `refs=3`: the +1 exists **at callee
+entry**, so it is the argument-side reference, not wrapper bookkeeping.
+
+### The rule that follows (the #1 hazard of this feature)
+
+**A `ref` COM parameter must NEVER Release the old RCW.** The reference the
+callee receives is one the marshaller handed over (QI + AddRef, owned by the
+argument temporary), so the callee may legitimately consume it; the RCW keeps
+its OWN separate reference and `RcwFinalize` releases that one. Releasing the
+RCW's pointer from the write-back is a DOUBLE RELEASE -- measured symptom:
+`refs` going **negative** (`R3`: the callee already released the handed
+reference, so a second Release undershoots).
+
+`Il2CppPinvokeComOutRefArg` therefore releases **exactly one** reference, and
+only when the cell still holds the very pointer the call site handed in (the
+one the callee provably did not consume). When the callee replaced the cell,
+the pointer it wrote is ADOPTED and the borrowed reference is not touched.
+
+Mutation coverage (both must turn the case red):
+1. release the old RCW on the `ref` write-back -> `ref.replace.old_delta`
+   flips `1 -> 0` and `ref.replace_owner.old_delta` flips `0 -> -1`
+   (the underflow);
+2. wrap `out` with `icall_com_get_typed_object_for_iunknown` (AddRef) instead
+   of `icall_com_get_object_for_iunknown` (adopt) -> every
+   `*.refs_after_rc` record reports `2` instead of `0` (one leaked reference).
+
+### Registered residual (unchanged)
+
+The 4 `mscorlib`/`clr.dll` slots (`Marshal.CreateBindCtx`,
+`Marshal.MkParseDisplayName`, `Win32Native.CreateAssemblyEnum`,
+`Win32Native.CreateAssemblyNameObject`) remain out of scope: those assemblies
+are not the input assembly, so their `[ComImport]` interfaces have no
+readable `[Guid]` here and the declaration arm still rejects them LOUD.

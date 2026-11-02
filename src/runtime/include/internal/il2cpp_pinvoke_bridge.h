@@ -178,7 +178,101 @@ inline Il2CppPinvokeComArg il2cpp_pinvoke_com_arg(intptr_t p)
 {
     return Il2CppPinvokeComArg(p);
 }
+//------------------------------------------------------------------------------
+// COM-INTERFACE out/ref parameter (`out IStream` / `ref IDataObject`).
+//
+// MEASURED net48 contract (phase-0 oracle: .opencode/tmp/com-outref-oracle,
+// records R1-R5 / O1-O12; corpus tests/cases/pinvoke-com-outref):
+//
+//   * `out`: the callee hands over ONE reference and net48 ADOPTS it -- the
+//     resulting RCW owns that reference and ReleaseComObject / the RCW
+//     finalizer releases it exactly once (O2 == the shipped F5).
+//   * `ref`, callee does NOT replace: net48 keeps the SAME wrapper (O4 / O10
+//     `same_wrapper = True`) and the argument side is a +1/-1 pair around the
+//     call (R1: pre refs=3 -> callee entry 4 -> post 3).
+//   * `ref`, callee REPLACES: the marshaller does NOT release the old pointer
+//     (R2: pre 3 -> entry 4 -> post 4, unchanged after the call). When the
+//     callee honours the COM contract and releases it, the old lands back on
+//     its own baseline (R3 / O6). When it does not, the old stays at
+//     baseline+1 (O5 / shipped F16) -- a callee bug net48 does not paper over.
+//   * a NULL written by the callee (`out` or `ref`) becomes a null managed
+//     reference and never throws (O3, O7); a null IN value reaches the callee
+//     as NULL (O8).
+//
+// THE HARD RULE (#1 risk of this task): managed code NEVER Releases the old
+// RCW's pointer. The reference the callee receives comes from the EXPLICIT
+// QueryInterface done at the call site (il2cpp_com_rcw_borrow_interface), so
+// the callee may legitimately consume it; the RCW keeps its own separate
+// reference and RcwFinalize releases that one. Releasing the RCW's pointer
+// here is a DOUBLE RELEASE (measured symptom: refs going negative).
+//
+// The only Release this holder performs is the -1 half of the +1/-1 pair, and
+// ONLY when the cell still holds the very pointer the call site handed in --
+// the one reference the callee provably did not consume.
+//------------------------------------------------------------------------------
+struct Il2CppPinvokeComOutRefArg
+{
+    void* storage;          // the owner's cell (copies keep the owner's pointer)
+    void** cell;            // &owner.storage -- what the callee writes
+    Il2CppObject** slot;    // the caller's managed-reference slot address
+    void* inRaw;            // the pointer handed in (ref) / null (out)
+    int32_t isOut;          // 1 = `out` (adopt), 0 = `ref`
+    bool owner;             // only the outermost temporary writes back
 
+    Il2CppPinvokeComOutRefArg(Il2CppObject** s, void* inPointer, int32_t outFlag)
+        : storage(inPointer), cell(&storage), slot(s), inRaw(inPointer),
+          isOut(outFlag), owner(true)
+    {
+    }
+
+    Il2CppPinvokeComOutRefArg(const Il2CppPinvokeComOutRefArg& o)
+        : storage(o.storage), cell(o.cell), slot(o.slot), inRaw(o.inRaw),
+          isOut(o.isOut), owner(false)
+    {
+    }
+
+    Il2CppPinvokeComOutRefArg& operator=(const Il2CppPinvokeComOutRefArg&) = delete;
+
+    ~Il2CppPinvokeComOutRefArg()
+    {
+        if (!owner || slot == nullptr) return;
+        void* const p = *cell;
+        if (!isOut && p == inRaw)
+        {
+            // Not replaced: the caller keeps the SAME managed object (measured
+            // identity), so the slot is not rewritten. Balance the +1 the call
+            // site took for the argument -- this is the one reference the
+            // callee provably did not consume.
+            if (inRaw != nullptr)
+            {
+                icall_com_release(
+                    static_cast<intptr_t>(reinterpret_cast<uintptr_t>(inRaw)));
+            }
+            return;
+        }
+        // `out`, or `ref` replaced: the pointer in the cell carries the
+        // reference the callee handed over -- ADOPT it (no AddRef; the RCW
+        // owns it and releases it exactly once via ReleaseComObject or
+        // RcwFinalize). A callee-written NULL becomes a null managed
+        // reference (measured O3 / O7), never an exception.
+        *slot = (p == nullptr)
+            ? nullptr
+            : reinterpret_cast<Il2CppObject*>(icall_com_get_object_for_iunknown(
+                  static_cast<intptr_t>(reinterpret_cast<uintptr_t>(p))));
+    }
+
+    template <typename T>
+    operator T() const
+    {
+        return reinterpret_cast<T>(cell);
+    }
+};
+
+inline Il2CppPinvokeComOutRefArg il2cpp_pinvoke_com_outref(
+    Il2CppObject** slot, void* inPointer, int32_t outFlag)
+{
+    return Il2CppPinvokeComOutRefArg(slot, inPointer, outFlag);
+}
 // Result wrapper: `il2cpp_pinvoke_result<intptr_t>(native_call(...))` folds a
 // native pointer/integer result back into the intptr_t carrier.
 template <typename T, typename R>

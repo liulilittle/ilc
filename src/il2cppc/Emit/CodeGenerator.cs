@@ -9677,6 +9677,16 @@ default: return false;                           // primitives/VAR(handled by ca
             // LOUD regex text itself is NOT narrowed.
             var rCom when PinvokeComInterfaceParamOf(md, rCom) is { } comCpp
                 => comCpp,
+            // COM interface parameter, OUT/REF (com-outref): `B:r:<ComImport
+            // interface>` declares `void**` -- the native callee writes an
+            // interface pointer through the cell. The DECLARATION carries no
+            // IID; the CALL SITE emits the borrow/wrap pair
+            // (il2cpp_pinvoke_com_outref) using the IID from
+            // PinvokeComInterfaceIidOf. Same-assembly [ComImport] with a
+            // readable [Guid] only -- everything else keeps the LOUD rejection
+            // below unchanged.
+            var rComRef when PinvokeComInterfaceByrefIidOf(md, rComRef) is not null
+                => "void**",
             // P-D1 P0-2 (delegate-typed DllImport params): a delegate (or any
             // other reference-typed / fnptr / pointer / byref) param is
             // LOUDLY rejected -- the old fallback emitted int32_t for
@@ -9757,7 +9767,18 @@ default: return false;                           // primitives/VAR(handled by ca
     //--------------------------------------------------------------------------
     private static string? PinvokeComInterfaceParamOf(MetadataReader md, string encoded)
         => PinvokeComInterfaceIidOf(md, encoded) is not null ? "void*" : null;
-
+    // The 16-byte [Guid] of a BYREF-encoded (``B:r:<name>``) same-assembly
+    // [ComImport] interface; null for EVERY other encoding. The byval helper
+    // above deliberately rejects ``B:`` (it would answer for the value form
+    // only); out/ref IS the value form's address, so the out/ref arm strips
+    // the ``B:`` prefix here and reuses the same acceptance test + [Guid]
+    // decoder. `out` and `ref` are indistinguishable in the signature blob
+    // (both encode ELEMENT_TYPE_BYREF); the Param row's Out bit decides which
+    // write-back the call site emits.
+    private static byte[]? PinvokeComInterfaceByrefIidOf(MetadataReader md, string encoded)
+        => encoded.StartsWith("B:r:", StringComparison.Ordinal)
+            ? PinvokeComInterfaceIidOf(md, encoded[2..])
+            : null;
     // The 16-byte [Guid] of the same-assembly [ComImport] interface named by a
     // byval "r:<name>" encoding; null for EVERY other encoding (B:, System.Object,
     // any class, a ComImport without [Guid], a cross-assembly TypeRef). This is
@@ -12784,6 +12805,50 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 parts.Add($"il2cpp::runtime::il2cpp_pinvoke_com_arg(il2cpp::runtime::il2cpp_com_rcw_borrow_interface({objPtr}, {argIidLit}))");
                 continue;
             }
+            // COM interface OUT/REF parameter (com-outref): `out IStream` /
+            // `ref IDataObject`. The native declaration is `void**` and the
+            // IL operand is the ADDRESS of the managed-reference slot
+            // (ldloca/ldflda -> "(&x)"), i.e. exactly the `Il2CppObject**`
+            // the holder needs.
+            //
+            // MEASURED net48 contract (phase-0 oracle records R1-R5 / O1-O12,
+            // reproduced by tests/cases/pinvoke-com-outref):
+            //   * `ref` argument side is BORROWED +1/-1 around the call (R1:
+            //     callee entry = caller count + 1, post-call = caller count).
+            //     Emitted as il2cpp_com_rcw_borrow_interface (QI + AddRef,
+            //     OWNED). The holder releases exactly that one reference, and
+            //     ONLY when the cell still holds the very pointer the call
+            //     site handed in (the callee provably did not consume it).
+            //     When the callee replaces the cell, the pointer it wrote is
+            //     ADOPTED: the borrowed reference was spent inside the
+            //     callee's contract, so releasing it here would be the double
+            //     release this path exists to avoid.
+            //   * `ref` and the callee REPLACES: the old pointer is NEVER
+            //     released here (R2 keeps the old at +1 when the callee did not
+            //     release it, exactly like the shipped raw-pointer oracle
+            //     F16/F6). Releasing it would be the DOUBLE RELEASE this whole
+            //     path exists to avoid -- the reference handed to the callee
+            //     was spent inside the callee's contract.
+            //   * `out`: no in-reference; the callee's pointer is ADOPTED.
+            //   * a null `ref` value borrows as 0 and the callee sees NULL
+            //     (measured O8); a callee-written NULL becomes null managed
+            //     (measured O3 / O7).
+            // Emitted WITHOUT il2cpp_pinvoke_arg: the holder's conversion
+            // operator yields the cell pointer the declaration names.
+            if (r.IsPInvoke && cast is not null
+                && PinvokeComInterfaceByrefIidOf(md, cast) is { } comRefArgIid)
+            {
+                var outFlag = r.ParamOutFlags != null && j < r.ParamOutFlags.Length && r.ParamOutFlags[j];
+                var refIidLit = new System.Text.StringBuilder("reinterpret_cast<const uint8_t*>(\"");
+                foreach (var by in comRefArgIid) refIidLit.Append("\\x").Append(by.ToString("x2"));
+                refIidLit.Append("\")");
+                var inPtr = outFlag
+                    ? "nullptr"
+                    : $"reinterpret_cast<void*>(il2cpp::runtime::il2cpp_com_rcw_borrow_interface(reinterpret_cast<Il2CppObject*>(*({code})), {refIidLit}))";
+                parts.Add($"il2cpp::runtime::il2cpp_pinvoke_com_outref(reinterpret_cast<Il2CppObject**>({code}), {inPtr}, {(outFlag ? 1 : 0)})");
+                continue;
+            }
+
             if (cast is { Length: > 4 } litCast && litCast.StartsWith("lit:", StringComparison.Ordinal))
             {
                 parts.Add(litCast[4..]);
