@@ -1450,3 +1450,66 @@ net48 oracle == transpiled runtime:**905B, sha256 = `8593f050db94e95a13a28a31792
 | corelibp0 | 887 | `391cb96fe4862f2af565c2ef9b56037cbf7a0ccb6c48dd25e24550a6fc577d56` |
 
 未验证:未跑全量 sweep;R4/R8/U1/U2/U4/U8 元素映射已实现但新 case 只覆盖 int/byte/short/long/bool(+U1 bool),其余宽度由同一映射表推导;短数组“编组期抛异常”语义未复刻(已记录边界);嵌套结构体内嵌 ByValArray 的 e2e 未单独建 case。
+
+## 15. `StringBuilder` 作为 P/Invoke 参数（2026-11-02，`stringbuilder` 分支，基线 `6b8df78a`）
+
+### 15.1 缺陷与根因
+
+`PinvokeParamListOf`（`CodeGenerator.cs:9475`）没有任何 `StringBuilder` 分支，`r:System.Text.StringBuilder` 直接落到 `var r when r.StartsWith("r:")` 的 LOUD 拒绝（`CodeGenerator.cs:9602-9609` 区段）。任何以 `StringBuilder` 为参数的 `[DllImport]`（`GetWindowText` 形态）都无法转译。
+
+红证（新 case 首跑，transpile 日志原文）：
+
+    il2cppc error: P/Invoke parameter type 'r:System.Text.StringBuilder' on sb_write_terminated is not supported: reference-typed (delegate/array/object), fnptr and pointer parameters have no marshalling bridge, ...
+
+### 15.2 net48 实测语义（oracle 实测 + 原生探针钉死）
+
+- native 参数就是 `wchar_t*`（CharSet.Unicode/Auto）；net48 把 **StringBuilder 自己的 chunk 缓冲区**交出去，native 直接写它，不是临时副本再拷回。
+- 缓冲区大小 = `StringBuilder.Capacity`，**不是 Length**：`new StringBuilder("hello", 32)` 上 native 写 20 单元 + NUL，读回 Length 20 / 文本完整。
+- 缓冲区初值 = 当前内容 + 在 index `Length` 处写 NUL（实测 `sb_peek(5)` 返回 0，`sb_peek(4)` 返回 `'o'`）。
+- 调用后 `Length = strnlen(buffer, Capacity)`（**无条件从缓冲区起始扫到第一个 NUL**，不是用 native 写入长度、不是保留原 Length、不是只扫到原 Length）：写短 + NUL => 变短（`"hello"` -> `"abc"`，Length 3）；写空（NUL@0）=> 0；写到 Capacity 以内更长 => 变长；Capacity 内无 NUL => Capacity（`new StringBuilder("01234567", 8)` 上写满 8 单元无 NUL，Length 8）。
+- 旧内容到新长度之间的残留单元可见：`"ZZZZZZ"`（Capacity 8）上写 `"ab"` 无 NUL => `"abZZZZ"`，Length 6。
+- oracle 的非确定边界（刻意不纳入断言）：net48 的 native 临时 buffer 物理上是 `Capacity+1` 单元，尾部未初始化；把 Capacity 个单元全部写成非 NUL 时，回读的越界 `strlen` 会读到未初始化单元（本席探针实测 `initLen=3/cap=16` 写满 16 得 Length 17，且 index=Capacity 处的未初始化槽位实测出现过 8/16/32（= Capacity）等非零值；`initLen=0/cap=32` 写 2 字符无 NUL 得 Length 3 也是同一原因）。本模型按上面的确定规则以 Capacity 为上界，不复现该未定义行为；`[nonul0]` 这类「初值 0 + 写 2 字符无 NUL」在 oracle 的 3 来自临时 buffer 尾部的垃圾单元，不属于可复现语义（同一实现换一次分配就会变）。
+
+### 15.3 实现
+
+- 声明：`PinvokeParamListOf` 新增 `r:System.Text.StringBuilder` => Unicode/Auto `char16_t*`；`CharSet.Ansi` 是**自识别 LOUD 拒绝**（见 15.8 与 `docs/audit/b5-gaps.md` §29），`CodeGenerator.cs:9532-9550`。
+- 调用点：`EmitIcallCallArgs` 对 P/Invoke 的 StringBuilder 实参发 `il2cpp::runtime::il2cpp_pinvoke_stringbuilder(reinterpret_cast<Il2CppStringBuilder*>(...))`（`CodeGenerator.cs:12545-12558`），**不**套 `il2cpp_pinvoke_arg`（helper 自己按 native 目标参数类型 reinterpret）。
+- 运行时 helper：`il2cpp_pinvoke_bridge.h:357-489` 的 `Il2CppPinvokeStringBuilderArg`。构造时对 **builder 与 chars 数组各做一次 static-root + pin 双注册**，把 `chars->data` 交给 native，并在 index Length 写 NUL（`length < capacity` 时；该单元在 chunk 的空闲区，不改变托管内容）；临时对象析构（native 返回之后、整条 full-expression 结束）重新从 rooted slot 读回 builder/chars，按 `strnlen(buffer, min(Capacity, chars->length))` 重算 `sb->length`（`il2cpp_pinvoke_bridge.h:471-474`）。null builder => 传 NULL。
+
+### 15.4 GC 安全结论（实测 + 代码）
+
+- **会 GC**。`il2cpp_pinvoke_call` 自身不分配，但 native callee 可以回调托管代码（WndProc / 回调 delegate），回调里的分配或 `GC.Collect()` 会触发紧凑式收集；`gc.cpp:1358-1367` 明确 pinned 对象 promotion 不移动，其它 Gen0 幸存者会被复制。
+- **保证方式 = pin + root 两者都要**：pin 表让对象不可移动，但 mark 只走 static roots，所以 pin 不 root（`il2cpp_pinvoke_bridge.h:216-225` 的数组契约）；只 root 不 pin 则对象会被搬走。本 helper 对 builder 与 chars 各注册一对（`il2cpp_pinvoke_bridge.h:432-443`，`gc.cpp:881-885` / `gc.cpp:1974-2013` 的 GCHandle.Pinned 同款），析构时按 slot 重读（收集器会重写 rooted slot）。
+- **红/绿实测**（新 case record `g1`：native 先回调 `GC.Collect(); WaitForPendingFinalizers(); GC.Collect();`，回调返回后 native 才往 buffer 写 `"AfterGC"`）：
+  - 正常实现：`[g1.len]=7` `[g1.text]=AfterGC`（oracle 与 runtime 同 sha）。
+  - 变异（把 chars 的 pin 降级为只 root）：`[g1.len] expected==7 actual==6`、`[g1.text] expected==AfterGC actual==before`（runtime sha `f0da3ee4...`，RED）。这同时证明该窗口真的发生了数组搬移、且该 record 能检出裸指针失效。
+  - 恢复后 GREEN。
+
+### 15.5 新 case
+
+`tests/cases/pinvoke-stringbuilder/`（net48 oracle + 自建 `sbprobe` native fixture，`CMakeLists.txt` 在子目录，照 `pinvoke-bvaltstr/bvaltstrprobe` 写法）。覆盖：写短 + NUL（缩短）、写空（NUL@0）、比原 Length 更长、空 builder、写满 Capacity 无 NUL（Capacity 边界，初值 Length==Capacity 保证 oracle 确定）、无 NUL 覆盖残留（`abZZZZ`）、GetWindowText 形态、native 视角内容/终止符（`sb_peek`）、调用中强制 GC 后写回。
+
+两侧同 sha（28 records / 407B）：
+- mingw: `b5ed9717263953d82b856ca0d82add4c3740d251ff3c7c4125c0370b7a66ad29`
+- msvc : 同 sha `b5ed9717263953d82b856ca0d82add4c3740d251ff3c7c4125c0370b7a66ad29`
+
+### 15.6 变异证明
+
+改真正决定 Length 的那行：`il2cpp_pinvoke_bridge.h` 的 `sb->length = n;` -> `sb->length = contentLength;`（保留原 Length）。
+- RED：`case=pinvoke-stringbuilder compiler=mingw ok=False`，runtime 380B `c09ee96d9d9266d52c548d3008cc70c2f10cad1391ca01e85d5694869c1f8a99`，12 条 record diff（`u1.len 3->5`、`u2.len 0->5`、`u3.len 20->5`、`u4.len 4->0`、`u7.len 12->0`、`g1.len 7->6` 等）。
+- 恢复后 GREEN：407B `b5ed9717263953d82b856ca0d82add4c3740d251ff3c7c4125c0370b7a66ad29`。
+- `MUTATION|TEMPORARY|MUTANT` 大小写敏感 grep：0 命中（仅本文档里描述该 grep 的一行历史文字）。`git status` 干净（见本席执行报告）。
+
+### 15.7 门禁
+
+- C0 `dotnet build src/il2cppc/il2cppc.csproj -c Debug --no-incremental` => **0 警告 0 错误**。
+- 单测 `dotnet test tests/unit/unit.csproj -c Debug` => **4149 通过 / 0 失败 / 0 跳过**（首轮 6 个 fixture 缺失失败，`scripts/build-unit-fixtures.ps1` 后复跑全绿）。
+- 锚（mingw，每例 oracle == runtime）：`pinvoke-bvaltstr` 332B `ba475e9b0fde82a4a3725c0def31d35f0fa9b52354f370275cab9f033c90ca58`；`pinvoke-structret2` 401B `052150306292922ba17c6b0d5d83363012c73564e2c11a2368943b292c4dcbab`；`pinvoke-structreturn` 356B `09844a4d68e42d02a78e06439fd2ea828661faa254166a258064ac5b83bb7f61`；`pinvoke-nameclash` 182B `6fe3b4b1f46a1849e0f57c62e91139b4ad0fe3ea77ff02cae7f937a2c6a33f67`；`winforms1` 20521B `8a4c0011723c4e462ad6240f094841c905e086dde4d9d2a0f2f5a975794c2138`；`collation1` 1356B `90013e33c575bf609c3d4a50ac2a7a6bd1233237f12908e5885625307853c8ca`；`urihash1` 1417B `9e622815bf31d62eaaba80863848d7158a59bda584816ed1fc6b67c77d3366d7`；`probe-pinvoke-array` 845B `b8f5d7e861eb5e6acf723e1a32815a91326d6987bad91dbc9da1b52008cba657`；`probe-handleref` 217B `a089ccbfc400627c7d360a0deb5b8d8ad6cf66c50dd92aa5ee87b1cfc05b766a`；`corelibp0` 887B `391cb96fe4862f2af565c2ef9b56037cbf7a0ccb6c48dd25e24550a6fc577d56`。
+- sb-* 逐个跑（mingw，每例 oracle == runtime）：`stringbuilder` 761B `84ce3845d2e74f8108c7f9ace93c7c140979fa0c83c533c2f8b8264b5a0f9c3f`；`sbappend` 40B `bbd99c877b682715f65cddec43732ef3e5323764deb795b27706af2ffbe157c9`；`sbchain` 297B `626256837dc0082ccb55e53183e4bddfa0860faea67bd865a082dbdf8ea4d926`；`sbd1` 305B `315b7dd5f29e1af3046a2ff5ce852eb264f9cb2fba9cdf22439a53b348a08570`；`sbdepth` 897B `b0c1705a729a8d661bd2c04414ccdb3f911596f10e58ef9464f68383609976f2`；`sbgen1` 326B `dff310901faefc6d4be1e390dec212a41650b585f91aee5f7216f5f55e0b47e9`；`sbinsertcase` 264B `d95ab3baa4e5a2fdc5c2bf8f1518b2be4ef67af1a40c4706bbc2a908af7c3dde`；`sblong` 189B `924ae15a6c09d2cadffa97467834798d79b0a3ef25c5446d923b116826c1eccd`；`sb-provider-fmt` 61B `52a3363104fb2396a50201d680e08c90a3c91634df3515472a7da4ede1f0859b`；`sbloud2` 791B `fdf928231035fa4420320e26db7dadf9d7380cf9255f2fe2c7e8a69812cbca04`。
+
+### 15.8 已知偏差与边界
+
+1. **`CharSet.Ansi` 保持 LOUD**（不静默错码页）：net48 走系统 ANSI 代码页（CP_ACP），本转译器的 ANSI 字符串约定是 UTF-8（`il2cpp_environment.h:47` 明确 CP_ACP 不在简化范围），把 UTF-8 交给 Ansi callee 会让非 ASCII 文本损坏。声明点抛自识别 `NotSupportedException`，登记在 `docs/audit/b5-gaps.md` §29；ASCII-only 的 Ansi 形状也因此暂不支持。WinForms 的 `GetWindowText` 是 CharSet.Auto（= Unicode 路径），不受影响。
+2. **无 NUL 且写满 Capacity** 的 oracle 未定义行为不复现（见 15.2）；确定语义按 Capacity 上界。
+3. oracle 在写满/接近 Capacity 时会增长自身 `Capacity`（实测 8->10、16->18、32->34），本模型保持 managed Capacity（Length 语义已按规则复现；Capacity 增长属 net48 内部 chunk 细节）。
+4. 只做**参数方向**；`StringBuilder` 作为返回值不在本项范围（仍走既有返回类型路径）。

@@ -2657,3 +2657,39 @@ counter. Lock: `tests/cases/structdefaulthash1` (25 records -- declaration
 order vs hash order, 2-int XOR, short/byte/long folding, interior padding, and
 plain == tuple on one type).
 
+
+## 29. impl-stringbuilder: StringBuilder P/Invoke parameters (Unicode/Auto wired; CharSet.Ansi LOUD)
+
+`System.Text.StringBuilder` as a `[DllImport]` parameter is a supported
+transpile shape for `CharSet.Unicode` / `CharSet.Auto` (net48 gives the callee
+the builder's OWN UTF-16 chunk -- Capacity units, NOT Length -- and recomputes
+`Length = strnlen(buffer, Capacity)` after the call; measured in
+`tests/cases/pinvoke-stringbuilder`). The builder and its chunk are BOTH rooted
+AND pinned for the call full-expression, because a compacting GC can run inside
+the callee through a managed callback (see
+`docs/audit/winforms-pinvoke-current.md` section 14).
+
+Registered residual gap: `CharSet.Ansi` is a self-identifying transpile-time
+LOUD. net48 marshals an ANSI StringBuilder through the system ANSI code page
+(CP_ACP); this transpiler's ANSI string convention is UTF-8
+(`src/runtime/include/internal/il2cpp_environment.h:47` records that full
+CP_ACP conversion is out of the simplified scope) and there is no CP_ACP
+converter in the P/Invoke bridge. Handing UTF-8 to an Ansi callee would
+silently corrupt non-ASCII text, so the declaration site rejects it instead.
+
+Self-identify (the transpile log carries this exact message):
+
+    P/Invoke StringBuilder parameter on <method> with CharSet.Ansi: net48 marshals the builder through the system ANSI code page (CP_ACP); this transpiler's ANSI string marshalling is UTF-8 with no CP_ACP conversion, so non-ASCII text would be corrupted -- declare CharSet.Unicode/Auto for the UTF-16 chunk bridge (b5-gaps section 29)
+
+Unlock condition: add a CP_ACP (`WideCharToMultiByte`) argument converter and
+a `MultiByteToWideChar` readback to the P/Invoke StringBuilder bridge (a
+Capacity+1 byte zero-filled temp, content + NUL, `strnlen` bounded by
+Capacity), then add the Ansi records to
+`tests/cases/pinvoke-stringbuilder` (NUL-terminated short/long writes,
+exactly-Capacity no-NUL, residual content, GetWindowTextA shape). ASCII-only
+Ansi usage is currently unsupported too -- the rejection is by declaration, not
+by content.
+
+Lock case: `tests/cases/pinvoke-stringbuilder` (Unicode/Auto; 28 records,
+407B both sides; mingw and msvc sha
+`b5ed9717263953d82b856ca0d82add4c3740d251ff3c7c4125c0370b7a66ad29`).
