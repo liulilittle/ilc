@@ -41,15 +41,29 @@ int64_t icall_gc_get_total_memory()
 
 //------------------------------------------------------------------------------
 // icall_gc_get_generation -- GC.GetGeneration(obj): 0/1/2 (small-object
-// generations) or 3 (LOH). null -> ArgumentNullException (net48 contract);
-// the runtime's own helper returns -1 for pointers that are no longer live
-// blocks (a caller bug -- dangling pointers are UB in .NET too).
+// generations) or 3 (LOH).
+//
+// null -> NullReferenceException, NOT ArgumentNullException. MEASURED on net48
+// (tests/cases/gcgennull): GetGeneration(null) throws NullReferenceException --
+// the BCL implementation dereferences the object instead of null-checking it,
+// unlike SuppressFinalize / ReRegisterForFinalize which DO throw
+// ArgumentNullException. Pinning the wrong type made catch
+// (NullReferenceException) miss and catch (ArgumentNullException) match: the
+// exact inverse of net48.
+//
+// The chain repeats the type as its second segment per the factory convention
+// (il2cpp_exception_ext.h:27-28): the first segment stays the canonical managed
+// full name while the walk still sees the base classes. The runtime's own helper
+// returns -1 for pointers that are no longer live blocks (a caller bug --
+// dangling pointers are UB in .NET too).
 //------------------------------------------------------------------------------
 int32_t icall_gc_get_generation(Il2CppObject* obj)
 {
     if (obj == nullptr)
     {
-        il2cpp::il2cpp_throw_new("System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception", "obj");
+        il2cpp::il2cpp_throw_new(
+            "System.NullReferenceException,System.NullReferenceException,System.SystemException,System.Exception",
+            "Object reference not set to an instance of an object.");
     }
     return il2cpp::il2cpp_gc_get_generation(obj);
 }
