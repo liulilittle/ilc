@@ -422,6 +422,158 @@ inline Il2CppPinvokeStructArrayArg il2cpp_pinvoke_struct_array(
 }
 
 //------------------------------------------------------------------------------
+// [MarshalAs(UnmanagedType.AsAny)] OBJECT parameter -> `void*`.
+//
+// MEASURED net48 semantics (executable oracle, .opencode/tmp/
+// impl-pinvoke-object/phase0/oracle; both a raw byte dump and a parameter
+// received as an INTEGER so "value vs address" cannot be confused):
+//
+//   * the callee receives the ADDRESS OF A NATIVE TEMP COPY of the boxed
+//     value's unmanaged representation -- NOT the value itself and NOT the
+//     managed box. Measured with `void* any_probe(void* p, ...)`: p is a
+//     readable stack/heap temp whose first 8 bytes are the boxed IntPtr value
+//     (the integer-typed probe reports x != payload && *(uint64_t*)x ==
+//     payload). The same row measured against the REAL user32!CreateWindowEx:
+//     WM_CREATE's CREATESTRUCT.lpCreateParams is that temp address and
+//     *lpCreateParams is the boxed IntPtr value.
+//   * a boxed user struct arrives as the struct's field bytes at offset 0 of
+//     the temp (the managed box header is NOT part of the image).
+//   * null -> NULL.
+//   * [In, Out] copies the temp BACK into the managed box after the call;
+//     [In] alone (and the default, no bits) does NOT (measured: a native write
+//     to the temp is lost without Out, observable with Out).
+//   * a REFERENCE-typed payload (string / array / a [StructLayout] class) is
+//     marshalled by net48 as a temp copy of ITS OWN marshal image. This bridge
+//     implements the VALUE-TYPE-BOX family only; a reference payload raises a
+//     self-identifying managed NotSupportedException (docs/audit/b5-gaps.md
+//     section 32 carries the gap and its unlock condition).
+//
+// GC SAFETY: the call may trigger a compacting collection (a native callee can
+// callback into managed code). The managed BOX is per-argument rooted for the
+// whole call full-expression, so the copy-back re-reads it through the root
+// slot (collector-updated). Copies travel with owner=false.
+//------------------------------------------------------------------------------
+namespace detail {
+
+// Payload offset/size of a boxed value type. Builtin box classes live at
+// header + one aligned payload slot (instanceSize 16, 32 for the 16-byte
+// payloads); a USER struct box is allocated with the struct's OWN payload
+// bytes and its descriptor's instanceSize IS sizeof({T}) (no header), so the
+// two families need different arithmetic. Returns false for anything that is
+// not a value-type box (a reference type -- string/array/class).
+inline bool asany_box_payload(Il2CppClass* klass, int32_t* offset, int32_t* size)
+{
+    *offset = static_cast<int32_t>(sizeof(Il2CppObject));
+    const int32_t builtin = klass->instanceSize - static_cast<int32_t>(sizeof(Il2CppObject));
+    Il2CppClass* const builtins[] = {
+        &System_Boolean_class, &System_Char_class, &System_Byte_class, &System_SByte_class,
+        &System_Int16_class, &System_UInt16_class, &System_Int32_class, &System_UInt32_class,
+        &System_Int64_class, &System_UInt64_class, &System_Single_class, &System_Double_class,
+        &System_Decimal_class, &System_DateTime_class, &System_TimeSpan_class,
+        &System_Guid_class, &System_DateTimeOffset_class,
+        &System_IntPtr_class, &System_UIntPtr_class,
+    };
+    for (Il2CppClass* b : builtins)
+    {
+        if (klass == b)
+        {
+            *size = builtin > 0 ? builtin : static_cast<int32_t>(sizeof(void*));
+            return true;
+        }
+    }
+    // A translated USER value type: baseClass chain reaches System.ValueType.
+    // (An ENUM descriptor bases on System.Enum -- a BCL root that emits no
+    // descriptor -- and is never a System.ValueType box; it falls through and
+    // is rejected below, matching the box-site gate.)
+    for (Il2CppClass* c = klass; c != nullptr; c = c->baseClass)
+    {
+        if (c == &System_ValueType_class)
+        {
+            *size = klass->instanceSize;
+            return *size > 0;
+        }
+    }
+    return false;
+}
+
+} // namespace detail
+
+struct Il2CppPinvokeAsAnyArg
+{
+    Il2CppObject* obj;     // rooted box (null for a null argument)
+    Il2CppObject** slot;   // &obj (the GC root target), null when obj == null
+    void* data;            // native temp copy (null for a null argument)
+    int32_t dataSize;
+    bool copyBack;
+    bool owner;
+
+    Il2CppPinvokeAsAnyArg(Il2CppObject* o, int32_t copyBackFlag)
+        : obj(o), slot(nullptr), data(nullptr), dataSize(0),
+          copyBack(copyBackFlag != 0), owner(true)
+    {
+        if (o == nullptr) return; // null -> nullptr (net48)
+        int32_t offset = 0;
+        int32_t size = 0;
+        if (o->klass == nullptr || !detail::asany_box_payload(o->klass, &offset, &size))
+        {
+            il2cpp_throw_new(
+                "System.NotSupportedException,System.NotSupportedException,"
+                "System.SystemException,System.Exception",
+                "P/Invoke [MarshalAs(UnmanagedType.AsAny)] object argument: the argument is a "
+                "REFERENCE type (string/array/class). net48 marshals it as a temp copy of its own "
+                "marshal image; this bridge implements value-type boxes only. See "
+                "docs/audit/b5-gaps.md section 32.");
+        }
+        slot = &obj;
+        // Double root/pin pair (same contract as the array helpers above):
+        // the callee may callback into managed code and trigger a compacting
+        // collection, and a pin alone does not mark while a root alone does
+        // not stop the move.
+        il2cpp_gc_add_static_root(reinterpret_cast<void**>(slot));
+        il2cpp_gc_add_pinned(reinterpret_cast<void**>(slot));
+        dataSize = size;
+        data = std::malloc(static_cast<std::size_t>(size));
+        if (data == nullptr)
+        {
+            std::fprintf(stderr, "il2cpp_pinvoke AsAny argument: out of memory (%d bytes)\n",
+                         static_cast<int>(size));
+            std::abort();
+        }
+        std::memcpy(data, reinterpret_cast<char*>(o) + offset, static_cast<std::size_t>(size));
+    }
+    Il2CppPinvokeAsAnyArg(const Il2CppPinvokeAsAnyArg& o)
+        : obj(o.obj), slot(o.slot), data(o.data), dataSize(o.dataSize),
+          copyBack(o.copyBack), owner(false) {}
+    Il2CppPinvokeAsAnyArg& operator=(const Il2CppPinvokeAsAnyArg&) = delete;
+    ~Il2CppPinvokeAsAnyArg()
+    {
+        if (!owner) return;
+        if (slot != nullptr)
+        {
+            if (copyBack && dataSize > 0 && data != nullptr)
+            {
+                Il2CppObject* live = *slot; // collector-updated root
+                if (live != nullptr)
+                {
+                    std::memcpy(reinterpret_cast<char*>(live) + sizeof(Il2CppObject),
+                                data, static_cast<std::size_t>(dataSize));
+                }
+            }
+            il2cpp_gc_remove_pinned(reinterpret_cast<void**>(slot));
+            il2cpp_gc_remove_static_root(reinterpret_cast<void**>(slot));
+        }
+        std::free(data);
+    }
+    template <typename T>
+    operator T() const { return reinterpret_cast<T>(data); }
+};
+
+inline Il2CppPinvokeAsAnyArg il2cpp_pinvoke_asany(Il2CppObject* o, int32_t copyBack)
+{
+    return Il2CppPinvokeAsAnyArg(o, copyBack);
+}
+
+//------------------------------------------------------------------------------
 // StringBuilder parameters (System.Text.StringBuilder -> native UTF-16 buffer).
 //
 // MEASURED net48 semantics (tests/cases/pinvoke-stringbuilder -- the case's

@@ -2914,3 +2914,125 @@ What remains for the next stage:
 
 Lock cases: `tests/cases/pinvoke-com-finalize` (this stage) and
 `tests/cases/pinvoke-com-byval` (the byval ledger, unchanged).
+
+
+---
+
+## 32. `System.Object` P/Invoke parameters: the `AsAny` family is wired; the default-VARIANT family is a registered gap
+
+Seat: impl-pinvoke-object. Baseline `6c95c1db`. Lock case:
+`tests/cases/pinvoke-object-any` (8 records, 188B both sides, mingw sha
+`c1ea1d5c53c8accb9c74458728c2953c8daaf780bccafbf0b1fde98...`).
+
+### 32.1 What the net48 oracle measured (executable, not recalled)
+
+Everything below was measured on the real net48 GAC with
+`.opencode/tmp/impl-pinvoke-object/phase0/oracle/*.exe` (raw byte dumps, an
+INTEGER-typed receiver that tells "value" from "address", and a real
+`user32!CreateWindowExW` whose WndProc reads
+`CREATESTRUCT.lpCreateParams`).
+
+* `[MarshalAs(UnmanagedType.AsAny)] object` -> the callee receives the
+  **ADDRESS OF A NATIVE TEMP COPY** of the boxed value's unmanaged image.
+  It is NOT the value itself, NOT the managed box, and NOT a VARIANT.
+  `CreateWindowEx`: `lpCreateParams` is that temp address and
+  `*lpCreateParams` is the boxed `IntPtr` value.
+* A boxed user struct arrives as its **field bytes at offset 0** of the temp.
+* `null` -> `NULL`.
+* `[In, Out]` copies the temp **back into the managed box** after the call;
+  `[In]` alone (and the default, no bits) does not -- a native write is lost.
+* An object parameter with **NO** `MarshalAs` is a different marshal
+  entirely: a **VARIANT** (`ptype=0`; the `vt` field at offset 0). A boxed
+  struct yields `vt=0x24` (`VT_RECORD`), a boxed `IntPtr` yields `vt=0x16`
+  (`VT_INT`), a boxed `int` `vt=3` (`VT_I4`), `null` an all-zero VARIANT.
+
+The `MarshalAs` decoration is NOT a CustomAttribute row: it is the Param
+row's FieldMarshal blob (ECMA II.22.19 / II.23.4), whose first byte is the
+`NATIVE_TYPE_*` code. `NATIVE_TYPE_ASANY` = 0x28 = 40 (confirmed against
+`UnmanagedType.AsAny` and by decoding the real `CreateWindowEx` row).
+
+### 32.2 Reachability of the seven audited rows (measured, no speculation)
+
+| Row | Marshal blob | Caller found | What the caller passes | Status |
+|---|---|---|---|---|
+| `UnsafeNativeMethods.CreateWindowEx` (p11) | `28` AsAny | `NativeWindow::CreateHandle` IL_012b; `Microsoft.Win32.SystemEvents::CreateBroadcastWindow` | `CreateParams::get_Param()` (`object`); MdiClient stores a `CLIENTCREATESTRUCT` CLASS, everything else `null` | **WIRED** |
+| `Internal.IntUnsafeNativeMethods.CreateFontIndirect(Object)` | none (`-`) | `Internal.WindowsFont::CreateFont` IL_0007 and IL_0046 | `WindowsFont::logFont`, an `IntNativeMethods+LOGFONT` **CLASS** (`[StructLayout(Sequential)]`, size 92) | **GAP** (default VARIANT) |
+| `Internal.IntUnsafeNativeMethods.CreateFontIndirect(Object)` (Drawing) | none | no caller in the net48 GAC | -- | dead declaration |
+| `Gdip::GdipCreateFontFromLogfont{A,W}` (p1) | `28` AsAny | `Font::FromLogFont(Object, IntPtr)` IL_0022 / IL_0034 | **`ldarg.0` -- the caller's own `object lf`**, i.e. whatever the USER passed to the public API | **GAP** (see 32.3) |
+| `Gdip::GdipGetLogFont{A,W}` (p2) | `28` AsAny | `Font::ToLogFont(Object[, Graphics])` IL_0038 / IL_005a | **`ldarg.1` -- the caller's own `object logFont`** | **GAP** (see 32.3) |
+
+So the brief's premise "the 6 non-AsAny lines" was wrong on two counts, both
+proven executably:
+
+1. **Only 2 of the 6 carry no marshal blob** (the two `CreateFontIndirect`
+   rows; the System.Drawing one has no caller at all). The four `Gdip*` rows
+   DO carry `NATIVE_TYPE_ASANY` (0x28) -- reflection confirms
+   `MarshalAs=AsAny` on their `Object` parameter.
+2. `CreateFontIndirect(Object)` is **reachable** (`WindowsFont::CreateFont`,
+   two call sites) and it passes a `[StructLayout(Sequential)]` **class**,
+   not a boxed struct. net48 therefore marshals it as `VT_DISPATCH`
+   (a class instance is a reference -> `VT_DISPATCH`/`VT_UNKNOWN`), and gdi32
+   reads the VARIANT header as `lfHeight` -- i.e. **the row is genuinely
+   broken ON net48**, and the real font creation in that class is driven by
+   the separate `IntGetObject(HandleRef, Int32, LOGFONT)` row (see
+   `WindowsFont::CreateFont` IL_005c). That is why the row is dead-ish in
+   practice; it is now registered, not silently miscompiled.
+
+### 32.3 What this seat implements
+
+* Parameter-level `MarshalAs` decode:
+  `MetadataLoader.ReadParamAsAnyFlags(md, methodDef, paramCount)`.
+* Declaration: `PinvokeParamListOf` names `void*` for a flagged `System.Object`.
+* Call site: `Il2CppPinvokeAsAnyArg` (`il2cpp_pinvoke_bridge.h`) copies the
+  boxed **value-type** payload into a malloc'd temp, roots+pins the box for
+  the whole call full-expression, and copies the temp back when BOTH
+  `[In]` and `[Out]` are set. Null passes `nullptr`.
+* Lock case: `tests/cases/pinvoke-object-any` (oracle == runtime byte-exact,
+  including the `[In, Out]` write-back record).
+
+### 32.4 STILL OPEN -- the reference-payload family (self-identifying)
+
+An `AsAny` argument whose box is a **reference** (string / array / a
+`[StructLayout]` **class** such as `CreateParams.Param`'s
+`CLIENTCREATESTRUCT` or `WindowsFont.logFont`) needs net48's own
+reference-marshal image: a class instance becomes a temp copy of its FIELD
+BLOCK (measured: `SeqClass{int,int}` arrives as the two ints at offset 0),
+and a string arrives as its characters (measured: `"hello"` at offset 0).
+The runtime raises, at the P/Invoke boundary:
+
+    P/Invoke [MarshalAs(UnmanagedType.AsAny)] object argument: the argument is a REFERENCE type (string/array/class). net48 marshals it as a temp copy of its own marshal image; this bridge implements value-type boxes only. See docs/audit/b5-gaps.md section 32.
+
+UNLOCK CONDITION: extend `Il2CppPinvokeAsAnyArg` with a reference arm that
+(a) walks the class's generated field layout to build the field-block image
+(`[StructLayout(Sequential)]` kinds only), and (b) for a string emits the
+character payload with the declared CharSet width. Then add records to
+`tests/cases/pinvoke-object-any` for a class payload and for a string
+payload, and drive the REAL `CreateWindowEx` row with a `CLIENTCREATESTRUCT`
+(to prove `WM_CREATE` sees the two fields through `lpCreateParams`).
+
+### 32.5 STILL OPEN -- the default-VARIANT family
+
+An `object` parameter with NO `MarshalAs` (the `CreateFontIndirect` rows) is
+a VARIANT: `IUnknown`-referent marshalling, `VT_RECORD` for a boxed struct,
+`VT_INT` for a boxed `IntPtr`, etc. This is deliberately NOT implemented --
+`PinvokeParamListOf` keeps its LOUD rejection for that shape (the old
+`r:System.Object` arm). The VARIANT producer/consumer pair is a much larger
+runtime surface (safe arrays, record descriptors, `IUnknown`) and the only
+audited reachable caller (`WindowsFont::CreateFont`) does not rely on its
+result, so wiring it would buy nothing measured. It is registered here so a
+future seat does not silently collapse the argument to `int32_t`.
+
+UNLOCK CONDITION: implement a `VARIANT` carrier in the runtime
+(`Il2CppVariant` with the net48 24-byte layout: `vt` u16 at 0, payload at 8),
+an `AsVariant` producer for every managed kind the transpiler can box, and
+the declaration `void*`/`VARIANT*`. Add a byte-exact case that pins `vt` and
+the payload offset for boxed struct / `IntPtr` / `int` / `null`, then verify
+against `CreateFontIndirect`.
+
+### 32.6 Not a defect -- recorded so it is not re-litigated
+
+`box` of a `System.IntPtr` is independently LOUD (`box of System.IntPtr not
+supported -- no runtime box helper (audit H3 + M5)`), so an e2e case cannot
+currently pass a boxed `IntPtr` through `AsAny` even though the bridge would
+handle it. The bridge's value-type arm covers `IntPtr` already; only the
+box SITE is missing. Unlocking that is a separate gap.

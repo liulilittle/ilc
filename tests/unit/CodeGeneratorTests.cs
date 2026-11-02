@@ -2685,4 +2685,84 @@ public class CodeGeneratorTests
             Directory.Delete(dir, true);
         }
     }
+
+    //--------------------------------------------------------------------------
+    // [MarshalAs(UnmanagedType.AsAny)] object P/Invoke parameters.
+    //
+    // The attribute is NOT a CustomAttribute row: it is the Param row's
+    // FieldMarshal blob (ECMA II.22.19 / II.23.4), whose first byte is
+    // NATIVE_TYPE_ASANY = 0x28 (=== UnmanagedType.AsAny = 40, verified against
+    // the net48 GAC's CreateWindowEx lpParam row). The decoder must read it
+    // per PARAMETER (there was no parameter-level decoder before this change;
+    // only fields were decoded).
+    //
+    // Fixture: tests/cases/pinvoke-object-any -- its any_struct_write_io import
+    // is `[In, Out][MarshalAs(AsAny)] object`; the [In,Out] bits must reach the
+    // call site so the bridge's copy-back arm is emitted.
+    //--------------------------------------------------------------------------
+    [Fact]
+    public void Generate_PinvokeAsAnyParam_DeclaresVoidPtrAndEmitsBridge()
+    {
+        var exe = CaseExePath("pinvoke-object-any");
+        var types = MetadataLoader.LoadAssembly(exe);
+        var dir = Path.Combine(Path.GetTempPath(), "il2cpp_gen_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CodeGenerator.Generate(types, dir, exe);
+            var cpp = File.ReadAllText(Path.Combine(dir, "src", "ObjectAnyProbe.cpp"));
+            // The dynamic resolve cast names the native carrier: void*.
+            Assert.Contains("((int32_t(*)(void*))", cpp);
+            // The call site routes through the AsAny temp-copy bridge.
+            Assert.Contains("il2cpp::runtime::il2cpp_pinvoke_asany(", cpp);
+            // A null object passes the nullptr literal, not a bridge call.
+            Assert.Contains("il2cpp_pinvoke_asany(nullptr, 0)", cpp);
+            // [In, Out] turns the copy-back arm on; the plain [In] row stays 0.
+            Assert.Contains("il2cpp_pinvoke_asany(reinterpret_cast<Il2CppObject*>(loc1), 1)", cpp);
+            Assert.Contains("il2cpp_pinvoke_asany(reinterpret_cast<Il2CppObject*>(loc1), 0)", cpp);
+            // A NON-AsAny object parameter keeps the LOUD rejection (the
+            // VARIANT family is a registered gap, not silently miscompiled).
+            Assert.DoesNotContain("((int32_t(*)(void*, int32_t))", cpp);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    // The raw NATIVE_TYPE byte really is 0x28 on the audited net48 row. This
+    // pins the constant against the executable oracle's finding instead of
+    // trusting a memory of the ECMA table.
+    [Fact]
+    public void ReadParamAsAnyFlags_Net48CreateWindowExLpParam_IsAsAny()
+    {
+        var wf = @"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Windows.Forms.dll";
+        if (!System.IO.File.Exists(wf)) return; // non-Windows / no net48 GAC
+        using var fs = System.IO.File.OpenRead(wf);
+        using var pe = new System.Reflection.PortableExecutable.PEReader(fs);
+        var md = pe.GetMetadataReader();
+        System.Reflection.Metadata.MethodDefinitionHandle? found = null;
+        var count = 0;
+        foreach (var th in md.TypeDefinitions)
+        {
+            var td = md.GetTypeDefinition(th);
+            if (!md.GetString(td.Name).Contains("UnsafeNativeMethods")) continue;
+            foreach (var mh in td.GetMethods())
+            {
+                var m = md.GetMethodDefinition(mh);
+                if (md.GetString(m.Name) != "CreateWindowEx") continue;
+                found = mh;
+                count = m.GetParameters().Count();
+            }
+        }
+        if (found == null) return; // no such row in this build
+        var flags = MetadataLoader.ReadParamAsAnyFlags(md, found.Value, count);
+        Assert.Equal(count, flags.Length);
+        // pvParam is the LAST parameter (net48: index 11 of 12).
+        Assert.True(flags[^1], "net48 CreateWindowEx's lpParam (last param) must decode as AsAny");
+        Assert.Equal(1, flags.Count(f => f));
+        // Sanity: the constant matches UnmanagedType.AsAny = 40. Spelled as the
+        // numeric literal because the BCL marks the enum member obsolete
+        // (CS0618) and the unit project treats new warnings as a gate failure.
+        Assert.Equal(40, MetadataLoader.NativeTypeAsAny);
+    }
 }

@@ -9491,7 +9491,12 @@ default: return false;                           // primitives/VAR(handled by ca
     // their short metadata name -- TypeEmitter.ExpandNestedTypes -- which is
     // exactly the token's suffix here).
     private static string PinvokeParamList(MetadataReader md, MethodDef m)
-        => PinvokeParamListOf(md, m.ParamTypes, PinvokeImportIsUtf16(md, m), m.Name);
+    {
+        var asAny = FindMethodHandle(md, m) is { } mh
+            ? MetadataLoader.ReadParamAsAnyFlags(md, mh, m.ParamCount)
+            : null;
+        return PinvokeParamListOf(md, m.ParamTypes, PinvokeImportIsUtf16(md, m), m.Name, asAny);
+    }
 
     // CharSet decoding at a P/Invoke IMPORT site (MethodImportAttributes CharSet
     // mask 0x06: 0x02 Ansi / 0x04 Unicode / 0x06 Auto; on Windows Auto = W).
@@ -9509,15 +9514,42 @@ default: return false;                           // primitives/VAR(handled by ca
         return charSet is 0x04 or 0x06; // CharSetUnicode / CharSetAuto
     }
 
+    // [MarshalAs(UnmanagedType.AsAny)] flags for a P/Invoke signature, decoded
+    // from the CALL's own MethodDef Param rows (so an overload never borrows
+    // another overload's marshal rows). Shared by MethodRefResolver (the call
+    // site's ResolvedMethod) and the declaration/probe paths above.
+    internal static bool[]? ReadParamAsAnyFlagsOf(MetadataReader md, BlobHandle signature, int paramCount)
+    {
+        foreach (var h in md.MethodDefinitions)
+        {
+            if (md.GetMethodDefinition(h).Signature != signature) continue;
+            var flags = MetadataLoader.ReadParamAsAnyFlags(md, h, paramCount);
+            return flags.Any(f => f) ? flags : null;
+        }
+        return null;
+    }
+
     // The parameter-list body, callable from BOTH the declaration site (model
     // MethodDef) and the CALL site (signature re-decoded from the metadata
     // token) -- the dynamic resolve cast must name exactly the types the old
     // extern "C" declaration named.
-    private static string PinvokeParamListOf(MetadataReader md, string paramTypesRaw, bool utf16PInvoke, string methodName)
+    private static string PinvokeParamListOf(MetadataReader md, string paramTypesRaw, bool utf16PInvoke, string methodName,
+        bool[]? asAnyFlags = null)
     {
         if (paramTypesRaw.Length == 0) return "void";
-        return string.Join(", ", SplitTopLevel(paramTypesRaw).Select(p =>
+        return string.Join(", ", SplitTopLevel(paramTypesRaw).Select((p, paramIndex) =>
         {
+            // [MarshalAs(UnmanagedType.AsAny)] object: net48 marshals the
+            // boxed value into a NATIVE TEMP COPY and passes the ADDRESS of
+            // that copy (measured: boxed IntPtr -> a temp whose 8-byte payload
+            // is the IntPtr value; boxed struct -> its field bytes; null ->
+            // NULL). The native declaration is therefore void* and the call
+            // site owns the copy (Il2CppPinvokeAsAnyArg). The flag comes from
+            // the Param row's FieldMarshal blob (NATIVE_TYPE_ASANY = 0x28,
+            // ECMA II.23.4) -- see MetadataLoader.ReadParamAsAnyFlags.
+            if (asAnyFlags != null && paramIndex < asAnyFlags.Length && asAnyFlags[paramIndex]
+                && p == "r:System.Object")
+                return "void*";
             // array params: a SZARRAY of a blittable element marshals as a
             // pointer to the element (see PinvokeArrayParamCpp / the runtime
             // bridge header). Null for a non-array encoding; LOUD for an array
@@ -12097,6 +12129,18 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     private static string PinvokeArgBridge(string code)
         => code == "nullptr" ? code : $"il2cpp::runtime::il2cpp_pinvoke_arg({code})";
 
+    // [MarshalAs(UnmanagedType.AsAny)] object parameter at CALL slot j: the
+    // resolver's ParamTypeNames entry is the raw "r:System.Object" encoding
+    // and the ParamAsAnyFlags bit (decoded from the Param row's FieldMarshal
+    // blob, NATIVE_TYPE_ASANY = 0x28) marks the slot. See
+    // Il2CppPinvokeAsAnyArg (il2cpp_pinvoke_bridge.h).
+    private static bool IsAsAnyObjectParam(ResolvedMethod r, int slot)
+        => r.IsPInvoke
+           && r.ParamTypeNames != null && slot < r.ParamTypeNames.Length
+           && r.ParamTypeNames[slot] == "r:System.Object"
+           && r.ParamAsAnyFlags != null && slot < r.ParamAsAnyFlags.Length
+           && r.ParamAsAnyFlags[slot];
+
     //--------------------------------------------------------------------------
     // byref-scalar: the call-site expression for a NARROW by-ref cell (see
     // EmitIcallCallArgs). `code` is the ADDRESS expression of the managed slot
@@ -12199,7 +12243,8 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         var (_, returnType, paramTypes, _) = MethodSignatureCoder.Decode(md, mi.Signature);
         sig = new PinvokeProbeSig(
             PinvokeReturnTypeCppOf(returnType, PinvokeReturnStructNameOfHandle(md, mh)),
-            PinvokeParamListOf(md, paramTypes, PinvokeImportIsUtf16(attributes), md.GetString(import.Name)),
+            PinvokeParamListOf(md, paramTypes, PinvokeImportIsUtf16(attributes), md.GetString(import.Name),
+                MetadataLoader.ReadParamAsAnyFlags(md, mh, SplitTopLevel(paramTypes).Count())),
             attributes & 0x06,
             attributes & 0x01);
         return true;
@@ -12663,6 +12708,24 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             if (r.IsPInvoke && PinvokeArrayArgCode(cast, code, r, j) is { } arrayArgCode)
             {
                 parts.Add(arrayArgCode);
+                continue;
+            }
+            // [MarshalAs(UnmanagedType.AsAny)] object parameter: net48 hands
+            // the callee the ADDRESS of a NATIVE TEMP COPY of the boxed value
+            // (measured -- see Il2CppPinvokeAsAnyArg in
+            // il2cpp_pinvoke_bridge.h). The bridge owns the copy, the GC
+            // root/pin pair on the box, and the [In, Out] copy-back. Emitted
+            // WITHOUT il2cpp_pinvoke_arg: the helper's own conversion operator
+            // yields the void* the declaration names.
+            if (r.IsPInvoke && cast is not null && IsAsAnyObjectParam(r, j))
+            {
+                var asAnyObj = code == "nullptr"
+                    ? "nullptr"
+                    : $"reinterpret_cast<Il2CppObject*>({code})";
+                var inBits = r.ParamInFlags != null && j < r.ParamInFlags.Length && r.ParamInFlags[j];
+                var outBits = r.ParamOutFlags != null && j < r.ParamOutFlags.Length && r.ParamOutFlags[j];
+                var copyBack = inBits && outBits ? "1" : "0";
+                parts.Add($"il2cpp::runtime::il2cpp_pinvoke_asany({asAnyObj}, {copyBack})");
                 continue;
             }
             // StringBuilder params: the runtime bridge hands the callee the

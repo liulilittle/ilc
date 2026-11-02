@@ -916,6 +916,15 @@ public static class MetadataLoader
     //--------------------------------------------------------------------------
     private const int NativeTypeByValTStr = 0x17;   // NATIVE_TYPE_FIXEDSYSSTRING
     private const int NativeTypeByValArray = 0x1E;  // NATIVE_TYPE_FIXEDARRAY
+    // ECMA-335 II.23.4 NATIVE_TYPE_ASANY = 0x28 (UnmanagedType.AsAny = 40).
+    // The C# compiler lowers a PARAMETER-level [MarshalAs(AsAny)] into the
+    // Param row's FieldMarshal blob exactly like a field's; reflection hides
+    // the raw byte, so the P/Invoke surface must read it here. Measured on the
+    // net48 GAC: CreateWindowEx's lpParam and the four Gdip*Logfont/LogFont
+    // Object parameters carry blob 28; the two CreateFontIndirect(Object)
+    // parameters carry NO marshal blob (default VARIANT -- a different, still
+    // unsupported shape).
+    public const int NativeTypeAsAny = 0x28;
 
     public static (FieldMarshalKind Kind, int SizeConst, string ElementTypeName) ReadFieldMarshalAs(
         MetadataReader md, FieldDefinitionHandle fh)
@@ -938,6 +947,31 @@ public static class MetadataLoader
             return (FieldMarshalKind.ByValArray, sizeConst, elem);
         }
         return (FieldMarshalKind.None, 0, "");
+    }
+
+    // PARAMETER-level [MarshalAs(UnmanagedType.AsAny)] flags, in SIGNATURE
+    // order (index i = the i-th parameter). Like a field's, the attribute is
+    // NOT a CustomAttribute row: it is the Param row's FieldMarshal blob
+    // (ECMA II.22.19 / II.23.4), whose first byte is the NATIVE_TYPE_*. The
+    // Param rows are keyed by SequenceNumber (1-based for parameters; 0 is the
+    // return value). A missing blob stays false (the caller then keeps the
+    // existing default-Object LOUD rejection).
+    public static bool[] ReadParamAsAnyFlags(MetadataReader md, MethodDefinitionHandle mh, int paramCount)
+    {
+        var flags = new bool[paramCount];
+        if (paramCount <= 0) return flags;
+        foreach (var ph in md.GetMethodDefinition(mh).GetParameters())
+        {
+            var p = md.GetParameter(ph);
+            var seq = p.SequenceNumber;
+            if (seq < 1 || seq > paramCount) continue;
+            var descriptor = p.GetMarshallingDescriptor();
+            if (descriptor.IsNil) continue;
+            var blob = md.GetBlobReader(descriptor);
+            if (blob.RemainingBytes == 0) continue;
+            if (blob.ReadByte() == NativeTypeAsAny) flags[seq - 1] = true;
+        }
+        return flags;
     }
 
     // The struct-level [StructLayout(CharSet = ...)] as BYTES per character:

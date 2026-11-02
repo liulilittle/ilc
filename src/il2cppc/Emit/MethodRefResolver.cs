@@ -226,7 +226,13 @@ public sealed record ResolvedMethod(
     // array params: the Param-table in bits of a real DllImport (net48 copies
     // a struct array IN for default/[In]/[In,Out]; [Out] alone starts from a
     // ZEROED native temp -- measured). Null elsewhere.
-    bool[]? ParamInFlags = null)
+    bool[]? ParamInFlags = null,
+    // [MarshalAs(UnmanagedType.AsAny)] object parameters of a real DllImport,
+    // in SIGNATURE order (decoded from each Param row's FieldMarshal blob,
+    // ECMA II.23.4 NATIVE_TYPE_ASANY = 0x28). The call site emits the
+    // Il2CppPinvokeAsAnyArg temp-copy bridge for a set bit; the declaration
+    // site names `void*`. Null elsewhere.
+    bool[]? ParamAsAnyFlags = null)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -819,7 +825,10 @@ public static partial class MethodRefResolver
                 // byref-scalar: the per-parameter out bits (see the record
                 // field -- the emitter's out-local zero-init reads them).
                 ParamOutFlags: paramOutFlags,
-                ParamInFlags: paramInFlags);
+                ParamInFlags: paramInFlags,
+                // [MarshalAs(UnmanagedType.AsAny)] object parameters (see the
+                // record field). One bit per SIGNATURE slot.
+                ParamAsAnyFlags: CodeGenerator.ReadParamAsAnyFlagsOf(md, m.Signature, paramCount));
         }
         // tuple1 (ValueTuple): a method DEFINITION returning a tuple (the
         // same-assembly call shape) must carry the struct result kind, exactly
