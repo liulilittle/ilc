@@ -45,6 +45,7 @@
 
 #include "il2cpp_object.h"  // Il2CppObject
 #include "il2cpp_string.h"  // Il2CppString (ByValTStr inline buffers)
+#include "il2cpp_array.h"   // Il2CppArray (ByValArray load/store helpers)
 #include <cstdint>
 #include <cstring>
 
@@ -105,6 +106,69 @@ inline void il2cpp_pinvoke_byvaltstr_store(char16_t* buffer, int32_t capacity, I
     for (int32_t i = length; i < capacity; ++i)
     {
         buffer[i] = 0;
+    }
+}
+
+//------------------------------------------------------------------------------
+// ByValArray inline-buffer helpers ([MarshalAs(UnmanagedType.ByValArray,
+// SizeConst = N)] on a primitive SZARRAY field). net48 lays the field out as
+// T[N] INSIDE the value type (measured: { int32 head; ByValArray(4) int[]
+// vals; int32 tail } is 24 bytes with vals@4 / tail@20; bool[] marshals as
+// BOOL[4] = 16 bytes, NOT the 1-byte managed cells), so the generated struct
+// member is a plain native array and every managed field access converts:
+//
+//   load  : native cells -> a fresh managed array of exactly 'length' cells
+//           (net48 PtrToStructure always returns a new SizeConst-length
+//           array -- probe-measured for int/byte/short/bool/long/double).
+//   store : managed cells -> native cells. A LONGER source array truncates
+//           at 'capacity' (measured StructureToPtr); a null/short source
+//           zero-fills the remaining cells. (net48 THROWS ArgumentException
+//           at MARSHAL time for a short array; the inline model copies at
+//           assignment time, where net48 performs no length check -- the
+//           case NOTES document this boundary.)
+//
+// TNative is the INLINE native cell and TManaged the managed array cell.
+// They differ only for ByValArray(Boolean): TNative=int32_t (Win32 BOOL)
+// vs TManaged=bool (1-byte managed cell). The helpers own no GC roots: the
+// constructed array is returned to the caller, exactly like a newarr result.
+//------------------------------------------------------------------------------
+template <typename TNative, typename TManaged>
+inline Il2CppObject* il2cpp_pinvoke_byvalarray_load(const TNative* buffer, int32_t length, Il2CppClass* elemClass)
+{
+    Il2CppArray* arr = il2cpp_array_new(elemClass, static_cast<int32_t>(sizeof(TManaged)), false, length);
+    TManaged* dst = reinterpret_cast<TManaged*>(arr->data);
+    for (int32_t i = 0; i < length; ++i)
+    {
+        dst[i] = static_cast<TManaged>(buffer[i]);
+    }
+    return reinterpret_cast<Il2CppObject*>(arr);
+}
+
+template <typename TNative, typename TManaged>
+inline void il2cpp_pinvoke_byvalarray_store(TNative* buffer, int32_t capacity, Il2CppObject* value)
+{
+    if (buffer == nullptr || capacity <= 0)
+    {
+        return;
+    }
+    int32_t count = 0;
+    if (value != nullptr)
+    {
+        const Il2CppArray* arr = reinterpret_cast<const Il2CppArray*>(value);
+        count = arr->length;
+        if (count > capacity)
+        {
+            count = capacity;
+        }
+        const TManaged* src = reinterpret_cast<const TManaged*>(arr->data);
+        for (int32_t i = 0; i < count; ++i)
+        {
+            buffer[i] = static_cast<TNative>(src[i]);
+        }
+    }
+    for (int32_t i = count; i < capacity; ++i)
+    {
+        buffer[i] = TNative{};
     }
 }
 

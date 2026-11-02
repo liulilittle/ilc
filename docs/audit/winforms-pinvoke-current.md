@@ -1385,3 +1385,68 @@ net48 oracle == transpiled runtime:**332B, sha256 = `ba475e9b0fde82a4a3725c0def3
 | probe-handleref | 217 | `a089ccbfc400627c7d360a0deb5b8d8ad6cf66c50dd92aa5ee87b1cfc05b766a` |
 | dtoiformattable1 | 1421 | `3c919969fe9229b0593f53ebce2d432fa66625d9fac7b84930332ab7f7d30195` |
 | corelibp0 | 887 | `391cb96fe4862f2af565c2ef9b56037cbf7a0ccb6c48dd25e24550a6fc577d56` |
+
+## 14. `[MarshalAs(UnmanagedType.ByValArray)]` 内联固定数组(本席实现)
+
+### 14.1 缺陷与根因
+
+`ByValArray` 的 FieldMarshal 解码上一席已完成(`0x1E` + SizeConst + 可选元素 native type),但布局/发射仍 LOUD(`TypeEmitter.LayoutValueTypeFields` 直接抛 `NotSupportedException`)。net48 把该字段内联为 `T[N]` 固定数组而不是 GC 引用,所以结构体尺寸/偏移/ABI 与 GC 语义都必须按内联缓冲实现。
+
+### 14.2 net48 实测(本席自写 arrprobe2:`Marshal.SizeOf/OffsetOf/StructureToPtr/PtrToStructure` + P/Invoke `ref`)
+
+| 结构体 | Marshal.SizeOf | 字段偏移 | 说明 |
+|---|---|---|---|
+| `{ int32 head; ByValArray(4) int[] vals; int32 tail }` | **24** | `vals`@4,`tail`@20 | 4+16+4 |
+| `{ int32 head; ByValArray(5) byte[] b }` | **12** | `b`@4 | 4+5=9,按 int 头对齐取整到 12 |
+| `{ int32 head; ByValArray(3) short[] s }` | **12** | `s`@4 | 4+6=10 -> 12 |
+| `{ int32 head; ByValArray(3) long[] l }` | **32** | `l`@8 | 元素 8 字节对齐,head 后补 4 |
+| `{ int32 head; ByValArray(4) bool[] b }` | **20** | `b`@4 | **bool 元素是 4 字节 Win32 BOOL** |
+| `{ int32 head; ByValArray(4, ArraySubType=U1) bool[] b }` | **8** | `b`@4 | 显式 U1 才是 1 字节 |
+
+关键实测结论:
+
+- **bool 元素默认 4 字节**(不是托管 bool[] 的 1 字节 cell);只有显式 `ArraySubType=U1`(或其它窄类型)才是 1 字节。
+- 元素 native type 字节只在显式 `ArraySubType` 时才写进 FieldMarshal blob(元数据探针:`int[]` -> marshal `1E 04`、sig `06 1D 08`;`bool[]` -> `1E 04`、sig `06 1D 02`;显式 U1 -> `1E 04 04`)。否则元素类型由字段签名的 SZARRAY 元素决定。
+- 长度不匹配(修正上一席的假设):**更长 -> `StructureToPtr` 静默截断到 SizeConst;更短(含 len 0)-> 抛 `ArgumentException`;null -> 按全 0 编组**。P/Invoke `ref` 同:短数组在编组期抛异常,长数组截断,返回后托管字段被替换成 SizeConst 长度的新数组(`PtrToStructure` 也总是新建 SizeConst 长数组)。
+- 因为内联模型在 `stfld` 赋值点就复制,短数组无法在赋值点复刻 net48 的编组期异常 —— 本 case 只覆盖“更长截断/null 补 0”,短数组是本实现的**已记录边界**(见 §14.4)。
+- `unsafe` 的 `fixed` 缓冲是另一机制,与本项无关。
+
+### 14.3 实现
+
+- `FieldDef`:新增 `MarshalArrayElementKind`(Bool/I1/U1/I2/U2/I4/U4/I8/U8/R4/R8)+ 可写 `MarshalArrayElement`(解码仍是 `MetadataLoader`,本席未碰)。
+- `TypeEmitter.ResolveByValArrayElements`(在 `CodeGenerator.GenerateCore` 任何布局/发射前预扫描):显式 ArraySubType 按 NATIVE_TYPE 解释(BOOLEAN 0x02, I1 0x03, U1 0x04, I2 0x05, U2 0x06, I4 0x07, U4 0x08, I8 0x09, U8 0x0A, R4 0x0B, R8 0x0C);否则解码字段签名 `06 1D <elem>` 的 ELEMENT_TYPE(BOOLEAN 0x02, I1 0x04, U1 0x05, I2 0x06, U2 0x07, I4 0x08, U4 0x09, I8 0x0A, U8 0x0B, R4 0x0C, R8 0x0D)。引用/值类型/char 元素与未知字节保持 LOUD 并报出具体字节(实测 `string[]`:`[MarshalAs(ByValArray)] managed element type 0x0e is not a supported primitive ...`,transpiler exit 2)。
+- 布局(`LayoutValueTypeFields`):字段占 `SizeConst * elementSize` 字节,按元素自然对齐(int64/double -> offset 8),结构体尾部由现有 `maxAlign` 取整(byte[5] 在 int 头后 extent 9 -> size 12);不置 `refFieldBitmap`。
+- 发射(`EmitClassStruct`):`<nativeCpp> name[SizeConst];`(BOOL 元素发 `int32_t`);typeinfo 字段 `isRef=0`;`ComputeVtHashModel` 仍对整个含固定缓冲的类型返回 null;结构体局部 GC 帧根继续按 `MarshalKind == None` 排除(上一席的过滤已覆盖 ByValArray)。
+- 读写(`CodeGenerator`):`ldfld` -> `il2cpp_pinvoke_byvalarray_load<TNative,TManaged>` 构造 SizeConst 长托管数组;`stfld` -> `il2cpp_pinvoke_byvalarray_store`(长截断/null 与短源补 0);`ldflda` 保持 LOUD(内联缓冲没有托管数组引用语义)。
+- 运行头(`il2cpp_pinvoke_struct.h`):新增两个 template helper,按 TNative/TManaged 区分 BOOL 的 4/1 字节宽度;托管数组分配传入与 `newarr` 相同的 element descriptor(记录 elemKind)。
+
+### 14.4 新 case、变异与门禁
+
+`tests/cases/pinvoke-bvalarray/`(net48 oracle + `bvalarrayprobe` native fixture):int[4] 夹在两个标量之间、byte[5] 尾部补齐、short[3]、long[3](8 字节宽度/对齐)、bool[4](4 字节 BOOL)、bool[4]+ArraySubType=U1(1 字节),以及更长数组截断、null 补 0。
+
+net48 oracle == transpiled runtime:**905B, sha256 = `8593f050db94e95a13a28a31792b5fb0a04c68a72ea23439f0be85e577f064b5`**(两侧同 sha,48 records)。
+
+变异证明:把**发射处真正决定缓冲区宽度**的 `{memberName}[{f.MarshalSizeConst}]` 改成 `MarshalSizeConst - 1` → RED(oracle 905B/`8593f050...` vs runtime 911B/`113a56de...`,diff=6:`int.tail` 4→103、`int.ret` 801233→711229 等);字节级恢复后 GREEN(905B,同 sha)。变异只改 `TypeEmitter.cs` 一处,恢复时先 `git status/diff` 确认再从备份字节还原。
+
+门禁:C0 `dotnet build src/il2cppc/il2cppc.csproj -c Debug --no-incremental` => **0 警告 0 错误**;单测 `dotnet test tests/unit/unit.csproj` => **4149 通过 / 0 失败 / 0 跳过**。
+
+14 个锚逐个复跑(本 worktree difftest,oracle==runtime,全部未变):
+
+| case | 字节 | sha256 |
+|---|---|---|
+| pinvoke-bvaltstr | 332 | `ba475e9b0fde82a4a3725c0def31d35f0fa9b52354f370275cab9f033c90ca58` |
+| pinvoke-structret2 | 401 | `052150306292922ba17c6b0d5d83363012c73564e2c11a2368943b292c4dcbab` |
+| pinvoke-structreturn | 356 | `09844a4d68e42d02a78e06439fd2ea828661faa254166a258064ac5b83bb7f61` |
+| pinvoke-nameclash | 182 | `6fe3b4b1f46a1849e0f57c62e91139b4ad0fe3ea77ff02cae7f937a2c6a33f67` |
+| winforms1 | 20521 | `8a4c0011723c4e462ad6240f094841c905e086dde4d9d2a0f2f5a975794c2138` |
+| structbox | 207 | `db5d98659457d790dc5da56d5f6b6196631566dcf492ac14b17ee47ce4d48c27` |
+| structeq1 | 79 | `809768d4bb67d9b2b152e279c8a6d870dd7b2978146f1b5c7e398dc588a35ab2` |
+| tuple1 | 88 | `a79c09c2436c5d4fb454fce69dbc06f31dc9f92125fe33ac5e8b2882b5a9cb4c` |
+| tuple2 | 52 | `8446deab13dd70fb6b4d58a005fdc2980ff0cff81375b1ba38a606db9aebc9e8` |
+| tuple3 | 91 | `d27bc54822247e891ff6be2cdd05cecee1a85894cfa7595e46891167bc5c9e24` |
+| vtcreate1 | 301 | `a456778acff8be0bc972343b9dde3843b97b6a0c842b487194fd7a19df844819` |
+| vtmeta1 | 270 | `9768f3a89feba6decca00774bfb24a914790feb1466233017e6b1ef118588748` |
+| probe-pinvoke-array | 845 | `b8f5d7e861eb5e6acf723e1a32815a91326d6987bad91dbc9da1b52008cba657` |
+| corelibp0 | 887 | `391cb96fe4862f2af565c2ef9b56037cbf7a0ccb6c48dd25e24550a6fc577d56` |
+
+未验证:未跑全量 sweep;R4/R8/U1/U2/U4/U8 元素映射已实现但新 case 只覆盖 int/byte/short/long/bool(+U1 bool),其余宽度由同一映射表推导;短数组“编组期抛异常”语义未复刻(已记录边界);嵌套结构体内嵌 ByValArray 的 e2e 未单独建 case。

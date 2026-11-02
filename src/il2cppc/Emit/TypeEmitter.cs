@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using Il2Cpp.Transpiler.Model;
 
 namespace Il2Cpp.Transpiler.Emit;
@@ -239,6 +240,10 @@ public static class TypeEmitter
                         MarshalCharSize = nestedCharSize,
                         MarshalElementTypeName = marshalElem,
                         NullableUnderlyingName = nullableUnderlying,
+                        // The ByValArray element resolver re-decodes the field
+                        // signature through this token (nested fields have no
+                        // other path back to metadata).
+                        MetadataToken = 0x04000000 | MetadataTokens.GetRowNumber(fh),
                     });
                 }
             }
@@ -1197,14 +1202,17 @@ public static class TypeEmitter
         foreach (var f in t.InstanceFields)
         {
             // P/Invoke fixed-buffer field ([MarshalAs]): net48 lays it INLINE
-            // (WCHAR[SizeConst] for ByValTStr), so the member is a fixed array
-            // and there is NO GC reference to record. Size/alignment follow the
-            // array: SizeConst * charSize bytes, charSize alignment.
-            if (f.MarshalKind != FieldMarshalKind.None)
+            // (WCHAR[SizeConst] for ByValTStr, T[SizeConst] for ByValArray), so
+            // the member is a fixed array and there is NO GC reference to
+            // record. Size/alignment follow the array: ByValTStr is
+            // SizeConst * charSize bytes at charSize alignment; ByValArray is
+            // SizeConst * elementSize bytes at the ELEMENT's natural alignment
+            // (measured on the net48 oracle: { int32, long[3] } puts the array
+            // at offset 8 and makes the struct 32 bytes). The final
+            // InstanceSize expression below rounds the tail up to maxAlign, so
+            // byte[5] after an int header is 9 bytes of extent -> size 12.
+            if (f.MarshalKind == FieldMarshalKind.ByValTStr)
             {
-                if (f.MarshalKind != FieldMarshalKind.ByValTStr)
-                    throw new NotSupportedException(
-                        $"struct '{t.FullName}' field '{f.Name}': [MarshalAs(ByValArray)] fixed array fields are not implemented yet");
                 var marshalSize = f.MarshalSizeConst * f.MarshalCharSize;
                 var marshalAlign = f.MarshalCharSize;
                 if (marshalAlign > maxAlign) maxAlign = marshalAlign;
@@ -1212,6 +1220,16 @@ public static class TypeEmitter
                 f.ByteOffset = offset;
                 f.SlotIndex = offset / t.PointerSize;
                 offset += marshalSize;
+                continue;
+            }
+            if (f.MarshalKind == FieldMarshalKind.ByValArray)
+            {
+                var elem = DescribeMarshalArray(f.MarshalArrayElement, t.FullName, f.Name);
+                if (elem.NativeAlign > maxAlign) maxAlign = elem.NativeAlign;
+                offset = (offset + elem.NativeAlign - 1) / elem.NativeAlign * elem.NativeAlign;
+                f.ByteOffset = offset;
+                f.SlotIndex = offset / t.PointerSize;
+                offset += f.MarshalSizeConst * elem.NativeSize;
                 continue;
             }
             // Embedded user struct / Nullable<T> (a NESTED struct may carry
@@ -1269,6 +1287,138 @@ public static class TypeEmitter
         // callee writes through.
         t.InstanceSize = (offset + maxAlign - 1) / maxAlign * maxAlign;
     }
+
+    //--------------------------------------------------------------------------
+    // ByValArray element resolution ([MarshalAs(UnmanagedType.ByValArray,
+    // SizeConst = N)] on a primitive SZARRAY field).
+    //
+    // net48 lays the array INLINE in the value type, so the emitted C++ member
+    // is a fixed array and the struct layout must use the ELEMENT's native
+    // width/alignment. Measured on the net48 oracle (this seat's probe):
+    //   { int32 head; ByValArray(4) int[]  vals; int32 tail } -> size 24,
+    //       vals@4, tail@20                                           (4+16+4)
+    //   { int32 head; ByValArray(5) byte[] b } -> size 12, b@4
+    //       (4+5 = 9, tail rounded up to the struct's int32 alignment)
+    //   { int32 head; ByValArray(3) long[] l } -> size 32, l@8
+    //       (8-byte element alignment inserts 4 bytes after head)
+    //   { int32 head; ByValArray(4) bool[] b } -> size 20, b@4
+    //       -- bool elements are 4-byte Win32 BOOLs, NOT the 1-byte managed
+    //       bool cell (explicit ArraySubType=U1 gives size 8: 1-byte cells)
+    //
+    // The element kind comes from the FieldMarshal blob's optional native type
+    // byte when [MarshalAs(ArraySubType = ...)] is explicit; the C# compiler
+    // OMITS it otherwise (metadata probe: int[] -> FieldMarshal 1E 04, bool[]
+    // -> 1E 04, explicit U1 -> 1E 04 04), in which case the SZARRAY element
+    // type in the field signature is the authority (06 1D 08 for int[]).
+    // Reference/struct/char element arrays stay LOUD: an inline GC pointer or
+    // a nested non-blittable element has no representable native shape here.
+    //--------------------------------------------------------------------------
+    public static void ResolveByValArrayElements(MetadataReader md, IReadOnlyList<TypeDef> types)
+    {
+        foreach (var t in types)
+            foreach (var f in t.InstanceFields)
+                if (f.MarshalKind == FieldMarshalKind.ByValArray)
+                    f.MarshalArrayElement = DecodeByValArrayElement(md, t.FullName, f);
+    }
+
+    private static MarshalArrayElementKind DecodeByValArrayElement(MetadataReader md, string owner, FieldDef f)
+    {
+        if (f.MarshalSizeConst <= 0)
+            throw new NotSupportedException(
+                $"struct '{owner}' field '{f.Name}': [MarshalAs(ByValArray)] without a positive SizeConst has no inline array length (net48 requires SizeConst)");
+        if ((f.MetadataToken & unchecked((int)0xFF000000)) != 0x04000000)
+            throw new NotSupportedException(
+                $"struct '{owner}' field '{f.Name}': [MarshalAs(ByValArray)] field has no FieldDef token -- cannot decode its SZARRAY element type");
+        var fh = MetadataTokens.FieldDefinitionHandle(f.MetadataToken & 0x00FFFFFF);
+        var sig = md.GetBlobReader(md.GetFieldDefinition(fh).Signature);
+        if (sig.ReadByte() != 0x06)
+            throw new NotSupportedException(
+                $"struct '{owner}' field '{f.Name}': [MarshalAs(ByValArray)] field signature does not start with FIELD (0x06)");
+        var lead = sig.ReadByte();
+        if (lead != 0x1D)
+            throw new NotSupportedException(
+                $"struct '{owner}' field '{f.Name}': [MarshalAs(ByValArray)] requires a single-dimensional array field (signature lead 0x{lead:x2})");
+        var sigElem = sig.ReadByte();
+        if (string.IsNullOrEmpty(f.MarshalElementTypeName))
+            return MapManagedArrayElement(owner, f, sigElem);
+        var text = f.MarshalElementTypeName;
+        if (text.Length != 4 || !text.StartsWith("0x", StringComparison.Ordinal)
+            || !byte.TryParse(text.Substring(2), System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out var nativeElem))
+            throw new NotSupportedException(
+                $"struct '{owner}' field '{f.Name}': [MarshalAs(ByValArray)] ArraySubType descriptor '{text}' is not a native type byte");
+        return MapNativeArrayElement(owner, f, nativeElem);
+    }
+
+    // ELEMENT_TYPE_* of the managed array element (0x02 BOOLEAN, 0x04 I1,
+    // 0x05 U1, 0x06 I2, 0x07 U2, 0x08 I4, 0x09 U4, 0x0A I8, 0x0B U8,
+    // 0x0C R4, 0x0D R8).
+    private static MarshalArrayElementKind MapManagedArrayElement(string owner, FieldDef f, byte elem)
+        => elem switch
+        {
+            0x02 => MarshalArrayElementKind.Bool,
+            0x04 => MarshalArrayElementKind.I1,
+            0x05 => MarshalArrayElementKind.U1,
+            0x06 => MarshalArrayElementKind.I2,
+            0x07 => MarshalArrayElementKind.U2,
+            0x08 => MarshalArrayElementKind.I4,
+            0x09 => MarshalArrayElementKind.U4,
+            0x0A => MarshalArrayElementKind.I8,
+            0x0B => MarshalArrayElementKind.U8,
+            0x0C => MarshalArrayElementKind.R4,
+            0x0D => MarshalArrayElementKind.R8,
+            _ => throw new NotSupportedException(
+                $"struct '{owner}' field '{f.Name}': [MarshalAs(ByValArray)] managed element type 0x{elem:x2} is not a supported primitive -- reference/struct/char element arrays are out of scope"),
+        };
+
+    // NATIVE_TYPE_* of an explicit [MarshalAs(ArraySubType = ...)] (the
+    // CorNativeType/UnmanagedType ordinals: BOOLEAN 0x02, I1 0x03, U1 0x04,
+    // I2 0x05, U2 0x06, I4 0x07, U4 0x08, I8 0x09, U8 0x0A, R4 0x0B,
+    // R8 0x0C).
+    private static MarshalArrayElementKind MapNativeArrayElement(string owner, FieldDef f, byte elem)
+        => elem switch
+        {
+            0x02 => MarshalArrayElementKind.Bool,
+            0x03 => MarshalArrayElementKind.I1,
+            0x04 => MarshalArrayElementKind.U1,
+            0x05 => MarshalArrayElementKind.I2,
+            0x06 => MarshalArrayElementKind.U2,
+            0x07 => MarshalArrayElementKind.I4,
+            0x08 => MarshalArrayElementKind.U4,
+            0x09 => MarshalArrayElementKind.I8,
+            0x0A => MarshalArrayElementKind.U8,
+            0x0B => MarshalArrayElementKind.R4,
+            0x0C => MarshalArrayElementKind.R8,
+            _ => throw new NotSupportedException(
+                $"struct '{owner}' field '{f.Name}': [MarshalAs(ByValArray)] ArraySubType native type 0x{elem:x2} is not a supported primitive -- reference/struct element arrays are out of scope"),
+        };
+
+    // C++ member/copy shape of one resolved ByValArray element kind:
+    //   NativeCpp/NativeSize/NativeAlign -- the INLINE buffer declaration and
+    //       its layout contribution (BOOL is 4 bytes; every other kind is
+    //       element-width identical on both sides).
+    //   ManagedCpp/ManagedSuffix -- the managed array cell (bool[] cells are
+    //       1 byte; the runtime's stelem/ldelem width suffixes match).
+    //   ElemClass -- the element descriptor expression the managed array
+    //       allocation records (the same one CodeGenerator.newarr passes).
+    public static (string NativeCpp, int NativeSize, int NativeAlign, string ManagedCpp, string ManagedSuffix, string ElemClass)
+        DescribeMarshalArray(MarshalArrayElementKind kind, string owner, string fieldName)
+        => kind switch
+        {
+            MarshalArrayElementKind.Bool => ("int32_t", 4, 4, "bool", "bool", "nullptr"),
+            MarshalArrayElementKind.I1 => ("int8_t", 1, 1, "int8_t", "i1", "nullptr"),
+            MarshalArrayElementKind.U1 => ("uint8_t", 1, 1, "uint8_t", "u1", "nullptr"),
+            MarshalArrayElementKind.I2 => ("int16_t", 2, 2, "int16_t", "i2", "nullptr"),
+            MarshalArrayElementKind.U2 => ("uint16_t", 2, 2, "uint16_t", "u2", "nullptr"),
+            MarshalArrayElementKind.I4 => ("int32_t", 4, 4, "int32_t", "i4", "il2cpp::il2cpp_class_by_name(\"System.Int32\")"),
+            MarshalArrayElementKind.U4 => ("uint32_t", 4, 4, "uint32_t", "u4", "il2cpp::il2cpp_class_by_name(\"System.UInt32\")"),
+            MarshalArrayElementKind.I8 => ("int64_t", 8, 8, "int64_t", "i8", "il2cpp::il2cpp_class_by_name(\"System.Int64\")"),
+            MarshalArrayElementKind.U8 => ("uint64_t", 8, 8, "uint64_t", "u8", "nullptr"),
+            MarshalArrayElementKind.R4 => ("float", 4, 4, "float", "r4", "il2cpp::il2cpp_class_by_name(\"System.Single\")"),
+            MarshalArrayElementKind.R8 => ("double", 8, 8, "double", "r8", "il2cpp::il2cpp_class_by_name(\"System.Double\")"),
+            _ => throw new NotSupportedException(
+                $"struct '{owner}' field '{fieldName}': [MarshalAs(ByValArray)] element kind {kind} was not resolved -- reference/struct element arrays are out of scope"),
+        };
 
     // Native (size, alignment) of one field kind on the TARGET pointer width.
     // Derived from the C++ member the emitter declares for the kind (see
@@ -1520,6 +1670,15 @@ public static class TypeEmitter
             if (f.MarshalKind == FieldMarshalKind.ByValTStr)
             {
                 w.Line($"char16_t {memberName}[{f.MarshalSizeConst}]; // slot {f.SlotIndex} at offset {f.ByteOffset} (ByValTStr: inline UTF-16 buffer, {f.MarshalSizeConst} units, no GC reference)");
+                continue;
+            }
+            // ByValArray: the INLINE native array net48 marshals (T[SizeConst]).
+            // BOOLEAN elements are 4-byte BOOLs, so the declaration is int32_t
+            // even though the managed array cell is a 1-byte bool.
+            if (f.MarshalKind == FieldMarshalKind.ByValArray)
+            {
+                var elem = DescribeMarshalArray(f.MarshalArrayElement, t.FullName, f.Name);
+                w.Line($"{elem.NativeCpp} {memberName}[{f.MarshalSizeConst}]; // slot {f.SlotIndex} at offset {f.ByteOffset} (ByValArray: inline {elem.NativeCpp}[{f.MarshalSizeConst}], no GC reference)");
                 continue;
             }
             // A captured Nullable<T> expands to the underlying T value slot

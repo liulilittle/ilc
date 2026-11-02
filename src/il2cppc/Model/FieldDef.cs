@@ -92,9 +92,18 @@ public sealed class FieldDef
     // (WCHAR -- the only encoding this model implements), 1 for Ansi/None.
     public int MarshalCharSize { get; init; } = 1;
     // ByValArray: the unmanaged element kind (ArraySubType) when declared, else
-    // empty. The layout/emission of fixed array fields is not implemented yet
-    // (the emitter rejects them LOUDLY -- see TypeEmitter.LayoutValueTypeFields).
+    // empty (the C# compiler omits the element byte unless ArraySubType is
+    // explicit -- the SZARRAY element type in the field signature is then the
+    // authority; TypeEmitter.ResolveByValArrayElements joins the two sources).
     public string MarshalElementTypeName { get; init; } = "";
+
+    // ByValArray element kind, resolved once by
+    // TypeEmitter.ResolveByValArrayElements before any layout/emission: the
+    // explicit ArraySubType native byte when present, else the field
+    // signature's SZARRAY element type. None = unresolved/unsupported (the
+    // layout pass rejects it LOUDLY). Settable because resolution happens after
+    // the model is loaded (MetadataLoader decodes the raw FieldMarshal blob).
+    public MarshalArrayElementKind MarshalArrayElement { get; set; } = MarshalArrayElementKind.None;
 
     // R2b P2 (parallel VAR channel): the field signature's type byte is a
     // generic parameter (0x13 VAR / 0x1E MVAR). TypeKind/FieldTypeName keep
@@ -177,5 +186,26 @@ public enum FieldMarshalKind
 {
     None,      // ordinary field (no [MarshalAs] fixed buffer)
     ByValTStr, // inline WCHAR[SizeConst] buffer (CharSet.Unicode/Auto)
-    ByValArray // inline T[SizeConst] fixed array (decode only; emission LOUD)
+    ByValArray // inline T[SizeConst] fixed array (primitive elements only)
+}
+
+// ByValArray element kinds the layout/emission supports. The value is the
+// NATIVE element width/shape, which is NOT always the managed cell width:
+// BOOLEAN is a 4-byte Win32 BOOL while the managed bool[] cell is 1 byte
+// (probe-measured net48: bool[] ByValArray(4) -> Marshal.SizeOf 20, not 8).
+// The remaining kinds are element-width identical between the two sides.
+public enum MarshalArrayElementKind
+{
+    None, // unresolved / unsupported -> LOUD rejection
+    Bool, // 4-byte BOOL      <-> 1-byte managed bool cell
+    I1,   // 1-byte int8      <-> sbyte
+    U1,   // 1-byte uint8     <-> byte
+    I2,   // 2-byte int16     <-> short
+    U2,   // 2-byte uint16    <-> ushort
+    I4,   // 4-byte int32
+    U4,   // 4-byte uint32
+    I8,   // 8-byte int64
+    U8,   // 8-byte uint64
+    R4,   // 4-byte float
+    R8    // 8-byte double
 }

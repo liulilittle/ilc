@@ -172,6 +172,12 @@ public static class CodeGenerator
         using var stream = File.OpenRead(assemblyPath);
         using var pe = new PEReader(stream);
         var md = pe.GetMetadataReader();
+        // P/Invoke ByValArray fields: resolve the inline element kind BEFORE
+        // any layout or emission (the layout pass consumes its size/alignment
+        // and the field access emitters consume its C++ shape). The element
+        // source is the explicit ArraySubType byte when the FieldMarshal blob
+        // carries one, else the field signature's SZARRAY element type.
+        TypeEmitter.ResolveByValArrayElements(md, types);
         ComputePinvokeManifest(types, md, assemblyPath, outDir);
 
         var generatedHeader = new CppWriter();
@@ -793,6 +799,7 @@ public static class CodeGenerator
                     MarshalSizeConst = f.MarshalSizeConst,
                     MarshalCharSize = f.MarshalCharSize,
                     MarshalElementTypeName = f.MarshalElementTypeName,
+                    MarshalArrayElement = f.MarshalArrayElement,
                     IsGenericVar = f.IsGenericVar,
                     GenericVarIndex = f.GenericVarIndex,
                 });
@@ -808,6 +815,7 @@ public static class CodeGenerator
                     MarshalSizeConst = f.MarshalSizeConst,
                     MarshalCharSize = f.MarshalCharSize,
                     MarshalElementTypeName = f.MarshalElementTypeName,
+                    MarshalArrayElement = f.MarshalArrayElement,
                     IsGenericVar = f.IsGenericVar,
                     GenericVarIndex = f.GenericVarIndex,
                 });
@@ -4626,6 +4634,23 @@ public static class CodeGenerator
                         $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- copy managed string into the ByValTStr inline buffer of {fa.OwnerFullName}.{fa.FieldCppName}");
                     break;
                 }
+                // [MarshalAs(ByValArray)]: the member is an INLINE native array
+                // (T[SizeConst]), NOT a GC reference. A store copies the
+                // managed array cells into it: a longer source array truncates
+                // at SizeConst (measured net48 StructureToPtr: len 6 into
+                // SizeConst 4 writes the first 4 cells); a null/short source
+                // zero-fills the rest (net48 throws on a short array at
+                // marshal time, which the inline model cannot reproduce at
+                // assignment time -- documented boundary in the case NOTES).
+                if (faNullable is { MarshalKind: FieldMarshalKind.ByValArray })
+                {
+                    var bvaElem = TypeEmitter.DescribeMarshalArray(faNullable.MarshalArrayElement, fa.OwnerFullName, fa.FieldCppName);
+                    var bvaTarget = FieldAccess(fa.Object, fa.OwnerFullName, fa.FieldCppName, md, types, fa.IsValueTypeObject, _curLocKinds);
+                    var bvaValue = NullSafePtrCast("Il2CppObject*", EmitExpr(fa.Value, md, types));
+                    w.LineAligned($"il2cpp::il2cpp_pinvoke_byvalarray_store<{bvaElem.NativeCpp}, {bvaElem.ManagedCpp}>({bvaTarget}, {faNullable.MarshalSizeConst}, {bvaValue});",
+                        $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- copy managed array into the ByValArray inline buffer of {fa.OwnerFullName}.{fa.FieldCppName}");
+                    break;
+                }
                 var faValueCpp = TypeEmitter.ReferenceCppType(fa.RefTargetFullName, types);
                 // wf5 (winforms1 phase-4): a reference field whose type is a
                 // custom DELEGATE has no generated struct -- the value stays
@@ -5918,6 +5943,16 @@ public static class CodeGenerator
                 var fMarshal = ResolveInstanceField(types, f.OwnerFullName, f.FieldCppName);
                 if (fMarshal is { MarshalKind: FieldMarshalKind.ByValTStr })
                     return $"il2cpp::il2cpp_pinvoke_byvaltstr_load({fval}, {fMarshal.MarshalSizeConst})";
+                // [MarshalAs(ByValArray)]: the member is an INLINE native
+                // array (no GC reference). A field read CONSTRUCTS the managed
+                // array from the inline cells (length SizeConst), mirroring
+                // net48's unmarshal result (PtrToStructure always returns a
+                // fresh SizeConst-length array -- probe-measured).
+                if (fMarshal is { MarshalKind: FieldMarshalKind.ByValArray })
+                {
+                    var bvaElem = TypeEmitter.DescribeMarshalArray(fMarshal.MarshalArrayElement, f.OwnerFullName, f.FieldCppName);
+                    return $"il2cpp::il2cpp_pinvoke_byvalarray_load<{bvaElem.NativeCpp}, {bvaElem.ManagedCpp}>({fval}, {fMarshal.MarshalSizeConst}, {bvaElem.ElemClass})";
+                }
                 return f.IsRefField ? $"reinterpret_cast<Il2CppObject*>({fval})" : fval;
             case FieldAddrExpr fa:
                 // An expanded Nullable<T> field has no single addressable
@@ -5932,6 +5967,12 @@ public static class CodeGenerator
                 if (ResolveInstanceField(types, fa.OwnerFullName, fa.FieldCppName) is { MarshalKind: FieldMarshalKind.ByValTStr })
                     throw new NotSupportedException(
                         $"address-of [MarshalAs(ByValTStr)] field '{fa.OwnerFullName}.{fa.FieldCppName}' is not supported -- the field is an inline UTF-16 buffer, not a GC reference slot");
+                // ByValArray is an inline native buffer too: its address is not
+                // an Il2CppObject** slot, and a caller would treat the native
+                // element bytes as a managed array reference. Reject LOUD.
+                if (ResolveInstanceField(types, fa.OwnerFullName, fa.FieldCppName) is { MarshalKind: FieldMarshalKind.ByValArray })
+                    throw new NotSupportedException(
+                        $"address-of [MarshalAs(ByValArray)] field '{fa.OwnerFullName}.{fa.FieldCppName}' is not supported -- the field is an inline native buffer, not a managed array reference");
                 // Instance field address (ldflda): &obj->field. Null-check the receiver first.
                 // batch 156c (asynccase): VALUE-TYPE receivers (the async state
                 // machine's builder/awaiter fields) skip the null check -- a
