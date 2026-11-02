@@ -155,7 +155,15 @@ int main()
         }
         catch (const il2cpp::DotNetException& e)
         {
-            threwArgumentNull = std::strcmp(e.type_name(), "System.ArgumentNullException") == 0;
+            // The carrier is a type CHAIN (its first segment is the managed full
+            // name); asserting by exact strcmp pinned the OLD bug where the
+            // chain was a bare name, so catch (Exception) could not catch it.
+            // Assert the real .NET semantics instead: the exact type AND its
+            // base classes must all match.
+            threwArgumentNull = il2cpp::il2cpp_exception_matches("System.ArgumentNullException", e.type_name())
+                && il2cpp::il2cpp_exception_matches("System.ArgumentException", e.type_name())
+                && il2cpp::il2cpp_exception_matches("System.Exception", e.type_name())
+                && std::strncmp(e.type_name(), "System.ArgumentNullException", 28) == 0;
         }
         Expect(threwArgumentNull, "icall_gc_get_generation(null) raises ArgumentNullException");
     }
@@ -189,7 +197,8 @@ int main()
         }
         catch (const il2cpp::DotNetException& e)
         {
-            supNullThrew = std::strcmp(e.type_name(), "System.ArgumentNullException") == 0;
+            supNullThrew = il2cpp::il2cpp_exception_matches("System.ArgumentNullException", e.type_name())
+                && il2cpp::il2cpp_exception_matches("System.Exception", e.type_name());
         }
         Expect(supNullThrew, "icall_gc_suppress_finalize(null) raises ArgumentNullException (net48)");
 
@@ -200,7 +209,8 @@ int main()
         }
         catch (const il2cpp::DotNetException& e)
         {
-            regNullThrew = std::strcmp(e.type_name(), "System.ArgumentNullException") == 0;
+            regNullThrew = il2cpp::il2cpp_exception_matches("System.ArgumentNullException", e.type_name())
+                && il2cpp::il2cpp_exception_matches("System.Exception", e.type_name());
         }
         Expect(regNullThrew, "icall_gc_re_register_for_finalize(null) raises ArgumentNullException (net48)");
 
