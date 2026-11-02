@@ -48,6 +48,22 @@
 //      at the start of the next collection, memory then reclaimed); live
 //      instances are NOT finalized; re-registration replaces the callback;
 //      null registrations are safe no-ops; unregistered types stay unaffected.
+//  15. GC.SuppressFinalize / GC.ReRegisterForFinalize REAL semantics (net48
+//      oracle, .opencode/tmp/impl-gc-suppress/oracle/NOTES.md). The net48 model
+//      is a per-object remaining-run COUNT q (initially 1) plus a latched
+//      "suppressed since the last re-register" flag s:
+//        R: q += 1, s = false          S: if (!s) { q = max(q-1, 0); s = true }
+//      15a. suppress a LIVE object -> its finalizer never runs (q 1 -> 0)
+//      15b. suppress is LATCHED: S;S is the same as one S
+//      15c. ReRegisterForFinalize on a suppressed object re-arms ONE run
+//      15d. R;R queues TWO runs (net48: the body really executes twice)
+//      15e. R then S cancels the run R added -> exactly one invocation
+//      15f. suppress an object already PENDING (dead, fn not yet run) CANCELS
+//           that queued run -- the definitive net48 pending-window contract
+//      15g. ReRegister on a PENDING object ADDS a run (2 total)
+//      15h. a suppressed object's MEMORY is still reclaimed (not retained)
+//      15i. suppress/re-register on a type with NO finalizer is a silent no-op
+//      15j. S;R;S is suppressed again (R cleared the latch)
 //
 // GC-safety: objects that must survive a collection are registered as static
 // roots FIRST and unregistered after the last use (the compacting collection
@@ -56,6 +72,7 @@
 // rooted -- that is the whole point.
 //------------------------------------------------------------------------------
 
+#include "il2cpp_gc_api.h" // icall_gc_suppress_finalize / re_register (section 15)
 #include "il2cpp_gc_ext.h"
 #include "il2cpp_gc.h"
 #include "il2cpp_metadata.h"
@@ -506,6 +523,139 @@ int main()
         il2cpp::il2cpp_gc_collect();
         Expect(g_finTypeCalls == 0,
                "unregistered type's instances are not finalized");
+    }
+
+    //--- 15. SuppressFinalize / ReRegisterForFinalize REAL semantics ---
+    // The net48 model (oracle/NOTES.md; probe5/6/8/9/14, matched 25/25
+    // op-strings): a per-object remaining-run COUNT q (initially 1) plus a
+    // latched "suppressed since the last re-register" flag s.
+    //     R: q += 1, s = false        S: if (!s) { q = max(q-1,0), s = true }
+    // The finalizer body runs exactly q times over the object's lifetime.
+    // Driven through the PUBLIC icall surface -- the exact entry points
+    // generated code calls -- so the icall -> collector wiring is covered.
+    {
+        // 15a/15h. suppress an object that then dies unrooted: the finalizer
+        // must never run (the no-op implementation would run it -> red), and
+        // the block must still be reclaimed (a suppress is not a retention).
+        g_finCalls = 0;
+        il2cpp::Il2CppObject* sup = il2cpp::il2cpp_gc_alloc(&g_leaf);
+        il2cpp::il2cpp_gc_register_finalizer(sup, &OnFinalized);
+        il2cpp::runtime::icall_gc_suppress_finalize(sup);
+        il2cpp::il2cpp_gc_collect();
+        il2cpp::il2cpp_gc_collect();
+        il2cpp::il2cpp_gc_collect();
+        Expect(g_finCalls == 0,
+               "SuppressFinalize cancels the finalizer of an object that then dies");
+        Expect(il2cpp::il2cpp_gc_get_generation(sup) == -1,
+               "a suppressed object's block is reclaimed, not retained as pending");
+
+        // 15b. the latch: S;S consumes only one queued run.
+        g_finCalls = 0;
+        il2cpp::Il2CppObject* latch = il2cpp::il2cpp_gc_alloc(&g_leaf);
+        il2cpp::il2cpp_gc_register_finalizer(latch, &OnFinalized);
+        il2cpp::runtime::icall_gc_suppress_finalize(latch);
+        il2cpp::runtime::icall_gc_suppress_finalize(latch);
+        il2cpp::il2cpp_gc_collect();
+        il2cpp::il2cpp_gc_collect();
+        Expect(g_finCalls == 0,
+               "SuppressFinalize is latched (S;S suppresses; no wrap-around run)");
+
+        // 15c. ReRegister re-arms exactly one run after a suppress.
+        g_finCalls = 0;
+        il2cpp::Il2CppObject* rearm = il2cpp::il2cpp_gc_alloc(&g_leaf);
+        il2cpp::il2cpp_gc_register_finalizer(rearm, &OnFinalized);
+        il2cpp::runtime::icall_gc_suppress_finalize(rearm);
+        il2cpp::runtime::icall_gc_re_register_for_finalize(rearm);
+        il2cpp::il2cpp_gc_collect();
+        il2cpp::il2cpp_gc_collect();
+        Expect(g_finCalls == 1,
+               "ReRegisterForFinalize re-arms exactly one run after a suppress");
+
+        // 15d. R;R queues TWO runs (net48 really executes the body twice).
+        g_finCalls = 0;
+        il2cpp::Il2CppObject* twice = il2cpp::il2cpp_gc_alloc(&g_leaf);
+        il2cpp::il2cpp_gc_register_finalizer(twice, &OnFinalized);
+        il2cpp::runtime::icall_gc_re_register_for_finalize(twice);
+        il2cpp::runtime::icall_gc_re_register_for_finalize(twice);
+        for (int k = 0; k < 8; ++k)
+        {
+            il2cpp::il2cpp_gc_collect();
+        }
+        Expect(g_finCalls == 3,
+               "ReRegisterForFinalize twice queues two EXTRA runs (3 total, net48)");
+
+        // 15e. R then S returns to exactly one run.
+        g_finCalls = 0;
+        il2cpp::Il2CppObject* rs = il2cpp::il2cpp_gc_alloc(&g_leaf);
+        il2cpp::il2cpp_gc_register_finalizer(rs, &OnFinalized);
+        il2cpp::runtime::icall_gc_re_register_for_finalize(rs);
+        il2cpp::runtime::icall_gc_suppress_finalize(rs);
+        for (int k = 0; k < 8; ++k)
+        {
+            il2cpp::il2cpp_gc_collect();
+        }
+        // net48 probe8 `RS` => 1: R raises the total owed to 2, S decrements it
+        // back to 1, so exactly ONE invocation happens (the S cancels the run R
+        // added, not the original one).
+        Expect(g_finCalls == 1,
+               "ReRegister then Suppress cancels the added run (1 total, net48)");
+
+        // 15f. THE pending-window contract: an object already dead and queued
+        // for finalization can STILL be suppressed, cancelling that run.
+        // net48 probe3 / probe4 / probe14 confirm this behaviour.
+        g_finCalls = 0;
+        il2cpp::Il2CppObject* pend = il2cpp::il2cpp_gc_alloc(&g_leaf);
+        il2cpp::il2cpp_gc_register_finalizer(pend, &OnFinalized);
+        il2cpp::il2cpp_gc_collect(); // pend dies -> Pending (block retained)
+        Expect(g_finCalls == 0, "pending object's finalizer has not run yet");
+        il2cpp::runtime::icall_gc_suppress_finalize(pend); // cancel the queued run
+        for (int k = 0; k < 8; ++k)
+        {
+            il2cpp::il2cpp_gc_collect();
+        }
+        Expect(g_finCalls == 0,
+               "SuppressFinalize cancels an ALREADY-PENDING finalizer (net48)");
+
+        // 15g. ReRegister on a PENDING object adds one run.
+        g_finCalls = 0;
+        il2cpp::Il2CppObject* pendR = il2cpp::il2cpp_gc_alloc(&g_leaf);
+        il2cpp::il2cpp_gc_register_finalizer(pendR, &OnFinalized);
+        il2cpp::il2cpp_gc_collect(); // Pending
+        il2cpp::runtime::icall_gc_re_register_for_finalize(pendR);
+        for (int k = 0; k < 8; ++k)
+        {
+            il2cpp::il2cpp_gc_collect();
+        }
+        Expect(g_finCalls == 2,
+               "ReRegisterForFinalize on a PENDING object adds one run (2 total, net48)");
+
+        // 15j. S;R;S is suppressed again: R clears the latch, so the second S
+        // consumes the run R just added. (A no-op suppress or a no-op
+        // re-register both mis-handle this shape.)
+        g_finCalls = 0;
+        il2cpp::Il2CppObject* srs = il2cpp::il2cpp_gc_alloc(&g_leaf);
+        il2cpp::il2cpp_gc_register_finalizer(srs, &OnFinalized);
+        il2cpp::runtime::icall_gc_suppress_finalize(srs);
+        il2cpp::runtime::icall_gc_re_register_for_finalize(srs);
+        il2cpp::runtime::icall_gc_suppress_finalize(srs);
+        for (int k = 0; k < 8; ++k)
+        {
+            il2cpp::il2cpp_gc_collect();
+        }
+        Expect(g_finCalls == 0,
+               "S;R;S suppresses again (ReRegister cleared the latch, net48)");
+
+        // 15i. suppress / re-register on an object with NO finalizer: silent.
+        g_finCalls = 0;
+        il2cpp::Il2CppObject* nofin = il2cpp::il2cpp_gc_alloc(&g_leaf);
+        il2cpp::runtime::icall_gc_suppress_finalize(nofin);
+        il2cpp::runtime::icall_gc_re_register_for_finalize(nofin);
+        for (int k = 0; k < 4; ++k)
+        {
+            il2cpp::il2cpp_gc_collect();
+        }
+        Expect(g_finCalls == 0,
+               "suppress/re-register on an unregistered object is a silent no-op");
     }
 
     //--- Report ---

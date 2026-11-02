@@ -928,6 +928,11 @@ bool IsPinned(Il2CppObject* obj)
 // and the Running state protects the in-flight object from the nested sweep.
 //------------------------------------------------------------------------------
 constexpr int32_t kMaxFinalizers = 256; // fixed static table (constraint #12)
+// Ceiling on the per-object queued-run counter. A re-register loop must not be
+// able to overflow 'owed'; net48 has no observable limit either, but a finite
+// clamp keeps the fixed-size entry arithmetic sound (an object that really
+// queues > 1e6 runs is out of scope for this collector).
+constexpr int32_t kMaxFinalizerRuns = 1000000;
 
 enum class FinalizerState : uint8_t
 {
@@ -937,11 +942,31 @@ enum class FinalizerState : uint8_t
     Done,       // fn has run; the next dead sighting reclaims the block
 };
 
+// A finalizer entry carries COUNTS, not a boolean. net48 queues one run per
+// ReRegisterForFinalize call and the Finalize body really executes that many
+// times, while SuppressFinalize DECREMENTS the total owed (clamped at zero)
+// without ever considering how many have already run. The verified net48 model
+// (oracle probe5/probe6/probe8/probe9/probe11/probe12/probe14; NOTES.md) is:
+//
+//     owed   = total invocations owed over the object's lifetime (starts at 1)
+//     executed = invocations already performed
+//     suppressLatched = a suppress has been applied since the last arm
+//
+//     ReRegister: owed += 1 ; suppressLatched = false
+//     Suppress  : if (!suppressLatched) { owed = max(owed - 1, 0); latch = true }
+//     the finalizer runs whenever owed > executed
+//
+// The latch is what makes S;S == S while S;R;S suppresses again, and clamping
+// 'owed' at zero (rather than letting it wrap) is what makes an over-suppress
+// harmless. Both counts are signed so no arithmetic can wrap.
 struct FinalizerEntry
 {
     Il2CppObject* obj;
     void (*fn)(Il2CppObject*);
     FinalizerState state;
+    int32_t         owed;            // total invocations owed (q)
+    int32_t         executed;        // invocations already performed (r)
+    bool            suppressLatched; // suppress applied since the last arm
 };
 
 FinalizerEntry g_finalizers[kMaxFinalizers];
@@ -1077,14 +1102,33 @@ void RunPendingFinalizers()
         {
             continue;
         }
+        // A suppressed-while-pending object owes no run: its queued invocation
+        // was cancelled (GAP-FIN-3 net48 pending window; oracle
+        // probe3/probe4/probe14). It stays Pending here and the sweep at the
+        // end of this collection reclaims the block.
+        if (fe.owed <= fe.executed)
+        {
+            continue;
+        }
         fe.state = FinalizerState::Running; // set BEFORE fn: a nested sweep never frees Running
         void (*fn)(Il2CppObject*) = fe.fn;
         Il2CppObject* obj = fe.obj;
+        // Count THIS invocation BEFORE the call. net48 probe11/probe12 show an
+        // in-finalizer SuppressFinalize(this) does not undo the run it is
+        // executing (owed is decremented from its pre-run total, so the
+        // already-executed run is still covered).
+        ++fe.executed;
         if (fn != nullptr)
         {
             fn(obj);
         }
-        fe.state = FinalizerState::Done;
+        // A re-registering finalizer (net48 probe10/probe11: the body may call
+        // ReRegisterForFinalize(this)) leaves owed > executed and must fire
+        // again at a LATER pending pass, never in this one (this loop has
+        // already passed this index). Otherwise the object is done and the
+        // sweep reclaims it.
+        fe.state = fe.owed > fe.executed ? FinalizerState::Pending
+                                         : FinalizerState::Done;
     }
     g_finalizerRunning = false;
 }
@@ -1143,14 +1187,28 @@ void UpdateExternalReferences()
         }
         if (alive)
         {
+            // Resurrection / revival: a Done entry whose object came back alive
+            // is dropped (no second run), and a Pending entry whose object is
+            // alive again is re-armed -- but ONLY while it still owes a run. An
+            // object that was SUPPRESSED (owed <= executed) and then
+            // resurrected keeps that suppression: re-arming it would let the
+            // finalizer run after the program already said suppress.
             if (fe.state == FinalizerState::Done)
             {
                 FinalizerRemove(&fe);
                 --i; // re-examine the entry swapped into this hole
             }
-            else if (fe.state == FinalizerState::Pending)
+            else if (fe.state == FinalizerState::Pending &&
+                     fe.owed > fe.executed)
             {
                 fe.state = FinalizerState::Registered; // alive again, fn never ran
+            }
+            else if (fe.state == FinalizerState::Pending)
+            {
+                // Suppressed pending object that came back alive: it owes
+                // nothing, so drop the entry (the next death just reclaims).
+                FinalizerRemove(&fe);
+                --i;
             }
         }
     }
@@ -1329,9 +1387,25 @@ void Collect()
             FinalizerEntry* fe = FinalizerFind(obj);
             if (fe != nullptr)
             {
-                if (fe->state == FinalizerState::Done)
+                // A Running entry is never reclaimed (nested-collection
+                // protection: a finalizer that allocates may sweep here while
+                // its own object is in flight). Anything else with no run left
+                // owed -- 'Done', or 'owed <= executed' because
+                // GC.SuppressFinalize cancelled the queued run (possibly while
+                // the object was ALREADY Pending) -- is reclaimed now.
+                if (fe->state == FinalizerState::Running)
                 {
-                    FinalizerRemove(fe); // finalizer already ran: reclaim now
+                    if (write != read)
+                    {
+                        g_blockTable[write] = entry;
+                    }
+                    ++write;
+                    continue;
+                }
+                if (fe->state == FinalizerState::Done ||
+                    fe->owed <= fe->executed)
+                {
+                    FinalizerRemove(fe); // nothing more owed: reclaim now
                 }
                 else
                 {
@@ -2032,16 +2106,88 @@ void il2cpp_gc_register_finalizer(Il2CppObject* obj, void (*fn)(Il2CppObject*))
     {
         fe->fn = fn;
         fe->state = FinalizerState::Registered;
+        fe->owed = fe->executed + 1; // exactly one run pending for this arm
+        fe->suppressLatched = false;
         return;
     }
     if (g_finalizerCount >= kMaxFinalizers)
     {
         FailLoud("finalizer table overflow");
     }
-    g_finalizers[g_finalizerCount].obj = obj;
-    g_finalizers[g_finalizerCount].fn = fn;
-    g_finalizers[g_finalizerCount].state = FinalizerState::Registered;
+    FinalizerEntry& added = g_finalizers[g_finalizerCount];
+    added.obj = obj;
+    added.fn = fn;
+    added.state = FinalizerState::Registered;
+    added.owed = 1;              // a fresh finalizable object owes one run
+    added.executed = 0;
+    added.suppressLatched = false;
     ++g_finalizerCount;
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_gc_reregister_finalizer -- GC.ReRegisterForFinalize(obj): add ONE
+// further queued run and clear the suppress latch (see il2cpp_gc.h). net48
+// queues one run per call, so 'owed' rises by one every time; the callback may
+// therefore execute more than once for the same object. Objects with no
+// registration (a type with no finalizer) are a silent no-op, exactly like
+// net48 (oracle probe7: ReRegister on a plain object neither throws nor has an
+// effect) -- the call does NOT create an entry, because there is no callback to
+// run.
+//------------------------------------------------------------------------------
+void il2cpp_gc_reregister_finalizer(Il2CppObject* obj)
+{
+    if (obj == nullptr)
+    {
+        return;
+    }
+    FinalizerEntry* fe = FinalizerFind(obj);
+    if (fe == nullptr)
+    {
+        return; // no finalizer on this type: nothing to re-arm (net48 no-op)
+    }
+    // Clamp so an adversarial re-register loop cannot overflow the counter.
+    if (fe->owed < kMaxFinalizerRuns)
+    {
+        ++fe->owed;
+    }
+    fe->suppressLatched = false;
+    // An entry that already finished ('Done') but was re-registered BEFORE its
+    // block was reclaimed owes another run, so re-arm its state machine.
+    if (fe->state == FinalizerState::Done)
+    {
+        fe->state = FinalizerState::Registered;
+    }
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_gc_suppress_finalizer -- GC.SuppressFinalize(obj): cancel ONE queued
+// run, LATCHED (see il2cpp_gc.h). This is the net48 decrement of the total
+// owed, clamped at zero, applied regardless of how many runs already executed
+// (oracle probe3: suppressing an object that is ALREADY Pending cancels the
+// run that was about to fire). Objects with no registration are a silent
+// no-op, and the latch makes a repeated suppress without an intervening
+// re-register a no-op too (net48 probe6: S;S == S).
+//------------------------------------------------------------------------------
+void il2cpp_gc_suppress_finalizer(Il2CppObject* obj)
+{
+    if (obj == nullptr)
+    {
+        return;
+    }
+    FinalizerEntry* fe = FinalizerFind(obj);
+    if (fe == nullptr)
+    {
+        return; // no finalizer on this type: nothing to suppress (net48 no-op)
+    }
+    if (fe->suppressLatched)
+    {
+        return; // latched: S;S consumes only one run (net48 probe6)
+    }
+    if (fe->owed > 0)
+    {
+        --fe->owed;
+    }
+    fe->suppressLatched = true;
 }
 
 //------------------------------------------------------------------------------
@@ -2339,7 +2485,11 @@ void il2cpp_gc_get_memory_info(GcMemoryInfoData& out)
     out.finalizationPendingCount = 0;
     for (int32_t i = 0; i < g_finalizerCount; ++i)
     {
-        if (g_finalizers[i].state == FinalizerState::Pending)
+        // Count only entries that still OWE a run: an object suppressed while
+        // Pending sits in the table until the sweep reclaims it but has no
+        // finalization left to perform, so it is not "pending finalization".
+        if (g_finalizers[i].state == FinalizerState::Pending &&
+            g_finalizers[i].owed > g_finalizers[i].executed)
         {
             ++out.finalizationPendingCount;
         }

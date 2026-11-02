@@ -70,17 +70,12 @@ void icall_gc_keep_alive(Il2CppObject* obj)
 //------------------------------------------------------------------------------
 // icall_gc_suppress_finalize -- GC.SuppressFinalize(obj).
 //
-// net48 contract: null -> ArgumentNullException. For a non-null object the
-// net48 semantic is "the object's finalizer will not run". The collector's
-// finalizer table (gc.cpp) has no public unregister/suppress primitive
-// (il2cpp_gc.h exposes only il2cpp_gc_register_finalizer + the run trigger),
-// so true suppression requires a gc.cpp extension (a public
-// il2cpp_gc_remove_finalizer or a suppress flag) -- reported to the
-// orchestrator with this module's audit. Until that lands, the non-null path
-// stays a no-op; note that this is net48-equivalent for System.WeakReference
-// (net48 WeakReference has no finalizer, so SuppressFinalize(wr) is a no-op
-// and the gcext handle-release finalizer stays armed -- the handle still
-// gets released exactly as net48's internal handle table does).
+// net48 contract: null -> ArgumentNullException. For a non-null object this
+// CANCELS one queued finalizer run (latched: S;S == S), including a run that is
+// already queued for a dead object, and is a silent no-op for an object whose
+// type has no finalizer. Delegates to il2cpp_gc_suppress_finalizer (gc.cpp);
+// the net48 semantics are pinned by the oracle probes recorded in
+// .opencode/tmp/impl-gc-suppress/oracle/NOTES.md and by e2e case gc-suppress.
 //------------------------------------------------------------------------------
 void icall_gc_suppress_finalize(Il2CppObject* obj)
 {
@@ -88,16 +83,17 @@ void icall_gc_suppress_finalize(Il2CppObject* obj)
     {
         il2cpp::il2cpp_throw_new("System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception", "obj");
     }
+    il2cpp::il2cpp_gc_suppress_finalizer(obj);
 }
 
 //------------------------------------------------------------------------------
 // icall_gc_re_register_for_finalize -- GC.ReRegisterForFinalize(obj).
 //
-// net48 contract: null -> ArgumentNullException. The non-null path re-arms a
-// previously suppressed finalizer -- the same suppression-primitive gap as
-// icall_gc_suppress_finalize above (see that docblock); the collector's
-// il2cpp_gc_register_finalizer already replaces/re-arms a callback when a
-// registration exists, so this is a no-op for objects with no registration.
+// net48 contract: null -> ArgumentNullException. For a non-null object this
+// adds ONE further queued run and clears the suppress latch, so S;R re-arms a
+// suppressed finalizer and R;R legitimately runs the body twice. A silent
+// no-op for an object whose type has no finalizer. Delegates to
+// il2cpp_gc_reregister_finalizer (gc.cpp); see the same oracle notes.
 //------------------------------------------------------------------------------
 void icall_gc_re_register_for_finalize(Il2CppObject* obj)
 {
@@ -105,6 +101,7 @@ void icall_gc_re_register_for_finalize(Il2CppObject* obj)
     {
         il2cpp::il2cpp_throw_new("System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception", "obj");
     }
+    il2cpp::il2cpp_gc_reregister_finalizer(obj);
 }
 
 //------------------------------------------------------------------------------

@@ -219,7 +219,39 @@ void il2cpp_gc_remove_pinned(void** slot);
 // Register a finalizer callback for 'obj'. Null object or null callback are
 // caller bugs and are ignored. Overflow aborts the process (fixed-capacity
 // static table).
+//
+// REGISTRATION IS A QUEUE, NOT A FLAG (net48 semantics, verified against the
+// net48 oracle -- see .opencode/tmp/impl-gc-suppress/oracle/NOTES.md). An
+// object of a finalizable type starts with ONE queued run. Each call here adds
+// one more run and clears the suppress latch, so the callback can legitimately
+// execute more than once for one object (the generated Finalize body is
+// re-run). This is the SAME primitive the allocator uses for the type-level
+// auto-arm and that icall_gc_re_register_for_finalize exposes.
 void il2cpp_gc_register_finalizer(Il2CppObject* obj, void (*fn)(Il2CppObject*));
+
+// Re-arm the object's EXISTING finalizer callback, adding ONE further queued
+// run and clearing the suppress latch (GC.ReRegisterForFinalize). This is the
+// additive sibling of il2cpp_gc_register_finalizer, which keeps its
+// replace-the-callback contract: an object can legitimately owe several
+// invocations of the same Finalize body (net48 queues one run per call), so
+// the runtime tracks a per-object run COUNT rather than a boolean. An object
+// with no registration (a type with no finalizer) is a silent no-op -- net48
+// accepts ReRegisterForFinalize on any object. Null is a caller bug and is
+// ignored here (the icall layer raises ArgumentNullException first).
+void il2cpp_gc_reregister_finalizer(Il2CppObject* obj);
+
+// Cancel ONE queued finalizer run for 'obj' (GC.SuppressFinalize). This is the
+// net48 LATCHED decrement: the first suppress consumes one queued run and sets
+// a latch, and further suppresses are no-ops until a register/re-register
+// clears it (so S;S == S, while S;R;S suppresses again). It applies to a live
+// object (Registered) AND to an object already queued for finalization
+// (Pending): suppressing a Pending object cancels the run that was about to
+// fire, and the collection then reclaims the block normally. An object with no
+// registration (never finalizable, or already finalized and reclaimed) is a
+// silent no-op -- net48 accepts SuppressFinalize on any object. Null is a
+// caller bug and is ignored here (the icall layer raises
+// ArgumentNullException before reaching the collector).
+void il2cpp_gc_suppress_finalizer(Il2CppObject* obj);
 
 // Register a TYPE-level finalizer: the type's Finalize method pointer, armed
 // on EVERY instance of 'klass' at allocation (see gc.cpp AllocCore). This is
