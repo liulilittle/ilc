@@ -49,7 +49,7 @@ int32_t icall_gc_get_generation(Il2CppObject* obj)
 {
     if (obj == nullptr)
     {
-        il2cpp::il2cpp_throw_new("System.ArgumentNullException", "obj");
+        il2cpp::il2cpp_throw_new("System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception", "obj");
     }
     return il2cpp::il2cpp_gc_get_generation(obj);
 }
@@ -86,7 +86,7 @@ void icall_gc_suppress_finalize(Il2CppObject* obj)
 {
     if (obj == nullptr)
     {
-        il2cpp::il2cpp_throw_new("System.ArgumentNullException", "obj");
+        il2cpp::il2cpp_throw_new("System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception", "obj");
     }
 }
 
@@ -103,7 +103,7 @@ void icall_gc_re_register_for_finalize(Il2CppObject* obj)
 {
     if (obj == nullptr)
     {
-        il2cpp::il2cpp_throw_new("System.ArgumentNullException", "obj");
+        il2cpp::il2cpp_throw_new("System.ArgumentNullException,System.ArgumentException,System.SystemException,System.Exception", "obj");
     }
 }
 
