@@ -900,22 +900,31 @@ intptr_t il2cpp_com_rcw_borrow_iunknown(Il2CppObject* o);
 
 // The transpiler's castclass arm for a same-assembly [ComImport] interface.
 // net48: casting an RCW to a COM interface performs a QueryInterface and throws
-// InvalidCastException when the object does not implement it. An IDENTITY
-// reinterpret-cast would silently hand the WRONG vtable to a later native call
-// (crash / data corruption), so the cast must validate:
+// InvalidCastException when the object does not implement it, but returns the
+// SAME RCW object (identity preserved). An IDENTITY reinterpret-cast would
+// silently ACCEPT a wrong interface and hand the WRONG vtable to a later native
+// call (crash / data corruption), so the cast must validate:
 //   * o == null                -> null (ECMA castclass on null is a no-op);
-//   * o is an RCW              -> typed-wrap: QI 'iid' and return an RCW whose
-//                                 wrapped pointer IS the QI'd interface (the
-//                                 SAME identity cache GetTypedObjectForIUnknown
-//                                 uses); a QI failure -> InvalidCastException.
-//                                 AddRefs (the wrapper owns the new reference);
+//   * o is an RCW              -> QueryInterface('iid') to validate, Release the
+//                                 probe reference, and return o (the SAME
+//                                 object); a QI failure -> InvalidCastException;
 //   * o is a non-RCW that      -> o itself (the CCW direction; the byval bridge
 //     implements 'ifaceClass'     rejects it later with a self-identifying
 //                                 message -- b5-gaps section 30);
 //   * anything else            -> InvalidCastException.
 // 'iid' is the 16-byte [Guid] of the target interface (.NET Guid byte layout).
-Il2CppObject* il2cpp_com_cast_to_interface(Il2CppObject* o, const uint8_t iid[16],
-                                           Il2CppClass* ifaceClass);
+Il2CppObject* il2cpp_com_rcw_cast_check(Il2CppObject* o, const uint8_t iid[16],
+                                        Il2CppClass* ifaceClass);
+
+// The byval COM-interface argument pointer for a SPECIFIC declared interface
+// IID. net48's marshaller hands the callee the interface pointer obtained by
+// QueryInterface for the declared type (tear-off interfaces included), AddRef'd
+// for the duration of the call. The RETURNED reference is OWNED: the
+// Il2CppPinvokeComArg holder takes it over and Releases it exactly once when the
+// argument temporary dies (it must NOT AddRef again). null -> 0 (net48 passes
+// NULL and does not touch the count). A non-RCW managed object ->
+// NotSupportedException (the CCW direction, b5-gaps section 30).
+intptr_t il2cpp_com_rcw_borrow_interface(Il2CppObject* o, const uint8_t iid[16]);
 
 // Marshal.GetObjectForIUnknown(IntPtr pUnk): wrap a raw IUnknown* (intptr
 // carrier) into an RCW managed object, TAKING OWNERSHIP of the reference

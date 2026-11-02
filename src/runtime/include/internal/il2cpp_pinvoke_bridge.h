@@ -147,12 +147,19 @@ inline Il2CppPinvokeArg<U> il2cpp_pinvoke_arg(U u)
 struct Il2CppPinvokeComArg
 {
     intptr_t iface;
+    // ADOPTS one OWNED interface reference (the QI reference from
     explicit Il2CppPinvokeComArg(intptr_t p) : iface(p)
     {
-        if (iface != 0) icall_com_add_ref(iface);
+        // no AddRef: the caller (il2cpp_com_rcw_borrow_interface) hands over
+        // an owned QI reference and this holder owns it from here.
     }
     Il2CppPinvokeComArg(const Il2CppPinvokeComArg& o) : iface(o.iface)
     {
+        // A real copy must AddRef, or two owners would release one reference.
+        // il2cpp_pinvoke_call takes its arguments by value in a C++17
+        // guaranteed-copy-elision context, so the ACTUAL call site makes
+        // zero copies; a regression would make call.entry.delta 2 and turn
+        // the pinvoke-com-byval records red (fail-loud).
         if (iface != 0) icall_com_add_ref(iface);
     }
     Il2CppPinvokeComArg& operator=(const Il2CppPinvokeComArg&) = delete;

@@ -7675,20 +7675,17 @@ intptr_t il2cpp_com_rcw_borrow_iunknown(Il2CppObject* o)
 }
 
 //------------------------------------------------------------------------------
-// il2cpp_com_cast_to_interface -- the transpiler's castclass arm for a
-// same-assembly [ComImport] interface (see il2cpp_com.h). net48 performs a
-// QueryInterface when an RCW is cast to a COM interface and throws
-// InvalidCastException when the object does not implement it. An identity
-// reinterpret-cast (the previous behaviour) silently returned the RCW and let a
-// later byval call hand the WRONG interface vtable to native code -- a silent
-// wrong-program. The typed-wrap below reuses
-// icall_com_get_typed_object_for_iunknown (QI -> InvalidCastException on
-// failure, then wrap/cache the QI'd pointer with an AddRef), so a wrong
-// interface is rejected AND the RCW the byval bridge borrows carries the
-// correct QI'd interface pointer (tear-off interfaces included).
+// il2cpp_com_rcw_cast_check -- the transpiler's castclass arm for a
+// same-assembly [ComImport] interface (see il2cpp_com.h). net48: casting an RCW
+// to a COM interface performs a QueryInterface (InvalidCastException when the
+// object does not implement it) but returns the SAME RCW object (identity is
+// preserved -- ReferenceEquals(rcw, (IFace)rcw) is true). An identity
+// reinterpret-cast (the earlier behaviour) silently ACCEPTED a wrong interface
+// and let a later byval call hand the wrong vtable to native code. This helper
+// validates with a QI and returns the ORIGINAL object.
 //------------------------------------------------------------------------------
-Il2CppObject* il2cpp_com_cast_to_interface(Il2CppObject* o, const uint8_t iid[16],
-                                           Il2CppClass* ifaceClass)
+Il2CppObject* il2cpp_com_rcw_cast_check(Il2CppObject* o, const uint8_t iid[16],
+                                        Il2CppClass* ifaceClass)
 {
     if (o == nullptr)
     {
@@ -7696,10 +7693,26 @@ Il2CppObject* il2cpp_com_cast_to_interface(Il2CppObject* o, const uint8_t iid[16
     }
     if (o->klass == RcwClass())
     {
-        // typed wrap: QI + identity cache + AddRef; throws InvalidCastException
-        // when the object does not implement 'iid'.
-        return icall_com_get_typed_object_for_iunknown(
-            il2cpp_com_rcw_borrow_iunknown(o), iid);
+        Il2CppComRcw* r = AsRcw(o, "o");
+        intptr_t q = 0;
+        const int32_t hr = icall_com_query_interface(
+            static_cast<intptr_t>(reinterpret_cast<uintptr_t>(r->unknown)), iid, &q);
+        if (hr == kComHrNoInterface)
+        {
+            il2cpp_throw_new(
+                "System.InvalidCastException,System.InvalidCastException,"
+                "System.SystemException,System.Exception",
+                "The COM object does not implement the requested interface.");
+        }
+        if (hr != kComHrOk)
+        {
+            ThrowComException(hr);
+        }
+        if (q != 0)
+        {
+            icall_com_release(q); // validation only -- do not hold this reference
+        }
+        return o; // net48 identity: the SAME RCW object
     }
     // A non-RCW managed object that implements the interface stays itself (the
     // CCW direction -- the byval bridge rejects it later with a self-identifying
@@ -7713,6 +7726,48 @@ Il2CppObject* il2cpp_com_cast_to_interface(Il2CppObject* o, const uint8_t iid[16
         "System.SystemException,System.Exception",
         "Unable to cast object to the target type.");
     return nullptr; // unreachable
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_com_rcw_borrow_interface -- the byval COM-interface argument pointer
+// for a SPECIFIC declared interface IID (see il2cpp_com.h). net48's marshaller
+// hands the callee the interface pointer obtained by QueryInterface for the
+// declared type (tear-off interfaces included), AddRef'd for the call. The QI
+// reference returned here is OWNED: Il2CppPinvokeComArg takes it over and
+// Releases it once when the argument temporary dies (never a second AddRef).
+// null -> 0 (net48 passes NULL and does not touch the count).
+//------------------------------------------------------------------------------
+intptr_t il2cpp_com_rcw_borrow_interface(Il2CppObject* o, const uint8_t iid[16])
+{
+    if (o == nullptr)
+    {
+        return 0;
+    }
+    if (o->klass != RcwClass())
+    {
+        il2cpp_throw_not_supported_exception(
+            "P/Invoke byval COM parameter: a managed object implementing a "
+            "[ComImport] interface is exposed as a CCW; passing it byval is "
+            "not implemented yet (only an RCW obtained from COM can be "
+            "passed). See docs/audit/b5-gaps.md section 30.");
+    }
+    Il2CppComRcw* r = AsRcw(o, "o");
+    intptr_t out = 0;
+    const int32_t hr = icall_com_query_interface(
+        static_cast<intptr_t>(reinterpret_cast<uintptr_t>(r->unknown)), iid, &out);
+    if (hr == kComHrNoInterface)
+    {
+        // Defensive: the castclass arm already rejected a wrong interface.
+        il2cpp_throw_new(
+            "System.InvalidCastException,System.InvalidCastException,"
+            "System.SystemException,System.Exception",
+            "The COM object does not implement the requested interface.");
+    }
+    if (hr != kComHrOk)
+    {
+        ThrowComException(hr);
+    }
+    return out; // owned (QI AddRef'd); the holder releases it exactly once
 }
 
 //------------------------------------------------------------------------------

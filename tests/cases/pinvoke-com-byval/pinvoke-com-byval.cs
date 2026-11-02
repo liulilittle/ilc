@@ -111,6 +111,11 @@ public static class PinvokeComByval
         Record("mixed.ret", mixed);
         Record("mixed.after.delta", com_refcount() - baseMix);
 
+
+        // ---- 4b. a cast to an interface the object DOES implement returns
+        //          the SAME RCW (net48 identity: ReferenceEquals is true) ----
+        ITestCom sameAgain = (ITestCom)rcw;
+        Record("cast.identity", object.ReferenceEquals(rcw, sameAgain) ? 1 : 0);
         // ---- 5. casting the RCW to an interface it does NOT implement must
         //         throw InvalidCastException (net48 QueryInterface) ----------
         try

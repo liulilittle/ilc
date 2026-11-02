@@ -11101,7 +11101,7 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 var iidLit = new System.Text.StringBuilder("reinterpret_cast<const uint8_t*>(\"");
                 foreach (var by in comIidBytes) iidLit.Append("\\x").Append(by.ToString("x2"));
                 iidLit.Append("\")");
-                return $"il2cpp::runtime::il2cpp_com_cast_to_interface({objCode}, {iidLit}, {BoxClassDescriptorCpp(typeName)})";
+                return $"il2cpp::runtime::il2cpp_com_rcw_cast_check({objCode}, {iidLit}, {BoxClassDescriptorCpp(typeName)})";
             }
             // M7 CG-FIX (boxdeep2 cmake FAIL): box primitives WITHOUT a GLOBAL
             // descriptor (UInt32/Int64/UInt64/Byte/SByte/Int16/UInt16/Single/
@@ -12683,17 +12683,21 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             // interface for the DURATION of the call and Releases it afterwards
             // (com-verify NOTES section 3(d), case F13: the callee observes
             // refs = n+1 on entry AND exit, and the post-call count is back at
-            // n). The bridge borrows the RCW's wrapped pointer WITHOUT AddRef
-            // (il2cpp_com_rcw_borrow_iunknown) and the RAII holder owns the
-            // per-call AddRef/Release pair (Il2CppPinvokeComArg). Emitted
-            // WITHOUT il2cpp_pinvoke_arg: the holder's own templated conversion
-            // operator yields whatever native pointer the declaration / dynamic
-            // resolve cast names (a class value cannot go through the bridge's
-            // reinterpret_cast conversion path). A null managed reference
-            // borrows as 0 and the holder does not touch the count -- net48
-            // passes NULL.
+            // refs = n+1 on entry AND exit, and the post-call count is back at
+            // n). The bridge QIs the RCW for the DECLARED interface IID
+            // (il2cpp_com_rcw_borrow_interface) so the callee gets the exact
+            // interface pointer net48 would hand it (tear-off included). The
+            // QI reference is OWNED: Il2CppPinvokeComArg adopts it and Releases
+            // it exactly once when the argument temporary dies (no second
+            // AddRef). Emitted WITHOUT il2cpp_pinvoke_arg: the holder's own
+            // templated conversion operator yields whatever native pointer the
+            // declaration / dynamic resolve cast names (a class value cannot go
+            // through the bridge's reinterpret_cast conversion path). A null
+            // managed reference borrows as 0 and the holder does not touch the
+            // count -- net48 passes NULL.
             if (r.IsPInvoke && cast is not null
-                && PinvokeComInterfaceParamOf(md, cast) is not null)
+                && PinvokeComInterfaceParamOf(md, cast) is not null
+                && PinvokeComInterfaceIidOf(md, cast) is { } comArgIid)
             {
                 // A nullptr literal must not be reinterpret_cast (that is
                 // ill-formed from std::nullptr_t -- the NullSafePtrCast
@@ -12701,16 +12705,12 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 var objPtr = code == "nullptr"
                     ? "nullptr"
                     : $"reinterpret_cast<Il2CppObject*>({code})";
-                parts.Add($"il2cpp::runtime::il2cpp_pinvoke_com_arg(il2cpp::runtime::il2cpp_com_rcw_borrow_iunknown({objPtr}))");
+                var argIidLit = new System.Text.StringBuilder("reinterpret_cast<const uint8_t*>(\"");
+                foreach (var by in comArgIid) argIidLit.Append("\\x").Append(by.ToString("x2"));
+                argIidLit.Append("\")");
+                parts.Add($"il2cpp::runtime::il2cpp_pinvoke_com_arg(il2cpp::runtime::il2cpp_com_rcw_borrow_interface({objPtr}, {argIidLit}))");
                 continue;
             }
-            // dparse: "lit:<expr>" -- the icall slot takes a compile-time
-            // literal INSTEAD of an IL argument (decimal.Parse(string,
-            // IFormatProvider) forwards NumberStyles.Number=111 through the
-            // styled icall, which has no styles parameter in that overload).
-            // The cast REPLACES the argument expression, exactly like the
-            // "tzsec" replacement cast below; the IL argument is still
-            // consumed by the fold (ParamCount stays the IL arity).
             if (cast is { Length: > 4 } litCast && litCast.StartsWith("lit:", StringComparison.Ordinal))
             {
                 parts.Add(litCast[4..]);
