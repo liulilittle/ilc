@@ -599,7 +599,7 @@ public static class DcePass
             case DelegateNewExpr dn:
                 return new DelegateNewExpr { MethodToken = dn.MethodToken, Target = ReplaceLoc(dn.Target, name, value), TypeId = dn.TypeId };
             case MarshalUtf8Expr m:
-                return new MarshalUtf8Expr { Arg = ReplaceLoc(m.Arg, name, value), Utf16 = m.Utf16 };
+                return new MarshalUtf8Expr { Arg = ReplaceLoc(m.Arg, name, value), Utf16 = m.Utf16, Ansi = m.Ansi };
             case FieldExpr f:
                 return new FieldExpr
                 {

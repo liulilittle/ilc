@@ -4926,7 +4926,7 @@ public static class StackFold
             if (resolved?.IsPInvoke == true && resolved.ParamTypeNames != null)
             {
                 for (var i = 0; i < resolved.ParamTypeNames.Length; i++)
-                    if (resolved.ParamTypeNames[i] is "r:System.String" or "u16:System.String")
+                    if (resolved.ParamTypeNames[i] is "r:System.String" or "u16:System.String" or "a:System.String")
                         call.StringArgIndices.Add(i);
             }
             // Instance method (non-virtual call): CLI stack order
@@ -5813,7 +5813,7 @@ public static class StackFold
             // of kind "cstr") BEFORE the call and freed AFTER it. This also
             // removes the runtime's 4096-byte truncation (heap buffers are
             // unbounded).
-            var pinvokeFreeTemps = new List<(string Name, bool Utf16)>();
+            var pinvokeFreeTemps = new List<(string Name, string FreeFn)>();
             if (call.IsPInvoke && call.StringArgIndices.Count > 0)
             {
                 for (var i = 0; i < call.Args.Count; i++)
@@ -5823,18 +5823,24 @@ public static class StackFold
                     temps.Add(mtemp);
                     // wf2 (winforms1): CharSet.Unicode -> UTF-16 marshal
                     // (il2cpp_pinvoke_string_to_utf16_alloc / utf16_free).
-                    var isUtf16 = call.Resolved?.ParamTypeNames != null
+                    // stransi: CharSet.Ansi/None -> CP_ACP marshal
+                    // (il2cpp_pinvoke_string_to_ansi_alloc / ansi_free); the
+                    // generic "r:System.String" encoding stays UTF-8.
+                    var enc = call.Resolved?.ParamTypeNames != null
                         && i < call.Resolved.ParamTypeNames.Length
-                        && call.Resolved.ParamTypeNames[i] == "u16:System.String";
+                        ? call.Resolved.ParamTypeNames[i] : "r:System.String";
+                    var isUtf16 = enc == "u16:System.String";
+                    var isAnsi = enc == "a:System.String";
                     stmts.Add(new AssignStmt
                     {
                         Target = mtemp,
-                        Value = new MarshalUtf8Expr { Arg = call.Args[i], Utf16 = isUtf16 },
+                        Value = new MarshalUtf8Expr { Arg = call.Args[i], Utf16 = isUtf16, Ansi = isAnsi },
                         SourceOffset = ins.Offset,
                         SourceOpName = OpName(ins.OpCode)
                     });
                     call.Args[i] = new LocExpr { Name = mtemp };
-                    pinvokeFreeTemps.Add((mtemp, isUtf16));
+                    pinvokeFreeTemps.Add((mtemp, isUtf16 ? "pinvoke_utf16_free"
+                        : isAnsi ? "pinvoke_ansi_free" : "pinvoke_utf8_free"));
                 }
                 call.StringArgIndices.Clear(); // args are pre-marshalled now
             }
@@ -5983,7 +5989,7 @@ public static class StackFold
                     && SharedReturnConcreteType(md, (int)ins.Operand) is string callSharedRet)
                     objTypes[rtc.Name] = callSharedRet;
                 foreach (var mt in pinvokeFreeTemps)
-                    stmts.Add(new CallStmt { Function = mt.Utf16 ? "pinvoke_utf16_free" : "pinvoke_utf8_free", Args = { new LocExpr { Name = mt.Name } }, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                    stmts.Add(new CallStmt { Function = mt.FreeFn, Args = { new LocExpr { Name = mt.Name } }, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
             }
             else
             {
@@ -5997,7 +6003,7 @@ public static class StackFold
                 stmt.Args.AddRange(call.Args);
                 stmts.Add(stmt);
                 foreach (var mt in pinvokeFreeTemps)
-                    stmts.Add(new CallStmt { Function = mt.Utf16 ? "pinvoke_utf16_free" : "pinvoke_utf8_free", Args = { new LocExpr { Name = mt.Name } }, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                    stmts.Add(new CallStmt { Function = mt.FreeFn, Args = { new LocExpr { Name = mt.Name } }, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
                 // rv=false with a non-void .NET signature: the IL stack still
                 // carries the dropped value (the caller's `pop` discards it).
                 // Mirror that slot or the shadow stack desyncs (collchain
@@ -11429,7 +11435,7 @@ public static class StackFold
             OwnerFullName = f.OwnerFullName,
             IsValueTypeObject = f.IsValueTypeObject,
         },
-        MarshalUtf8Expr m => new MarshalUtf8Expr { Arg = ReplaceExpr(m.Arg, temp, value), Utf16 = m.Utf16 },
+        MarshalUtf8Expr m => new MarshalUtf8Expr { Arg = ReplaceExpr(m.Arg, temp, value), Utf16 = m.Utf16, Ansi = m.Ansi },
         _ => e,
     };
 

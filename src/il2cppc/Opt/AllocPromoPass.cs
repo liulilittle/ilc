@@ -450,7 +450,7 @@ public static class AllocPromoPass
             case DelegateNewExpr dn:
                 return new DelegateNewExpr { MethodToken = dn.MethodToken, Target = RewriteExpr(dn.Target, alias, root), TypeId = dn.TypeId };
             case MarshalUtf8Expr m:
-                return new MarshalUtf8Expr { Arg = RewriteExpr(m.Arg, alias, root), Utf16 = m.Utf16 };
+                return new MarshalUtf8Expr { Arg = RewriteExpr(m.Arg, alias, root), Utf16 = m.Utf16, Ansi = m.Ansi };
             case FieldExpr f:
                 return new FieldExpr
                 {

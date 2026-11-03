@@ -4870,6 +4870,13 @@ public static class CodeGenerator
                         $"IL {At(c.SourceOpName, c.SourceOffset)} -- release the marshalled UTF-16 buffer");
                     break;
                 }
+                if (c.Function == "pinvoke_ansi_free")
+                {
+                    // stransi: release a CP_ACP marshal buffer (CharSet.Ansi/None).
+                    w.LineAligned($"il2cpp::il2cpp_pinvoke_ansi_free({EmitExpr(c.Args[0], md, types)});",
+                        $"IL {At(c.SourceOpName, c.SourceOffset)} -- release the marshalled ANSI buffer");
+                    break;
+                }
                 if (c.Function.StartsWith("vctor_", StringComparison.Ordinal)
                     && int.TryParse(c.Function[6..], out var vctok))
                 {
@@ -5623,9 +5630,15 @@ public static class CodeGenerator
                 // Audit H5: marshal a managed string into its own heap buffer.
                 // wf2 (winforms1): CharSet.Unicode P/Invokes use the UTF-16
                 // alloc (the native W-API reads char16_t*).
-                return m.Utf16
-                    ? $"il2cpp::il2cpp_pinvoke_string_to_utf16_alloc({NullSafePtrCast("Il2CppString*", EmitExpr(m.Arg, md, types))})"
-                    : $"il2cpp::il2cpp_pinvoke_string_to_utf8_alloc({NullSafePtrCast("Il2CppString*", EmitExpr(m.Arg, md, types))})";
+                // stransi: CharSet.Ansi/None uses the CP_ACP allocator (net48
+                // marshals Ansi strings through the system ANSI code page).
+                // Unicode keeps UTF-16; the generic "r:System.String" case
+                // (BCL icalls etc.) keeps UTF-8.
+                if (m.Utf16)
+                    return $"il2cpp::il2cpp_pinvoke_string_to_utf16_alloc({NullSafePtrCast("Il2CppString*", EmitExpr(m.Arg, md, types))})";
+                if (m.Ansi)
+                    return $"il2cpp::il2cpp_pinvoke_string_to_ansi_alloc({NullSafePtrCast("Il2CppString*", EmitExpr(m.Arg, md, types))})";
+                return $"il2cpp::il2cpp_pinvoke_string_to_utf8_alloc({NullSafePtrCast("Il2CppString*", EmitExpr(m.Arg, md, types))})";
             case LocExpr l:
                 return l.Name;
             case LocAddrExpr la:
@@ -7843,6 +7856,7 @@ default: return false;                           // primitives/VAR(handled by ca
                       && !c.Function.StartsWith("capture_last_error", StringComparison.Ordinal)
                       && !c.Function.StartsWith("pinvoke_utf8_free", StringComparison.Ordinal)
                       && !c.Function.StartsWith("pinvoke_utf16_free", StringComparison.Ordinal)
+                      && !c.Function.StartsWith("pinvoke_ansi_free", StringComparison.Ordinal)
                       && !c.Function.StartsWith("stelem_", StringComparison.Ordinal)
                       && !c.Function.StartsWith("ldelem_", StringComparison.Ordinal)
                       && !c.Function.StartsWith("ldlen_", StringComparison.Ordinal)
@@ -8045,7 +8059,7 @@ default: return false;                           // primitives/VAR(handled by ca
                 case MarshalUtf8Expr m:
                 {
                     var nm = Rewrite(m.Arg);
-                    return ReferenceEquals(nm, m.Arg) ? m : new MarshalUtf8Expr { Arg = nm, Utf16 = m.Utf16 };
+                    return ReferenceEquals(nm, m.Arg) ? m : new MarshalUtf8Expr { Arg = nm, Utf16 = m.Utf16, Ansi = m.Ansi };
                 }
                 case FieldExpr f:
                 {
@@ -9628,6 +9642,9 @@ default: return false;                           // primitives/VAR(handled by ca
             // wf2 (winforms1): CharSet.Unicode P/Invoke string param -> UTF-16
             // (const char16_t*), else UTF-8 (const char*).
             if (p == "r:System.String") return utf16PInvoke ? "const char16_t*" : "const char*";
+            // stransi: the Ansi/None call-site encoding is still a byte string
+            // (the CP_ACP buffer) -- const char* at the native boundary.
+            if (p == "a:System.String") return "const char*";
             // StringBuilder parameter (net48: the callee receives the
             // builder's OWN chunk buffer, Capacity units, and Length is
             // recomputed as strnlen(buffer, Capacity) after the call). The
@@ -9644,7 +9661,7 @@ default: return false;                           // primitives/VAR(handled by ca
             {
                 if (utf16PInvoke) return "char16_t*";
                 throw new NotSupportedException(
-                    $"P/Invoke StringBuilder parameter on {methodName} with CharSet.Ansi: net48 marshals the builder through the system ANSI code page (CP_ACP); this transpiler's ANSI string marshalling is UTF-8 with no CP_ACP conversion, so non-ASCII text would be corrupted -- declare CharSet.Unicode/Auto for the UTF-16 chunk bridge (b5-gaps section 29)");
+                    $"P/Invoke StringBuilder parameter on {methodName} with CharSet.Ansi: net48 marshals the builder through the system ANSI code page (CP_ACP); this transpiler has no CP_ACP bridge for the StringBuilder CHUNK (plain `string` Ansi arguments ARE converted since b5-gaps section 34), so non-ASCII text would be corrupted -- declare CharSet.Unicode/Auto for the UTF-16 chunk bridge (b5-gaps section 29)");
             }
             // P-D1 P0: the marshalling type matrix is COMPLETE -- every branch
             // is either a real native type or a LOUD rejection (never the old
@@ -13047,6 +13064,10 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // pre-marshalled char16_t* temp passes through UNCAST (the
                 // native declaration is const char16_t*).
                 "u16:System.String" => code,
+                // stransi: CharSet.Ansi/None P/Invoke string arg -- the
+                // pre-marshalled CP_ACP byte buffer (char*) passes through
+                // UNCAST; the native declaration is const char*.
+                "a:System.String" => code,
                 // tuple1 (ValueTuple): an int32 ELEMENT of a tuple struct --
                 // the ldflda address wraps a FIELD (not a receiver address):
                 // `(&(loc.Item1))` is an lvalue the generic pun derefs, but

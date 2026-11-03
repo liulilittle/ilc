@@ -2671,15 +2671,15 @@ the callee through a managed callback (see
 
 Registered residual gap: `CharSet.Ansi` is a self-identifying transpile-time
 LOUD. net48 marshals an ANSI StringBuilder through the system ANSI code page
-(CP_ACP); this transpiler's ANSI string convention is UTF-8
-(`src/runtime/include/internal/il2cpp_environment.h:47` records that full
-CP_ACP conversion is out of the simplified scope) and there is no CP_ACP
-converter in the P/Invoke bridge. Handing UTF-8 to an Ansi callee would
-silently corrupt non-ASCII text, so the declaration site rejects it instead.
+(CP_ACP); this transpiler has no CP_ACP bridge for the StringBuilder CHUNK
+(a plain `string` Ansi argument IS converted through CP_ACP since **section
+34**; the builder's writable-chunk bridge has no equivalent in/out conversion).
+Handing a mismatched encoding to an Ansi callee would silently corrupt
+non-ASCII text, so the declaration site rejects it instead.
 
 Self-identify (the transpile log carries this exact message):
 
-    P/Invoke StringBuilder parameter on <method> with CharSet.Ansi: net48 marshals the builder through the system ANSI code page (CP_ACP); this transpiler's ANSI string marshalling is UTF-8 with no CP_ACP conversion, so non-ASCII text would be corrupted -- declare CharSet.Unicode/Auto for the UTF-16 chunk bridge (b5-gaps section 29)
+    P/Invoke StringBuilder parameter on <method> with CharSet.Ansi: net48 marshals the builder through the system ANSI code page (CP_ACP); this transpiler has no CP_ACP bridge for the StringBuilder CHUNK (plain `string` Ansi arguments ARE converted since b5-gaps section 34), so non-ASCII text would be corrupted -- declare CharSet.Unicode/Auto for the UTF-16 chunk bridge (b5-gaps section 29)
 
 Unlock condition: add a CP_ACP (`WideCharToMultiByte`) argument converter and
 a `MultiByteToWideChar` readback to the P/Invoke StringBuilder bridge (a
@@ -3203,13 +3203,10 @@ they are not mistaken for completed work:
    approximation (ASCII identity, every other unit `?`) instead of failing
    LOUD. Only the Windows`CP_ACP` path is diff-tested
    (`tests/cases/pinvoke-charref`, mingw); the POSIX branch has NOT been run.
-2. **`string` + `CharSet.Ansi` is still UTF-8** (`CodeGenerator.cs`
-   `p == "r:System.String"` -> `const char*` and the `MarshalUtf8Expr`
-   allocator) where net48 uses CP_ACP. ASCII is identical, non-ASCII differs --
-   the same class of divergence measured for `char` above. `char[]` with
-   CharSet.Ansi is ALREADY a LOUD rejection for the same reason. Fixing it needs
-   the same CP_ACP bridge wired into the marshal allocator + the
-   `StringBuilder` Ansi path; out of scope for the `ref/out char` task.
+2. **`string` + `CharSet.Ansi` was UTF-8** -- **CLOSED by impl-stransi**
+   (section 34): the marshal allocator now converts through CP_ACP. Still
+   open on this edge: `char[]` with CharSet.Ansi remains a LOUD rejection and
+   the `StringBuilder` Ansi path remains a LOUD rejection (both unchanged).
 
 Both edges are indexed by the two headings above so a later task can find them
 without re-deriving the measurements.
@@ -3255,3 +3252,114 @@ Therefore:
 * a bare `Get-FileHash` of a source file is also fine ONLY when both sides use
   the same `core.autocrlf` setting;
 * NEVER use the built dll sha to conclude "the implementation changed".
+
+---
+
+## 34. P/Invoke `string` with `CharSet.Ansi` / `CharSet.None` -- CP_ACP marshalling (IMPLEMENTED)
+
+MEASURED on net48 v4.0.30319 (host CP_ACP = 936, zh-CN) with a native
+`int32_t f(const char*)`, and pinned byte-exactly by
+`tests/cases/pinvoke-string-ansi` (its own SHARED fixture `ansiprobe.dll`; the
+net48 oracle and the transpiled runtime must produce the SAME stdout sha).
+
+### The net48 contract (oracle records, 43 of them)
+
+```
+[default CharSet.None] "\u4E2D"        -> len=2 first=214 bytes=[D6 D0]
+[CharSet.Ansi]         "\u4E2D"        -> IDENTICAL to the default (same 4 records)
+[default]              "\u4E2D\u6587"  -> len=4 bytes=[D6 D0 CE C4]
+[CharSet.Unicode]      "\u4E2D"        -> utf16 UNIT count 1 (NOT 2 bytes)
+[default]              "Abc"           -> len=3 bytes=[41 62 63]   (ASCII identity)
+[default]              ""              -> non-NULL, len=0, first byte 0
+[default]              null            -> NULL pointer (literal AND a runtime null field)
+[default]              "\uD83D\uDE00"  -> len=2 bytes=[3F 3F]  (EACH surrogate half -> '?')
+[CharSet.Unicode]      "\uD83D\uDE00"  -> utf16 UNIT count 2
+[default]              "A\u4E2D\uD83D\uDE00Z" -> len=6 bytes=[41 D6 D0 3F 3F 5A]
+```
+
+So net48's Ansi string is a **CP_ACP byte string**, NOT UTF-8: the old
+marshalling produced `[E4 B8 AD]` (3 bytes) for `"\u4E2D"` -- a silent wrong
+value for every non-ASCII string passed to an Ansi callee.
+
+### Implementation
+
+* `MethodRefResolver` P/Invoke arm: the CharSet mask `0x06` decodes to
+  `utf16Strings = (0x04 | 0x06)`; every other value (`0x02` Ansi **and `0x00`
+  None**) produces the third ParamTypeName encoding `"a:System.String"`.
+  `"r:System.String"` is deliberately UNCHANGED -- it still means the plain
+  managed-string encoding outside the P/Invoke arm (BCL icalls, reflection,
+  Environment), and `"u16:System.String"` still means UTF-16.
+* `CodeGenerator.PinvokeParamListOf`: `"a:System.String"` -> `const char*`
+  (the same native parameter type as the UTF-8 arm).
+* `CodeGenerator.EmitIcallCallArgs`: `"a:System.String" => code` (the
+  pre-marshalled byte buffer passes through uncast).
+* `StackFold`: `"a:System.String"` joins the string-arg detection set and
+  selects `MarshalUtf8Expr { Ansi = true }` + the paired `pinvoke_ansi_free`.
+  `MarshalUtf8Expr.Ansi` is propagated by EVERY rebuild site (Clone, Normalize
+  x2, StackFold x2, AllocPromoPass, DcePass, InlinePass x2, TempSlotPass,
+  CodeGenerator) -- `git grep -n "new MarshalUtf8Expr" src/` shows 11 sites,
+  all carrying `Ansi = m.Ansi`.
+* `src/runtime/src/pinvokeext.cpp`: `il2cpp_pinvoke_string_to_ansi_alloc` /
+  `il2cpp_pinvoke_ansi_free` (declared in `il2cpp_pinvoke_ext.h`), same
+  `std::malloc`/`std::free` ownership pair as the UTF-8 helper.
+  * Windows: `WideCharToMultiByte(CP_ACP, 0, ...)` with the default char `"?"`
+    and **best-fit mapping ENABLED** (dwFlags 0). `WC_NO_BEST_FIT_CHARS` is
+    deliberately NOT passed -- net48's Ansi marshaler does not pass it, and the
+    measured astral record (U+1F600 -> `[3F 3F]`, one `?` per surrogate HALF)
+    is exactly what a whole-buffer conversion with flags 0 produces. The
+    pair-aware single-`?` policy the console encoder uses is therefore NOT
+    applied here.
+  * The buffer is sized by a first (null-destination) call: the byte count
+    depends on the code page, so `2*length+1` is NOT a safe bound.
+  * `WideCharToMultiByte` returns `0` on failure (never a negative count;
+    probed: an invalid code page returns `n=0, GetLastError=87`, a valid
+    CP_ACP input returns `n=4` with `GetLastError` untouched), so the guard is
+    `n <= 0` and both the failure and the empty-string shape produce an empty,
+    NUL-terminated buffer.
+  * A null managed string returns `nullptr` (net48 passes NULL, NOT an empty
+    buffer); the emitter's `NullExpr` shortcut skips the allocator entirely.
+  * POSIX has no ANSI code page: the branch falls back to the SAME UTF-8
+    encoding as `il2cpp_pinvoke_string_to_utf8_alloc` (documented
+    approximation, never a LOUD failure -- same policy as `pinvoke_char.cpp`).
+
+### Mutation coverage (all three turn `pinvoke-string-ansi` RED, verified)
+
+1. Ansi path back to `il2cpp_pinvoke_string_to_utf8_alloc`:
+   `cjk.len` 2 -> 3, `cjk.bytes` `D6 D0` -> `E4 B8 AD`, `emoji.bytes`
+   `3F 3F` -> `F0 9F 98 80`, and the two null records become non-null --
+   23 differing records.
+2. `CP_ACP` -> `CP_UTF8` inside `pinvokeext.cpp`: the same 17 non-null
+   records differ (the null records stay green, which shows the null path is
+   independent of the code page).
+3. Ansi arm mis-wired to `"u16:System.String"`: `cjk.bytes` `D6 D0` ->
+   `2D 4E` (the UTF-16 payload read as bytes), `ascii.len` 3 -> 1 --
+   20 differing records.
+
+### Registered residual: the per-parameter `[MarshalAs(UnmanagedType.LPStr)]`
+### / `LPWStr` override is NOT implemented
+
+MEASURED on the same net48 oracle (a throwaway probe, not a diff case):
+
+```
+[CharSet.Unicode] + [MarshalAs(UnmanagedType.LPStr)] "\u4E2D" -> [D6 D0] (CP_ACP bytes)
+[CharSet.Ansi]    + [MarshalAs(UnmanagedType.LPWStr)] "\u4E2D" -> UTF-16 payload (2D 4E ...)
+[CharSet.Auto]    + [MarshalAs(UnmanagedType.LPStr)] "\u4E2D" -> [D6 D0] (CP_ACP bytes)
+```
+
+i.e. a parameter-level `MarshalAs` OVERRIDES the import's CharSet. This
+transpiler still decides a string parameter's encoding from the IMPORT CharSet
+only (`MethodRefResolver` / `PinvokeParamListOf`), so
+`CharSet.Unicode + [MarshalAs(LPStr)]` marshals UTF-16 where net48 marshals
+CP_ACP bytes -- a silent divergence for non-ASCII text.
+
+Unlock condition: decode the Param row's FieldMarshal blob
+(`NATIVE_TYPE_LPSTR = 0x14` / `NATIVE_TYPE_LPWSTR = 0x15`, ECMA-335 II.23.4)
+alongside the existing `ReadParamAsAnyFlags` pass, thread a per-index override
+into BOTH `MethodRefResolver`'s encoding choice and
+`PinvokeParamListOf`'s `utf16PInvoke`, then add the three records above to
+`tests/cases/pinvoke-string-ansi`. No case in `tests/` currently uses
+`UnmanagedType.LPStr`/`LPWStr` (`git grep` -> 0 files), so nothing in the
+corpus depends on the missing override today.
+
+Lock case: `tests/cases/pinvoke-string-ansi` (43 records, 827 B both sides,
+out sha256 `5335653d86ca307bd482bf14fe0783219e399df551e61f181aa6a6d3c06bda22`).

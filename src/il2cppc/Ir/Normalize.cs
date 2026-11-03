@@ -268,7 +268,7 @@ public static class Normalize
                 return nd;
             }
             case MarshalUtf8Expr m:
-                return new MarshalUtf8Expr { Arg = StrengthReduce(m.Arg), Utf16 = m.Utf16 };
+                return new MarshalUtf8Expr { Arg = StrengthReduce(m.Arg), Utf16 = m.Utf16, Ansi = m.Ansi };
             case FieldExpr f:
                 return new FieldExpr
                 {
@@ -424,7 +424,7 @@ public static class Normalize
                 return nd;
             }
             case MarshalUtf8Expr m:
-                return new MarshalUtf8Expr { Arg = Rewrite(m.Arg, knownNonNull), Utf16 = m.Utf16 };
+                return new MarshalUtf8Expr { Arg = Rewrite(m.Arg, knownNonNull), Utf16 = m.Utf16, Ansi = m.Ansi };
             case FieldExpr f:
                 return new FieldExpr
                 {

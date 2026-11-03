@@ -874,7 +874,7 @@ public static class InlinePass
             case MarshalUtf8Expr m:
                 if (TryExpandInExpr(m.Arg, lookup, usedNames, ref freshId, out var ma, out var map, out var mai))
                 {
-                    newE = new MarshalUtf8Expr { Arg = ma, Utf16 = m.Utf16 };
+                    newE = new MarshalUtf8Expr { Arg = ma, Utf16 = m.Utf16, Ansi = m.Ansi };
                     prelude = map;
                     expInlined = mai;
                     return true;
@@ -985,7 +985,7 @@ public static class InlinePass
         CallExpr c => CopyCall(c, argMap, locMap, usedNames, ref freshId),
         VirtualCallExpr v => CopyVirtual(v, argMap, locMap, usedNames, ref freshId),
         DelegateInvokeExpr d => CopyDelegate(d, argMap, locMap, usedNames, ref freshId),
-        MarshalUtf8Expr m => new MarshalUtf8Expr { Arg = RewriteExpr(m.Arg, argMap, locMap, usedNames, ref freshId), Utf16 = m.Utf16 },
+        MarshalUtf8Expr m => new MarshalUtf8Expr { Arg = RewriteExpr(m.Arg, argMap, locMap, usedNames, ref freshId), Utf16 = m.Utf16, Ansi = m.Ansi },
         // Delegate construction carries the bound TARGET expression (the
         // closure display-class object). It MUST be renamed with the rest of
         // the callee body: a closure-creating method that gets inlined left

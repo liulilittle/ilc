@@ -288,7 +288,8 @@ public static class RootSlotPass
            || fn.StartsWith("ldlen_", StringComparison.Ordinal)
            || fn.StartsWith("capture_last_error", StringComparison.Ordinal)
            || fn.StartsWith("pinvoke_utf8_free", StringComparison.Ordinal)
-           || fn.StartsWith("pinvoke_utf16_free", StringComparison.Ordinal);
+           || fn.StartsWith("pinvoke_utf16_free", StringComparison.Ordinal)
+           || fn.StartsWith("pinvoke_ansi_free", StringComparison.Ordinal);
 
     private static bool ExprMayAllocate(Expr e) => e switch
     {

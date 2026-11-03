@@ -722,13 +722,22 @@ public static partial class MethodRefResolver
             }
             var setLastError = ((int)import.Attributes & 0x40) != 0; // MethodImportAttributes.SetLastError
             // wf2 (winforms1): CharSet decoding -- MethodImportAttributes
-            // CharSet mask = 0x06: 0x02 Ansi, 0x04 Unicode, 0x06 Auto. On
-            // Windows Auto resolves to the W (Unicode) entry. A CharSet.Unicode
-            // P/Invoke must marshal string args as UTF-16 (char16_t*) -- the
-            // Win32 W-API reads UTF-16; passing the UTF-8 marshalled buffer
-            // misreads it (class-name corruption). The "u16:System.String"
-            // encoding (vs the default "r:System.String") drives StackFold's
-            // utf16 alloc/free and PinvokeParamList's const char16_t*.
+            // CharSet mask = 0x06: 0x00 None, 0x02 Ansi, 0x04 Unicode,
+            // 0x06 Auto. On Windows Auto resolves to the W (Unicode) entry.
+            // A CharSet.Unicode P/Invoke must marshal string args as UTF-16
+            // (char16_t*) -- the Win32 W-API reads UTF-16; passing the UTF-8
+            // marshalled buffer misreads it (class-name corruption). The
+            // "u16:System.String" encoding drives StackFold's utf16 alloc/free
+            // and PinvokeParamList's const char16_t*.
+            //
+            // stransi: everything else (Ansi 0x02 AND None 0x00 -- net48
+            // treats CharSet.None as Ansi on Windows) marshals string args as
+            // SYSTEM ANSI code page (CP_ACP) byte strings, MEASURED on net48
+            // v4.0.30319 with CP_ACP=936: U+4E2D -> [D6 D0], U+1F600 -> [3F
+            // 3F]. This is a THIRD encoding ("a:System.String") rather than a
+            // change to "r:System.String", because the latter also denotes the
+            // plain managed-string encoding outside the P/Invoke arm (BCL
+            // icalls, reflection, Environment).
             var charSet = (int)import.Attributes & 0x06;
             var utf16Strings = charSet is 0x04 or 0x06; // CharSetUnicode / CharSetAuto
             // byref-scalar: the Param-table `out` bits, in SIGNATURE order
@@ -805,7 +814,7 @@ public static partial class MethodRefResolver
             return new ResolvedMethod(entry, paramCount, false,
                 returnType != SignatureTypeCode.Void, IsRefType(returnType), ParamRefFlags(paramTypes), false,
                 IsPInvoke: true, ParamTypeNames: CodeGenerator.SplitTopLevel(paramTypes).Select((p, pIdx) =>
-                    utf16Strings && p == "r:System.String" ? "u16:System.String"
+                    p == "r:System.String" ? (utf16Strings ? "u16:System.String" : "a:System.String")
                     // byref char: the CHAR SET picks the native cell (MEASURED:
                     // Ansi = 1-byte CP_ACP cell, Unicode/Auto = 2-byte UTF-16
                     // with NO conversion). The `out` bit is a SECOND axis on

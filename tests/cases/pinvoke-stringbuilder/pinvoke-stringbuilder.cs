@@ -19,8 +19,10 @@
 // The fixture below writes through the raw pointer, so a wrong buffer size /
 // no terminator / stale Length shows up as a record diff against the oracle.
 // CharSet.Ansi is a self-identifying LOUD rejection (net48 marshals via the
-// system ANSI code page; this model has no CP_ACP conversion -- see
-// docs/audit/b5-gaps.md section 29), so only Unicode/Auto imports appear here.
+// system ANSI code page; this model has no CP_ACP bridge for the builder's
+// writable CHUNK (plain `string` Ansi arguments are converted -- see
+// docs/audit/b5-gaps.md sections 29 and 34), so only Unicode/Auto imports
+// appear here.
 //------------------------------------------------------------------------------
 using System;
 using System.Text;

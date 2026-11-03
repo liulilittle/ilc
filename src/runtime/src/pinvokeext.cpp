@@ -124,6 +124,76 @@ void il2cpp_pinvoke_utf8_free(char* utf8)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_pinvoke_string_to_ansi_alloc -- managed string -> heap CP_ACP bytes
+// (see header for the full contract).
+//
+// net48 marshals a CharSet.Ansi / CharSet.None string through the SYSTEM ANSI
+// code page, so this is a conversion -- NOT a copy of a UTF-8 view. The size
+// is queried first: the byte count depends on the code page (a UTF-8 ACP
+// needs up to 3 bytes per BMP unit, so 2*length+1 is not a safe bound).
+//
+// The whole-buffer WideCharToMultiByte call is intentional: for a surrogate
+// PAIR the API substitutes each UTF-16 half separately in an unmappable ANSI
+// code page, which is EXACTLY what net48 measured (U+1F600 -> [3F 3F]). The
+// pair-aware single-'?' splitting used by the console encoder must NOT be
+// applied here.
+//------------------------------------------------------------------------------
+char* il2cpp_pinvoke_string_to_ansi_alloc(Il2CppString* s)
+{
+    // net48 hands the native callee a NULL pointer for a null managed string
+    // (NOT an empty buffer). The paired free is null-safe.
+    if (s == nullptr)
+    {
+        return nullptr;
+    }
+#if defined(_WIN32)
+    static_assert(sizeof(char16_t) == sizeof(WCHAR), "char16_t must match WCHAR for WideCharToMultiByte");
+    const int32_t length = s->length;
+    const WCHAR* wide = reinterpret_cast<const WCHAR*>(s->chars);
+    // Required byte count, EXCLUDING the terminator. Flags 0 keeps best-fit
+    // mapping enabled (net48's Ansi marshaler does not pass
+    // WC_NO_BEST_FIT_CHARS); lpDefaultChar "?" is the replacement fallback.
+    // WideCharToMultiByte returns the required size, or 0 on FAILURE
+    // (GetLastError holds the reason) -- it never returns a negative count.
+    // 0 therefore covers both "failure" and "empty input"; each yields an
+    // empty, NUL-terminated buffer.
+    int n = ::WideCharToMultiByte(CP_ACP, 0, wide, length, nullptr, 0, "?", nullptr);
+    if (n <= 0)
+    {
+        n = 0;
+    }
+    char* buf = static_cast<char*>(std::malloc(static_cast<size_t>(n) + 1));
+    if (buf == nullptr)
+    {
+        std::fprintf(stderr, "il2cpp_pinvoke_string_to_ansi_alloc: out of memory\n");
+        std::abort();
+    }
+    if (n > 0)
+    {
+        const int written = ::WideCharToMultiByte(CP_ACP, 0, wide, length, buf, n, "?", nullptr);
+        if (written <= 0)
+        {
+            n = 0;
+        }
+    }
+    buf[n] = '\0';
+    return buf;
+#else
+    // No ANSI code page on POSIX: documented UTF-8 approximation (same policy
+    // as pinvoke_char.cpp -- never a LOUD failure).
+    return il2cpp_pinvoke_string_to_utf8_alloc(s);
+#endif
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_pinvoke_ansi_free -- release a buffer from string_to_ansi_alloc.
+//------------------------------------------------------------------------------
+void il2cpp_pinvoke_ansi_free(char* ansi)
+{
+    std::free(ansi);
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_pinvoke_string_to_utf16_alloc -- managed string -> heap UTF-16 (see
 // header for the full contract).
 //

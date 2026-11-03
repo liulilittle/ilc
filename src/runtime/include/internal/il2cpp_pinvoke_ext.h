@@ -128,6 +128,41 @@ char16_t* il2cpp_pinvoke_string_to_utf16_alloc(Il2CppString* s);
 // Null-safe (matching std::free semantics).
 void il2cpp_pinvoke_utf16_free(char16_t* utf16);
 
+// stransi: CharSet.Ansi / CharSet.None P/Invoke string marshalling (net48
+// semantics -- the SYSTEM ANSI code page, CP_ACP, NOT UTF-8):
+//
+//   char* il2cpp_pinvoke_string_to_ansi_alloc(Il2CppString* s)
+//   void  il2cpp_pinvoke_ansi_free(char* ansi)
+//
+// MEASURED on net48 v4.0.30319 (host CP_ACP=936, zh-CN) with a native
+// `int32_t f(const char*)`: U+4E2D -> [D6 D0] (2 bytes), "\u4E2D\u6587" ->
+// [D6 D0 CE C4], ASCII identity [41 62 63], and the surrogate pair U+1F600
+// -> [3F 3F] (TWO '?' -- the Win32 whole-buffer conversion substitutes each
+// UTF-16 half separately when the code page cannot represent the astral
+// character; this is deliberately NOT the pair-aware single-'?' policy the
+// console encoder uses).
+//
+// Windows: WideCharToMultiByte(CP_ACP, 0, ...) with the default char "?" and
+// best-fit mapping ENABLED (dwFlags 0 -- net48's Ansi marshaler does not pass
+// WC_NO_BEST_FIT_CHARS). The buffer is sized by a first (null-destination)
+// call, because the byte count depends on the code page (a UTF-8 ACP needs
+// up to 3 bytes per BMP unit; 2*length+1 is NOT a safe bound).
+//
+// POSIX has no ANSI code page (net48 Ansi marshalling is Windows-only), so
+// the POSIX branch falls back to the SAME UTF-8 encoding as
+// il2cpp_pinvoke_string_to_utf8_alloc (ASCII identical, non-ASCII differs)
+// instead of failing LOUD -- the documented approximation, same policy as
+// pinvoke_char.cpp's ref/out char cell.
+//
+// Ownership: RUNTIME allocates, CALLER frees with il2cpp_pinvoke_ansi_free.
+// Null input returns nullptr (net48 passes NULL, NOT an empty buffer); the
+// paired free is null-safe.
+char* il2cpp_pinvoke_string_to_ansi_alloc(Il2CppString* s);
+
+// Release a buffer returned by il2cpp_pinvoke_string_to_ansi_alloc.
+// Null-safe (matching std::free semantics).
+void il2cpp_pinvoke_ansi_free(char* ansi);
+
 // Decode a null-terminated UTF-16 (char16_t) buffer back into a managed
 // string (PtrToStringUni(IntPtr) semantics -- stops at the first NUL unit).
 // Null input -> the empty string.

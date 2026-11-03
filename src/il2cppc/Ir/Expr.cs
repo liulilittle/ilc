@@ -137,6 +137,13 @@ public sealed class MarshalUtf8Expr : Expr
     // the Win32 W-entry functions read char16_t* buffers; a UTF-8 buffer
     // would be misread (class name corruption, window creation failure).
     public bool Utf16 { get; init; }
+    // stransi: CharSet.Ansi / CharSet.None P/Invokes marshal string args as
+    // SYSTEM ANSI code page (CP_ACP) byte strings, exactly like net48
+    // (il2cpp_pinvoke_string_to_ansi_alloc / pinvoke_ansi_free). MEASURED
+    // on net48 v4.0.30319 CP_ACP=936: U+4E2D -> [D6 D0], U+1F600 -> [3F 3F].
+    // The old UTF-8 marshalling silently produced different bytes for every
+    // non-ASCII string (U+4E2D -> [E4 B8 AD]).
+    public bool Ansi { get; init; }
 }
 
 //------------------------------------------------------------------------------
@@ -340,7 +347,7 @@ public static partial class IrNode
         VirtualCallExpr v => $"VirtualCall({v.MethodToken}, {Args(v.Args)}){(v.ReturnsRef ? "@ref" : "")}",
         DelegateInvokeExpr d => $"DelegateInvoke({d.MethodToken}, {Args(d.Args)}){(d.ReturnsRef ? "@ref" : "")}{(d.ResultKind != null ? $" :{d.ResultKind}" : "")}",
         DelegateNewExpr dn => $"DelegateNew({dn.MethodToken}, {SerializeExpr(dn.Target)})",
-        MarshalUtf8Expr m => $"MarshalUtf8({SerializeExpr(m.Arg)}){(m.Utf16 ? "@u16" : "")}",
+        MarshalUtf8Expr m => $"MarshalUtf8({SerializeExpr(m.Arg)}){(m.Utf16 ? "@u16" : m.Ansi ? "@ansi" : "")}",
         FieldExpr f => $"Field({SerializeExpr(f.Object)}, {f.OwnerFullName}.{f.FieldCppName}){(f.IsRefField ? "@ref" : "")}{(f.IsValueTypeObject ? "{vt}" : "")}",
         FieldAddrExpr fa => $"FieldAddr({SerializeExpr(fa.Object)}, {fa.OwnerFullName}.{fa.FieldCppName}){(fa.IsValueTypeObject ? "{vt}" : "")}",
         NewObjExpr n => $"New({n.TypeFullName})",
@@ -434,7 +441,7 @@ public static partial class IrNode
         VirtualCallExpr v => CloneVirtual(v),
         DelegateInvokeExpr d => CloneDelegate(d),
         DelegateNewExpr dn => new DelegateNewExpr { MethodToken = dn.MethodToken, Target = CloneExpr(dn.Target), TypeId = dn.TypeId },
-        MarshalUtf8Expr m => new MarshalUtf8Expr { Arg = CloneExpr(m.Arg), Utf16 = m.Utf16 },
+        MarshalUtf8Expr m => new MarshalUtf8Expr { Arg = CloneExpr(m.Arg), Utf16 = m.Utf16, Ansi = m.Ansi },
         FieldExpr f => new FieldExpr
         {
             Object = CloneExpr(f.Object),

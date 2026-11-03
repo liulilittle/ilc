@@ -423,7 +423,7 @@ public static class TempSlotPass
                 foreach (var a in d.Args) nd.Args.Add(RewriteExpr(a, rename));
                 return nd;
             case MarshalUtf8Expr m:
-                return new MarshalUtf8Expr { Arg = RewriteExpr(m.Arg, rename), Utf16 = m.Utf16 };
+                return new MarshalUtf8Expr { Arg = RewriteExpr(m.Arg, rename), Utf16 = m.Utf16, Ansi = m.Ansi };
             case FieldExpr f:
                 return new FieldExpr { Object = RewriteExpr(f.Object, rename), FieldCppName = f.FieldCppName, OwnerFullName = f.OwnerFullName, IsRefField = f.IsRefField, IsValueTypeObject = f.IsValueTypeObject };
             case FieldAddrExpr f:
