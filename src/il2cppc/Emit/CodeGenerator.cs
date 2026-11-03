@@ -9518,12 +9518,14 @@ default: return false;                           // primitives/VAR(handled by ca
     {
         byte[]? nativeTypes = null;
         bool[]? asAny = null;
+        byte[]? arraySubTypes = null;
         if (FindMethodHandle(md, m) is { } mh)
         {
             nativeTypes = MetadataLoader.ReadParamNativeTypes(md, mh, m.ParamCount);
             asAny = nativeTypes.Select(t => t == MetadataLoader.NativeTypeAsAny).ToArray();
+            arraySubTypes = MetadataLoader.ReadParamArraySubTypes(md, mh, m.ParamCount);
         }
-        return PinvokeParamListOf(md, m.ParamTypes, PinvokeImportIsUtf16(md, m), m.Name, asAny, nativeTypes);
+        return PinvokeParamListOf(md, m.ParamTypes, PinvokeImportIsUtf16(md, m), m.Name, asAny, nativeTypes, arraySubTypes);
     }
 
     // CharSet decoding at a P/Invoke IMPORT site (MethodImportAttributes CharSet
@@ -9557,12 +9559,29 @@ default: return false;                           // primitives/VAR(handled by ca
         return null;
     }
 
+    // PARAMETER-level [MarshalAs(UnmanagedType.LPArray, ArraySubType=...)] array
+    // subtypes for a MethodDef located by its SIGNATURE, in SIGNATURE order.
+    // Same lookup shape as ReadParamAsAnyFlagsOf: resolve the Param rows from
+    // the CALL's own MethodDef so an overload never borrows another overload's
+    // marshal rows. Returns null when no parameter carries an array marshal
+    // blob (the caller then keeps its current behaviour).
+    internal static byte[]? ReadParamArraySubTypesOf(MetadataReader md, BlobHandle signature, int paramCount)
+    {
+        foreach (var h in md.MethodDefinitions)
+        {
+            if (md.GetMethodDefinition(h).Signature != signature) continue;
+            var subs = MetadataLoader.ReadParamArraySubTypes(md, h, paramCount);
+            return subs.Any(s => s != 0) ? subs : null;
+        }
+        return null;
+    }
+
     // The parameter-list body, callable from BOTH the declaration site (model
     // MethodDef) and the CALL site (signature re-decoded from the metadata
     // token) -- the dynamic resolve cast must name exactly the types the old
     // extern "C" declaration named.
     private static string PinvokeParamListOf(MetadataReader md, string paramTypesRaw, bool utf16PInvoke, string methodName,
-        bool[]? asAnyFlags = null, byte[]? paramNativeTypes = null)
+        bool[]? asAnyFlags = null, byte[]? paramNativeTypes = null, byte[]? paramArraySubTypes = null)
     {
         if (paramTypesRaw.Length == 0) return "void";
         return string.Join(", ", SplitTopLevel(paramTypesRaw).Select((p, paramIndex) =>
@@ -9581,8 +9600,13 @@ default: return false;                           // primitives/VAR(handled by ca
             // array params: a SZARRAY of a blittable element marshals as a
             // pointer to the element (see PinvokeArrayParamCpp / the runtime
             // bridge header). Null for a non-array encoding; LOUD for an array
-            // shape with no faithful bridge.
-            if (PinvokeArrayParamCpp(md, p, utf16PInvoke, methodName) is { } arrayParamCpp)
+            // shape with no faithful bridge. bool[] needs the per-parameter
+            // ArraySubType to pick its native element width (4 = default BOOL,
+            // 1 = U1/I1), which is why the subtype array is threaded here.
+            var boolWidth = paramArraySubTypes != null && paramIndex < paramArraySubTypes.Length
+                ? PinvokeBoolArrayElemWidth(paramArraySubTypes[paramIndex])
+                : 4;
+            if (PinvokeArrayParamCpp(md, p, utf16PInvoke, methodName, boolWidth) is { } arrayParamCpp)
                 return arrayParamCpp;
             // handleref: a HandleRef P/Invoke parameter decays to its .Handle
             // (a native int) -- net48 passes the IntPtr value, never a pointer
@@ -9877,7 +9901,8 @@ default: return false;                           // primitives/VAR(handled by ca
     // The element widths below are the MEASURED net48 ones (probe-pinvoke-array
     // records in .opencode/tmp/impl-pinvoke-array/NOTES.md).
     //--------------------------------------------------------------------------
-    private static string? PinvokeArrayParamCpp(MetadataReader md, string p, bool utf16PInvoke, string methodName)
+    private static string? PinvokeArrayParamCpp(MetadataReader md, string p, bool utf16PInvoke, string methodName,
+        int boolArrayElemWidth = 4)
     {
         if (!p.StartsWith("r:", StringComparison.Ordinal) || !p.EndsWith("]", StringComparison.Ordinal))
             return null;
@@ -9885,10 +9910,11 @@ default: return false;                           // primitives/VAR(handled by ca
             throw new NotSupportedException(
                 $"P/Invoke array parameter '{p}' on {methodName}: multi-dimensional arrays are not supported (only a single-dimensional SZARRAY buffer crosses the boundary)");
         var elem = p[2..^2];
-        return PinvokeArrayElementCpp(md, elem, utf16PInvoke, methodName) + "*";
+        return PinvokeArrayElementCpp(md, elem, utf16PInvoke, methodName, boolArrayElemWidth) + "*";
     }
 
-    private static string PinvokeArrayElementCpp(MetadataReader md, string elem, bool utf16PInvoke, string methodName)
+    private static string PinvokeArrayElementCpp(MetadataReader md, string elem, bool utf16PInvoke, string methodName,
+        int boolArrayElemWidth = 4)
     {
         switch (elem)
         {
@@ -9912,8 +9938,22 @@ default: return false;                           // primitives/VAR(handled by ca
             case "n": return "intptr_t";
             case "u": return "uintptr_t";
             case "b":
-                throw new NotSupportedException(
-                    $"P/Invoke bool[] parameter on {methodName}: net48 marshals bool[] as 4-byte BOOL elements while this model stores 1-byte array cells (ArrayElementType) -- no faithful bridge without a MarshalAs decode");
+                // bool[]: net48 does NOT pass the managed 1-byte cells straight
+                // through. It converts the array to a native BOOL/byte buffer and
+                // copies back afterwards. The element width is decided by
+                // [MarshalAs(UnmanagedType.LPArray, ArraySubType=...)] on the
+                // PARAMETER, defaulting to a 4-byte BOOL. MEASURED raw dumps
+                // (net48 v4.0.30319, .opencode/tmp/oracle-boolsem3/-sem4) with
+                // 1-byte and 4-byte CONTROL arrays to prove the probe reads
+                // correctly:
+                //   no MarshalAs        -> 4 bytes/element (01 00 00 00 ...)
+                //   ArraySubType=I4(07) -> 4 bytes/element
+                //   ArraySubType=U1(04) -> 1 byte/element  (01 00 01 ...)
+                //   ArraySubType=I1(03) -> 1 byte/element
+                //   [Out] seeds a ZEROED buffer; copy-back happens only for
+                //   [Out]/[In,Out] (default and [In] never write back).
+                // 'boolArrayElemWidth' is the resolved width (1 or 4).
+                return boolArrayElemWidth == 1 ? "uint8_t" : "int32_t";
         }
         if (elem.StartsWith("V:", StringComparison.Ordinal))
         {
@@ -10000,6 +10040,27 @@ default: return false;                           // primitives/VAR(handled by ca
         _ => throw new NotSupportedException($"P/Invoke array element encoding '{elem}' has no primitive width"),
     };
 
+    // bool[] ELEMENT WIDTH for a [MarshalAs(UnmanagedType.LPArray, ArraySubType=x)]
+    // parameter, from the recorded element NATIVE_TYPE (0 = the blob carried the
+    // NATIVE_TYPE_MAX/default sentinel, i.e. plain [MarshalAs(LPArray)] or no
+    // Attribute at all).
+    //
+    // MEASURED (net48 v4.0.30319, raw byte dumps with 1-byte/4-byte CONTROL
+    // arrays proving the probe reads correctly -- .opencode/tmp/oracle-boolsem3):
+    //   no MarshalAs                 -> 4 bytes/element (01 00 00 00 ...)
+    //   LPArray, ArraySubType=I4(07) -> 4 bytes/element
+    //   LPArray, no ArraySubType     -> 4 bytes/element
+    //   LPArray, ArraySubType=U1(04) -> 1 byte/element  (01 00 01 ...)
+    //   LPArray, ArraySubType=I1(03) -> 1 byte/element
+    //   LPArray, ArraySubType=BOOL(2)-> 4 bytes/element
+    // net48's DEFAULT for a bool[] parameter is a 4-byte BOOL cell, NOT the
+    // 1-byte cell this model stores, so the default path needs a conversion.
+    private static int PinvokeBoolArrayElemWidth(byte nativeSubType) => nativeSubType switch
+    {
+        MetadataLoader.NativeTypeU1 or MetadataLoader.NativeTypeI1 => 1,
+        _ => 4,
+    };
+
     //--------------------------------------------------------------------------
     // ARRAY P/Invoke argument bridge (see il2cpp_pinvoke_bridge.h).
     //
@@ -10034,6 +10095,30 @@ default: return false;                           // primitives/VAR(handled by ca
             var cIn = inF || !outF; // measured: default and [In] copy in
             var cOut = outF;        // measured: only [Out]/[In,Out] copy back
             return $"il2cpp::runtime::il2cpp_pinvoke_char_array_ansi({arr}, {(cIn ? 1 : 0)}, {(cOut ? 1 : 0)})";
+        }
+        // bool[]: the native element is 4 bytes by default (a BOOL) while this
+        // model stores 1-byte cells, so the pinned-payload bridge would abort on
+        // the width check. A [MarshalAs(LPArray, ArraySubType=U1/I1)] narrows
+        // the native cell to 1 byte, which matches the model exactly and keeps
+        // the zero-copy path. MEASURED (oracle-boolsem3/-sem4): 4-byte default,
+        // 1-byte for U1/I1; null -> NULL; empty -> non-NULL; [Out] seeds a
+        // ZEROED buffer; copy-back only for [Out]/[In,Out].
+        if (elem == "b" && r.IsPInvoke)
+        {
+            var sub = r.ParamArraySubTypes != null && slot < r.ParamArraySubTypes.Length
+                ? r.ParamArraySubTypes[slot]
+                : (byte)0;
+            var bOut = r.ParamOutFlags != null && slot < r.ParamOutFlags.Length && r.ParamOutFlags[slot];
+            var bIn = r.ParamInFlags != null && slot < r.ParamInFlags.Length && r.ParamInFlags[slot];
+            var bCopyIn = bIn || !bOut; // measured: default and [In] copy in
+            var bCopyOut = bOut;        // measured: only [Out]/[In,Out] copy back
+            // BOTH widths use the holder: net48 COPIES a bool[] (it is not a
+            // pinned primitive array), measured by [MarshalAs(LPArray,
+            // ArraySubType=U1)] default NOT writing back at all (oracle-boolsem4
+            // w1.default.after = [1,0,1] after the callee wrote 1,1,0). The
+            // native cell is 1 byte for U1/I1 and 4 bytes otherwise.
+            var width = PinvokeBoolArrayElemWidth(sub);
+            return $"il2cpp::runtime::il2cpp_pinvoke_bool_array({arr}, {(bCopyIn ? 1 : 0)}, {(bCopyOut ? 1 : 0)}, {width})";
         }
         if (IsPinvokeArrayPrimitiveElement(elem))
             return $"il2cpp::runtime::il2cpp_pinvoke_array({arr}, {PinvokeArrayPrimitiveElemSize(elem)})";
@@ -12352,7 +12437,8 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             PinvokeReturnTypeCppOf(returnType, PinvokeReturnStructNameOfHandle(md, mh)),
             PinvokeParamListOf(md, paramTypes, PinvokeImportIsUtf16(attributes), md.GetString(import.Name),
                 MetadataLoader.ReadParamAsAnyFlags(md, mh, SplitTopLevel(paramTypes).Count()),
-                MetadataLoader.ReadParamNativeTypes(md, mh, SplitTopLevel(paramTypes).Count())),
+                MetadataLoader.ReadParamNativeTypes(md, mh, SplitTopLevel(paramTypes).Count()),
+                MetadataLoader.ReadParamArraySubTypes(md, mh, SplitTopLevel(paramTypes).Count())),
             attributes & 0x06,
             attributes & 0x01);
         return true;

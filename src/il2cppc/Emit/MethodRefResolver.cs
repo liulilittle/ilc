@@ -238,7 +238,16 @@ public sealed record ResolvedMethod(
     // CP_ACP narrow byte buffer (measured D6 D0 CE C4 for {\u4E2D,\u6587}), so
     // the call site must emit the CP_ACP conversion holder instead of the
     // zero-copy primitive-array bridge. Only the char[] arm reads it.
-    bool PInvokeUtf16Chars = false)
+    bool PInvokeUtf16Chars = false,
+    // Per-parameter [MarshalAs(UnmanagedType.LPArray, ArraySubType=...)] element
+    // NATIVE_TYPE, in SIGNATURE order; 0 = no array marshal blob (or an
+    // explicitly-default element type). MEASURED blobs (net48 v4.0.30319,
+    // .opencode/tmp/oracle-boolblob): no attribute -> no blob;
+    // ArraySubType=U1 -> 2A 04; I1 -> 2A 03; I4 -> 2A 07; no subtype -> 2A 50;
+    // SizeConst=4 -> 2A 50 00 04 00. Consumed by the bool[] arm, which needs
+    // the element width to pick between the zero-copy bridge and a conversion
+    // holder.
+    byte[]? ParamArraySubTypes = null)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -887,7 +896,16 @@ public static partial class MethodRefResolver
                 ParamAsAnyFlags: CodeGenerator.ReadParamAsAnyFlagsOf(md, m.Signature, paramCount),
                 // char[] + CharSet.Ansi: the import CharSet picks between the
                 // zero-copy UTF-16 bridge and the CP_ACP conversion holder.
-                PInvokeUtf16Chars: utf16Strings);
+                PInvokeUtf16Chars: utf16Strings,
+                // [MarshalAs(UnmanagedType.LPArray, ArraySubType=...)] element
+                // native types (see the record field). Looked up through THIS
+                // MethodDef handle, not by signature: two overloads that differ
+                // ONLY in their marshal attributes (e.g. `bool[]` vs
+                // `[MarshalAs(LPArray, ArraySubType=U1)] bool[]`) share one
+                // signature blob, so a signature search always returned the
+                // first-declared one and silently gave every overload the
+                // 4-byte default (measured while building pinvoke-boolarray).
+                ParamArraySubTypes: MetadataLoader.ReadParamArraySubTypes(md, handle, paramCount));
         }
         // tuple1 (ValueTuple): a method DEFINITION returning a tuple (the
         // same-assembly call shape) must carry the struct result kind, exactly

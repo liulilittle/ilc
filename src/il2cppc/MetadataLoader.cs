@@ -958,6 +958,30 @@ public static class MetadataLoader
     public const int NativeTypeLPWStr = 0x15;
     public const int NativeTypeLPTStr = 0x16;
     public const int NativeTypeLPUTF8Str = 0x30;
+    // ECMA-335 II.23.4 NATIVE_TYPE_ARRAY = 0x2A (UnmanagedType.LPArray = 42).
+    // The blob is: 0x2A [<element native type>] [<param num> <num elems>]
+    // where BOTH optional groups are omitted when their value is the default
+    // (NATIVE_TYPE_MAX 0x50 for the element, 0 for the count). MEASURED on
+    // net48 v4.0.30319 by dumping the Param table of a fixture with six
+    // bool[] signatures (.opencode/tmp/oracle-boolblob):
+    //   no MarshalAs                        -> (no blob at all)
+    //   LPArray, ArraySubType=U1            -> 2A 04
+    //   LPArray, ArraySubType=I1            -> 2A 03
+    //   LPArray, ArraySubType=I4            -> 2A 07
+    //   LPArray (no ArraySubType)           -> 2A 50
+    //   LPArray, SizeConst=4                -> 2A 50 00 04 00
+    // So '2A' alone already means "LPArray with the DEFAULT element type",
+    // and a bare 0x50 marks an explicitly-default element type.
+    public const int NativeTypeArray = 0x2A;
+    // NATIVE_TYPE_MAX: the "unspecified" sentinel that fills an omitted slot.
+    public const int NativeTypeMax = 0x50;
+    // The element native types a bool[] can request (the only ones the array
+    // bridge can honour for a bool payload). NATIVE_TYPE_BOOLEAN = 0x02,
+    // NATIVE_TYPE_U1 = 0x04, NATIVE_TYPE_I1 = 0x03, NATIVE_TYPE_I4 = 0x07.
+    public const int NativeTypeBoolean = 0x02;
+    public const int NativeTypeU1 = 0x04;
+    public const int NativeTypeI1 = 0x03;
+    public const int NativeTypeI4 = 0x07;
 
     public static (FieldMarshalKind Kind, int SizeConst, string ElementTypeName) ReadFieldMarshalAs(
         MetadataReader md, FieldDefinitionHandle fh)
@@ -1026,6 +1050,42 @@ public static class MetadataLoader
             types[seq - 1] = blob.ReadByte();
         }
         return types;
+    }
+
+    // PARAMETER-level [MarshalAs(UnmanagedType.LPArray)] ARRAY SUBTYPE, in
+    // SIGNATURE order. Returns 0 for "no array marshal blob"; otherwise the
+    // element NATIVE_TYPE of the LPArray (with the NATIVE_TYPE_MAX sentinel
+    // 0x50 normalized to 0 = "unspecified/default"). The blob layout is
+    //   0x2A [elemNativeType] [paramNum numElems]
+    // where each optional group is omitted when it holds its default value.
+    // MEASURED fixture (.opencode/tmp/oracle-boolblob) confirms 2A 04 (U1),
+    // 2A 03 (I1), 2A 07 (I4), 2A 50 (default) and 2A 50 00 04 00 (SizeConst).
+    // A non-array marshal blob yields 0, so the caller keeps its current
+    // behaviour for every other shape.
+    public static byte[] ReadParamArraySubTypes(MetadataReader md, MethodDefinitionHandle mh, int paramCount)
+    {
+        var subtypes = new byte[paramCount];
+        if (paramCount <= 0) return subtypes;
+        foreach (var ph in md.GetMethodDefinition(mh).GetParameters())
+        {
+            var p = md.GetParameter(ph);
+            var seq = p.SequenceNumber;
+            if (seq < 1 || seq > paramCount) continue;
+            var descriptor = p.GetMarshallingDescriptor();
+            if (descriptor.IsNil) continue;
+            var blob = md.GetBlobReader(descriptor);
+            if (blob.RemainingBytes == 0) continue;
+            if (blob.ReadByte() != NativeTypeArray) continue;
+            var elemType = NativeTypeMax;
+            if (blob.RemainingBytes > 0) elemType = blob.ReadByte();
+            if (blob.RemainingBytes > 0) blob.ReadCompressedInteger(); // paramNum
+            if (blob.RemainingBytes > 0) blob.ReadCompressedInteger(); // numElems
+            // 0x50 and 0x2A mean "unspecified": normalize to 0.
+            subtypes[seq - 1] = (elemType == NativeTypeMax || elemType == NativeTypeArray)
+                ? (byte)0
+                : (byte)elemType;
+        }
+        return subtypes;
     }
 
     // The struct-level [StructLayout(CharSet = ...)] as BYTES per character:

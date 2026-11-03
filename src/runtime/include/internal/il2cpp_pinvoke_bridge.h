@@ -576,6 +576,102 @@ inline Il2CppPinvokeCharArrayAnsiArg il2cpp_pinvoke_char_array_ansi(
     return Il2CppPinvokeCharArrayAnsiArg(a, copyIn, copyOut);
 }
 
+//------------------------------------------------------------------------------
+// bool[] parameter. net48 does NOT hand the callee this model's 1-byte cells:
+// it converts the array to a native BOOL/int32 buffer (4 bytes per element by
+// DEFAULT) and copies back afterwards. A
+// `[MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.U1/I1)]`
+// narrows the native cell to ONE byte, which happens to match this model's
+// storage and needs no conversion at all.
+//
+// MEASURED net48 contract (Framework64 v4.0.30319; raw byte dumps with 1-byte
+// and 4-byte CONTROL arrays so the probe is known to read correctly --
+// .opencode/tmp/oracle-boolsem3 / oracle-boolsem4):
+//   no MarshalAs / ArraySubType=BOOL/I4 -> 4 bytes per element
+//   ArraySubType=U1 / I1                -> 1 byte per element
+//   null array                          -> NULL
+//   empty array                         -> NON-NULL
+//   seed:  default/[In,Out] converted input, [Out] a ZEROED buffer
+//   copy-back: default/[In] NONE, [In,Out]/[Out] YES
+//
+// This holder covers the CONVERTING (4-byte) case only; the 1-byte case uses
+// the existing zero-copy Il2CppPinvokeArrayArg (the widths already match).
+//------------------------------------------------------------------------------
+struct Il2CppPinvokeBoolArrayArg
+{
+    Il2CppArray* ref;   // owner's pinned slot (the GC root/pin target)
+    Il2CppArray** slot; // &ref for the owner, copied verbatim into value copies
+    uint8_t* buf;       // malloc'd NATIVE-ELEMENT buffer (null for a null array)
+    int32_t count;      // element count
+    int32_t width;      // native bytes per element: 4 (default BOOL) or 1 (U1/I1)
+    bool copyBack;
+    bool owner;
+
+    Il2CppPinvokeBoolArrayArg(Il2CppArray* a, int32_t copyIn, int32_t copyOut, int32_t elemWidth)
+        : ref(a), slot(nullptr), buf(nullptr), count(0),
+          width(elemWidth == 1 ? 1 : 4), copyBack(copyOut != 0), owner(true)
+    {
+        if (a == nullptr) return; // null array -> NULL pointer (net48)
+        slot = &ref;
+        detail::pin_array_slot(slot);
+        count = a->length;
+        const size_t bytes = (size_t)(count > 0 ? count : 1) * (size_t)width;
+        buf = (uint8_t*)std::calloc(bytes, 1);
+        if (buf == nullptr) return;
+        if (copyIn)
+        {
+            // Managed cells are ONE byte holding 0/1. Widen to the native cell:
+            // 4-byte int32 BOOL by default, or a plain byte for U1/I1.
+            const uint8_t* src = reinterpret_cast<const uint8_t*>(a->data);
+            if (width == 1)
+            {
+                for (int32_t i = 0; i < count; i++) buf[i] = src[i] != 0 ? 1 : 0;
+            }
+            else
+            {
+                int32_t* dst = reinterpret_cast<int32_t*>(buf);
+                for (int32_t i = 0; i < count; i++) dst[i] = src[i] != 0 ? 1 : 0;
+            }
+        }
+        // [Out]: the calloc above IS net48's zeroed temp (measured).
+    }
+    Il2CppPinvokeBoolArrayArg(const Il2CppPinvokeBoolArrayArg& o)
+        : ref(o.ref), slot(o.slot), buf(o.buf), count(o.count), width(o.width),
+          copyBack(o.copyBack), owner(false) {}
+    Il2CppPinvokeBoolArrayArg& operator=(const Il2CppPinvokeBoolArrayArg&) = delete;
+    ~Il2CppPinvokeBoolArrayArg()
+    {
+        if (!owner) return;
+        if (copyBack && buf != nullptr && ref != nullptr)
+        {
+            // Narrow each native cell back to a 0/1 managed byte (net48
+            // normalizes: a non-zero BOOL becomes true, measured).
+            uint8_t* dst = reinterpret_cast<uint8_t*>(ref->data);
+            if (width == 1)
+            {
+                for (int32_t i = 0; i < count; i++) dst[i] = buf[i] != 0 ? 1 : 0;
+            }
+            else
+            {
+                const int32_t* src = reinterpret_cast<const int32_t*>(buf);
+                for (int32_t i = 0; i < count; i++) dst[i] = src[i] != 0 ? 1 : 0;
+            }
+        }
+        if (slot != nullptr) detail::unpin_array_slot(slot);
+        std::free(buf);
+    }
+    // The native declaration decides the pointer type: int32_t* for the 4-byte
+    // BOOL cell, unsigned char* for the U1/I1 cell.
+    operator int32_t*() const { return reinterpret_cast<int32_t*>(buf); }
+    operator uint8_t*() const { return buf; }
+};
+
+inline Il2CppPinvokeBoolArrayArg il2cpp_pinvoke_bool_array(
+    Il2CppArray* a, int32_t copyIn, int32_t copyOut, int32_t elemWidth)
+{
+    return Il2CppPinvokeBoolArrayArg(a, copyIn, copyOut, elemWidth);
+}
+
 // STRUCT-element array argument (blittable element, measured copy semantics).
 // The native temp is owned by the OUTERMOST temporary; copies travel with
 // owner=false. Copy-back runs in the owner's destructor AFTER the native call,

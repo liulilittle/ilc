@@ -3583,3 +3583,97 @@ exactly; non-ASCII does not. **NOT verified on a POSIX host.**
   measured, but an exact-length unterminated write is not separately probed.
 * `char[]` under `CharSet.Auto` follows the platform default and has no case of
   its own; on Windows it takes the Unicode arm (verified only indirectly).
+
+## 37. P/Invoke `bool[]` -- element width from `ArraySubType`, copy semantics (IMPLEMENTED)
+
+Status: **IMPLEMENTED**. Previously a hard `NotSupportedException` at
+`CodeGenerator.cs` (the `case "b"` arm of `PinvokeArrayElementCpp`), on the
+stated grounds that "net48 marshals bool[] as 4-byte BOOL elements while this
+model stores 1-byte array cells -- no faithful bridge without a MarshalAs
+decode". The MarshalAs decode was the missing piece, not an impossibility: the
+blob is recorded per parameter and `bool[]` is reachable in the shipped corpus
+(18 rows in `.opencode/tmp/wforms-audit/classified.tsv`, e.g.
+`user32!SystemParametersInfo` from WinForms `UnsafeNativeMethods`).
+
+### The FieldMarshal blobs (MEASURED, net48 v4.0.30319)
+
+Dumped from the Param table of a fixture with six `bool[]` signatures
+(`.opencode/tmp/oracle-boolblob`):
+
+| declaration | blob |
+|---|---|
+| no MarshalAs | (no blob at all) |
+| `LPArray, ArraySubType=U1` | `2A 04` |
+| `LPArray, ArraySubType=I1` | `2A 03` |
+| `LPArray, ArraySubType=I4` | `2A 07` |
+| `LPArray` (no ArraySubType) | `2A 50` |
+| `LPArray, SizeConst=4` | `2A 50 00 04 00` |
+
+`0x2A` alone already means "LPArray with the DEFAULT element type", and `0x50`
+is `NATIVE_TYPE_MAX`, the sentinel for an omitted slot. `ReadParamArraySubTypes`
+normalizes both to 0 ("unspecified").
+
+### The native element width (MEASURED with CONTROL arrays)
+
+A hash-based probe was useless here: three `bool{true,false,true}` elements
+produce nearly identical hashes and two of my early attempts produced
+unexplainable numbers. The decisive measurement dumps RAW BYTES and runs 1-byte
+and 4-byte CONTROL arrays through the same probe, so the reader is known to see
+the payload (`.opencode/tmp/oracle-boolsem3`):
+
+```
+ctl.byte[]=[11 22 33]                                    <- 1-byte control
+ctl.int[] =[44 33 22 11 88 77 66 55]                     <- 4-byte control
+bool.default=[01 00 00 00 | 00 00 00 00 | 01 00 00 00]   <- 4 bytes/element
+bool.U1     =[01 00 01 | 18 0A 0A 18 00 F8 56 B6 7A]     <- 1 byte/element
+bool.I4     =[01 00 00 00 | 00 00 00 00 | 01 00 00 00]   <- 4 bytes/element
+```
+
+The trailing bytes after the U1 payload are uninitialised heap: like `char[]`
+under Ansi, net48 does not terminate or pad this buffer, so every probe must
+pass an EXPLICIT byte count.
+
+### Seed and copy-back (MEASURED, raw dumps + read-only probes)
+
+| attribute | seed the callee sees | copy back |
+|---|---|---|
+| default / `[In]` | the converted input | **NO** |
+| `[In,Out]` | the converted input | YES |
+| `[Out]` | a **ZEROED** buffer | YES |
+
+`null` array -> NULL; empty array -> NON-NULL.
+
+**`bool[]` is COPIED, never pinned.** The `[Out]`/`[In,Out]` copy-back writes
+the managed array, which is observable: reusing one array instance across an
+`[Out]` call and a later read silently changes the later read (measured: a
+shared static array read as all `false` after an `[Out]` round-trip). The case
+therefore builds a FRESH array per call.
+
+### Implementation
+
+* `MetadataLoader.ReadParamArraySubTypes` decodes `0x2A [elem] [num size]`,
+  indexed by SequenceNumber (the Seq=0 return row is skipped), normalizing
+  `0x50`/`0x2A` to 0.
+* `ResolvedMethod.ParamArraySubTypes` carries it to the call site. **It is read
+  through the exact `MethodDefinitionHandle`, NOT by signature**: two overloads
+  that differ only in their marshal attributes (`bool[]` vs
+  `[MarshalAs(LPArray, ArraySubType=U1)] bool[]`) share ONE signature blob, so a
+  signature lookup always returned the first-declared overload and silently gave
+  every overload the 4-byte default. This was caught by the first difftest run
+  of the new case and is the same class of defect as the earlier "two places
+  decide one thing" rule.
+* `CodeGenerator.PinvokeBoolArrayElemWidth` maps the subtype to 1 (U1/I1) or 4.
+* `PinvokeArrayElementCpp`'s `"b"` arm returns `uint8_t` or `int32_t`-based on
+  that width instead of throwing; the width is threaded through
+  `PinvokeArrayParamCpp` and `PinvokeParamListOf` (three call sites updated).
+* `Il2CppPinvokeBoolArrayArg` (`il2cpp_pinvoke_bridge.h`) owns a `malloc`'d
+  buffer of the NATIVE element width, widens 0/1 managed cells on entry,
+  narrows them back on exit (normalizing any non-zero BOOL to `true`), and
+  registers the root+pin pair for the call's lifetime.
+
+### Mutation coverage (each turns `pinvoke-boolarray` RED, restored GREEN)
+
+1. Default width 4 -> 1: `[b4.default]`/`[b4.I4]` become 1-byte wide.
+2. Copy-back made unconditional: `[b4.write.default.e1]` 0 -> 1.
+3. `[Out]` made to copy in: `[b1.seed.Out]`/`[b4.seed.Out]` become the input
+   instead of zeros.
