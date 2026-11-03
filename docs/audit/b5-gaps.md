@@ -3953,3 +3953,68 @@ is what makes the CharSet decision testable at all.
   link flags. The in-place overwrite plus the NULL replacement cover the
   managed-visible half of the ABI.
 * POSIX is not exercised (the Ansi cell maps non-ASCII to `'?'` there, unverified).
+
+## 41. P/Invoke MULTI-DIMENSIONAL array parameters -- row-major flat PIN (IMPLEMENTED)
+
+`CodeGenerator.PinvokeArrayParamCpp` used to LOUD-reject every array shape other
+than `r:<elem>[]`:
+
+```
+throw new NotSupportedException(
+    $"P/Invoke array parameter '{p}' on {methodName}: multi-dimensional arrays are not supported ...");
+```
+
+That rejection was WRONG. An assembly that passes an `int[,]` / `short[,]` to a
+`[DllImport]` method is perfectly valid net48 code and had to be uncompilable
+here. Measured on net48 v4.0.30319 (oracle `.opencode/tmp/mdarr`):
+
+| question | measured answer |
+|---|---|
+| Is a multidim array accepted at a DllImport boundary? | **yes** |
+| What does the callee see for `int[2,3]{{1,2,3},{4,5,6}}`? | **`1,2,3,4,5,6`** (flat row-major) |
+| Is the buffer the managed payload or a copy? | **the managed payload -- PIN, zero copy** (`addr.same=1`) |
+| Does a callee write reach the managed array immediately? | **yes** (`c[0,0]=100`, `c[0,1]=101`, `c[1,2]=105`) |
+| What does `null` give? | **NULL** (`isnull=1`) |
+| Does `[In,Out]` change the semantics? | **no** (still pinned, writes visible) |
+| Is the element width the element type's width? | **yes** (`short[,]` -> `1000,2000,3000,4000`) |
+
+This model already stores a multidim array as an `Il2CppArray` whose `data` IS a
+row-major flat buffer (`il2cpp_array_new_multi_<tag><rank>d`,
+`CodeGenerator.cs` mdnew_ arm), and `Il2CppPinvokeArrayArg`
+(`il2cpp_pinvoke_bridge.h:480-511`) already pins that payload and hands out
+`a->data` with `null -> nullptr`. The ABI therefore matches the SZARRAY case
+exactly, and the ONLY missing piece was encoding parsing.
+
+### Change
+
+* New helper `CodeGenerator.PinvokeArrayElemOf(string? p)` is the single decoder
+  for both shapes: `r:<elem>[]` (SZARRAY) and `r:<elem>[<rank>]` (ARRAY, the
+  `MethodSignatureCoder.MultidimArray` encoding `elem + "[" + rank + "]"`).
+  The multi-dim branch splits at the LAST `[`, so `r:i[2]` -> `i` and
+  `r:i2[3]` -> `i2`.
+* `PinvokeArrayParamCpp` (declaration side) and `PinvokeArrayArgCode` (call
+  side) both go through that helper, so a multidim array element flows into the
+  existing `PinvokeArrayElementCpp` / `PinvokeArrayPrimitiveElemSize` /
+  `Il2CppPinvokeArrayArg` path unchanged. No new runtime code.
+
+Struct-element multidim arrays still hit the `V:` arm (they were never rejected)
+and reference-element arrays (`string[,]`, `object[,]`) still reach the
+"no marshalling bridge" LOUD, both unchanged by this commit.
+
+### Evidence
+
+`tests/cases/pinvoke-multidim` (native lib `mdlib2`: `md2_addr`, `md2_isnull`,
+`md2_dump`, `md2_store`, `md2_dump16`) -- oracle and runtime both
+**369B, sha `ea05c1854960f71bd2af0fe2abaa61a492cc6e671350b6cb0101b5beb10a7632`**,
+23 records, `diff=0`.
+
+### Mutation coverage (each turns `pinvoke-multidim` RED, restored GREEN)
+
+1. `PinvokeArrayElemOf` multi-dim branch returns `"i1"` instead of the real
+   element: the bridge aborts on the element-size check, runtime exit code 3,
+   **0/23 records** emitted.
+2. `Il2CppPinvokeArrayArg` payload pointer shifted by 4 bytes
+   (`data = static_cast<char*>(a->data) + 4`): SILENT wrong values, 369B -> 359B,
+   first divergence at record 22, `diff=9`.
+3. `PinvokeArrayPrimitiveElemSize` gives `i2` a width of 4: `short[,]` aborts,
+   runtime exit code 3, **18/23 records**, `diff=5`.

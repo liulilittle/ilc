@@ -9974,13 +9974,33 @@ default: return false;                           // primitives/VAR(handled by ca
     private static string? PinvokeArrayParamCpp(MetadataReader md, string p, bool utf16PInvoke, string methodName,
         int boolArrayElemWidth = 4)
     {
-        if (!p.StartsWith("r:", StringComparison.Ordinal) || !p.EndsWith("]", StringComparison.Ordinal))
-            return null;
-        if (!p.EndsWith("[]", StringComparison.Ordinal))
-            throw new NotSupportedException(
-                $"P/Invoke array parameter '{p}' on {methodName}: multi-dimensional arrays are not supported (only a single-dimensional SZARRAY buffer crosses the boundary)");
-        var elem = p[2..^2];
+        if (PinvokeArrayElemOf(p) is not { } elem) return null;
         return PinvokeArrayElementCpp(md, elem, utf16PInvoke, methodName, boolArrayElemWidth) + "*";
+    }
+
+    // The ELEMENT encoding of an array parameter, for BOTH array shapes:
+    //   "r:i[]"   -> "i"   (SZARRAY, ELEMENT_TYPE_SZARRAY 0x1D)
+    //   "r:i[2]"  -> "i"   (ARRAY, ELEMENT_TYPE_ARRAY 0x14 -- rank in brackets)
+    // null when the encoding is not an array.
+    //
+    // MULTI-DIMENSIONAL ARRAYS ARE ACCEPTED: MEASURED on net48 v4.0.30319
+    // (oracle .opencode/tmp/mdarr) -- int[2,3]{{1,2,3},{4,5,6}} reaches the
+    // callee as a FLAT ROW-MAJOR buffer (1,2,3,4,5,6), the buffer address is
+    // the SAME as Marshal.UnsafeAddrOfPinnedArrayElement's, a callee write is
+    // visible in the managed array immediately (PIN, not copy), null gives
+    // NULL, and a short[,] element keeps its 2-byte width. This model stores a
+    // multidim array as an Il2CppArray whose data IS a row-major flat buffer
+    // (il2cpp_array_new_multi_<tag><rank>d), so the SAME pinned-payload bridge
+    // works unchanged -- the old blanket rejection was simply wrong.
+    internal static string? PinvokeArrayElemOf(string? p)
+    {
+        if (p == null || !p.StartsWith("r:", StringComparison.Ordinal) || !p.EndsWith("]", StringComparison.Ordinal))
+            return null;
+        if (p.EndsWith("[]", StringComparison.Ordinal)) return p[2..^2];
+        // Multi-dimensional: "r:<elem>[<rank>]" -- split at the LAST bracket.
+        var open = p.LastIndexOf('[');
+        if (open <= 2) return null;
+        return p[2..open];
     }
 
     private static string PinvokeArrayElementCpp(MetadataReader md, string elem, bool utf16PInvoke, string methodName,
@@ -10146,11 +10166,12 @@ default: return false;                           // primitives/VAR(handled by ca
     //--------------------------------------------------------------------------
     private static string? PinvokeArrayArgCode(string? cast, string code, ResolvedMethod r, int slot)
     {
-        if (cast == null || cast.Length < 4
-            || !cast.StartsWith("r:", StringComparison.Ordinal)
-            || !cast.EndsWith("[]", StringComparison.Ordinal))
-            return null;
-        var elem = cast[2..^2];
+        // BOTH array shapes reach this bridge: "r:<elem>[]" (SZARRAY) and
+        // "r:<elem>[<rank>]" (multi-dimensional ARRAY). A multidim array is an
+        // Il2CppArray with a row-major flat payload and net48 PINs it exactly
+        // like a SZARRAY (measured: same address, writes visible, null ->
+        // NULL), so the same zero-copy bridge applies.
+        if (PinvokeArrayElemOf(cast) is not { } elem) return null;
         var arr = NullSafePtrCast("Il2CppArray*", code);
         // char[] + CharSet.Ansi/None: the managed payload is 2-byte UTF-16 while
         // the native element is ONE byte, so the pinned-payload bridge cannot be
