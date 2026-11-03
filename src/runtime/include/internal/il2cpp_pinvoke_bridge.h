@@ -505,6 +505,77 @@ inline Il2CppPinvokeArrayArg il2cpp_pinvoke_array(Il2CppArray* a, int32_t expect
     return Il2CppPinvokeArrayArg(a, expectedElemSize);
 }
 
+//------------------------------------------------------------------------------
+// char[] + CharSet.Ansi / CharSet.None: net48 converts the WHOLE array to a
+// NUL-terminated CP_ACP narrow buffer, so the callee's element type is one byte
+// and the managed payload (2-byte UTF-16 units) CANNOT be handed over directly
+// -- unlike every other primitive element, this shape needs a real conversion.
+//
+// Measured contract (net48 Framework64 v4.0.30319, CP_ACP=936; oracles under
+// .opencode/tmp/oracle-chararr2 .. oracle-chararr4):
+//   * null array          -> NULL
+//   * empty array         -> NON-NULL, first byte NUL (strlen 0)
+//   * {'A','\0','B'}      -> strlen 1 (the encoded buffer is NUL-terminated)
+//   * default / [In]      -> copy in only, NO copy-back
+//   * [In,Out]            -> copy in AND copy back
+//   * [Out]               -> the callee sees a ZEROED buffer, then copy back
+//
+// The buffer is malloc'd (not the array payload) and freed by the owner's
+// destructor, which also performs the copy-back AFTER the native call returns.
+// The array itself is rooted+pinned for the call so a moving collection cannot
+// relocate the copy-back target mid-call (same pair as Il2CppPinvokeArrayArg).
+//------------------------------------------------------------------------------
+char* il2cpp_pinvoke_char_array_ansi_encode(const Il2CppArray* a, int32_t* outLen);
+void il2cpp_pinvoke_char_array_ansi_decode(const char* buf, int32_t bufLen, Il2CppArray* a);
+
+struct Il2CppPinvokeCharArrayAnsiArg
+{
+    Il2CppArray* ref;   // owner's pinned slot (the GC root/pin target)
+    Il2CppArray** slot; // &ref for the owner, copied verbatim into value copies
+    char* buf;          // converted CP_ACP buffer (null only for a null array)
+    int32_t bufLen;     // encoded byte count (excludes the terminating NUL)
+    int32_t copyOut;    // 1 when [Out]/[In,Out] must be copied back
+    bool owner;
+
+    Il2CppPinvokeCharArrayAnsiArg(Il2CppArray* a, int32_t copyIn, int32_t wantCopyOut)
+        : ref(a), slot(nullptr), buf(nullptr), bufLen(0), copyOut(wantCopyOut), owner(true)
+    {
+        if (a == nullptr) return; // null array -> NULL pointer (net48)
+        slot = &ref;
+        detail::pin_array_slot(slot);
+        if (copyIn)
+        {
+            buf = il2cpp_pinvoke_char_array_ansi_encode(a, &bufLen);
+        }
+        else
+        {
+            // [Out]: net48 hands the callee a ZEROED temp (measured hash == 0).
+            const size_t cap = (size_t)a->length * 2 + 1;
+            buf = (char*)std::calloc(cap, 1);
+            if (buf != nullptr) bufLen = (int32_t)(cap - 1);
+        }
+    }
+    Il2CppPinvokeCharArrayAnsiArg(const Il2CppPinvokeCharArrayAnsiArg& o)
+        : ref(o.ref), slot(o.slot), buf(o.buf), bufLen(o.bufLen),
+          copyOut(o.copyOut), owner(false) {}
+    Il2CppPinvokeCharArrayAnsiArg& operator=(const Il2CppPinvokeCharArrayAnsiArg&) = delete;
+    ~Il2CppPinvokeCharArrayAnsiArg()
+    {
+        if (!owner) return;
+        if (copyOut && buf != nullptr && ref != nullptr)
+            il2cpp_pinvoke_char_array_ansi_decode(buf, bufLen, ref);
+        if (slot != nullptr) detail::unpin_array_slot(slot);
+        std::free(buf);
+    }
+    operator char*() const { return buf; }
+};
+
+inline Il2CppPinvokeCharArrayAnsiArg il2cpp_pinvoke_char_array_ansi(
+    Il2CppArray* a, int32_t copyIn, int32_t copyOut)
+{
+    return Il2CppPinvokeCharArrayAnsiArg(a, copyIn, copyOut);
+}
+
 // STRUCT-element array argument (blittable element, measured copy semantics).
 // The native temp is owned by the OUTERMOST temporary; copies travel with
 // owner=false. Copy-back runs in the owner's destructor AFTER the native call,

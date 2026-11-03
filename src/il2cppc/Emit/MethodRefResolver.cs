@@ -232,7 +232,13 @@ public sealed record ResolvedMethod(
     // ECMA II.23.4 NATIVE_TYPE_ASANY = 0x28). The call site emits the
     // Il2CppPinvokeAsAnyArg temp-copy bridge for a set bit; the declaration
     // site names `void*`. Null elsewhere.
-    bool[]? ParamAsAnyFlags = null)
+    bool[]? ParamAsAnyFlags = null,
+    // char[] array params of a real DllImport: the import CharSet resolved to
+    // UTF-16 (Unicode/Auto). FALSE = Ansi/None: net48 converts char[] to a
+    // CP_ACP narrow byte buffer (measured D6 D0 CE C4 for {\u4E2D,\u6587}), so
+    // the call site must emit the CP_ACP conversion holder instead of the
+    // zero-copy primitive-array bridge. Only the char[] arm reads it.
+    bool PInvokeUtf16Chars = false)
 {
     // MemberInfo::get_Name on a GetType() result is an identity (the GetType
     // icall already returns the type NAME string); the fold recognizes this
@@ -878,7 +884,10 @@ public static partial class MethodRefResolver
                 ParamInFlags: paramInFlags,
                 // [MarshalAs(UnmanagedType.AsAny)] object parameters (see the
                 // record field). One bit per SIGNATURE slot.
-                ParamAsAnyFlags: CodeGenerator.ReadParamAsAnyFlagsOf(md, m.Signature, paramCount));
+                ParamAsAnyFlags: CodeGenerator.ReadParamAsAnyFlagsOf(md, m.Signature, paramCount),
+                // char[] + CharSet.Ansi: the import CharSet picks between the
+                // zero-copy UTF-16 bridge and the CP_ACP conversion holder.
+                PInvokeUtf16Chars: utf16Strings);
         }
         // tuple1 (ValueTuple): a method DEFINITION returning a tuple (the
         // same-assembly call shape) must carry the struct result kind, exactly

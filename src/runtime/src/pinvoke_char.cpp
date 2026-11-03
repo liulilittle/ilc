@@ -23,6 +23,7 @@
 #include "il2cpp_pinvoke_bridge.h"
 
 #include <cstdint>
+#include <cstdlib>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -57,6 +58,85 @@ int32_t il2cpp_pinvoke_char_ansi_from_byte(uint8_t byte)
 #else
     if (byte < 0x80) return (int32_t)byte;
     return 0x3F;
+#endif
+}
+
+//------------------------------------------------------------------------------
+// char[] + CharSet.Ansi: the WHOLE ARRAY is converted to one CP_ACP byte buffer
+// (unlike the per-unit ref/out cell above, this is a bulk conversion because
+// net48 hands the callee a NUL-terminated narrow string).
+//
+// MEASURED net48 contract (Framework64 v4.0.30319, CP_ACP=936; oracles
+// .opencode/tmp/oracle-chararr2 and oracle-chararr3/oracle-chararr4):
+//   * {'\u4E2D','\u6587'} -> D6 D0 CE C4 (2 bytes per unit, strlen 4)
+//   * {'A','b','c'}       -> 41 62 63      (strlen 3)
+//   * an EMPTY array      -> a NON-NULL pointer whose first byte is NUL
+//                            (strlen 0). It is NOT NULL and NOT a zero-length
+//                            allocation.
+//   * a null array        -> NULL (the only case that passes NULL)
+//   * {'A','\0','B'}      -> strlen 1: an embedded U+0000 truncates naturally
+//                            because the encoded buffer is NUL-terminated.
+//   * copy-back: default/[In] -> NONE; [In,Out] -> yes; [Out] -> the callee
+//     receives a ZEROED buffer (hash 0, measured) and the result is copied back.
+//------------------------------------------------------------------------------
+
+// Encode the managed UTF-16 payload into a freshly allocated, NUL-terminated
+// CP_ACP buffer. Never returns NULL for a non-null array (an empty array yields
+// a 1-byte buffer holding NUL), matching the measured non-NULL contract.
+char* il2cpp_pinvoke_char_array_ansi_encode(const Il2CppArray* a, int32_t* outLen)
+{
+    const int32_t length = a->length;
+    *outLen = 0;
+    // Worst case for any ANSI code page is 2 bytes per UTF-16 unit (DBCS).
+    const size_t cap = (size_t)length * 2 + 1;
+    char* buf = (char*)std::calloc(cap, 1);
+    if (buf == nullptr) return nullptr;
+#if defined(_WIN32)
+    if (length > 0)
+    {
+        const int n = ::WideCharToMultiByte(CP_ACP, 0,
+                                            reinterpret_cast<const wchar_t*>(a->data),
+                                            (int)length, buf, (int)(cap - 1), "?", nullptr);
+        if (n > 0) *outLen = (int32_t)n;
+    }
+#else
+    // POSIX has no ANSI code page: ASCII survives, every other unit maps to '?'.
+    {
+        const uint16_t* src = reinterpret_cast<const uint16_t*>(a->data);
+        int32_t n = 0;
+        for (int32_t i = 0; i < length; i++)
+            buf[n++] = (src[i] < 0x80) ? (char)src[i] : (char)'?';
+        *outLen = n;
+    }
+#endif
+    buf[*outLen] = '\0';
+    return buf;
+}
+
+// Decode the callee's CP_ACP buffer back into the managed char[] payload
+// ([In,Out] / [Out]). The callee's byte count is NOT known here (a P/Invoke
+// callee only returns its own value), so the buffer is walked as the
+// NUL-terminated string net48 hands over: units are decoded up to the first
+// NUL, and every remaining element is zeroed (matching the zeroed [Out] temp).
+void il2cpp_pinvoke_char_array_ansi_decode(const char* buf, int32_t bufLen, Il2CppArray* a)
+{
+    if (buf == nullptr || a == nullptr) return;
+    uint16_t* dst = reinterpret_cast<uint16_t*>(a->data);
+    const int32_t length = a->length;
+    if (length <= 0) return;
+    // Stop at the buffer's NUL terminator (or the supplied bound).
+    int32_t n = 0;
+    while (n < bufLen && buf[n] != '\0') n++;
+#if defined(_WIN32)
+    int converted = 0;
+    if (n > 0)
+        converted = ::MultiByteToWideChar(CP_ACP, 0, buf, (int)n,
+                                          reinterpret_cast<wchar_t*>(dst), (int)(length < n ? length : n));
+    if (converted < 0) converted = 0;
+    for (int32_t i = converted; i < length; i++) dst[i] = 0;
+#else
+    for (int32_t i = 0; i < length; i++)
+        dst[i] = (i < n && (uint8_t)buf[i] < 0x80) ? (uint16_t)(uint8_t)buf[i] : (uint16_t)0;
 #endif
 }
 

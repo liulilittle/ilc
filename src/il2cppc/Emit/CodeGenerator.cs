@@ -9895,10 +9895,13 @@ default: return false;                           // primitives/VAR(handled by ca
             case "i1": return "int8_t";
             case "u1": return "uint8_t";
             case "c":
-                if (!utf16PInvoke)
-                    throw new NotSupportedException(
-                        $"P/Invoke char[] parameter on {methodName} with CharSet.Ansi: net48 converts char[] to a NARROW ANSI buffer (measured 0x44434241); declare CharSet.Unicode or pass byte[]");
-                return "char16_t";
+                // char[] CharSet.Unicode -> a 2-byte UTF-16 element (zero-copy).
+                // char[] CharSet.Ansi/None -> net48 converts the array to a
+                // CP_ACP NARROW byte buffer (measured D6 D0 CE C4 for
+                // {\u4E2D,\u6587}), so the native element is ONE byte. The
+                // call-site holder (il2cpp_pinvoke_char_array_ansi) owns the
+                // conversion; see il2cpp_pinvoke_bridge.h.
+                return utf16PInvoke ? "char16_t" : "char";
             case "i2": return "int16_t";
             case "u2": return "uint16_t";
             case "i": return "int32_t";
@@ -10018,6 +10021,20 @@ default: return false;                           // primitives/VAR(handled by ca
             return null;
         var elem = cast[2..^2];
         var arr = NullSafePtrCast("Il2CppArray*", code);
+        // char[] + CharSet.Ansi/None: the managed payload is 2-byte UTF-16 while
+        // the native element is ONE byte, so the pinned-payload bridge cannot be
+        // used -- the whole array is converted to a NUL-terminated CP_ACP buffer
+        // (measured: {'\u4E2D','\u6587'} -> D6 D0 CE C4; empty -> non-NULL NUL;
+        // null -> NULL; default/[In] no copy-back, [In,Out]/[Out] copy back with
+        // [Out] receiving a zeroed temp).
+        if (elem == "c" && r.IsPInvoke && !r.PInvokeUtf16Chars)
+        {
+            var outF = r.ParamOutFlags != null && slot < r.ParamOutFlags.Length && r.ParamOutFlags[slot];
+            var inF = r.ParamInFlags != null && slot < r.ParamInFlags.Length && r.ParamInFlags[slot];
+            var cIn = inF || !outF; // measured: default and [In] copy in
+            var cOut = outF;        // measured: only [Out]/[In,Out] copy back
+            return $"il2cpp::runtime::il2cpp_pinvoke_char_array_ansi({arr}, {(cIn ? 1 : 0)}, {(cOut ? 1 : 0)})";
+        }
         if (IsPinvokeArrayPrimitiveElement(elem))
             return $"il2cpp::runtime::il2cpp_pinvoke_array({arr}, {PinvokeArrayPrimitiveElemSize(elem)})";
         if (!elem.StartsWith("V:", StringComparison.Ordinal))
