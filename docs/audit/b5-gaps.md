@@ -3481,3 +3481,105 @@ so the failure is deliberate and loud.
    `ansi.lpwstr.cjk` `2D 4E 00 00` -> `D6 D0 00` (and `uni.lpwstr.cjk`).
 3. Map LPTStr to `"a:System.String"`:
    `uni.lptstr.cjk` / `ansi.lptstr.cjk` `2D 4E 00 00` -> `D6 D0 00`.
+
+## 36. P/Invoke `char[]` with `CharSet.Ansi` / `CharSet.None` -- CP_ACP array conversion (IMPLEMENTED)
+
+Status: **IMPLEMENTED** (commit `0fe77966`). Previously a hard
+`NotSupportedException` at `CodeGenerator.cs:9899`; the shape is statically
+analysable and net48 has well-defined behaviour, so refusing it violated the
+project rule against LOUD-rejecting analysable code.
+
+### The net48 contract (MEASURED, net48 v4.0.30319, host CP_ACP = 936, zh-CN)
+
+Oracles: `.opencode/tmp/oracle-chararr2`, `oracle-chararr3`, `oracle-chararr4`.
+The case is `tests/cases/pinvoke-chararray-ansi` (536 B, sha `12b9db92`,
+21 records, `diff=0`, identical across three consecutive runs).
+
+| input | native bytes |
+|---|---|
+| `{'\u4E2D','\u6587'}` | `D6 D0 CE C4` (2 bytes per unit) |
+| `{'A','b','c'}` | `41 62 63` |
+| `{'\uD83D','\uDE00'}` | `3F 3F` (surrogate halves unrepresentable in CP936) |
+| `null` | `NULL` |
+| `new char[0]` | **NON-NULL** pointer |
+
+### THE TRAP: net48 does NOT NUL-terminate the converted buffer
+
+This is the single most important fact of this section, and it cost two wrong
+oracle readings before it was isolated. For `char[]` + `CharSet.Ansi`, net48
+converts exactly the managed elements and stops; there is **no terminator**.
+
+* A callee that calls `strlen` on the buffer reads uninitialised heap. Running
+  the SAME oracle binary four times on `{'\u4E2D','\u6587'}` produced lengths
+  **4, 4, 6 and 8** (`D6 D0 CE C4`, then `... 0A 18`, then `... 19 34 E0 89`).
+* For an empty array the pointer is non-NULL but nothing is written, so both the
+  length and the first byte are garbage. Only NULL-ness is stable.
+* Therefore **any test for this shape must pass an explicit byte count** and
+  never use `strlen`. The probe in this case takes `nbytes` as a parameter and
+  the counts are measured literals (4 for two CJK units, 3 for `abc`, 1 for a
+  single ASCII unit, 2 for the surrogate pair). `Encoding.Default` is not
+  available in this runtime, so the count cannot be computed at run time.
+* `{'A','\0','B'}` stays deterministic for a *length-driven* callee: the
+  embedded U+0000 converts to byte 0, so a callee stopping at the first NUL
+  sees `41`.
+
+The implementation DOES append a terminator at `buf[outLen]` (inside the
+allocation, so always in bounds). That is strictly safer than net48 and
+unobservable to any callee respecting the length it was given; it is recorded
+here because it is a deliberate, documented difference rather than an accident.
+
+### copy-back policy (MEASURED)
+
+| attribute | seed the callee sees | copy back |
+|---|---|---|
+| default / `[In]` | the converted input | **NO** |
+| `[In,Out]` | the converted input | YES |
+| `[Out]` | a **ZEROED** buffer (read-only hash probe measured 0) | YES |
+
+The zeroed seed is measured with a read-only entry point (`ca_peek`, which
+hashes the buffer without writing). It cannot be observed through a writing
+callee -- which is why the first mutation attempt (seeding `[Out]` with the
+input instead of zeros) stayed GREEN: the test had a real coverage hole, and
+the read-only probe closed it.
+
+### Implementation
+
+* `CodeGenerator.PinvokeArrayElementCpp` (`:9891-9904`) returns `"char"` for the
+  Ansi arm; the Unicode arm keeps `"char16_t"` (zero-copy, unchanged).
+* `ResolvedMethod.PInvokeUtf16Chars` (`MethodRefResolver.cs:225-238`, filled at
+  `:884-889` from the already-decoded import CharSet) is the ONE source of truth
+  shared by the declaration site and the call site.
+* `CodeGenerator.PinvokeArrayArgCode` (`:10024-10037`) emits
+  `il2cpp_pinvoke_char_array_ansi(arr, copyIn, copyOut)` BEFORE the primitive
+  arm, because the managed element (2 bytes) and the native cell (1 byte)
+  differ and the pinned-payload bridge would abort on the width check.
+* `Il2CppPinvokeCharArrayAnsiArg` (`il2cpp_pinvoke_bridge.h:531-578`) owns the
+  `malloc`'d buffer, registers the root+pin pair for the call's lifetime, and
+  runs the copy-back in the outermost temporary's destructor (value copies
+  carry `owner = false`, the same pattern as `Il2CppPinvokeArrayArg`).
+* `il2cpp_pinvoke_char_array_ansi_encode` / `_decode` (`pinvoke_char.cpp:66-`)
+  perform the conversion with `WideCharToMultiByte` / `MultiByteToWideChar`.
+
+### POSIX
+
+There is no ANSI code page off Windows. The POSIX arm converts ASCII verbatim
+and maps every other unit to `'?'` in both directions -- the same documented
+policy as the `ref/out char` cell in `pinvoke_char.cpp`. ASCII round-trips
+exactly; non-ASCII does not. **NOT verified on a POSIX host.**
+
+### Mutation coverage (each turns `pinvoke-chararray-ansi` RED, restored GREEN)
+
+1. `CP_ACP` -> `1252` in the encoder:
+   `[ansi.cjk]` `D6 D0 CE C4` -> `3F 3F 00 00`.
+2. `[Out]` seeded with the input instead of a zeroed buffer:
+   `[ansi.peek.out]` `0` -> `64578`.
+3. `null` array becomes an empty buffer instead of `NULL`:
+   `[ansi.null.isnull]` `1` -> `0`.
+
+### Not covered here
+
+* The copy-back decodes the NUL-terminated prefix; a callee that writes a buffer
+  with no NUL at all is decoded up to the array length. This matches every shape
+  measured, but an exact-length unterminated write is not separately probed.
+* `char[]` under `CharSet.Auto` follows the platform default and has no case of
+  its own; on Windows it takes the Unicode arm (verified only indirectly).
