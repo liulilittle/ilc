@@ -4603,7 +4603,17 @@ public static class CodeGenerator
                 // slot), so keep rejecting it LOUDLY.
                 if (a.Target.Contains('.') && locKind.TryGetValue(a.Target, out var gstk) && gstk == "guid")
                     throw new NotSupportedException("Guid static-field store not wired: TypeEmitter static storage has no 16-byte Guid slot");
-                var assignCode = $"{EmitTarget(a.Target)} = {EmitExpr(a.Value, md, types)};";
+                // ptr-pinvoke: a PTR-typed local is the pointer-width INTEGER
+                // carrier (intptr_t), while an ADDRESS expression (`int* p =
+                // &v;` -> ldloca + conv.u) is a raw T*. C++ has no implicit
+                // pointer-to-integer conversion, so store the address bits
+                // explicitly. The reverse direction (a pointer slot used as an
+                // address) needs no cast: reinterpret_cast covers every use.
+                var assignValue = EmitExpr(a.Value, md, types);
+                if (locKind.TryGetValue(a.Target, out var ptrStoreKind) && ptrStoreKind == "ptr"
+                    && a.Value is LocAddrExpr or FieldAddrExpr or StaticFieldAddrExpr)
+                    assignValue = $"reinterpret_cast<intptr_t>({assignValue})";
+                var assignCode = $"{EmitTarget(a.Target)} = {assignValue};";
                 if (a.Value is CallExpr)
                     w.LineAligned(assignCode, $"IL {At(a.SourceOpName, a.SourceOffset)} -- store call result into {EmitTarget(a.Target)}");
                 else if (a.Target.Contains('.'))
@@ -8255,6 +8265,28 @@ default: return false;                           // primitives/VAR(handled by ca
     //
     // D9: the resolver's fallback is "unknown" (not "val"), so an unrecognized
     // expression is NOT assumed to be a value slot.
+    // ptr-pinvoke: whether the argument slot holds a raw ADDRESS (an
+    // unsafe pointer / IntPtr carrier: "ptr" = intptr_t, "uptr" = uintptr_t,
+    // "p" = void*). Such a slot IS the byref IL hands to a value-type
+    // instance call, so the receiver read is a dereference of the POINTER,
+    // never an unbox of a boxed object.
+    private static bool IsPointerCarrierArg(Ir.Expr e)
+    {
+        switch (e)
+        {
+            case Ir.LocExpr le:
+                return _curLocKinds != null
+                       && _curLocKinds.TryGetValue(le.Name, out var k) && k is "ptr" or "uptr" or "p";
+            // pointer arithmetic (`p + n` / `p - n`) keeps the pointer
+            // carrier, so `t[3]` (ldloc + ldc + mul + add) still reads as an
+            // ADDRESS rather than a boxed object.
+            case Ir.BinaryExpr b when b.Op is Ir.BinaryOp.Add or Ir.BinaryOp.Sub:
+                return IsPointerCarrierArg(b.Left) && !IsPointerCarrierArg(b.Right);
+            default:
+                return false;
+        }
+    }
+
     private static bool IsValueSlotArg(Ir.Expr e, params string[] allowedKinds)
     {
         var kind = TypeKindResolver.ResolveExprKindStrict(e, _curLocKinds);
@@ -9413,6 +9445,15 @@ default: return false;                           // primitives/VAR(handled by ca
         // IS a void* (the "p" slot); the C++ compiler reads the full-width
         // pointer and the calli rides the void* value directly.
         if (returnType is SignatureTypeCode.FunctionPointer) return "void*";
+        // ptr-pinvoke: an UNSAFE POINTER return (`int*` / `void*`) had no arm
+        // at all, so it fell through to the int32_t tail below and the x64
+        // address TRUNCATED -- the exact defect the fnptr arm above fixed for
+        // F:, left unfixed for P:. MEASURED on net48 (oracle
+        // .opencode/tmp/ptrpinvoke): a pointer returned from native code keeps
+        // its full 64-bit value (ptr_table -> 0x7FF8... > 2^32) and indexes
+        // correctly. void* is the model's pointer carrier; the pointee type
+        // only affects managed dereference, which the IR already types.
+        if (returnType is SignatureTypeCode.Pointer) return "intptr_t";
         // P-D1 P0-1 (full-width returns): int64/double/float/uint64 DllImport
         // returns were silently declared int32_t (a double return read EAX,
         // a long return sign-extended the truncated EAX -- both P-D1 audits
@@ -9667,6 +9708,17 @@ default: return false;                           // primitives/VAR(handled by ca
             // call-site arg bridge (EmitIcallCallArgs + PinvokeArgBridge)
             // converts the void* managed slot to the native void* decl.
             if (p.StartsWith("F:", StringComparison.Ordinal)) return "void*";
+            // ptr-pinvoke: an UNSAFE POINTER parameter (`int*`, `void*`, ...)
+            // is already a raw address in this model's "p" slot, so net48
+            // passes the VALUE straight through -- no marshalling happens at
+            // all. MEASURED on net48 (oracle .opencode/tmp/ptrpinvoke): the
+            // callee sees the caller's exact address (identity round-trip),
+            // writes through it are visible in managed storage, and a pointer
+            // the callee returns keeps its 64-bit value. Declaring void*
+            // matches every pointee type: the C++ compiler implicitly converts
+            // any object pointer to void* at the call, and the callee's real
+            // prototype is the extern "C" symbol's business, not ours.
+            if (p.StartsWith("P:", StringComparison.Ordinal)) return "intptr_t";
             // wf2 (winforms1): CharSet.Unicode P/Invoke string param -> UTF-16
             // (const char16_t*), else UTF-8 (const char*).
             // mstr-override: a PARAMETER-level [MarshalAs(UnmanagedType.LPStr/
@@ -9759,12 +9811,11 @@ default: return false;                           // primitives/VAR(handled by ca
             var rComRef when PinvokeComInterfaceByrefIidOf(md, rComRef) is not null
                 => "void**",
             // P-D1 P0-2 (delegate-typed DllImport params): a delegate (or any
-            // other reference-typed / fnptr / pointer / byref) param is
-            // LOUDLY rejected -- the old fallback emitted int32_t for
+            // other reference-typed / byref) param is LOUDLY rejected -- the
+            // old fallback emitted int32_t for
             // an Il2CppObject* delegate (silent compile + runtime crash;
             // delegatecb.cs:19-27 claims this rejection but no code
-            // existed). fnptr (F:) and pointer (P:) params are the P-D3
-            // work items; they must not silently downgrade either.
+            // existed).
             // byref-scalar: every scalar B: shape is handled above -- char
             // included, through its own CharSet-dependent arm (Unicode: 2-byte
             // UTF-16; Ansi: 1-byte CP_ACP cell, both measured). The remaining
@@ -9772,12 +9823,13 @@ default: return false;                           // primitives/VAR(handled by ca
             //   * B:r:<ref> (ref/out string / class) needs a native buffer or
             //     an object-to-interface marshal;
             //   * B:tr (TypedReference) is not addressable.
+            // fnptr (F:) and pointer (P:) params are handled above (both are
+            // already raw addresses in this model's "p" slot) -- they must not
+            // silently downgrade either.
             var r when r.StartsWith("r:", StringComparison.Ordinal)
-                || r.StartsWith("F:", StringComparison.Ordinal)
-                || r.StartsWith("P:", StringComparison.Ordinal)
                 || r.StartsWith("B:", StringComparison.Ordinal) =>
                 throw new NotSupportedException(
-                    $"P/Invoke parameter type '{r}' on {methodName} is not supported: reference-typed (delegate/array/object), fnptr and pointer parameters have no marshalling bridge, and by-ref of a string/class/TypedReference needs a marshal conversion this emitter does not implement (scalar int/uint/long/ulong/short/ushort/byte/sbyte/bool/char/float/double/IntPtr/UIntPtr/Guid by-ref IS supported)"),
+                    $"P/Invoke parameter type '{r}' on {methodName} is not supported: reference-typed (delegate/array/object) parameters have no marshalling bridge, and by-ref of a string/class/TypedReference needs a marshal conversion this emitter does not implement (scalar int/uint/long/ulong/short/ushort/byte/sbyte/bool/char/float/double/IntPtr/UIntPtr/Guid by-ref IS supported)"),
                 var other => throw new NotSupportedException(
                     $"P/Invoke parameter encoding '{other}' on {methodName} is not supported"),
             };
@@ -13464,9 +13516,18 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // receiver (kind "ref") keeps the unbox path unchanged.
                 "unbox:i" => IsValueSlotArg(args[srcIdx], "val", "i", "int")
                     ? $"static_cast<int32_t>({code})"
+                    // ptr-pinvoke: a pointer/IntPtr slot holds an ADDRESS. IL lets
+                    // that address serve directly as the byref `this` of a
+                    // value-type call (`int* t; t[0].ToString()` compiles to
+                    // `ldloc; call Int32::ToString()` with NO ldind -- measured on
+                    // net48), so the read is a DEREFERENCE, not an unbox.
+                    : IsPointerCarrierArg(args[srcIdx])
+                    ? $"(*reinterpret_cast<int32_t*>({code}))"
                     : $"il2cpp::il2cpp_unbox_int32(static_cast<Il2CppObject*>({code}))",
                 "unbox:l" => IsValueSlotArg(args[srcIdx], "l")
                     ? $"static_cast<int64_t>({code})"
+                    : IsPointerCarrierArg(args[srcIdx])
+                    ? $"(*reinterpret_cast<int64_t*>({code}))"
                     : $"il2cpp::runtime::icall_unbox_long(static_cast<Il2CppObject*>({code}))",
                 // cast-3 fix: box:i - when icall expects Il2CppObject* but gets int32, box it
                 "box:i" => (TypeKindResolver.ResolveExprKind(args[srcIdx], _curLocKinds) == "ref" || code.Contains("Il2CppObject*", StringComparison.Ordinal))
@@ -13552,11 +13613,17 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // implicit int->unsigned conversion (MSVC C4245).
                 "unbox:ui" => IsValueSlotArg(args[srcIdx], "val", "i", "int")
                     ? $"static_cast<uint32_t>({code})"
+                    : IsPointerCarrierArg(args[srcIdx])
+                    ? $"(*reinterpret_cast<uint32_t*>({code}))"
                     : $"il2cpp::runtime::icall_unbox_uint(static_cast<Il2CppObject*>({code}))",
                 "unbox:ul" => IsValueSlotArg(args[srcIdx], "l")
                     ? $"static_cast<uint64_t>({code})"
+                    : IsPointerCarrierArg(args[srcIdx])
+                    ? $"(*reinterpret_cast<uint64_t*>({code}))"
                     : $"il2cpp::runtime::icall_unbox_ulong(static_cast<Il2CppObject*>({code}))",
-                "unbox:d" => $"il2cpp::runtime::icall_unbox_double(static_cast<Il2CppObject*>({code}))",
+                "unbox:d" => IsPointerCarrierArg(args[srcIdx])
+                    ? $"(*reinterpret_cast<double*>({code}))"
+                    : $"il2cpp::runtime::icall_unbox_double(static_cast<Il2CppObject*>({code}))",
                 "unbox:b" => $"il2cpp::runtime::icall_unbox_bool(static_cast<Il2CppObject*>({code}))",
                 "unbox:c" => $"il2cpp::runtime::icall_unbox_char(static_cast<Il2CppObject*>({code}))",
                 // decimal-domain T3: the boxed decimal unboxes to the 16-byte

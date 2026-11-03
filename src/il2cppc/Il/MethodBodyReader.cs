@@ -435,7 +435,20 @@ public static class MethodBodyReader
         // slots -- the element type follows and must be consumed (int* = 0F 08,
         // ref int = 10 08), else the element byte leaks into the next local. Coarse
         // kind "i" (a pointer stored in a native-int slot).
-        if (b is 0x0F or 0x10)
+        // PTR (0x0F, unsafe `int*`) / BYREF (0x10, `ref` locals): pointer-shaped
+        // slots -- the element type follows and must be consumed (int* = 0F 08,
+        // ref int = 10 08), else the element byte leaks into the next local.
+        // ptr-pinvoke: a PTR local is a RAW ADDRESS, i.e. the same pointer-width
+        // integer carrier an IntPtr local uses ("ptr" -> intptr_t). The old
+        // coarse "i" declared it int32_t, so `(long)p`, pointer arithmetic and
+        // any P/Invoke arg bridge truncated the x64 address. BYREF (0x10)
+        // keeps the legacy "i" (a ref local is a managed byref slot).
+        if (b == 0x0F)
+        {
+            LocalTypeKind(md, ref sig, name);
+            return "ptr";
+        }
+        if (b == 0x10)
         {
             LocalTypeKind(md, ref sig, name);
             return "i";

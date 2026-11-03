@@ -873,6 +873,9 @@ public static partial class MethodRefResolver
                         SignatureTypeCode.Int64 or SignatureTypeCode.UInt64 => "l",
                         SignatureTypeCode.Single or SignatureTypeCode.Double => "d",
                         SignatureTypeCode.FunctionPointer => "p",
+                        // ptr-pinvoke: an unsafe pointer return rides the same
+                        // void* result slot (int*/oid* -> full x64 width).
+                        SignatureTypeCode.Pointer => "ptr",
                         _ => null,
                     },
                 // GN-17 P0 (pinvokewide): the native C++ return type, so
@@ -3085,6 +3088,11 @@ var userRecvLike = receiverType ?? arg0Type;
         SignatureTypeCode.IntPtr => "intptr_t",
         SignatureTypeCode.UIntPtr => "uintptr_t",
         SignatureTypeCode.FunctionPointer => "void*",
+        // ptr-pinvoke: an unsafe POINTER return (`int*`/`void*`) is the model's
+        // "p" carrier too. Without this arm the il2cpp_pinvoke_call<Ret>
+        // wrapper used the int32_t fallback and truncated the x64 address
+        // (same defect class as the fnptr arm above; measured on net48).
+        SignatureTypeCode.Pointer => "intptr_t",
         _ => null,
     };
 

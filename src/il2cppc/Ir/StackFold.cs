@@ -10091,7 +10091,10 @@ public static class StackFold
         static bool Is32BitConvU8Source(Expr e, MethodContext ctx, IReadOnlyDictionary<string, string>? tempWidths) => e switch
         {
             Int64ConstExpr or DoubleConstExpr => false,
-            LocExpr l => LocWidth(l.Name, ctx, tempWidths) is not ("l" or "d" or "r"),
+            // ptr-pinvoke: a pointer/IntPtr slot is already 64-bit -- it must
+            // not take the 32-bit zero-extension helper (which would truncate
+            // a `(ulong)ptr` to 32 bits before widening).
+            LocExpr l => LocWidth(l.Name, ctx, tempWidths) is not ("l" or "d" or "r" or "ptr" or "uptr"),
             BinaryExpr b => b.Kind is not ("l" or "d"),
             UnaryExpr => true,
             IntConstExpr => false, // handled by the const fold above
@@ -10300,7 +10303,16 @@ public static class StackFold
                 _ => null,
             };
         }
-        return ret is 0x0A or 0x0B ? "l" : ret is 0x0C or 0x0D ? "d" : ret is 0x17 or 0x18 ? "ptr" : ret is 0x1B ? "p" : null;
+        // ptr-pinvoke: 0x0F (ELEMENT_TYPE_PTR) is the unsafe-pointer return --
+        // the full-width pointer-width integer slot ("ptr" -> intptr_t), the same
+        // carrier an IntPtr return uses. Without it the result temp stayed int32_t
+        // and the x64 address truncated before any deref (measured on net48).
+        return ret is 0x0A or 0x0B ? "l"
+            : ret is 0x0C or 0x0D ? "d"
+            : ret is 0x17 or 0x18 ? "ptr"
+            : ret is 0x1B ? "p"
+            : ret is 0x0F ? "ptr"
+            : null;
     }
 
     // P2-HARDEN #3: the RESULT WIDTH of a delegate Invoke call (the

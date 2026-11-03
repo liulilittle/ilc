@@ -3765,3 +3765,100 @@ back as `2D 4E 87 65`.
   unterminated-write shape is not separately probed.
 * POSIX has no ANSI code page; the POSIX arm maps non-ASCII to `'?'` in both
   directions. **NOT verified on a POSIX host.**
+
+## 39. P/Invoke unsafe POINTER parameters and returns (IMPLEMENTED)
+
+Status: **IMPLEMENTED**. Two independent defects, one family:
+
+1. An unsafe POINTER parameter (`int*`, `void*`, ...) hit the blanket
+   `r:`/`B:` LOUD rejection and the case could not be compiled at all.
+2. An unsafe POINTER RETURN had no arm in `PinvokeReturnTypeCpp`, so it fell
+   through to the `int32_t` tail -- the x64 address was silently TRUNCATED
+   before any dereference. This is the exact defect the `FunctionPointer` (0x1B)
+   arm had already fixed for `delegate*`, left unfixed for `0x0F`.
+
+The second one is the more dangerous of the two: a LOUD rejection is a build
+error, but a truncated pointer is a wrong program.
+
+### The net48 contract (MEASURED, net48 v4.0.30319, x64; oracle .opencode/tmp/ptrpinvoke)
+
+net48 does **no marshalling at all** for an unsafe pointer. The IL value is a
+raw address and it crosses the boundary verbatim.
+
+| probe | result |
+|---|---|
+| `int* PtrIdentity(int*)` returns its argument | identical address (`ident.same=1`) |
+| `int PtrDeref(int*)` | reads the caller's managed storage (`deref=41`) |
+| `null` pointer argument | callee sees `NULL` (`deref.null=-1`) |
+| `void PtrStore(int*, int)` | write is visible in managed storage (`store.seen=7`) |
+| `int* PtrTable()` | full 64-bit value (`table.width64=1`), indexes `11..44` |
+| `int* PtrAt(int*, int)` | `at.2=33`, `at.delta=8` (`+2` int32 elements) |
+| `void*` round-trip / cast-back deref | `void.same=1`, `void.deref=7` |
+
+### A subtlety worth recording: `t[0].ToString()` has NO `ldind`
+
+ildasm of the oracle shows Roslyn compiles `t[0]` (an `int*` element read) to
+`ldloc.3` followed directly by `call instance string Int32::ToString()` -- the
+ADDRESS is passed as the byref `this` and the callee dereferences it itself.
+There is no `ldind.i4` anywhere in the body. So a transpiler that only handles
+explicit `ldind.*` still has to treat a pointer slot as an ADDRESS at the
+value-type-receiver site, or it emits an "unbox a boxed object" call on a raw
+address.
+
+### Implementation
+
+| file | change |
+|---|---|
+| `CodeGenerator.PinvokeParamListOf` | `P:` -> `intptr_t` (was the LOUD list) |
+| `CodeGenerator.PinvokeReturnTypeCppOf` | `SignatureTypeCode.Pointer` -> `intptr_t` |
+| `MethodRefResolver.PinvokeRetCpp` | `SignatureTypeCode.Pointer` -> `intptr_t` |
+| `MethodRefResolver` ResultKind | `SignatureTypeCode.Pointer` -> `"ptr"` |
+| `StackFold.UserCallResultKind` | `0x0F` -> `"ptr"` (was falling to null = int32) |
+| `StackFold.Is32BitConvU8Source` | `ptr`/`uptr` slots are already 64-bit, so they must NOT take the `icall_conv_u8_i4` zero-extension |
+| `MethodBodyReader.LocalTypeKind` | `0x0F` -> `"ptr"` (was the coarse `"i"` = int32_t slot) |
+| `CodeGenerator` LocAddrExpr store | a PTR slot storing an ADDRESS needs `reinterpret_cast<intptr_t>` |
+| `CodeGenerator` `unbox:i/l/ui/ul/d` | pointer-carrier arg -> DEREFERENCE, not an object unbox |
+
+The `ptr` (not `void*`) carrier is deliberate: `intptr_t` is what the model
+already uses for `IntPtr` and for `ldelema` results, so pointer slots, pointer
+arithmetic and the P/Invoke bridge all agree on one C++ type.
+
+### Why one carrier, not a per-pointee type
+
+The pointee type only matters for managed DEREFERENCE, and the IR already types
+that (`ldind.*` / `ldelema` / `ldobj_*` each name their own width). The boundary
+itself is width-only on x64, so a single `intptr_t` carrier is exact. Declaring
+`void*` instead was tried first and rejected: it is not implicitly convertible
+to/from `intptr_t`, so every store and every comparison needed an extra cast.
+
+### Mutation coverage (each turns `pinvoke-pointer` RED, restored GREEN)
+
+1. Drop the `Pointer` arm from `PinvokeRetCpp`: the runtime **crashes**
+   (`code=1`, 0 bytes -- the truncated address is dereferenced).
+2. Put `P:` back in the parametre LOUD list (with the declaration arm removed):
+   transpile fails with
+   `P/Invoke parameter type 'P:i' on PtrIdentity is not supported`.
+
+A third mutation (removing only the StackFold `0x0F` arm) stayed GREEN on
+purpose-visible grounds: `PinvokeRetCpp` is a separate authority and still
+carried the right width. Recorded so the next reader does not mistake it for a
+fake test.
+
+### Regression this work caused and fixed
+
+`Is32BitConvU8Source` initially excluded `ptr` slots through a comment that got
+flattened onto one line, which commented out the `LocExpr` arm entirely and
+regressed `pinvoke-chararray-ansi` (`inl31` degraded from `int64_t` to
+`int32_t`, 7 records diverged). Caught by the anchor sweep, fixed, and the case
+is back at `12b9db92`.
+
+Also updated `MethodBodyReaderTests.LocalSig_Pointer_ElementConsumed_NextLocalAligned`,
+which pinned the old int32 slot kind; it now asserts `"ptr"` and still pins the
+real subject of the test (the following local stays aligned).
+
+### Not covered
+
+* POSIX is not exercised (pointer width is the same, but the case is Windows
+  x64 only, like every other P/Invoke case).
+* A pointer into a MANAGED array element obtained through `fixed` was not
+  probed separately; the `ldelema` path already had its own `ptr` carrier.

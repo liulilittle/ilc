@@ -291,9 +291,14 @@ public class MethodBodyReaderTests
         // loc0 = int* (0x0F 0x08), loc1 = string (0x0E). Pre-fix 0x0F fell
         // through WITHOUT consuming the 0x08 element -> the string slot decoded
         // from the element byte.
+        // The element consumption is what this test pins (loc1 must be "r").
+        // The pointer slot itself is "ptr" (the intptr_t carrier): an unsafe
+        // pointer IS a raw address, so declaring it int32_t truncated every
+        // x64 address at `(long)p`, pointer arithmetic and the P/Invoke arg
+        // bridge (ptr-pinvoke).
         using var pe = Synthesize(EmitRet, 2, new byte[] { 0x07, 0x02, 0x0F, 0x08, 0x0E });
         var info = ReadBody(pe);
-        Assert.Equal(new[] { "i", "r" }, info.LocalKinds);
+        Assert.Equal(new[] { "ptr", "r" }, info.LocalKinds);
     }
 
     [Fact]
