@@ -3202,3 +3202,26 @@ ALREADY a LOUD rejection for the same reason. Fixing the Ansi STRING path needs
 the same CP_ACP bridge wired into the marshal allocator + the `StringBuilder`
 Ansi path; it is out of scope for the `ref/out char` task and is recorded here
 so the known divergence is not silent.
+
+### FIX (8d4845b6 -> follow-up): `[return: MarshalAs]` shifted the Param out-bits
+
+`MethodRefResolver`'s P/Invoke arm and `MetadataLoader.ReadParameters` both
+built the per-parameter `[In]`/`[Out]`/name projection by SORTING the Param rows
+by `SequenceNumber` and then taking `Take(paramCount)`. ECMA-335 II.22.26 gives
+the RETURN VALUE row `SequenceNumber == 0`, and any `[return: MarshalAs(...)]`
+adds one -- so the sorted list is `{0, 1, ..., N}` and `Take(paramCount)` takes
+`{return, p0, ..., p(N-1)}`: every parameter inherited its PREDECESSOR's bits
+(the parameter-name table degraded to a bare `"|0"`).
+
+That latent shift was harmless until this task: `paramOutFlags` previously only
+fed the `out`-local zeroing and the struct-array copy bits, whereas the `B:c`
+placement now dispatches `ref` vs `out` on it (see `B:cansi` / `B:cansiout`), so
+an Ansi `out char` under `[return: MarshalAs]` generated the copy-in `ref` path
+instead of the zeroing `out` path.
+
+Fixed by indexing with `SequenceNumber - 1` (skipping `Seq == 0`) in BOTH
+places; a missing row keeps the default `false`/null rather than borrowing a
+neighbouring row. Covered by `ansi.out.retmarshal.*` (Ansi, pre-set 'A', callee
+must see 0) and `uni.out.retmarshal.*` / `uni.ref.retmarshal.*` in
+`tests/cases/pinvoke-charref`; mutation D (reverting to `Take(paramCount)`)
+turns those records RED.

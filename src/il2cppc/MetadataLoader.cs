@@ -237,12 +237,32 @@ public static class MetadataLoader
                 }
                 if (paramRows.Count > 0)
                 {
-                    paramRows.Sort((x, y) => x.Seq.CompareTo(y.Seq));
-                    if (paramRows.Count >= paramCount)
+                    // ECMA-335 II.22.26: SequenceNumber 0 is the RETURN VALUE row
+                    // (present whenever the method carries [return: ...]) and the
+                    // argument rows are 1..paramCount. Projecting by POSITION made
+                    // every name/out-bit shift by one on such a method; index by
+                    // SequenceNumber - 1 instead.
+                    var namesArr = new string[paramCount];
+                    var outArr = new bool[paramCount];
+                    var seen = new bool[paramCount];
+                    foreach (var row in paramRows)
                     {
-                        paramNames = paramRows.Take(paramCount).Select(r => r.Name).ToArray();
-                        paramOutFlags = paramRows.Take(paramCount).Select(r => r.Out).ToArray();
+                        if (row.Seq < 1 || row.Seq > paramCount) continue;
+                        namesArr[row.Seq - 1] = row.Name;
+                        outArr[row.Seq - 1] = row.Out;
+                        seen[row.Seq - 1] = true;
                     }
+                    // A parameter may legitimately have NO Param row (no name,
+                    // no [In]/[Out]); its name slot then stays null and an
+                    // absent attribute is false. The NAME table is only usable
+                    // when EVERY slot was filled (TypeEmitter.ParamMetaCppString
+                    // requires ParamCount names and would otherwise emit the
+                    // "|0" separator-only row the audit observed), so a partial
+                    // table drops the names but keeps the out bits.
+                    if (seen.Any(x => x))
+                        paramOutFlags = outArr;
+                    if (seen.All(x => x) && namesArr.All(n => n != null))
+                        paramNames = namesArr;
                 }
                 // P/Invoke (M4 Task 1): the ImplMap entry names the native
                 // library + imported symbol ([DllImport] in source).

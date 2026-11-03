@@ -751,11 +751,31 @@ public static partial class MethodRefResolver
             }
             if (outRows.Count > 0)
             {
-                outRows.Sort((x, y) => x.Seq.CompareTo(y.Seq));
-                if (outRows.Count >= paramCount)
+                // ECMA-335 II.22.26: SequenceNumber 0 is the RETURN VALUE row
+                // (emitted by any `[return: MarshalAs(...)]`), and the argument
+                // rows are 1..paramCount. Projecting by POSITION (the old
+                // Take(paramCount) over a Seq-sorted list) shifted every bit by
+                // one as soon as a return row existed -- e.g. an Ansi `out char`
+                // inherited the return row's Out=false and generated the `ref`
+                // copy-in path instead of the zeroing `out` path. Index by
+                // SequenceNumber - 1 so the projection is shift-proof.
+                var outArr = new bool[paramCount];
+                var inArr = new bool[paramCount];
+                var seenOut = new bool[paramCount];
+                foreach (var row in outRows)
                 {
-                    paramOutFlags = outRows.Take(paramCount).Select(r => r.Out).ToArray();
-                    paramInFlags = outRows.Take(paramCount).Select(r => r.In).ToArray();
+                    if (row.Seq < 1 || row.Seq > paramCount) continue;
+                    outArr[row.Seq - 1] = row.Out;
+                    inArr[row.Seq - 1] = row.In;
+                    seenOut[row.Seq - 1] = true;
+                }
+                // A parameter with NO Param row simply has no [In]/[Out]
+                // attribute, so retaining the default false for it is correct;
+                // only an entirely row-less method keeps the historical null.
+                if (seenOut.Any(x => x))
+                {
+                    paramOutFlags = outArr;
+                    paramInFlags = inArr;
                 }
             }
             // ParamTypeNames = the RAW MethodSignatureCoder encodings (NOT

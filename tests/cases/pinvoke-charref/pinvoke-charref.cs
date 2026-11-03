@@ -34,6 +34,19 @@ namespace Cases
         private static extern int a_ref8(ref char c);
         [DllImport("charrefprobe.dll", CharSet = CharSet.Ansi, EntryPoint = "a_out8")]
         private static extern int a_out8_out(out char c);
+        // [return: MarshalAs] puts a SequenceNumber==0 "return value" row into the
+        // Param table IN FRONT of the argument rows. The out-bit projection must
+        // skip it or every argument inherits its predecessor's bit (measured:
+        // net48 still zeroes the [Out] temp under [return: MarshalAs]).
+        [DllImport("charrefprobe.dll", CharSet = CharSet.Ansi, EntryPoint = "a_read8")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool a_read8_rm_out(out char c);
+        [DllImport("charrefprobe.dll", CharSet = CharSet.Ansi, EntryPoint = "a_out8")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool a_out8_rm_out(out char c);
+        [DllImport("charrefprobe.dll", CharSet = CharSet.Ansi, EntryPoint = "a_read8")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool a_read8_rm_ref(ref char c);
         [DllImport("charrefprobe.dll", CharSet = CharSet.Ansi, EntryPoint = "a_fill8_41")]
         private static extern void a_fill8_41_out(out char c);
         [DllImport("charrefprobe.dll", CharSet = CharSet.Ansi, EntryPoint = "a_fill8_d6")]
@@ -62,6 +75,14 @@ namespace Cases
         // ---- CharSet.Auto on Windows == Unicode (measured, not assumed) -----
         [DllImport("charrefprobe.dll", CharSet = CharSet.Auto, EntryPoint = "u_ref16")]
         private static extern int auto_ref16(ref char c);
+        // Same return-row shift on the UNICODE path: out must still keep the
+        // slot's prior value (20013), ref must still copy it in.
+        [DllImport("charrefprobe.dll", CharSet = CharSet.Unicode, EntryPoint = "u_read16")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool u_read16_rm_out(out char c);
+        [DllImport("charrefprobe.dll", CharSet = CharSet.Unicode, EntryPoint = "u_read16")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool u_read16_rm_ref(ref char c);
 
         // ---- STATIC-link fixture (the transpiler's own extern "C" shape) ----
         [DllImport("charrefstat", CharSet = CharSet.Ansi)]
@@ -96,6 +117,20 @@ namespace Cases
             char preA = (char)0x0041;
             Record("ansi.out.presetA.seen", a_read8_out(out preA));
             Record("ansi.out.presetA.after", (int)preA);
+
+            // [return: MarshalAs]: the Param table carries an extra seq=0 row, so
+            // the out-bit projection must not shift. net48 still zeroes the Ansi
+            // [Out] cell (seen=0) and the callee's write comes back.
+            char rmOut = (char)0x0041;
+            Record("ansi.out.retmarshal.seen", a_read8_rm_out(out rmOut) ? 1 : 0);
+            Record("ansi.out.retmarshal.after", (int)rmOut);
+            char rmOut2 = (char)0x0041;
+            Record("ansi.out.retmarshal.writeret", a_out8_rm_out(out rmOut2) ? 1 : 0);
+            Record("ansi.out.retmarshal.after2", (int)rmOut2);
+            // ...and the `ref` form on the same shifted table stays a COPY-IN.
+            char rmRef = (char)0x4E2D;
+            Record("ansi.ref.retmarshal.seen", a_read8_rm_ref(ref rmRef) ? 1 : 0);
+            Record("ansi.ref.retmarshal.after", (int)rmRef);
 
             // out on a fresh local: method-entry zero.
             char fresh;
@@ -171,6 +206,15 @@ namespace Cases
             char autoC = (char)0x4E2D;
             Record("auto.ref.nonascii.seen", auto_ref16(ref autoC));
             Record("auto.ref.nonascii.after", (int)autoC);
+
+            // [return: MarshalAs] on the UNICODE path: the extra seq=0 row must
+            // not shift the out bit either (out keeps 20013, ref copies it in).
+            char urmOut = (char)0x4E2D;
+            Record("uni.out.retmarshal.seen", u_read16_rm_out(out urmOut) ? 1 : 0);
+            Record("uni.out.retmarshal.after", (int)urmOut);
+            char urmRef = (char)0x4E2D;
+            Record("uni.ref.retmarshal.seen", u_read16_rm_ref(ref urmRef) ? 1 : 0);
+            Record("uni.ref.retmarshal.after", (int)urmRef);
 
             // === STATIC-link shape (extern "C" declaration, direct call) =====
             char sa = (char)0x0041;
