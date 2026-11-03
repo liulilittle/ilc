@@ -3336,7 +3336,7 @@ value for every non-ASCII string passed to an Ansi callee.
    20 differing records.
 
 ### Registered residual: the per-parameter `[MarshalAs(UnmanagedType.LPStr)]`
-### / `LPWStr` override is NOT implemented
+### / `LPWStr` override -- IMPLEMENTED in section 35
 
 MEASURED on the same net48 oracle (a throwaway probe, not a diff case):
 
@@ -3363,3 +3363,121 @@ corpus depends on the missing override today.
 
 Lock case: `tests/cases/pinvoke-string-ansi` (43 records, 827 B both sides,
 out sha256 `5335653d86ca307bd482bf14fe0783219e399df551e61f181aa6a6d3c06bda22`).
+
+---
+
+## 35. P/Invoke `string` parameter-level `[MarshalAs(...)]` override -- IMPLEMENTED (LPStr/LPWStr/LPTStr/LPUTF8Str); BStr and unknown native types stay LOUD
+
+A PARAMETER-level `[MarshalAs(UnmanagedType.X)]` on a `string` P/Invoke
+parameter is written into the Param row's FieldMarshal blob (ECMA-335
+II.22.19 / II.23.4), exactly like the `AsAny` byte that
+`MetadataLoader.ReadParamAsAnyFlags` already decodes. The C# compiler never
+lowers it to a CustomAttribute row, so reflection-style detection is not
+possible -- the raw NATIVE_TYPE_* byte must be read from metadata.
+
+### The net48 contract (MEASURED, net48 v4.0.30319, host CP_ACP = 936, zh-CN)
+
+A native callee copied the first 8 bytes of the pointer it received
+(`"\u4E2D"` = U+4E2D):
+
+```
+[CharSet.Unicode] + [MarshalAs(LPStr)]      -> D6 D0 00 00 ...   CP_ACP OVERRIDES the import
+[no CharSet]      + [MarshalAs(LPStr)]      -> D6 D0 00 00 ...   CP_ACP
+[CharSet.Auto]    + [MarshalAs(LPStr)]      -> D6 D0 00 00 ...   CP_ACP
+[CharSet.Ansi]    + [MarshalAs(LPWStr)]     -> 2D 4E 00 00 ...   UTF-16 OVERRIDES the import
+[CharSet.Unicode] + [MarshalAs(LPWStr)]     -> 2D 4E 00 00 ...
+[CharSet.Unicode] + [MarshalAs(LPTStr)]     -> 2D 4E 00 00 ...   UTF-16 for BOTH charsets
+[CharSet.Ansi]    + [MarshalAs(LPTStr)]     -> 2D 4E 00 00 ...
+[CharSet.Unicode] + [MarshalAs(LPUTF8Str)]  -> E4 B8 AD 00 ...   UTF-8 for BOTH charsets
+[CharSet.Ansi]    + [MarshalAs(LPUTF8Str)]  -> E4 B8 AD 00 ...
+[CharSet.Unicode] + [MarshalAs(BStr)]       -> 2D 4E 00 00 C8 EF F7 00   BSTR (NOT a plain string)
+[LPStr] "Abc"                               -> 41 62 63 00 ...  ASCII identity
+[LPWStr] "Abc"                              -> 41 00 62 00 63 00 ...  UTF-16
+[LPStr] U+1F600                             -> 3F 3F 00 ...  two '?' (one per surrogate HALF)
+```
+
+So a parameter-level MarshalAs OVERRIDES the import CharSet for
+LPStr/LPWStr, and LPTStr/LPUTF8Str ignore the CharSet entirely.
+
+### Implementation
+
+* `MetadataLoader.ReadParamNativeTypes(md, mh, paramCount)` returns the
+  NATIVE_TYPE_* byte per parameter in SIGNATURE order (`0` = no blob).
+  `ReadParamAsAnyFlags` now delegates to it, so the AsAny path is unchanged.
+  **SequenceNumber 0 is the RETURN-VALUE row** (`[return: MarshalAs(...)]`) and
+  is skipped; indexing by `SequenceNumber - 1` keeps the projection
+  shift-proof (the same defect class fixed for the Param `in`/`out` bits).
+* `MethodRefResolver.PInvokeStringEncoding(nativeTypes, index, utf16Import,
+  methodName)` is the single mapping used by BOTH the call-site resolver and
+  `CodeGenerator.PinvokeParamListOf`:
+  `0x14 LPStr -> "a:System.String"` (CP_ACP),
+  `0x15 LPWStr -> "u16:System.String"`,
+  `0x16 LPTStr -> "u16:System.String"`,
+  `0x30 LPUTF8Str -> "r:System.String"` (UTF-8),
+  `0` -> the import CharSet (Unicode/Auto -> UTF-16, else CP_ACP).
+* `CodeGenerator.PinvokeParamListOf` now takes the per-parameter native types
+  and maps `"u16:"` to `const char16_t*`; `"a:"` and `"r:"` both stay
+  `const char*`, so LPUTF8Str declares the same byte-string type as LPStr.
+* `StackFold` is unchanged: it already selects the alloc/free pair from
+  `ResolvedMethod.ParamTypeNames` per parameter, so per-parameter encodings
+  are independent (the multi-parameter record in the lock case proves it).
+* Lock case: `tests/cases/pinvoke-marshalas-string` (own SHARED fixture
+  `marshalasprobe.dll`; the oracle and the runtime must produce the SAME
+  stdout sha). Its `probe` copies ONE string up to and including the NUL
+  terminator (never a fixed 16-byte window: bytes past the terminator are
+  allocator-specific heap slack and would make the comparison flaky).
+
+### Platform caveat: `LPTStr` -> UTF-16 is a WINDOWS fact, not a portable one
+
+`PInvokeStringEncoding` maps `NATIVE_TYPE_LPTSTR (0x16)` to
+`"u16:System.String"` unconditionally. That encodes the measured Windows
+behaviour (TCHAR is `WCHAR` under UNICODE) and is correct on every Windows
+target, but on POSIX `TCHAR` is `char` and net48-style `LPTStr` marshalling
+would be a NARROW (UTF-8 in this runtime) string. When a POSIX target is
+added, this arm must be revisited -- it belongs next to the existing
+"POSIX has no ANSI code page -> fall back to UTF-8" registration for the
+`a:` arm (`pinvokeext.cpp`, section 34), which is the same class of
+approximation. The `0x00` arm (fall back to the IMPORT CharSet) is
+platform-neutral and needs no such note.
+
+### null-managed-string semantics (shared with the CharSet.Unicode path)
+
+`il2cpp_pinvoke_string_to_utf16_alloc(nullptr)` now returns **NULL**, not an
+empty allocated buffer: net48 hands the callee a NULL pointer for a null
+managed string and a non-NULL pointer for `""` (MEASURED: `isnull=1` for
+null under Unicode/LPWStr/LPStr/LPUTF8Str/Ansi, `isnull=0` for `""`). The
+old "empty buffer" behaviour was a silent divergence for every null string
+argument on the UTF-16 path. The paired `il2cpp_pinvoke_utf16_free` is
+already null-safe, so the caller-free contract is unchanged. The POSIX
+`il2cpp_pinvoke_string_to_utf16_hglobal` branch delegates to this allocator,
+and net48's `Marshal.StringToHGlobalUni(null)` returns `IntPtr.Zero`
+(MEASURED), so that branch becomes MORE faithful, not less.
+
+### BStr (0x13) -- LOUD, not implemented
+
+net48 passes a **BSTR**: a `SysAllocString` allocation whose 4 bytes BEFORE
+the payload hold the BYTE length (`2D 4E 00 00 C8 EF F7 00` = length 4
+followed by the UTF-16 unit). That is not the same shape as a NUL-terminated
+`char16_t*`, so the existing UTF-16 allocator cannot reproduce it. A
+`string` parameter carrying `[MarshalAs(UnmanagedType.BStr)]` now raises a
+self-identifying `NotSupportedException` (mentioning this section) instead of
+silently marshalling a plain string. Unlock condition: implement
+`SysAllocString`/`SysFreeString` (or a byte-compatible prefix allocator) with
+the BSTR length-prefix layout and a paired free, then teach
+`MethodRefResolver.PInvokeStringEncoding` the 0x13 arm.
+
+### Unknown native types -- LOUD
+
+Any other NATIVE_TYPE_* on a `string` parameter (e.g. `ByValTStr` used on a
+parameter) also raises a self-identifying `NotSupportedException`. Falling
+back to the import CharSet would hand the callee the wrong native encoding,
+so the failure is deliberate and loud.
+
+### Mutation coverage (each turns `pinvoke-marshalas-string` RED)
+
+1. Delete the LPStr arm (fall back to the import CharSet):
+   `uni.lpstr.cjk` `D6 D0 00` -> `2D 4E 00 00`.
+2. Map LPWStr to `"a:System.String"`:
+   `ansi.lpwstr.cjk` `2D 4E 00 00` -> `D6 D0 00` (and `uni.lpwstr.cjk`).
+3. Map LPTStr to `"a:System.String"`:
+   `uni.lptstr.cjk` / `ansi.lptstr.cjk` `2D 4E 00 00` -> `D6 D0 00`.

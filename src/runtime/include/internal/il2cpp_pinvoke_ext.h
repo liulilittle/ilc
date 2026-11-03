@@ -37,8 +37,8 @@
 //      marshalling. char16_t is explicit (NOT wchar_t -- its width differs
 //      between Windows 2 and POSIX 4), so the buffer is UTF-16 on every
 //      platform. Ownership: RUNTIME allocates, CALLER frees. A null string
-//      marshals as an empty allocated buffer (the caller's free path stays
-//      uniform).
+//      marshals as a NULL pointer (net48 passes NULL to the callee for a null
+//      managed string; the free path is null-safe).
 //
 //      Decode side (PtrToStringUni):
 //
@@ -120,7 +120,8 @@ void il2cpp_pinvoke_utf8_free(char* utf8);
 // (char16_t) buffer. The copy is LENGTH-based (s->length units) -- embedded
 // NUL units are preserved verbatim, matching .NET's Unicode marshalling. The
 // RUNTIME allocates; the caller MUST release the result with
-// il2cpp_pinvoke_utf16_free. Null input -> an empty allocated buffer.
+// il2cpp_pinvoke_utf16_free. Null input -> NULL (net48 passes NULL to the
+// callee for a null managed string; the free is null-safe).
 // Allocation failure aborts loudly.
 char16_t* il2cpp_pinvoke_string_to_utf16_alloc(Il2CppString* s);
 

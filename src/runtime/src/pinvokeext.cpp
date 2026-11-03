@@ -200,23 +200,31 @@ void il2cpp_pinvoke_ansi_free(char* ansi)
 // The copy is LENGTH-based (s->length units) -- embedded NUL units are
 // preserved verbatim, matching .NET's Unicode marshalling. char16_t is
 // explicit (NOT wchar_t -- its width differs between Windows 2 and POSIX 4),
-// so the buffer is UTF-16 on every platform. Null input marshals as an
-// empty allocated buffer (uniform caller-free contract).
+// so the buffer is UTF-16 on every platform. Null input marshals as a NULL
+// pointer: net48 hands the callee NULL for a null managed string (MEASURED on
+// v4.0.30319 for CharSet.Unicode and [MarshalAs(LPWStr)] -- see
+// docs/audit/b5-gaps.md section 35), and the paired il2cpp_pinvoke_utf16_free
+// is null-safe so the caller-free contract stays uniform. This replaced an
+// earlier "empty allocated buffer" choice that silently diverged from net48.
 //------------------------------------------------------------------------------
 char16_t* il2cpp_pinvoke_string_to_utf16_alloc(Il2CppString* s)
 {
-    const size_t unitCount = (s != nullptr ? static_cast<size_t>(s->length) : 0) + 1;
+    if (s == nullptr)
+    {
+        return nullptr;
+    }
+    const size_t unitCount = static_cast<size_t>(s->length) + 1;
     char16_t* buf = static_cast<char16_t*>(std::malloc(unitCount * sizeof(char16_t)));
     if (buf == nullptr)
     {
         std::fprintf(stderr, "il2cpp_pinvoke_string_to_utf16_alloc: out of memory\n");
         std::abort();
     }
-    if (s != nullptr && s->length > 0)
+    if (s->length > 0)
     {
         std::memcpy(buf, s->chars, static_cast<size_t>(s->length) * sizeof(char16_t));
     }
-    buf[s != nullptr ? s->length : 0] = u'\0';
+    buf[s->length] = u'\0';
     return buf;
 }
 

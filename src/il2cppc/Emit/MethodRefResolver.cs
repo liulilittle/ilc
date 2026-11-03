@@ -740,6 +740,12 @@ public static partial class MethodRefResolver
             // icalls, reflection, Environment).
             var charSet = (int)import.Attributes & 0x06;
             var utf16Strings = charSet is 0x04 or 0x06; // CharSetUnicode / CharSetAuto
+            // Parameter-level [MarshalAs(UnmanagedType.*)] on a `string` param
+            // OVERRIDES the import CharSet (measured net48 v4.0.30319:
+            // CharSet.Unicode + LPStr -> CP_ACP bytes, CharSet.Ansi + LPWStr ->
+            // UTF-16; docs/audit/b5-gaps.md section 35). Entry 0 means "no
+            // blob" -> fall back to the import CharSet above.
+            var paramNativeTypes = MetadataLoader.ReadParamNativeTypes(md, handle, paramCount);
             // byref-scalar: the Param-table `out` bits, in SIGNATURE order
             // (the emitter zero-initialises an out LOCAL at method entry --
             // net48 .locals-init; ref is not out, so a ref slot keeps its
@@ -814,7 +820,7 @@ public static partial class MethodRefResolver
             return new ResolvedMethod(entry, paramCount, false,
                 returnType != SignatureTypeCode.Void, IsRefType(returnType), ParamRefFlags(paramTypes), false,
                 IsPInvoke: true, ParamTypeNames: CodeGenerator.SplitTopLevel(paramTypes).Select((p, pIdx) =>
-                    p == "r:System.String" ? (utf16Strings ? "u16:System.String" : "a:System.String")
+                    p == "r:System.String" ? PInvokeStringEncoding(paramNativeTypes, pIdx, utf16Strings, name)
                     // byref char: the CHAR SET picks the native cell (MEASURED:
                     // Ansi = 1-byte CP_ACP cell, Unicode/Auto = 2-byte UTF-16
                     // with NO conversion). The `out` bit is a SECOND axis on
@@ -2976,6 +2982,43 @@ var userRecvLike = receiverType ?? arg0Type;
     {
         if (paramTypes.Length == 0) return Array.Empty<bool>();
         return CodeGenerator.SplitTopLevel(paramTypes).Select(p => p.StartsWith("r:", StringComparison.Ordinal)).ToArray();
+    }
+
+    // PARAMETER-level [MarshalAs(UnmanagedType.*)] on a `string` P/Invoke
+    // parameter. net48's marshaler honors the per-parameter native type OVER
+    // the import CharSet (MEASURED, net48 v4.0.30319, CP_ACP=936; see
+    // docs/audit/b5-gaps.md section 35 and tests/cases/pinvoke-marshalas-string):
+    //   LPStr (0x14)     -> CP_ACP byte string  ("a:System.String")
+    //   LPWStr (0x15)    -> UTF-16              ("u16:System.String")
+    //   LPTStr (0x16)    -> UTF-16 on Windows for BOTH import charsets (measured)
+    //   LPUTF8Str (0x30) -> UTF-8               ("r:System.String")
+    //   no blob (0)      -> the import CharSet (Unicode/Auto -> UTF-16, else CP_ACP)
+    // NOTE: the LPTStr arm encodes a WINDOWS platform fact (TCHAR = WCHAR under
+    // UNICODE). On POSIX TCHAR is `char`, so a POSIX target must revisit this
+    // arm -- the same class of caveat as the "POSIX has no ANSI code page ->
+    // fall back to UTF-8" registration for the `a:` arm (b5-gaps sections
+    // 34/35). The 0x00 arm is platform-neutral.
+    // BStr (0x13) is a DIFFERENT native shape (a length-prefixed SysAllocString
+    // pointer) and is LOUD; every other native type on a `string` parameter is
+    // LOUD too -- silently falling back to the import CharSet would corrupt the
+    // value the callee reads.
+    internal static string PInvokeStringEncoding(byte[]? nativeTypes, int index, bool utf16Import, string methodName)
+    {
+        var nativeType = nativeTypes != null && index >= 0 && index < nativeTypes.Length ? nativeTypes[index] : (byte)0;
+        switch (nativeType)
+        {
+            case 0: return utf16Import ? "u16:System.String" : "a:System.String";
+            case MetadataLoader.NativeTypeLPStr: return "a:System.String";
+            case MetadataLoader.NativeTypeLPWStr: return "u16:System.String";
+            case MetadataLoader.NativeTypeLPTStr: return "u16:System.String";
+            case MetadataLoader.NativeTypeLPUTF8Str: return "r:System.String";
+            case MetadataLoader.NativeTypeBStr:
+                throw new NotSupportedException(
+                    $"P/Invoke `string` parameter with [MarshalAs(UnmanagedType.BStr)] on {methodName} is not supported: net48 passes a BSTR (a length-prefixed SysAllocString pointer: 4-byte byte length before the UTF-16 payload, measured prefix `2D 4E 00 00 C8 EF F7 00`), not a NUL-terminated string; this transpiler has no SysAllocString/SysFreeString bridge (docs/audit/b5-gaps.md section 35)");
+            default:
+                throw new NotSupportedException(
+                    $"P/Invoke `string` parameter with unsupported [MarshalAs(UnmanagedType=0x{nativeType:x2})] on {methodName}: only LPStr/LPWStr/LPTStr/LPUTF8Str (or no MarshalAs) are supported for `string` parameters; silently falling back to the import CharSet would hand the callee the wrong native encoding (docs/audit/b5-gaps.md section 35)");
+        }
     }
 
     // WF-M2 (2026-08-07): P/Invoke param encoding -> the emitter cast code.

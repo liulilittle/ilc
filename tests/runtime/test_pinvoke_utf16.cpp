@@ -14,7 +14,8 @@
 //      stops at the first NUL (PtrToStringUni(IntPtr) semantics); the
 //      explicit-length from_utf16_len preserves the embedded NUL
 //      (PtrToStringUni(IntPtr, int) semantics).
-//   4. Null/edge inputs: to_utf16_alloc(nullptr) -> an empty heap buffer;
+//   4. Null/edge inputs: to_utf16_alloc(nullptr) -> NULL (net48 passes NULL
+//      to the callee for a null managed string);
 //      from_utf16(nullptr) -> the empty string; from_utf16_len(nullptr,0)
 //      and a negative length -> the empty string.
 //   5. Very long input (50k units -- 100k bytes, far beyond the old 4096-byte
@@ -119,8 +120,7 @@ int main()
     // --- 4. Null / edge inputs ---
     {
         char16_t* empty = il2cpp::il2cpp_pinvoke_string_to_utf16_alloc(nullptr);
-        Expect(empty != nullptr, "null input yields a non-null buffer");
-        Expect(empty[0] == u'\0', "null input yields the empty UTF-16 buffer");
+        Expect(empty == nullptr, "null input yields NULL (net48 null string)");
         il2cpp::il2cpp_pinvoke_utf16_free(empty);
 
         il2cpp::Il2CppString* none = reinterpret_cast<il2cpp::Il2CppString*>(

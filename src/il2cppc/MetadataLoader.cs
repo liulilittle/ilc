@@ -945,6 +945,19 @@ public static class MetadataLoader
     // parameters carry NO marshal blob (default VARIANT -- a different, still
     // unsupported shape).
     public const int NativeTypeAsAny = 0x28;
+    // PARAMETER-level string marshal overrides (ECMA-335 II.23.4). A
+    // [MarshalAs(UnmanagedType.*)] on a `string` P/Invoke parameter OVERRIDES
+    // the import's CharSet in net48 (measured on v4.0.30319, CP_ACP=936 --
+    // docs/audit/b5-gaps.md section 35):
+    //   LPStr (0x14) -> CP_ACP byte string, LPWStr (0x15) -> UTF-16,
+    //   LPTStr (0x16) -> UTF-16 on Windows regardless of the import CharSet,
+    //   LPUTF8Str (0x30) -> UTF-8. BStr (0x13) is a different length-prefixed
+    // shape and stays LOUD (no SysAllocString/SysFreeString bridge).
+    public const int NativeTypeBStr = 0x13;
+    public const int NativeTypeLPStr = 0x14;
+    public const int NativeTypeLPWStr = 0x15;
+    public const int NativeTypeLPTStr = 0x16;
+    public const int NativeTypeLPUTF8Str = 0x30;
 
     public static (FieldMarshalKind Kind, int SizeConst, string ElementTypeName) ReadFieldMarshalAs(
         MetadataReader md, FieldDefinitionHandle fh)
@@ -978,8 +991,29 @@ public static class MetadataLoader
     // existing default-Object LOUD rejection).
     public static bool[] ReadParamAsAnyFlags(MetadataReader md, MethodDefinitionHandle mh, int paramCount)
     {
+        var nativeTypes = ReadParamNativeTypes(md, mh, paramCount);
         var flags = new bool[paramCount];
-        if (paramCount <= 0) return flags;
+        for (var i = 0; i < flags.Length; i++)
+            flags[i] = nativeTypes[i] == NativeTypeAsAny;
+        return flags;
+    }
+
+    // PARAMETER-level native marshal types, in SIGNATURE order (index i = the
+    // i-th parameter; entry 0 = no FieldMarshal blob). This generalizes
+    // ReadParamAsAnyFlags: the C# compiler lowers a parameter-level
+    // [MarshalAs(UnmanagedType.X)] into the Param row's FieldMarshal blob
+    // (ECMA II.22.19 / II.23.4) whose first byte is the NATIVE_TYPE_*. The
+    // P/Invoke resolver needs the raw byte for EVERY parameter so a
+    // `string` parameter can honor a per-parameter override (LPStr/LPWStr/
+    // LPTStr/LPUTF8Str) instead of only the import CharSet.
+    //
+    // SequenceNumber 0 is the RETURN VALUE row (`[return: MarshalAs(...)]`)
+    // and MUST be skipped -- projecting by position instead of by
+    // SequenceNumber shifted every parameter when a return row existed.
+    public static byte[] ReadParamNativeTypes(MetadataReader md, MethodDefinitionHandle mh, int paramCount)
+    {
+        var types = new byte[paramCount];
+        if (paramCount <= 0) return types;
         foreach (var ph in md.GetMethodDefinition(mh).GetParameters())
         {
             var p = md.GetParameter(ph);
@@ -989,9 +1023,9 @@ public static class MetadataLoader
             if (descriptor.IsNil) continue;
             var blob = md.GetBlobReader(descriptor);
             if (blob.RemainingBytes == 0) continue;
-            if (blob.ReadByte() == NativeTypeAsAny) flags[seq - 1] = true;
+            types[seq - 1] = blob.ReadByte();
         }
-        return flags;
+        return types;
     }
 
     // The struct-level [StructLayout(CharSet = ...)] as BYTES per character:

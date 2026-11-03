@@ -9516,10 +9516,14 @@ default: return false;                           // primitives/VAR(handled by ca
     // exactly the token's suffix here).
     private static string PinvokeParamList(MetadataReader md, MethodDef m)
     {
-        var asAny = FindMethodHandle(md, m) is { } mh
-            ? MetadataLoader.ReadParamAsAnyFlags(md, mh, m.ParamCount)
-            : null;
-        return PinvokeParamListOf(md, m.ParamTypes, PinvokeImportIsUtf16(md, m), m.Name, asAny);
+        byte[]? nativeTypes = null;
+        bool[]? asAny = null;
+        if (FindMethodHandle(md, m) is { } mh)
+        {
+            nativeTypes = MetadataLoader.ReadParamNativeTypes(md, mh, m.ParamCount);
+            asAny = nativeTypes.Select(t => t == MetadataLoader.NativeTypeAsAny).ToArray();
+        }
+        return PinvokeParamListOf(md, m.ParamTypes, PinvokeImportIsUtf16(md, m), m.Name, asAny, nativeTypes);
     }
 
     // CharSet decoding at a P/Invoke IMPORT site (MethodImportAttributes CharSet
@@ -9558,7 +9562,7 @@ default: return false;                           // primitives/VAR(handled by ca
     // token) -- the dynamic resolve cast must name exactly the types the old
     // extern "C" declaration named.
     private static string PinvokeParamListOf(MetadataReader md, string paramTypesRaw, bool utf16PInvoke, string methodName,
-        bool[]? asAnyFlags = null)
+        bool[]? asAnyFlags = null, byte[]? paramNativeTypes = null)
     {
         if (paramTypesRaw.Length == 0) return "void";
         return string.Join(", ", SplitTopLevel(paramTypesRaw).Select((p, paramIndex) =>
@@ -9641,7 +9645,14 @@ default: return false;                           // primitives/VAR(handled by ca
             if (p.StartsWith("F:", StringComparison.Ordinal)) return "void*";
             // wf2 (winforms1): CharSet.Unicode P/Invoke string param -> UTF-16
             // (const char16_t*), else UTF-8 (const char*).
-            if (p == "r:System.String") return utf16PInvoke ? "const char16_t*" : "const char*";
+            // mstr-override: a PARAMETER-level [MarshalAs(UnmanagedType.LPStr/
+            // LPWStr/LPTStr/LPUTF8Str)] OVERRIDES the import CharSet (measured
+            // net48; b5-gaps section 35), so the native declaration must be
+            // decided per parameter through the SAME resolver helper. LPUTF8Str
+            // ("r:") and LPStr/Ansi ("a:") both land on const char*.
+            if (p == "r:System.String")
+                return MethodRefResolver.PInvokeStringEncoding(paramNativeTypes, paramIndex, utf16PInvoke, methodName)
+                    == "u16:System.String" ? "const char16_t*" : "const char*";
             // stransi: the Ansi/None call-site encoding is still a byte string
             // (the CP_ACP buffer) -- const char* at the native boundary.
             if (p == "a:System.String") return "const char*";
@@ -12323,7 +12334,8 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         sig = new PinvokeProbeSig(
             PinvokeReturnTypeCppOf(returnType, PinvokeReturnStructNameOfHandle(md, mh)),
             PinvokeParamListOf(md, paramTypes, PinvokeImportIsUtf16(attributes), md.GetString(import.Name),
-                MetadataLoader.ReadParamAsAnyFlags(md, mh, SplitTopLevel(paramTypes).Count())),
+                MetadataLoader.ReadParamAsAnyFlags(md, mh, SplitTopLevel(paramTypes).Count()),
+                MetadataLoader.ReadParamNativeTypes(md, mh, SplitTopLevel(paramTypes).Count())),
             attributes & 0x06,
             attributes & 0x01);
         return true;
