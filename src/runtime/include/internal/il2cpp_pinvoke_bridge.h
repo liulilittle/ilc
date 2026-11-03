@@ -49,6 +49,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <type_traits>
+#include <utility>
 // GN-17: il2cpp_pinvoke_call references il2cpp::DotNetException and
 // il2cpp::il2cpp_throw_new (the managed-exception transport declared in
 // il2cpp_exception.h; no include cycle -- that header pulls only the C++
@@ -71,6 +72,10 @@
 // IUnknown::AddRef / Release helpers and the borrow accessor, all declared in
 // il2cpp_com.h. Cycle-free: il2cpp_com.h pulls only object/string/array.
 #include "il2cpp_com.h"
+// `ref string` / `out string` parameters: the holder encodes the managed
+// string into a native buffer and decodes the callee result back, so those
+// alloc/free/decode helpers must be declared here.
+#include "il2cpp_pinvoke_ext.h"
 
 namespace il2cpp {
 namespace runtime {
@@ -1139,13 +1144,13 @@ const char kPinvokeSehMessage[] = "External component has thrown an exception.";
 // back to the intptr_t carrier exactly as the standalone il2cpp_pinvoke_result
 // bridge did.
 template <typename Ret, typename Fn, typename... Args>
-Ret il2cpp_pinvoke_call(Fn fn, Args... args)
+Ret il2cpp_pinvoke_call(Fn fn, Args&&... args)
 {
     try
     {
         if constexpr (std::is_void<Ret>::value)
         {
-            fn(args...);
+            fn(std::forward<Args>(args)...);
             // GN-20.4 F1: the void arm must RETURN here. Without it control
             // leaves the try block normally (no exception), skips the catch
             // arms and reaches the __builtin_unreachable() tail below -- with
@@ -1183,5 +1188,89 @@ Ret il2cpp_pinvoke_call(Fn fn, Args... args)
     __builtin_unreachable();
 #endif
 }
+
+
+//------------------------------------------------------------------------------
+// BYREF STRING P/Invoke argument (`ref string` / `out string`).
+//
+// MEASURED on net48 v4.0.30319 (oracle .opencode/tmp/refstr):
+//   * the native view is a POINTER TO the string pointer (char**), NOT a
+//     char*. Declaring the callee parameter as char* made it read the pointer
+//     BYTES (F0 61 82 11 19 02 00 00) and the probe crashed; char** reads
+//     the content.
+//   * Ansi converts through CP_ACP: "ABC" -> 41 42 43, U+4E2D U+6587 ->
+//     D6 D0 CE C4 (4 bytes for 2 characters). Unicode passes the UTF-16 units
+//     through untouched.
+//   * a NULL managed string gives *cell == nullptr while the CELL itself is
+//     still a valid address.
+//   * the callee may REPLACE the string: writing a buffer through *cell makes
+//     the managed ref slot hold that text after the call (measured with a
+//     CoTaskMemAlloc buffer: the slot became "zz"), and writing NULL nulls
+//     the slot.
+//
+// The holder therefore owns a one-element CELL of the native character type,
+// seeds it with an encoded copy of the managed string, and on destruction
+// decodes whatever the callee left there back into the managed slot.
+//------------------------------------------------------------------------------
+struct Il2CppPinvokeRefStringArg
+{
+    Il2CppObject** slot;
+    char* buffer;   // owned CP_ACP copy handed to the callee
+    char** cell;    // one-element cell; the callee may overwrite it
+    bool owner;
+    explicit Il2CppPinvokeRefStringArg(Il2CppObject** s)
+        : slot(s), buffer(nullptr), cell(nullptr), owner(true)
+    {
+        buffer = ::il2cpp::il2cpp_pinvoke_string_to_ansi_alloc(reinterpret_cast<Il2CppString*>(*s));
+        cell = &buffer;
+    }
+    Il2CppPinvokeRefStringArg(const Il2CppPinvokeRefStringArg& o)
+        : slot(o.slot), buffer(o.buffer), cell(o.cell), owner(false) {}
+    Il2CppPinvokeRefStringArg& operator=(const Il2CppPinvokeRefStringArg&) = delete;
+    ~Il2CppPinvokeRefStringArg()
+    {
+        if (!owner) return;
+        // ALWAYS copy back. The callee owns the cell and may have written
+        // NULL there (measured: net48 nulls the managed ref slot). Testing
+        // `buffer != nullptr` here would be WRONG: `buffer` IS `*cell`, so a
+        // callee-written NULL would skip the assignment and leave the
+        // managed slot holding its ORIGINAL string.
+        *slot = *cell != nullptr
+            ? ::il2cpp::il2cpp_pinvoke_string_from_ansi(*cell)
+            : nullptr;
+        ::il2cpp::il2cpp_pinvoke_ansi_free(buffer);
+    }
+    operator char**() { return cell; }
+};
+
+// Same shape for CharSet.Unicode: the cell holds char16_t*, the seed is the
+// UTF-16 copy and the copy-back decodes UTF-16 (no code page involved).
+struct Il2CppPinvokeRefStringWArg
+{
+    Il2CppObject** slot;
+    char16_t* buffer;
+    char16_t** cell;
+    bool owner;
+    explicit Il2CppPinvokeRefStringWArg(Il2CppObject** s)
+        : slot(s), buffer(nullptr), cell(nullptr), owner(true)
+    {
+        buffer = ::il2cpp::il2cpp_pinvoke_string_to_utf16_alloc(reinterpret_cast<Il2CppString*>(*s));
+        cell = &buffer;
+    }
+    Il2CppPinvokeRefStringWArg(const Il2CppPinvokeRefStringWArg& o)
+        : slot(o.slot), buffer(o.buffer), cell(o.cell), owner(false) {}
+    Il2CppPinvokeRefStringWArg& operator=(const Il2CppPinvokeRefStringWArg&) = delete;
+    ~Il2CppPinvokeRefStringWArg()
+    {
+        if (!owner) return;
+        // ALWAYS copy back (same reason as the Ansi holder): the callee may
+        // have written NULL, and `buffer` IS the cell.
+        *slot = *cell != nullptr
+            ? ::il2cpp::il2cpp_pinvoke_string_from_utf16(*cell)
+            : nullptr;
+        ::il2cpp::il2cpp_pinvoke_utf16_free(buffer);
+    }
+    operator char16_t**() { return cell; }
+};
 
 }} // namespace il2cpp::runtime

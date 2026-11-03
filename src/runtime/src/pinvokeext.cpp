@@ -194,6 +194,50 @@ void il2cpp_pinvoke_ansi_free(char* ansi)
 }
 
 //------------------------------------------------------------------------------
+// il2cpp_pinvoke_string_from_ansi -- CP_ACP byte string -> managed string.
+//
+// The decode twin of il2cpp_pinvoke_string_to_ansi_alloc, needed by the
+// `ref string` / `out string` holder: net48 decodes whatever the callee left
+// in the byref cell through the system ANSI code page (MEASURED: the two
+// bytes D6 D0 become ONE character). Scans to the first NUL byte.
+// A null pointer decodes as the EMPTY string (the same convention
+// il2cpp_pinvoke_string_from_utf16 uses).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_pinvoke_string_from_ansi(const char* ansi)
+{
+    if (ansi == nullptr)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(u"", 0));
+    }
+    const int32_t bytes = static_cast<int32_t>(::strlen(ansi));
+    if (bytes == 0)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(u"", 0));
+    }
+#if defined(_WIN32)
+    const int32_t units = ::MultiByteToWideChar(CP_ACP, 0, ansi, bytes, nullptr, 0);
+    if (units <= 0)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(u"", 0));
+    }
+    Il2CppString* s = il2cpp_string_new(u"", units);
+    ::MultiByteToWideChar(CP_ACP, 0, ansi, bytes,
+                          reinterpret_cast<wchar_t*>(s->chars), units);
+    return reinterpret_cast<Il2CppObject*>(s);
+#else
+    // POSIX has no ANSI code page: non-ASCII maps to QUESTION MARK, matching
+    // the encode direction in pinvoke_char.cpp. NOT exercised on a POSIX host.
+    Il2CppString* s = il2cpp_string_new(u"", bytes);
+    for (int32_t i = 0; i < bytes; ++i)
+    {
+        const uint8_t b = static_cast<uint8_t>(ansi[i]);
+        s->chars[i] = b < 0x80 ? static_cast<char16_t>(b) : static_cast<char16_t>(63);
+    }
+    return reinterpret_cast<Il2CppObject*>(s);
+#endif
+}
+
+//------------------------------------------------------------------------------
 // il2cpp_pinvoke_string_to_utf16_alloc -- managed string -> heap UTF-16 (see
 // header for the full contract).
 //

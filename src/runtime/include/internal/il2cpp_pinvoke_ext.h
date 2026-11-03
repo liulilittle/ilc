@@ -164,6 +164,12 @@ char* il2cpp_pinvoke_string_to_ansi_alloc(Il2CppString* s);
 // Null-safe (matching std::free semantics).
 void il2cpp_pinvoke_ansi_free(char* ansi);
 
+// Decode a NUL-terminated CP_ACP byte string back into a managed string.
+// The decode twin of il2cpp_pinvoke_string_to_ansi_alloc; used by the
+// `ref string` / `out string` holder to read what the callee left behind.
+// Null input -> the empty string.
+Il2CppObject* il2cpp_pinvoke_string_from_ansi(const char* ansi);
+
 // Decode a null-terminated UTF-16 (char16_t) buffer back into a managed
 // string (PtrToStringUni(IntPtr) semantics -- stops at the first NUL unit).
 // Null input -> the empty string.

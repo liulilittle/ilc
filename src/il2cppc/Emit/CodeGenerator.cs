@@ -9732,6 +9732,21 @@ default: return false;                           // primitives/VAR(handled by ca
             // stransi: the Ansi/None call-site encoding is still a byte string
             // (the CP_ACP buffer) -- const char* at the native boundary.
             if (p == "a:System.String") return "const char*";
+            // refstr: a BYREF string parameter (`ref string` / `out string`,
+            // encoding "B:r:System.String") is a POINTER TO the string pointer
+            // at the native boundary, NOT a char*. MEASURED on net48
+            // v4.0.30319 (oracle .opencode/tmp/refstr): declaring the callee
+            // parameter as char* reads the POINTER BYTES (F0 61 82 11 19 02
+            // 00 00 = a 64-bit address) and the probe crashes; declaring
+            // char** reads the string content correctly. The callee therefore
+            // receives a cell it may overwrite to REPLACE the managed string
+            // (measured: writing a CoTaskMemAlloc buffer holding "zz" makes
+            // the managed ref slot "zz"; writing NULL nulls the slot).
+            // The Ansi/Unicode choice still governs the CELL element type:
+            // Ansi -> char** (CP_ACP bytes; "ABC" -> 41 42 43, CJK -> D6 D0
+            // CE C4), Unicode -> char16_t** (UTF-16 units, no conversion).
+            if (p == "B:r:System.String")
+                return utf16PInvoke ? "char16_t**" : "char**";
             // StringBuilder parameter (net48: the callee receives the
             // builder's OWN chunk buffer, Capacity units, and Length is
             // recomputed as strnlen(buffer, Capacity) after the call). The
@@ -12407,6 +12422,11 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         "B:c" => $"il2cpp::runtime::il2cpp_pinvoke_narrow_ref<uint16_t>(*({code}))",
         "B:cansi" => $"il2cpp::runtime::il2cpp_pinvoke_char_ansi_ref(*({code}))",
         "B:cansiout" => $"il2cpp::runtime::il2cpp_pinvoke_char_ansi_out(*({code}))",
+        // refstr: `ref string` / `out string` -- the holder owns a one-element
+        // cell of the native character type and decodes the callee's value back
+        // into the managed slot on destruction (see Il2CppPinvokeRefStringArg).
+        "B:rs" => $"il2cpp::runtime::Il2CppPinvokeRefStringArg(reinterpret_cast<Il2CppObject**>({code}))",
+        "B:rsu16" => $"il2cpp::runtime::Il2CppPinvokeRefStringWArg(reinterpret_cast<Il2CppObject**>({code}))",
         _ => null,
     };
 

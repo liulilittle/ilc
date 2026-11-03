@@ -847,6 +847,14 @@ public static partial class MethodRefResolver
                     //   B:c        -> narrow_ref<uint16_t>   (Unicode, ref/out)
                     //   B:cansi    -> char_ansi_ref          (Ansi ref, copy-in)
                     //   B:cansiout -> char_ansi_out          (Ansi out, ZERO cell)
+                    // refstr: a `ref string` / `out string` parameter is a
+                    // POINTER TO the string pointer (MEASURED on net48; see
+                    // b5-gaps section 40). The holder decodes the callee's
+                    // value back into the managed slot, so the call site must
+                    // know WHICH cell type to build. The import CharSet picks it:
+                    //   B:rs    -> ansi CP_ACP bytes (char**)
+                    //   B:rsu16 -> UTF-16 units      (char16_t**)
+                    : p == "B:r:System.String" ? (utf16Strings ? "B:rsu16" : "B:rs")
                     : p == "B:c" ? (utf16Strings ? "B:c"
                         : paramOutFlags != null && pIdx < paramOutFlags.Length && paramOutFlags[pIdx]
                             ? "B:cansiout" : "B:cansi")

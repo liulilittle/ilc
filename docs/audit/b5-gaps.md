@@ -3862,3 +3862,94 @@ real subject of the test (the following local stays aligned).
   x64 only, like every other P/Invoke case).
 * A pointer into a MANAGED array element obtained through `fixed` was not
   probed separately; the `ldelema` path already had its own `ptr` carrier.
+
+## 40. P/Invoke `ref string` / `out string` (IMPLEMENTED)
+
+Status: **IMPLEMENTED**. `B:r:System.String` hit the blanket `r:`/`B:` LOUD
+rejection, so any assembly passing a string by reference to native code could
+not be compiled at all.
+
+### The net48 contract (MEASURED, net48 v4.0.30319, x64; oracle .opencode/tmp/refstr)
+
+| probe | result |
+|---|---|
+| native parameter type | **`char**` (pointer to the string pointer), NOT `char*` |
+| Ansi `"ABC"` | callee sees `41 42 43` |
+| Ansi `U+4E2D U+6587` | callee sees `D6 D0 CE C4` (4 bytes for 2 characters) |
+| Unicode `U+4E2D U+6587` | callee sees `20013 25991` (2-byte units, no conversion) |
+| null managed string | the CELL is a valid address, `*cell == nullptr` |
+| callee overwrites the content | the managed string picks it up |
+| callee writes NULL to `*cell` | the managed `ref` slot becomes null |
+| `out string` | same ABI, the cell starts from the (null) slot |
+
+### The measurement that made this section necessary
+
+The FIRST oracle declared the callee parameter as `char* p`. The bytes it read
+were `F0 61 82 11 19 02 00 00` -- a 64-bit ADDRESS, i.e. the marshaller had
+handed over a pointer TO the string pointer, and the probe then crashed
+reading a string out of those bytes. Declaring `char**` made the content read
+correctly.
+
+Recorded because this is the second time in this batch that a wrong oracle
+signature produced a confident-looking but meaningless result (the first was
+the StringBuilder oracle declaring `char[]`).
+
+### Ownership: a non-null replacement must come from CoTaskMemAlloc
+
+net48 takes ownership of the pointer the callee stores in the cell and frees
+it with `CoTaskMemFree`. Measured: returning a `malloc` or a `static` buffer
+crashes the marshaller during copy-back. That is why this case pins the
+WRITE direction with an in-place overwrite plus a NULL write, neither of which
+needs an allocator, and why the oracle library stays free of an `ole32` link
+dependency (difftest builds case libraries with a bare `g++ -shared`).
+
+### Implementation
+
+| file | change |
+|---|---|
+| `CodeGenerator.PinvokeParamListOf` | `B:r:System.String` -> `char**` (Ansi) / `char16_t**` (Unicode); removed from the LOUD list |
+| `MethodRefResolver` ParamTypeNames | `B:r:System.String` -> `B:rs` / `B:rsu16` (the import CharSet picks the cell type) |
+| `CodeGenerator.PinvokeNarrowByrefRefCode` | emits `Il2CppPinvokeRefStringArg` / `Il2CppPinvokeRefStringWArg` |
+| `il2cpp_pinvoke_bridge.h` | the two holders; `il2cpp_pinvoke_call` now takes `Args&&...` and forwards (see below) |
+| `pinvokeext.cpp` / `.h` | new `il2cpp_pinvoke_string_from_ansi` (the decode twin of `_to_ansi_alloc`) |
+
+### Two bugs found while wiring the holder
+
+1. **`il2cpp_pinvoke_call` took `Args...` BY VALUE.** The holder's copy
+   constructor sets `owner = false`, so the copy was destroyed silently and
+   the ORIGINAL temporary -- not the copy -- ran the destructor. The net effect
+   was that the copy-back never happened for any holder that relies on RAII.
+   Fixed by taking `Args&&...` and `std::forward`ing (the call site is
+   unchanged; the by-value overloads of `Il2CppPinvokeArg` are unaffected
+   because they hold only trivial state).
+2. **The copy-back was gated on `buffer != nullptr`.** `buffer` IS `*cell`, so
+   a callee that wrote NULL skipped the assignment entirely and the managed
+   slot kept its ORIGINAL string. The guard is gone: the holder always writes
+   the slot from the cell.
+
+Both were caught by the case itself (`[ansi.clear.isnull]` expected 1, got 0).
+
+### Mutation coverage (each turns `pinvoke-refstring` RED, restored GREEN)
+
+1. Disable the copy-back (`if (false) *slot = ...`): 5 records diverge
+   (`ansi.clear.isnull` 1 -> 0, `ansi.write.ch0` 122 -> 111, `ansi.write.ch1`
+   122 -> 114, `ansi.write.eqorig` 0 -> 1).
+2. Declare the native cell as `char*` instead of `char**`: the generated C++
+   stops compiling (the holder's `char**` cannot convert).
+3. Force the Ansi cell under CharSet.Unicode: same, a type mismatch that stops
+   the build.
+
+A fourth attempt (Ansi helper swapped for the UTF-8 one at the DECLARATION
+site) and a Unicode-vs-Ansi mix-up stayed GREEN until the case gained Unicode
+records -- the original case only exercised Ansi, so the CharSet axis was
+unobservable. Added `ref2w_len` / `ref2w_bytes` and the `uni.*` records; that
+is what makes the CharSet decision testable at all.
+
+### Not covered
+
+* Replacing the string with a NEW non-null buffer is measured (net48 adopts a
+  `CoTaskMemAlloc` pointer) but not asserted in the case, because the oracle
+  library would need `-lole32` and difftest's case-library build does not pass
+  link flags. The in-place overwrite plus the NULL replacement cover the
+  managed-visible half of the ABI.
+* POSIX is not exercised (the Ansi cell maps non-ASCII to `'?'` there, unverified).
