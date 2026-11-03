@@ -3237,3 +3237,21 @@ neighbouring row. Covered by `ansi.out.retmarshal.*` (Ansi, pre-set 'A', callee
 must see 0) and `uni.out.retmarshal.*` / `uni.ref.retmarshal.*` in
 `tests/cases/pinvoke-charref`; mutation D (reverting to `Take(paramCount)`)
 turns those records RED.
+
+### Comparing "did the implementation change?" across commits
+
+Use the SOURCE blob ids, not the built assembly's hash. `src/il2cppc/il2cppc.csproj`
+sets `<InformationalVersion>1.0.0</InformationalVersion>`, but the .NET 8 SDK
+appends `+$(SourceRevisionId)` (i.e. the commit sha) by default, so the emitted
+`il2cppc.dll` embeds a different version string on every commit even when all
+sources are byte-identical. Measured: `9ce28ecb` -> `A2B6DC43...`, `da5eb5ad` ->
+`B68A4E32...` with 5/5 implementation blobs identical; the ~148 differing bytes
+are all PE header / metadata tail and the only string delta is
+`1.0.0+<old sha>` vs `1.0.0+<new sha>`.
+
+Therefore:
+* compare `git hash-object <file>` (or `git rev-parse HEAD:<path>`) against the
+  recorded blob ids -- these are LF-normalized and commit-independent;
+* a bare `Get-FileHash` of a source file is also fine ONLY when both sides use
+  the same `core.autocrlf` setting;
+* NEVER use the built dll sha to conclude "the implementation changed".
