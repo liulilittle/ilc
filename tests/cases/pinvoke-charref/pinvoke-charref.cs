@@ -57,6 +57,11 @@ namespace Cases
         private static extern void a_fill8_00_out(out char c);
         [DllImport("charrefprobe.dll", CharSet = CharSet.Ansi)]
         private static extern int a_pair(ref char c, string s);
+        // Multi-parameter `out` under a return row: the projection must stay
+        // aligned per SequenceNumber, not per position.
+        [DllImport("charrefprobe.dll", CharSet = CharSet.Ansi, EntryPoint = "a_pair_out")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool a_pair_out_rm(out char c, out int q);
 
         // ---- CharSet.Unicode: 2-byte UTF-16 cell ----
         [DllImport("charrefprobe.dll", CharSet = CharSet.Unicode)]
@@ -167,6 +172,15 @@ namespace Cases
             char mix = (char)0x0041;
             Record("ansi.mix.seen", a_pair(ref mix, "A"));
             Record("ansi.mix.after", (int)mix);
+
+            // multi-parameter + out + return row: BOTH out cells must start at
+            // zero (the char through CP_ACP, the int through .locals init) and
+            // both callee writes must come back.
+            char mixOut = (char)0x0041;
+            int mixQ = 0x55;
+            Record("ansi.mixout.retmarshal.seen", a_pair_out_rm(out mixOut, out mixQ) ? 1 : 0);
+            Record("ansi.mixout.char.after", (int)mixOut);
+            Record("ansi.mixout.int.after", mixQ);
 
             // === Unicode (2-byte UTF-16 cell, no conversion) =================
             char u = (char)0x4E2D;

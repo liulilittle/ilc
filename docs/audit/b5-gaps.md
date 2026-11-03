@@ -3182,7 +3182,7 @@ CharSet.Unicode, in U+FFFF -> 65535;  in U+0000 -> 0
 * POSIX has no ANSI code page: the helper falls back to a documented 7-bit
   approximation (ASCII identity, everything else `?`) instead of failing LOUD.
 
-### Mutation coverage (all three turn `pinvoke-charref` RED, verified)
+### Mutation coverage (all four turn `pinvoke-charref` RED, verified)
 
 1. Ansi in-direction `WideCharToMultiByte` -> raw low byte truncation:
    `ansi.ref.nonascii.seen` 214 -> 45, `ansi.ref.max.after` 63 -> 63733.
@@ -3190,18 +3190,30 @@ CharSet.Unicode, in U+FFFF -> 65535;  in U+0000 -> 0
    `ansi.out.bD6` 63 -> 214, `ansi.out.bFF` 63733 -> 255.
 3. Ansi `out` cell seeded by copy-in instead of zero:
    `ansi.out.presetA.seen` 0 -> 65, `ansi.out.pre.seen` 0 -> 214.
+4. SequenceNumber projection reverted to `Take(paramCount)` (the bug fixed in
+   the follow-up commit): `ansi.out.retmarshal.seen` 0 -> 1,
+   `ansi.out.retmarshal.after` 0 -> 65, `ansi.mixout.*` likewise.
 
-### Registered residual (NOT fixed here -- independent follow-up)
+### Known boundaries of this section (registered, NOT verified)
 
-`string` P/Invoke parameters with `CharSet.Ansi` are marshalled as **UTF-8**
-(`CodeGenerator.cs` `p == "r:System.String"` -> `const char*`, and the
-`MarshalUtf8Expr` allocator), while net48 converts them through the SYSTEM ANSI
-code page (CP_ACP). ASCII is identical, non-ASCII differs -- exactly the class
-of divergence this section measures for `char`. `char[]` with CharSet.Ansi is
-ALREADY a LOUD rejection for the same reason. Fixing the Ansi STRING path needs
-the same CP_ACP bridge wired into the marshal allocator + the `StringBuilder`
-Ansi path; it is out of scope for the `ref/out char` task and is recorded here
-so the known divergence is not silent.
+Two edges of the `ref/out char` work are DECLARED here rather than proven, so
+they are not mistaken for completed work:
+
+1. **POSIX has no ANSI code page.** `pinvoke_char.cpp` falls back to a 7-bit
+   approximation (ASCII identity, every other unit `?`) instead of failing
+   LOUD. Only the Windows`CP_ACP` path is diff-tested
+   (`tests/cases/pinvoke-charref`, mingw); the POSIX branch has NOT been run.
+2. **`string` + `CharSet.Ansi` is still UTF-8** (`CodeGenerator.cs`
+   `p == "r:System.String"` -> `const char*` and the `MarshalUtf8Expr`
+   allocator) where net48 uses CP_ACP. ASCII is identical, non-ASCII differs --
+   the same class of divergence measured for `char` above. `char[]` with
+   CharSet.Ansi is ALREADY a LOUD rejection for the same reason. Fixing it needs
+   the same CP_ACP bridge wired into the marshal allocator + the
+   `StringBuilder` Ansi path; out of scope for the `ref/out char` task.
+
+Both edges are indexed by the two headings above so a later task can find them
+without re-deriving the measurements.
+
 
 ### FIX (8d4845b6 -> follow-up): `[return: MarshalAs]` shifted the Param out-bits
 

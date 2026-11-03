@@ -34,6 +34,13 @@ void a_fill8_00(uint8_t* p) { *p = (uint8_t)0x00; }
 int32_t a_pair(uint8_t* p, const char* s) {
     int32_t in = (int32_t)*p; *p = (uint8_t)0x42; return in + (int32_t)s[0];
 }
+// MULTI-PARAMETER with an `out`: the Seq projection must be independent of the
+// parameter count (a return row shifts only if it is indexed positionally).
+// Reports the pre-call cell byte and writes a different one; `int32_t*` is the
+// ordinary 4-byte byref neighbour.
+int32_t a_pair_out(uint8_t* p, int32_t* q) {
+    int32_t in = (int32_t)*p; *p = (uint8_t)0x43; *q = 0x1234; return in;
+}
 
 // ---- Unicode / Auto: 2-byte UTF-16 cell (no conversion) ---------------------
 int32_t u_read16(uint16_t* p) { return (int32_t)*p; }
