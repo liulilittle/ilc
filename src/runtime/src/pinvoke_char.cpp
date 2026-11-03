@@ -140,5 +140,84 @@ void il2cpp_pinvoke_char_array_ansi_decode(const char* buf, int32_t bufLen, Il2C
 #endif
 }
 
+//------------------------------------------------------------------------------
+// StringBuilder under CharSet.Ansi: the whole chunk is encoded to / decoded
+// from CP_ACP. MEASURED (net48 v4.0.30319, CP_ACP=936; oracle-sbansi2/4):
+//   "ABC"            -> 41 42 43        (3 bytes, NUL-terminated)
+//   U+4E2D U+6587    -> D6 D0 CE C4     (4 bytes for 2 characters)
+//   byte capacity == StringBuilder.Capacity, i.e. ONE byte per capacity unit
+//   copy-back decodes through CP_ACP, so D6 D0 becomes ONE character
+// The encoded buffer IS NUL-terminated (unlike char[] under Ansi).
+//------------------------------------------------------------------------------
+
+char* il2cpp_pinvoke_stringbuilder_ansi_encode(const char16_t* src, int32_t length,
+                                              int32_t* outBytes)
+{
+    *outBytes = 0;
+    // Worst case for any ANSI code page is 2 bytes per UTF-16 unit (DBCS).
+    const size_t cap = (size_t)(length > 0 ? length : 0) * 2 + 1;
+    char* buf = (char*)std::calloc(cap, 1);
+    if (buf == nullptr) return nullptr;
+#if defined(_WIN32)
+    if (length > 0)
+    {
+        const int n = ::WideCharToMultiByte(CP_ACP, 0,
+                                            reinterpret_cast<const wchar_t*>(src),
+                                            (int)length, buf, (int)(cap - 1), "?", nullptr);
+        if (n > 0) *outBytes = (int32_t)n;
+    }
+#else
+    // POSIX has no ANSI code page: ASCII survives, every other unit maps to '?'.
+    {
+        int32_t n = 0;
+        for (int32_t i = 0; i < length; i++)
+            buf[n++] = (src[i] < 0x80) ? (char)src[i] : (char)'?';
+        *outBytes = n;
+    }
+#endif
+    buf[*outBytes] = '\0';
+    return buf;
+}
+
+int32_t il2cpp_pinvoke_stringbuilder_ansi_decode(const char* src, int32_t bytes,
+                                                 Il2CppStringBuilder* sb)
+{
+    if (sb == nullptr) return 0;
+    int32_t need = 0;
+#if defined(_WIN32)
+    if (bytes > 0)
+    {
+        const int n = ::MultiByteToWideChar(CP_ACP, 0, src, (int)bytes, nullptr, 0);
+        if (n > 0) need = (int32_t)n;
+    }
+#else
+    need = bytes > 0 ? bytes : 0;
+#endif
+    // Grow the chunk when the decoded text does not fit. net48 does the same
+    // (measured: Capacity 8 became 10/10/12 for 8/8/10 encoded bytes). The
+    // StringBuilder growth icall keeps the write-barrier and rooting contract.
+    if (need + 1 > sb->capacity || sb->chars == nullptr)
+        icall_stringbuilder_ensure_capacity(reinterpret_cast<Il2CppObject*>(sb), need + 1);
+    Il2CppArray* chunk = sb->chars;
+    if (chunk == nullptr) return 0;
+    const int32_t limit = need < chunk->length ? need : chunk->length;
+    char16_t* dst = reinterpret_cast<char16_t*>(chunk->data);
+#if defined(_WIN32)
+    int32_t converted = 0;
+    if (limit > 0)
+    {
+        const int n = ::MultiByteToWideChar(CP_ACP, 0, src, (int)bytes,
+                                            reinterpret_cast<wchar_t*>(dst), (int)limit);
+        if (n > 0) converted = (int32_t)n;
+    }
+#else
+    for (int32_t i = 0; i < limit; i++)
+        dst[i] = ((uint8_t)src[i] < 0x80) ? (uint16_t)(uint8_t)src[i] : (uint16_t)'?';
+    converted = limit;
+#endif
+    if (converted < chunk->length) dst[converted] = 0;
+    return converted;
+}
+
 } // namespace runtime
 } // namespace il2cpp

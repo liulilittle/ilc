@@ -3677,3 +3677,91 @@ therefore builds a FRESH array per call.
 2. Copy-back made unconditional: `[b4.write.default.e1]` 0 -> 1.
 3. `[Out]` made to copy in: `[b1.seed.Out]`/`[b4.seed.Out]` become the input
    instead of zeros.
+
+## 38. P/Invoke `StringBuilder` with `CharSet.Ansi` -- CP_ACP chunk conversion (IMPLEMENTED)
+
+Status: **IMPLEMENTED**. Previously a hard `NotSupportedException` at
+`CodeGenerator.cs` (the `r:System.Text.StringBuilder` arm of
+`PinvokeParamListOf`), justified as "this transpiler has no CP_ACP bridge for
+the StringBuilder CHUNK". That was true when written -- the `string` Ansi
+bridge converts one way only and the chunk needed both directions -- but it is
+implementable, and refusing it violated the project rule against LOUD-rejecting
+analysable code.
+
+### The net48 contract (MEASURED, net48 v4.0.30319, host CP_ACP = 936, zh-CN)
+
+Oracles: `.opencode/tmp/oracle-sbansi2` (what the callee sees),
+`oracle-sbansi3` (write bounds), `oracle-sbansi4` (capacity semantics).
+
+| aspect | measured |
+|---|---|
+| native buffer | CP_ACP **bytes**, not the UTF-16 chunk |
+| encoded content | `"ABC"` -> `41 42 43`; `U+4E2D U+6587` -> `D6 D0 CE C4` |
+| byte capacity | **== `StringBuilder.Capacity`** (ONE byte per capacity unit) |
+| termination | **IS** NUL-terminated after the content |
+| copy-back | decodes through CP_ACP: the two bytes `D6 D0` become **ONE** character (`Length` 1, `sb[0] == U+4E2D`) |
+| growth | net48 itself grows when the encoded content does not fit: `Capacity 8` became 10 / 10 / 12 for 8 / 8 / 10 encoded bytes |
+| null builder | `NULL` |
+
+Two consequences that make this section easy to get wrong:
+
+* **`Capacity` is a CHARACTER count in the managed model but a BYTE count at
+  the Ansi boundary.** A single CJK character needs two capacity units, so a
+  builder sized exactly to its character count cannot hold its own content.
+* **`Capacity` is not a safe write bound.** net48 re-grows on demand, so a
+  callee writing past `Capacity` still succeeds; only a large overshoot faults
+  (`fill 63` bytes into a 16-capacity builder raised AccessViolationException).
+  The implementation therefore allocates from the UTF-16 content length and
+  never truncates to `Capacity`.
+
+### Probe-design note (a mistake worth recording)
+
+The FIRST oracle (`oracle-sbansi`) declared its `[DllImport]` parameters as
+`char[]` instead of `StringBuilder`, so it measured only the
+`StringBuilder.Capacity` property and never exercised the marshalling path at
+all. A fixture whose signatures do not name the type under test proves nothing.
+The second oracle corrected the declarations and produced the table above.
+
+Also, like `char[]` under Ansi, the region BEYOND the terminator is
+uninitialised heap (observed `73 00 00 00 28 00 00 00` and
+`02 00 00 00 40 F0 FA 5D` on two runs of the same binary), so the case asserts
+only `content + 1` bytes.
+
+### Implementation
+
+* `PinvokeParamListOf`'s StringBuilder arm returns `char*` for Ansi/None
+  (UTF-16 keeps `char16_t*`), instead of throwing.
+* The call site emits `il2cpp_pinvoke_stringbuilder_ansi(sb)` when the resolved
+  import CharSet is Ansi/None, and the existing `il2cpp_pinvoke_stringbuilder(sb)`
+  otherwise.
+* `Il2CppPinvokeStringBuilderAnsiArg` (`il2cpp_pinvoke_bridge.h`) roots the
+  BUILDER for the call, owns a `malloc`'d CP_ACP buffer, and on destruction
+  decodes the returned byte string back into the chunk, growing it through
+  `icall_stringbuilder_ensure_capacity` when needed, then writes `Length`.
+* `il2cpp_pinvoke_stringbuilder_ansi_encode` / `_decode` (`pinvoke_char.cpp`)
+  perform the conversion with `WideCharToMultiByte` / `MultiByteToWideChar`.
+
+### CharSet.Unicode is untouched
+
+The UTF-16 arm still aliases the managed chunk directly (zero conversion),
+which is why the case keeps a Unicode control record: `U+4E2D U+6587` reads
+back as `2D 4E 87 65`.
+
+### Mutation coverage (each turns `pinvoke-stringbuilder-ansi` RED, restored GREEN)
+
+1. Encode with code page 1252 instead of CP_ACP:
+   `[sb.cjk]` `D6 D0 CE C4 00` -> `3F 3F 00`, `[sb.cjk.len]` 4 -> 2.
+2. Decode byte-per-character instead of a DBCS-aware decode:
+   `[sb.write.cjk.ch0]` 20013 -> 214, `[sb.write.latin.ch1]` 63 -> 233.
+3. Route Ansi through the UTF-16 alias: 9 records diverge, e.g.
+   `[sb.ascii]` `41 42 43 00` -> `41 00` and `[sb.ascii.len]` 3 -> 1.
+
+### Not covered here
+
+* The exact size net48 allocates behind `Capacity` is not observable from the
+  managed side; only the "it grows on demand" behaviour is pinned.
+* A callee that writes a byte string with no NUL terminator is decoded up to
+  the buffer bound. This matches every shape measured, but an
+  unterminated-write shape is not separately probed.
+* POSIX has no ANSI code page; the POSIX arm maps non-ASCII to `'?'` in both
+  directions. **NOT verified on a POSIX host.**

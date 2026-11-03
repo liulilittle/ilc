@@ -9695,8 +9695,11 @@ default: return false;                           // primitives/VAR(handled by ca
             if (p == "r:System.Text.StringBuilder")
             {
                 if (utf16PInvoke) return "char16_t*";
-                throw new NotSupportedException(
-                    $"P/Invoke StringBuilder parameter on {methodName} with CharSet.Ansi: net48 marshals the builder through the system ANSI code page (CP_ACP); this transpiler has no CP_ACP bridge for the StringBuilder CHUNK (plain `string` Ansi arguments ARE converted since b5-gaps section 34), so non-ASCII text would be corrupted -- declare CharSet.Unicode/Auto for the UTF-16 chunk bridge (b5-gaps section 29)");
+                // CharSet.Ansi/None: net48 hands the callee a CP_ACP BYTE
+                // buffer (byte capacity == StringBuilder.Capacity, NUL-terminated,
+                // copy-back decodes through CP_ACP -- see
+                // Il2CppPinvokeStringBuilderAnsiArg and b5-gaps section 38).
+                return "char*";
             }
             // P-D1 P0: the marshalling type matrix is COMPLETE -- every branch
             // is either a real native type or a LOUD rejection (never the old
@@ -12936,7 +12939,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             // the declaration site rejects it LOUD (b5-gaps section 29).
             if (r.IsPInvoke && cast == "r:System.Text.StringBuilder")
             {
-                parts.Add($"il2cpp::runtime::il2cpp_pinvoke_stringbuilder({NullSafePtrCast("Il2CppStringBuilder*", code)})");
+                // Ansi/None: the native view is a CP_ACP BYTE buffer, so the
+                // chunk must be encoded/decoded rather than aliased (measured
+                // net48: "ABC" -> 41 42 43, U+4E2D U+6587 -> D6 D0 CE C4,
+                // byte capacity == Capacity, buffer IS NUL-terminated, and the
+                // copy-back decodes D6 D0 back into ONE character).
+                if (!r.PInvokeUtf16Chars)
+                    parts.Add($"il2cpp::runtime::il2cpp_pinvoke_stringbuilder_ansi({NullSafePtrCast("Il2CppStringBuilder*", code)})");
+                else
+                    parts.Add($"il2cpp::runtime::il2cpp_pinvoke_stringbuilder({NullSafePtrCast("Il2CppStringBuilder*", code)})");
                 continue;
             }
             // COM interface byval parameter: net48's marshaller AddRefs the

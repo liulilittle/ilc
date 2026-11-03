@@ -1023,6 +1023,88 @@ inline Il2CppPinvokeStringBuilderArg il2cpp_pinvoke_stringbuilder(Il2CppStringBu
     return Il2CppPinvokeStringBuilderArg(sb);
 }
 
+//------------------------------------------------------------------------------
+// StringBuilder + CharSet.Ansi/None: the SAME chunk contract as the UTF-16
+// holder above, but the native view is a CP_ACP BYTE buffer, not the managed
+// UTF-16 chunk. MEASURED net48 contract (Framework64 v4.0.30319, CP_ACP=936;
+// oracles .opencode/tmp/oracle-sbansi2 .. oracle-sbansi4):
+//
+//   * byte capacity == StringBuilder.Capacity (ONE byte per capacity unit).
+//     A 2-unit CJK character therefore needs TWO capacity units.
+//   * the buffer IS NUL-terminated after the encoded content (unlike char[]
+//     under Ansi, which is NOT terminated).
+//   * encoding is CP_ACP: "ABC" -> 41 42 43; U+4E2D U+6587 -> D6 D0 CE C4
+//     (strlen 4 for 2 characters).
+//   * copy-back re-reads the byte string and DECODES it through CP_ACP, so the
+//     two bytes D6 D0 become ONE managed character (measured Length 1).
+//   * net48 itself GROWS the builder when the encoded content does not fit
+//     (Capacity 8 became 10/10/12 for 8/8/10 encoded bytes), so Capacity is not
+//     a write bound.
+//   * null builder -> NULL.
+//
+// This holder owns a malloc'd byte buffer and never aliases the managed chunk;
+// the copy-back encodes the result back into the builder's UTF-16 chunk
+// (growing it when necessary) and recomputes Length.
+//------------------------------------------------------------------------------
+// Encode the builder's first `length` UTF-16 units into a NUL-terminated CP_ACP
+// buffer. `outBytes` receives the encoded byte count. Returns a malloc'd buffer
+// (never NULL for a non-null builder); the caller frees it.
+char* il2cpp_pinvoke_stringbuilder_ansi_encode(const char16_t* src, int32_t length,
+                                              int32_t* outBytes);
+// Decode a CP_ACP byte string into the builder's chunk, replacing its content.
+// Grows the builder when the decoded length does not fit. Returns the resulting
+// character count.
+int32_t il2cpp_pinvoke_stringbuilder_ansi_decode(const char* src, int32_t bytes,
+                                                 Il2CppStringBuilder* sb);
+
+struct Il2CppPinvokeStringBuilderAnsiArg
+{
+    Il2CppStringBuilder* builder;
+    Il2CppStringBuilder** builderSlot;
+    char* buf;        // malloc'd CP_ACP byte buffer (null only for a null builder)
+    int32_t bytes;    // encoded byte count (excludes the terminating NUL)
+    bool isOwner;
+
+    explicit Il2CppPinvokeStringBuilderAnsiArg(Il2CppStringBuilder* sb)
+        : builder(sb), builderSlot(nullptr), buf(nullptr), bytes(0), isOwner(true)
+    {
+        if (sb == nullptr) return; // null builder -> null pointer (net48)
+        builderSlot = &builder;
+        detail::pin_reference_slot(reinterpret_cast<void**>(builderSlot));
+        const int32_t length = sb->length > 0 ? sb->length : 0;
+        const Il2CppArray* chunk = sb->chars;
+        if (chunk != nullptr && length > 0)
+            buf = il2cpp_pinvoke_stringbuilder_ansi_encode(
+                reinterpret_cast<const char16_t*>(chunk->data), length, &bytes);
+        else
+            buf = il2cpp_pinvoke_stringbuilder_ansi_encode(nullptr, 0, &bytes);
+    }
+    Il2CppPinvokeStringBuilderAnsiArg(const Il2CppPinvokeStringBuilderAnsiArg& o)
+        : builder(o.builder), builderSlot(o.builderSlot), buf(o.buf),
+          bytes(o.bytes), isOwner(false) {}
+    Il2CppPinvokeStringBuilderAnsiArg& operator=(const Il2CppPinvokeStringBuilderAnsiArg&) = delete;
+    ~Il2CppPinvokeStringBuilderAnsiArg()
+    {
+        if (!isOwner || builderSlot == nullptr) return;
+        Il2CppStringBuilder* sb = *builderSlot; // re-read: a collection may move it
+        if (sb != nullptr && buf != nullptr)
+        {
+            int32_t n = 0;
+            while (n < bytes && buf[n] != 0) ++n;
+            const int32_t written = il2cpp_pinvoke_stringbuilder_ansi_decode(buf, n, sb);
+            sb->length = written;
+        }
+        detail::unpin_reference_slot(reinterpret_cast<void**>(builderSlot));
+        std::free(buf);
+    }
+    operator char*() const { return buf; }
+};
+
+inline Il2CppPinvokeStringBuilderAnsiArg il2cpp_pinvoke_stringbuilder_ansi(Il2CppStringBuilder* sb)
+{
+    return Il2CppPinvokeStringBuilderAnsiArg(sb);
+}
+
 // GN-17: P/Invoke exception boundary (see the header comment).
 //
 // The chain handed to il2cpp_throw_new follows the exceptionext/com.cpp
