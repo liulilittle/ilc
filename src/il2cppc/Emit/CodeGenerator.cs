@@ -9593,9 +9593,25 @@ default: return false;                           // primitives/VAR(handled by ca
             // f -> double) still declare the NATIVE cell width here; the
             // call-site bridge (EmitIcallCallArgs) owns the narrow cell and
             // its in/out conversion.
-            if (p.Length > 2 && p[0] == 'B' && p[1] == ':'
-                && PinvokeByrefScalarCpp(p[2..]) is { } byrefCpp)
-                return byrefCpp + "*";
+            //
+            // byref CHAR is the CharSet-dependent case (MEASURED on net48 --
+            // see tests/cases/pinvoke-charref and docs/audit/b5-gaps.md):
+            //   * CharSet.Unicode / Auto -> a 2-byte UTF-16 code unit
+            //     (uint16_t*), NO conversion: the callee sees the managed
+            //     char verbatim (U+4E2D arrives as 20013);
+            //   * CharSet.Ansi -> a 1-BYTE system ANSI code page cell
+            //     (uint8_t*): the unit is converted through CP_ACP in and
+            //     out (U+4E2D -> 0xD6 under CP936; a lone 0xD6 decodes back
+            //     to '?').
+            // The call-site holder pair (il2cpp_pinvoke_narrow_ref<uint16_t>
+            // for Unicode, il2cpp_pinvoke_char_ansi_ref for Ansi) owns the
+            // copy-in/copy-out.
+            if (p.Length > 2 && p[0] == 'B' && p[1] == ':')
+            {
+                if (p[2..] == "c") return utf16PInvoke ? "uint16_t*" : "uint8_t*";
+                if (PinvokeByrefScalarCpp(p[2..]) is { } byrefCpp)
+                    return byrefCpp + "*";
+            }
             if (p.StartsWith("V:", StringComparison.Ordinal))
             {
                 var inner = PinvokeStructCppType(p[2..]);
@@ -9694,19 +9710,19 @@ default: return false;                           // primitives/VAR(handled by ca
             // delegatecb.cs:19-27 claims this rejection but no code
             // existed). fnptr (F:) and pointer (P:) params are the P-D3
             // work items; they must not silently downgrade either.
-            // byref-scalar: every scalar B: shape is handled above. The
-            // remaining B: shapes are genuinely different marshals:
+            // byref-scalar: every scalar B: shape is handled above -- char
+            // included, through its own CharSet-dependent arm (Unicode: 2-byte
+            // UTF-16; Ansi: 1-byte CP_ACP cell, both measured). The remaining
+            // B: shapes are genuinely different marshals:
             //   * B:r:<ref> (ref/out string / class) needs a native buffer or
             //     an object-to-interface marshal;
-            //   * B:c (ref/out char) needs the CharSet-dependent ANSI/UTF-16
-            //     conversion and net48's best-fit ANSI mapping;
             //   * B:tr (TypedReference) is not addressable.
             var r when r.StartsWith("r:", StringComparison.Ordinal)
                 || r.StartsWith("F:", StringComparison.Ordinal)
                 || r.StartsWith("P:", StringComparison.Ordinal)
                 || r.StartsWith("B:", StringComparison.Ordinal) =>
                 throw new NotSupportedException(
-                    $"P/Invoke parameter type '{r}' on {methodName} is not supported: reference-typed (delegate/array/object), fnptr and pointer parameters have no marshalling bridge, and by-ref of a string/class/char/TypedReference needs a marshal conversion this emitter does not implement (scalar int/uint/long/ulong/short/ushort/byte/sbyte/bool/float/double/IntPtr/UIntPtr/Guid by-ref IS supported)"),
+                    $"P/Invoke parameter type '{r}' on {methodName} is not supported: reference-typed (delegate/array/object), fnptr and pointer parameters have no marshalling bridge, and by-ref of a string/class/TypedReference needs a marshal conversion this emitter does not implement (scalar int/uint/long/ulong/short/ushort/byte/sbyte/bool/char/float/double/IntPtr/UIntPtr/Guid by-ref IS supported)"),
                 var other => throw new NotSupportedException(
                     $"P/Invoke parameter encoding '{other}' on {methodName} is not supported"),
             };
@@ -9718,8 +9734,9 @@ default: return false;                           // primitives/VAR(handled by ca
     // the B: prefix). The widths are net48's: bool is a 4-byte BOOL, the
     // narrow integers keep their real 1/2-byte native width even though THIS
     // model stores the managed slot widened (int32_t / double). null = the
-    // inner encoding is not a supported scalar (a struct, string, class,
-    // char or TypedReference -- handled / rejected by the callers).
+    // inner encoding is not a scalar handled here (a struct, string, class or
+    // TypedReference; CHAR has its own CharSet-dependent arm in the caller --
+    // Unicode=2-byte UTF-16, Ansi=1-byte CP_ACP).
     private static string? PinvokeByrefScalarCpp(string inner) => inner switch
     {
         "i" => "int32_t",   // int32 AND uint32 (both encode "i" -- same slot)
@@ -12180,6 +12197,17 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     // is the NATIVE width; Wide is deduced from the slot, so a `ref float` of a
     // LOCAL (double slot), a FIELD (float slot) or an ARRAY ELEMENT (float
     // cell) all bind the right conversion without the emitter knowing which.
+    // byref CHAR has THREE entries because the CharSet picks the native cell
+    // AND the Ansi `out` bit seeds the cell differently (both measured, see
+    // docs/audit/b5-gaps.md and tests/cases/pinvoke-charref):
+    //   * B:c        -- CharSet.Unicode/Auto: 2-byte UTF-16 cell, no
+    //                   conversion. Copy-in reproduces net48 for `ref` AND
+    //                   `out` (Unicode `out` KEEPS the slot's prior value).
+    //   * B:cansi    -- CharSet.Ansi `ref`: 1-byte system ANSI code page cell,
+    //                   seeded from the managed slot through CP_ACP;
+    //   * B:cansiout -- CharSet.Ansi `out`: the same 1-byte cell but starting
+    //                   at ZERO (net48 does not seed its [Out] temp -- a
+    //                   pre-set local still reaches the callee as 0).
     // null = not a narrow by-ref shape (exact-width B: i/l/q/n/u pass their
     // address straight through).
     //--------------------------------------------------------------------------
@@ -12191,6 +12219,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         "B:i2" => $"il2cpp::runtime::il2cpp_pinvoke_narrow_ref<int16_t>(*({code}))",
         "B:u2" => $"il2cpp::runtime::il2cpp_pinvoke_narrow_ref<uint16_t>(*({code}))",
         "B:b" => $"il2cpp::runtime::il2cpp_pinvoke_bool_ref(*({code}))",
+        "B:c" => $"il2cpp::runtime::il2cpp_pinvoke_narrow_ref<uint16_t>(*({code}))",
+        "B:cansi" => $"il2cpp::runtime::il2cpp_pinvoke_char_ansi_ref(*({code}))",
+        "B:cansiout" => $"il2cpp::runtime::il2cpp_pinvoke_char_ansi_out(*({code}))",
         _ => null,
     };
 
@@ -12714,15 +12745,18 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             var code = EmitExpr(args[srcIdx], md, types);
             var cast = casts2 != null && j < casts2.Length ? casts2[j] : null;
             // byref-scalar NARROW cells (B:f / B:b / B:i1 / B:u1 / B:i2 /
-            // B:u2): the managed slot in THIS model is WIDER than the native
-            // cell (int32_t for bool/sbyte/byte/int16/uint16, double for
-            // Single), so the slot address can NOT be handed to the callee
-            // (it would reinterpret a widened bit image) nor read back raw.
-            // The runtime helper owns an EXACT-width native cell, copies the
-            // slot in, and copies the callee's write back when its owner
-            // temporary dies at the end of the call's full-expression --
-            // exactly when net48's interop stub returns. bool additionally
-            // NORMALIZES on the way back (net48: native 2 -> managed true).
+            // B:u2 / B:c / B:cansi): the managed slot in THIS model is WIDER
+            // than the native cell (int32_t for bool/char/sbyte/byte/int16/
+            // uint16, double for Single), so the slot address can NOT be
+            // handed to the callee (it would reinterpret a widened bit image)
+            // nor read back raw. char has TWO cells because the CharSet picks
+            // the native width: B:c = 2-byte UTF-16 (Unicode/Auto), B:cansi =
+            // 1-byte CP_ACP (Ansi). The runtime helper owns an EXACT-width
+            // native cell, copies the slot in, and copies the callee's write
+            // back when its owner temporary dies at the end of the call's
+            // full-expression -- exactly when net48's interop stub returns.
+            // bool additionally NORMALIZES on the way back (net48: native 2 ->
+            // managed true).
             // The helper is NOT wrapped in il2cpp_pinvoke_arg: its conversion
             // operator already yields the native pointer the declaration /
             // dynamic cast names (the bridge's reinterpret_cast path cannot

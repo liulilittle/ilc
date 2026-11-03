@@ -784,8 +784,23 @@ public static partial class MethodRefResolver
             var pinvokeStructRet = CodeGenerator.PinvokeReturnStructNameOfSignature(md, m.Signature);
             return new ResolvedMethod(entry, paramCount, false,
                 returnType != SignatureTypeCode.Void, IsRefType(returnType), ParamRefFlags(paramTypes), false,
-                IsPInvoke: true, ParamTypeNames: CodeGenerator.SplitTopLevel(paramTypes).Select(p =>
-                    utf16Strings && p == "r:System.String" ? "u16:System.String" : PInvokeCastCode(p)).ToArray(),
+                IsPInvoke: true, ParamTypeNames: CodeGenerator.SplitTopLevel(paramTypes).Select((p, pIdx) =>
+                    utf16Strings && p == "r:System.String" ? "u16:System.String"
+                    // byref char: the CHAR SET picks the native cell (MEASURED:
+                    // Ansi = 1-byte CP_ACP cell, Unicode/Auto = 2-byte UTF-16
+                    // with NO conversion). The `out` bit is a SECOND axis on
+                    // the Ansi side only: net48 zeroes its [Out] temp, while
+                    // `ref` seeds it from the managed slot; Unicode `out`
+                    // KEEPS the slot's prior value (measured), which the
+                    // generic narrow_ref copy-in already reproduces. Three
+                    // keys, dispatched by the call-site holder:
+                    //   B:c        -> narrow_ref<uint16_t>   (Unicode, ref/out)
+                    //   B:cansi    -> char_ansi_ref          (Ansi ref, copy-in)
+                    //   B:cansiout -> char_ansi_out          (Ansi out, ZERO cell)
+                    : p == "B:c" ? (utf16Strings ? "B:c"
+                        : paramOutFlags != null && pIdx < paramOutFlags.Length && paramOutFlags[pIdx]
+                            ? "B:cansiout" : "B:cansi")
+                    : PInvokeCastCode(p)).ToArray(),
                 SetLastError: setLastError,
                 // M4.5/P-D1 (result-width mirrors, GN-17 P0): the result kind
                 // must mirror PinvokeReturnTypeCpp / StackFold.UserCallResultKind

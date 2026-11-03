@@ -3128,3 +3128,77 @@ The 4 `mscorlib`/`clr.dll` slots (`Marshal.CreateBindCtx`,
 `Win32Native.CreateAssemblyNameObject`) remain out of scope: those assemblies
 are not the input assembly, so their `[ComImport]` interfaces have no
 readable `[Guid]` here and the declaration arm still rejects them LOUD.
+
+---
+
+## P/Invoke `ref char` / `out char` (B:c) -- CharSet-dependent, IMPLEMENTED
+
+MEASURED on net48 v4.0.30319 (host CP_ACP = 936, zh-CN) with
+`tests/cases/pinvoke-charref` (its own SHARED + STATIC fixtures; every record
+is diffed byte-exactly against the transpiled runtime by `difftest.ps1`).
+
+### The two cell shapes
+
+| `[DllImport]` CharSet | native cell | conversion |
+|---|---|---|
+| `Unicode` / `Auto` | 2-byte UTF-16 code unit (`uint16_t*`) | NONE |
+| `Ansi` | 1-byte SYSTEM ANSI code page cell (`uint8_t*`) | CP_ACP both ways |
+
+Measured values (managed char in -> what the callee reads / writes -> managed
+char out):
+
+```
+CharSet.Ansi,  in U+4E2D  -> callee reads 214 (0xD6)      [CP936 lead byte]
+CharSet.Ansi,  callee writes 0x5A -> 90;  0xD6 -> 63 ('?');  0xFF -> 63733
+CharSet.Ansi,  in U+FFFF  -> 63 ('?');  in U+0000 -> 0
+CharSet.Unicode, in U+4E2D -> 20013;  callee writes 0x6587 -> 25991
+CharSet.Unicode, in U+FFFF -> 65535;  in U+0000 -> 0
+```
+
+### `out char` seeding is ALSO CharSet-dependent (measured)
+
+| CharSet | `out char` callee initial value |
+|---|---|
+| Ansi | **0** -- net48 does not seed its `[Out]` temp; a pre-set local still reaches the callee as 0 |
+| Unicode | **the managed slot's prior value** (20013 for a pre-set U+4E2D) |
+
+### Implementation
+
+* declaration site (`CodeGenerator.PinvokeParamListOf`): `B:c` declares
+  `uint16_t*` for Unicode/Auto and `uint8_t*` for Ansi;
+* `ResolvedMethod.ParamTypeNames` (`MethodRefResolver.cs`, the P/Invoke arm)
+  rewrites `B:c` into one of three call-site keys, using the SAME
+  `MethodImportAttributes` CharSet decode the declaration uses
+  (`utf16Strings`) plus the Param-row `out` bit:
+  * `B:c`        -> `il2cpp_pinvoke_narrow_ref<uint16_t>` (Unicode, ref AND out);
+  * `B:cansi`    -> `il2cpp_pinvoke_char_ansi_ref` (Ansi `ref`, CP_ACP copy-in);
+  * `B:cansiout` -> `il2cpp_pinvoke_char_ansi_out` (Ansi `out`, ZERO cell);
+* `src/runtime/include/internal/il2cpp_pinvoke_bridge.h` holds the holders;
+  `src/runtime/src/pinvoke_char.cpp` holds the CP_ACP pair
+  (`WideCharToMultiByte` / `MultiByteToWideChar` with CP_ACP -- the same Win32
+  mechanism `encoding.cpp` already uses for CP_UTF8, only the code page
+  constant differs). Unrepresentable units and undecodable bytes become `?`,
+  matching net48.
+* POSIX has no ANSI code page: the helper falls back to a documented 7-bit
+  approximation (ASCII identity, everything else `?`) instead of failing LOUD.
+
+### Mutation coverage (all three turn `pinvoke-charref` RED, verified)
+
+1. Ansi in-direction `WideCharToMultiByte` -> raw low byte truncation:
+   `ansi.ref.nonascii.seen` 214 -> 45, `ansi.ref.max.after` 63 -> 63733.
+2. Ansi out-direction `MultiByteToWideChar` -> zero extension:
+   `ansi.out.bD6` 63 -> 214, `ansi.out.bFF` 63733 -> 255.
+3. Ansi `out` cell seeded by copy-in instead of zero:
+   `ansi.out.presetA.seen` 0 -> 65, `ansi.out.pre.seen` 0 -> 214.
+
+### Registered residual (NOT fixed here -- independent follow-up)
+
+`string` P/Invoke parameters with `CharSet.Ansi` are marshalled as **UTF-8**
+(`CodeGenerator.cs` `p == "r:System.String"` -> `const char*`, and the
+`MarshalUtf8Expr` allocator), while net48 converts them through the SYSTEM ANSI
+code page (CP_ACP). ASCII is identical, non-ASCII differs -- exactly the class
+of divergence this section measures for `char`. `char[]` with CharSet.Ansi is
+ALREADY a LOUD rejection for the same reason. Fixing the Ansi STRING path needs
+the same CP_ACP bridge wired into the marshal allocator + the `StringBuilder`
+Ansi path; it is out of scope for the `ref/out char` task and is recorded here
+so the known divergence is not silent.

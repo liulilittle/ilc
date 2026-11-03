@@ -287,7 +287,7 @@ inline T il2cpp_pinvoke_result(R r)
 // net48 hands the native callee the ADDRESS of the managed slot for a
 // blittable `ref`/`out` scalar. This model stores some managed scalars in
 // WIDER C++ slots than the native cell the DllImport signature names:
-//   * bool / sbyte / byte / int16 / uint16 -> int32_t slot
+//   * bool / char / sbyte / byte / int16 / uint16 -> int32_t slot
 //   * Single                                -> double slot
 // so the slot address is NOT the native image and cannot be passed directly.
 // The generated call site wraps such an argument in
@@ -357,6 +357,61 @@ struct Il2CppPinvokeBoolRef
 inline Il2CppPinvokeBoolRef il2cpp_pinvoke_bool_ref(int32_t& slot)
 {
     return Il2CppPinvokeBoolRef(slot);
+}
+
+//------------------------------------------------------------------------------
+// byref CHAR (ref/out char P/Invoke parameters): the CHAR SET picks the native
+// cell. MEASURED on net48 (Framework64 v4.0.30319, host CP_ACP=936; pinned by
+// tests/cases/pinvoke-charref and recorded in docs/audit/b5-gaps.md):
+//   * CharSet.Unicode / Auto -> a 2-byte UTF-16 code unit, NO conversion. The
+//     generic il2cpp_pinvoke_narrow_ref<uint16_t> holder above is exact (the
+//     managed char slot in this model is a 32-bit int32_t, so the slot address
+//     cannot be handed over raw -- the high 16 bits must be zeroed on the way
+//     back).
+//   * CharSet.Ansi -> a 1-BYTE cell holding the SYSTEM ANSI code page image:
+//     the unit is converted through CP_ACP on the way in AND out (U+4E2D ->
+//     0xD6 under CP936; the lone 0xD6 decodes back to '?'). MEASURED detail:
+//     `ref` copies the converted current value IN, while `out` starts the cell
+//     at ZERO regardless of the managed slot's prior content (net48's [Out]
+//     temp is not seeded; a pre-set local still reaches the callee as 0),
+//     hence the two factories below. The two helpers own the conversion
+//     (pinvoke_char.cpp); the holder mirrors the narrow-ref shape: exact-width
+//     cell, copy-in at construction, copy-back when the outermost temporary
+//     dies.
+//------------------------------------------------------------------------------
+int32_t il2cpp_pinvoke_char_ansi_to_byte(int32_t utf16);
+int32_t il2cpp_pinvoke_char_ansi_from_byte(uint8_t byte);
+
+struct Il2CppPinvokeCharAnsiRef
+{
+    int32_t* slot;
+    uint8_t* cell;
+    uint8_t storage;
+    bool owner;
+    Il2CppPinvokeCharAnsiRef(int32_t& s, bool copyIn)
+        : slot(&s), cell(&storage),
+          storage(copyIn ? (uint8_t)il2cpp_pinvoke_char_ansi_to_byte(s) : (uint8_t)0),
+          owner(true) {}
+    Il2CppPinvokeCharAnsiRef(const Il2CppPinvokeCharAnsiRef& o)
+        : slot(o.slot), cell(o.cell), storage(o.storage), owner(false) {}
+    Il2CppPinvokeCharAnsiRef& operator=(const Il2CppPinvokeCharAnsiRef&) = delete;
+    ~Il2CppPinvokeCharAnsiRef()
+    {
+        if (owner) *slot = il2cpp_pinvoke_char_ansi_from_byte(*cell);
+    }
+    operator uint8_t*() { return cell; }
+};
+
+// `ref`: seed the cell from the managed slot through CP_ACP.
+inline Il2CppPinvokeCharAnsiRef il2cpp_pinvoke_char_ansi_ref(int32_t& slot)
+{
+    return Il2CppPinvokeCharAnsiRef(slot, true);
+}
+
+// `out`: the cell starts at ZERO (net48 does not seed its [Out] temp).
+inline Il2CppPinvokeCharAnsiRef il2cpp_pinvoke_char_ansi_out(int32_t& slot)
+{
+    return Il2CppPinvokeCharAnsiRef(slot, false);
 }
 
 //------------------------------------------------------------------------------
