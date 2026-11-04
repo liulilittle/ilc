@@ -5531,6 +5531,186 @@ public static class StackFold
                 "il2cpp::il2cpp_linq_list_order_by_key_vt" => "list_vt",
                 _ => null,
             };
+            // b5-gaps §44: read the ALREADY-FUSED key list out of a ThenBy
+            // composite call. The two-key numeric composite carries
+            // (k1desc, k2desc, k1fam, k2fam) with args (src, k1, k2); a chain
+            // call carries (d1..d4, f1..f4) with args (src, k1..k4) and a
+            // family of -1 terminating the list. Anything else (decimal /
+            // value-struct / reference / List composites) returns false and
+            // keeps the two-key (or LOUD) behaviour -- those families have no
+            // chain kernel yet.
+            static bool ChainLevelsOf(CallExpr call, out List<string> descs,
+                out List<string> fams, out List<Expr> selectors)
+            {
+                descs = new List<string>();
+                fams = new List<string>();
+                selectors = new List<Expr>();
+                var name = call.Resolved?.CppName;
+                if (name == null) return false;
+                if (name is "il2cpp::il2cpp_linq_then_by_chain_i4"
+                    or "il2cpp::il2cpp_linq_then_by_chain_i8")
+                {
+                    var lits = call.Resolved!.AppendLiterals;
+                    if (lits is not { Length: 8 }) return false;
+                    for (var l = 0; l < 4; ++l)
+                    {
+                        if (lits[4 + l] == "-1") break;
+                        if (1 + l >= call.Args.Count) return false;
+                        descs.Add(lits[l]);
+                        fams.Add(lits[4 + l]);
+                        selectors.Add(call.Args[1 + l]);
+                    }
+                    return fams.Count >= 2;
+                }
+                if (name is "il2cpp::il2cpp_linq_then_by_key_val_i4"
+                    or "il2cpp::il2cpp_linq_then_by_key_val_i8")
+                {
+                    var lits = call.Resolved!.AppendLiterals;
+                    if (lits is not { Length: 4 } || call.Args.Count != 3) return false;
+                    descs.Add(lits[0]);
+                    descs.Add(lits[1]);
+                    fams.Add(lits[2]);
+                    fams.Add(lits[3]);
+                    selectors.Add(call.Args[1]);
+                    selectors.Add(call.Args[2]);
+                    return true;
+                }
+                return false;
+            }
+            // The SOURCE family of a chainable composite: only the numeric
+            // int32[] / int64[] element families have a chain kernel.
+            static string? ChainSourceSuffix(CallExpr call)
+            {
+                var name = call.Resolved?.CppName;
+                if (name == null) return null;
+                if (name.EndsWith("then_by_chain_i8", StringComparison.Ordinal)) return "i8";
+                if (name.EndsWith("then_by_chain_i4", StringComparison.Ordinal)) return "i4";
+                if (name.EndsWith("then_by_key_val_i8", StringComparison.Ordinal)) return "i8";
+                if (name.EndsWith("then_by_key_val_i4", StringComparison.Ordinal)) return "i4";
+                return null;
+            }
+            // b5-gaps §44: CHAINED ThenBy, depth >= 3 --
+            // OrderBy(k1).ThenBy(k2).ThenBy(k3)[.ThenBy(k4)]. net48 builds an
+            // EnumerableSorter CHAIN: the key phase runs LEVEL BY LEVEL in
+            // chain order (measured "1"*n "2"*n "3"*n, probe in
+            // .opencode/tmp/thenby3) and the comparison walks the levels in
+            // tuple order. A third ThenBy is therefore not unimplementable --
+            // it is the same tuple with one more column. This fold EXTENDS the
+            // already-fused two-key composite (or an earlier chain) into ONE
+            // il2cpp_linq_then_by_chain_i4/_i8 call so every selector is still
+            // invoked exactly once.
+            if (resolved != null &&
+                (resolved.CppName == ResolvedMethod.ThenByCombineMarker ||
+                 resolved.CppName == ResolvedMethod.ThenByDescCombineMarker)
+                && args.Count == 2 && args[0] is LocExpr chainRecv
+                && chainRecv.Name.Length != 0)
+            {
+                // Follow pure temp-to-temp copies back to the producing
+                // assignment (the csc shape for a chained extension call).
+                int chainIndex = -1;
+                var chase = chainRecv.Name;
+                for (var si = stmts.Count - 1; si >= 0; --si)
+                {
+                    if (stmts[si] is not AssignStmt cand || cand.Target != chase) continue;
+                    if (cand.Value is CallExpr candChain && ChainLevelsOf(candChain, out _, out _, out _)
+                        && ChainSourceSuffix(candChain) != null)
+                    {
+                        chainIndex = si;
+                        break;
+                    }
+                    if (cand.Value is LocExpr copyFrom && IsTempName(copyFrom.Name))
+                    {
+                        chase = copyFrom.Name;
+                        continue;
+                    }
+                    break;
+                }
+                if (chainIndex >= 0)
+                {
+                    var chainAssign = (AssignStmt)stmts[chainIndex];
+                    var prevChain = (CallExpr)chainAssign.Value;
+                    var suffix = ChainSourceSuffix(prevChain)!;
+                    ChainLevelsOf(prevChain, out var priorDescs, out var priorFams, out var priorSels);
+                    if (priorFams.Count >= 4)
+                    {
+                        throw new NotSupportedException(
+                            "Enumerable.ThenBy: a ThenBy chain deeper than four levels " +
+                            "(OrderBy + three ThenBy) is not wired; the fused chain kernel takes " +
+                            "four keys (b5-gaps §44)");
+                    }
+                    var newFamily = resolved.AppendLiterals is { Length: >= 1 } chainLit
+                        ? chainLit[0] : "0";
+                    if (newFamily is not ("0" or "1" or "2" or "3"))
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.ThenBy receiver '{chainRecv.Name}' marker carries no numeric " +
+                            "secondary key family literal; a chained composite must know every key family " +
+                            "to pick the right key readers (b5-gaps §44)");
+                    }
+                    var newDesc = resolved.CppName == ResolvedMethod.ThenByDescCombineMarker ? "1" : "0";
+                    priorDescs.Add(newDesc);
+                    priorFams.Add(newFamily);
+                    priorSels.Add(args[1]);
+                    // Pad every level list to the kernel's fixed four slots: an
+                    // unused level is direction 0, family -1 and a null
+                    // selector (the runtime terminates the chain at -1).
+                    while (priorFams.Count < 4)
+                    {
+                        priorDescs.Add("0");
+                        priorFams.Add("-1");
+                        priorSels.Add(new NullExpr());
+                    }
+                    var chainCall = new CallExpr
+                    {
+                        Function = $"call_{ins.Operand}",
+                        ReturnsRef = true,
+                        ResultKind = null,
+                        IsPInvoke = false,
+                        SetLastError = false,
+                        Resolved = new ResolvedMethod(
+                            suffix == "i8"
+                                ? "il2cpp::il2cpp_linq_then_by_chain_i8"
+                                : "il2cpp::il2cpp_linq_then_by_chain_i4",
+                            5, false, true, true, new[] { false, false, false, false, false },
+                            false,
+                            ParamTypeNames: new[] { "a", "", "", "", "" },
+                            // The eight trailing literals are the four per-level
+                            // directions then the four per-level key families;
+                            // an unused level is family -1 with a null selector.
+                            AppendLiterals: new[]
+                            {
+                                priorDescs[0], priorDescs[1], priorDescs[2], priorDescs[3],
+                                priorFams[0], priorFams[1], priorFams[2], priorFams[3],
+                            },
+                            ReturnTypeName: suffix == "i8" ? "System.Int64[]" : "System.Int32[]"),
+                    };
+                    chainCall.Args.Add(prevChain.Args[0]);
+                    for (var l = 0; l < 4; ++l)
+                    {
+                        chainCall.Args.Add(l < priorSels.Count ? priorSels[l] : new NullExpr());
+                    }
+                    stmts.RemoveAt(chainIndex);
+                    stmts.Add(new AssignStmt
+                    {
+                        Target = chainAssign.Target,
+                        Value = chainCall,
+                        SourceOffset = ins.Offset,
+                        SourceOpName = OpName(ins.OpCode),
+                    });
+                    if (chainRecv.Name != chainAssign.Target)
+                    {
+                        stmts.Add(new AssignStmt
+                        {
+                            Target = chainRecv.Name,
+                            Value = new LocExpr { Name = chainAssign.Target },
+                            SourceOffset = ins.Offset,
+                            SourceOpName = OpName(ins.OpCode),
+                        });
+                    }
+                    Push(chainRecv, ins);
+                    return;
+                }
+            }
             // D-LO2-1 (linqorder2): Enumerable.ThenBy / ThenByDescending --
             // the CHAINED-SORTER marker (ResolvedMethod.ThenByCombineMarker /
             // ThenByDescCombineMarker). OrderBy(k1).ThenBy(k2) is a FUSED

@@ -4187,3 +4187,96 @@ Existing generic/byref cases re-verified byte-identical: `swapcase`,
   a genuine type error in the source).
 * Reference-typed fields with the shared byref bridge were already fine and
   stay zero-copy; only value slots needed boxing.
+## 44. Chained `ThenBy` deeper than two keys (IMPLEMENTED for the numeric sources)
+
+`StackFold` rejected every `ThenBy` whose receiver did not name a single
+`OrderBy(keySelector)` assignment:
+
+```
+Enumerable.ThenBy receiver 't8' does not name an OrderBy(keySelector) assignment
+(OrderBy(k1).ThenBy(k2) -- D-LO2-1 stage-1 surface); deeper ThenBy chains and
+non-OrderBy receivers have no fused-composite runtime entry
+```
+
+so `OrderBy(k1).ThenBy(k2).ThenBy(k3)` dropped the WHOLE enclosing method to a
+NOT TRANSPILED stub. The stated reason ("no fused-composite runtime entry") was
+true but not a fundamental obstacle: net48 builds an `EnumerableSorter` CHAIN,
+and a chain is the same tuple with one more column.
+
+### Measured net48 contract (`.opencode/tmp/thenby3/probe.cs`)
+
+A selector-logging probe over five elements produced
+
+| chain | log |
+|---|---|
+| `OrderBy(k1).ThenBy(k2)` | `1111122222` |
+| `OrderBy(k1).ThenBy(k2).ThenBy(k3)` | `111112222233333` |
+| `OrderBy(k1).ThenBy(k2).ThenBy(k3).ThenBy(k4)` | `11111222223333311111222223333344444` |
+
+Two facts follow, and both are load-bearing:
+
+1. the key phase runs **level by level in chain order** -- every element gets
+   k1, then every element gets k2, ... (the `EnumerableSorter.Enumerable`
+   recursion);
+2. each selector is invoked **exactly once per element**, at every depth.
+
+Comparison then walks the levels in tuple order with the per-level direction,
+and stability falls out of the stable merge (full ties keep source order).
+
+### Implementation
+
+* `src/runtime/src/linq_sort.cpp` -- `SortLkChainCopyT` (one kernel for both
+  numeric source families): snapshot the elements, cache every key level level
+  by level, stable-sort native INDICES by the key tuple, materialize a fresh
+  array of the SOURCE family. `LkChainKey` keeps family 0/1 (int32/int64) in
+  `int64_t` and family 2/3 (double/float) in `double`; the family also selects
+  the READER, so a float key never goes through the double reader (b5-gaps
+  §14). `ReadLkChainKeyI4` / `ReadLkChainKeyI8` are the per-source readers.
+  `LkChainLevelCount` terminates the chain at family `-1` and rejects an
+  out-of-range family LOUDLY.
+* `src/runtime/include/internal/linq_sort.h` -- `il2cpp_linq_then_by_chain_i4`
+  / `_i8`, fixed four key slots plus the two literal tables (descs[4], fams[4]).
+* `src/il2cppc/Ir/StackFold.cs` -- `ChainLevelsOf` reads the already-fused key
+  list out of a composite call (`then_by_key_val_i4/_i8` or an earlier
+  `then_by_chain_i4/_i8`), `ChainSourceSuffix` gates the source family, and the
+  new chain arm EXTENDS the composite by one level, padding unused slots with
+  family `-1` and a null selector. The receiver-temp chase (temp-to-temp
+  copies) is the same one the two-key arm already used.
+
+### Evidence
+
+`tests/cases/thenby3` -- 12 records over a shuffled multiset: three ascending
+keys, three independent direction combinations, FOUR keys, a mixed family
+chain (int32 -> int64 -> double), a full-tie stability probe, an
+exactly-once call counter for all three selectors, empty/single inputs, and an
+int64[] source. Oracle and runtime both **585B, sha
+`2ead03727284cac6775701c5b0a6270ec98ac8bf8a6bcfe8e442b2deb23db220`**, diff=0.
+
+Existing ThenBy/LINQ cases re-verified byte-identical: `linqorder2` (779B),
+`thenbyfamprobe` (5283B), `thenbydescprobe` (1550B), `p0linq4` (689B),
+`collation1` (1356B), `thenby-decfkey` (537B), `thenby-floatprobe` (733B),
+`probe-vtsel` (605B), `zmatrix` (3B), `loud-p0-12-orderby` (411B).
+
+### Mutation coverage (each turns `thenby3` RED, restored GREEN)
+
+1. Ignore the per-level direction (`return c;`): same 585B length, different
+   sha, `firstDiff=87` -- a SILENT wrong order.
+2. Compare the levels in REVERSE (`l = nkeys-1 .. 0`): 585B, different sha,
+   `firstDiff=6` -- also a SILENT wrong order.
+3. Map the int64 source to the int32 chain entry in `ChainSourceSuffix`:
+   runtime throws "Only one-dimensional value-element arrays of the expected
+   stride" and emits 550B (the last record is lost).
+
+Mutation 1 first went GREEN when applied to the pre-fix tree because the
+runtime edit had been reverted before the mutation landed -- the lesson is in
+`discover.md`: verify the mutated file still contains the feature under test
+before trusting a green mutation.
+
+### Not covered (remains LOUD, documented rather than guessed)
+
+* a chain deeper than four levels (OrderBy + three ThenBy);
+* the decimal / value-struct (`DateTime`/`TimeSpan`/`Guid`/`DateTimeOffset`) /
+  reference (`string`/`object`) / `List<T>` source families -- they still use
+  the two-key composites, so a THIRD ThenBy over them rejects;
+* the `ThenBy` family literals for those sources (0..7 / 4..5 codes) are not
+  translated into `LkChainKey` slots.

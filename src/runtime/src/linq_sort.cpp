@@ -1235,7 +1235,183 @@ Il2CppArray* SortInt64TwoKeysCopy(Il2CppArray* src, Il2CppDelegate* k1Sel,
     return il2cpp_array_new_typed(sizeof(int64_t), kElemKindI8, 0);
 }
 
+namespace {
+
+// One cached key cell. Family 0/1 (int32/int64) land in 'i'; family 2/3
+// (double/float -- a float widens EXACTLY) land in 'd'. The family selects the
+// READER, not just the comparison: a float key must never be read through the
+// double reader (b5-gaps §14).
+struct LkChainKey
+{
+    int64_t i;
+    double d;
+};
+
+int32_t CmpLkChainKey(const LkChainKey& a, const LkChainKey& b, int32_t fam)
+{
+    // An int32 key and an int64 key compare identically once widened to
+    // int64_t (the reader already sign-extends the int32 value).
+    return fam <= 1 ? CmpKeyValue<int64_t>(a.i, b.i) : CmpKeyValue<double>(a.d, b.d);
+}
+
+void ReadLkChainKeyI4(int32_t elem, int32_t fam, Il2CppDelegate* d, LkChainKey& out)
+{
+    switch (fam)
+    {
+    case 0: out.i = static_cast<int64_t>(InvokeKeyI4(d, elem)); break;
+    case 1: out.i = InvokeKeyI4I8(d, elem); break;
+    case 2: out.d = InvokeKeyI4D(d, elem); break;
+    default: out.d = static_cast<double>(InvokeKeyI4F(d, elem)); break;
+    }
+}
+
+void ReadLkChainKeyI8(int64_t elem, int32_t fam, Il2CppDelegate* d, LkChainKey& out)
+{
+    switch (fam)
+    {
+    case 0: out.i = static_cast<int64_t>(InvokeKeyI8SrcI4(d, elem)); break;
+    case 1: out.i = InvokeKeyI8SrcI8(d, elem); break;
+    case 2: out.d = InvokeKeyI8SrcD(d, elem); break;
+    default: out.d = static_cast<double>(InvokeKeyI8SrcF(d, elem)); break;
+    }
+}
+
+// The shared chain kernel: snapshot the elements, cache every key level LEVEL
+// BY LEVEL (the measured net48 order), stable-sort native INDICES by the key
+// tuple, then materialize a NEW array of the source family. GC: the element
+// snapshot precedes ANY selector call, every selector is rooted for the whole
+// key phase, and the result is allocated after the last selector call.
+template <typename TElem, typename ReadKey>
+Il2CppArray* SortLkChainCopyT(Il2CppArray* src, int32_t nkeys, Il2CppDelegate** sels,
+                              const int32_t* descs, const int32_t* fams, ReadKey readKey,
+                              int32_t elemSize, int32_t elemKind)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        roots.Add(reinterpret_cast<void**>(&sels[l]));
+    }
+
+    if (n <= 0)
+    {
+        return il2cpp_array_new_typed(elemSize, elemKind, 0);
+    }
+
+    std::vector<TElem> elems(static_cast<size_t>(n));
+    std::memcpy(elems.data(), src->data, static_cast<size_t>(n) * sizeof(TElem));
+
+    std::vector<LkChainKey> keys(static_cast<size_t>(n) * static_cast<size_t>(nkeys));
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        LkChainKey* level = keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            readKey(elems[i], fams[l], sels[l], level[i]);
+        }
+    }
+
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        order[i] = i;
+    }
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        for (int32_t l = 0; l < nkeys; ++l)
+                        {
+                            const LkChainKey* level =
+                                keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+                            const int32_t c = CmpLkChainKey(level[a], level[b], fams[l]);
+                            if (c != 0)
+                            {
+                                return descs[l] != 0 ? -c : c;
+                            }
+                        }
+                        return 0;
+                    });
+
+    Il2CppArray* result = il2cpp_array_new_typed(elemSize, elemKind, n);
+    TElem* out = reinterpret_cast<TElem*>(result->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        out[i] = elems[order[i]];
+    }
+    return result;
+}
+
+// Validate the slot table and return the number of ACTIVE levels (a family of
+// -1 terminates the chain). An out-of-range family is a LOUD rejection.
+int32_t LkChainLevelCount(const int32_t* fams, int32_t maxLevels)
+{
+    int32_t used = 0;
+    for (int32_t l = 0; l < maxLevels; ++l)
+    {
+        if (fams[l] < 0)
+        {
+            break;
+        }
+        if (fams[l] > 3)
+        {
+            il2cpp_throw_not_supported_exception(
+                "Chained ThenBy: only the numeric key families (int32/int64/double/float) are wired.");
+        }
+        ++used;
+    }
+    return used;
+}
+
 } // namespace
+
+} // namespace
+
+// The chained-composite entries (see the header). One per SOURCE family; the
+// key families ride the trailing literal table exactly like the two-key
+// composites. An unused level is family -1 with a nullptr selector.
+Il2CppArray* il2cpp_linq_then_by_chain_i4(Il2CppArray* src,
+                                          Il2CppObject* k1, Il2CppObject* k2,
+                                          Il2CppObject* k3, Il2CppObject* k4,
+                                          int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    int32_t fams[4] = { f1, f2, f3, f4 };
+    const int32_t nkeys = LkChainLevelCount(fams, 4);
+    Il2CppObject* raw[4] = { k1, k2, k3, k4 };
+    Il2CppDelegate* sels[4] = { nullptr, nullptr, nullptr, nullptr };
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        sels[l] = RequireKeySelector(raw[l]);
+    }
+    const int32_t descs[4] = { d1, d2, d3, d4 };
+    return SortLkChainCopyT<int32_t>(s, nkeys, sels, descs, fams, ReadLkChainKeyI4,
+                                     static_cast<int32_t>(sizeof(int32_t)), kElemKindI4);
+}
+
+Il2CppArray* il2cpp_linq_then_by_chain_i8(Il2CppArray* src,
+                                          Il2CppObject* k1, Il2CppObject* k2,
+                                          Il2CppObject* k3, Il2CppObject* k4,
+                                          int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    int32_t fams[4] = { f1, f2, f3, f4 };
+    const int32_t nkeys = LkChainLevelCount(fams, 4);
+    Il2CppObject* raw[4] = { k1, k2, k3, k4 };
+    Il2CppDelegate* sels[4] = { nullptr, nullptr, nullptr, nullptr };
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        sels[l] = RequireKeySelector(raw[l]);
+    }
+    const int32_t descs[4] = { d1, d2, d3, d4 };
+    return SortLkChainCopyT<int64_t>(s, nkeys, sels, descs, fams, ReadLkChainKeyI8,
+                                     static_cast<int32_t>(sizeof(int64_t)), kElemKindI8);
+}
 
 //------------------------------------------------------------------------------
 // il2cpp_linq_order_by_i4 -- OrderBy over int32 arrays (see header).
@@ -3149,9 +3325,3 @@ Il2CppArray* il2cpp_linq_then_by_key_vt(Il2CppArray* src, Il2CppObject* k1Sel,
 }
 
 } // namespace il2cpp
-
-
-
-
-
-

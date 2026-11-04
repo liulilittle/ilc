@@ -423,4 +423,33 @@ Il2CppArray* il2cpp_linq_then_by_key_val_i8(Il2CppArray* src, Il2CppObject* k1Se
                                             int32_t k2desc, int32_t k1fam,
                                             int32_t k2fam);
 
+//------------------------------------------------------------------------------
+// Chained ThenBy, depth >= 3 (b5-gaps §44): OrderBy(k1).ThenBy(k2).ThenBy(k3)
+// [.ThenBy(k4)] over an int32[] / int64[] source. net48 builds an
+// EnumerableSorter CHAIN whose key phase runs LEVEL BY LEVEL in chain order
+// (every selector exactly once per element) and whose comparison walks the
+// levels in tuple order -- measured, see the implementation notes.
+//
+// Both entries take up to FOUR key selectors plus two parallel literal tables:
+//   descs[4]  per-level direction (0 ascending, 1 descending)
+//   fams[4]   per-level key family (0=int32, 1=int64, 2=double, 3=float);
+//             -1 TERMINATES the chain (the remaining slots are unused, their
+//             selector argument must be nullptr). A family outside 0..3 is a
+//             LOUD rejection, never a guessed reader.
+// The result is a fresh array of the SOURCE family (int32[] / int64[]), stable
+// on full key ties, source never written, every selector invoked exactly once.
+// A chain longer than four levels, a non-numeric key family and the
+// decimal / value-struct / reference source families are not wired yet.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_then_by_chain_i4(Il2CppArray* src,
+                                          Il2CppObject* k1, Il2CppObject* k2,
+                                          Il2CppObject* k3, Il2CppObject* k4,
+                                          int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4);
+Il2CppArray* il2cpp_linq_then_by_chain_i8(Il2CppArray* src,
+                                          Il2CppObject* k1, Il2CppObject* k2,
+                                          Il2CppObject* k3, Il2CppObject* k4,
+                                          int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4);
+
 } // namespace il2cpp
