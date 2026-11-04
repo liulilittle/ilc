@@ -2317,6 +2317,7 @@ public static class CodeGenerator
             case CallStmt cs: foreach (var a in cs.Args) Walk(a); break;
             case ExprStmt es: Walk(es.Value); break;
             case RetStmt r when r.Value != null: Walk(r.Value); break;
+            case FilterReturnStmt fr: Walk(fr.Value); break;
             case BranchStmt b when b.Condition != null: Walk(b.Condition); break;
             case FieldAssignStmt f: Walk(f.Object); Walk(f.Value); break;
         }
@@ -2396,13 +2397,23 @@ public static class CodeGenerator
             {
                 var h = -1;
                 var t = -1;
+                var f = -1;
                 for (var r = 0; r < bodyInfo.ExceptionRegions.Count; r++)
                 {
                     var rg = bodyInfo.ExceptionRegions[r];
                     if (off >= rg.HandlerOffset && off < rg.HandlerOffset + rg.HandlerLength) h = r;
+                    // A FILTER block is a region of its own: the dispatcher
+                    // enters it (the previous statement never falls through into
+                    // it), so reachability must restart there. Without this the
+                    // statements between the try's terminator and the handler
+                    // were marked dead, their temps were never declared, and the
+                    // generated C++ failed to compile ("tN was not declared").
+                    else if (rg.Kind == ExceptionRegionKind.Filter
+                             && off >= rg.FilterOffset && off < rg.HandlerOffset) f = r;
                     else if (off >= rg.TryOffset && off < rg.TryOffset + rg.TryLength) t = r;
                 }
                 if (h >= 0) return 1_000_000 + h;
+                if (f >= 0) return 3_000_000 + f;
                 if (t >= 0) return 2_000_000 + t;
                 return 0;
             }
@@ -2938,6 +2949,7 @@ public static class CodeGenerator
                     case CallStmt vc: foreach (var a in vc.Args) CollectPinvokeOutTargets(a); break;
                     case ExprStmt es: CollectPinvokeOutTargets(es.Value); break;
                     case RetStmt r when r.Value != null: CollectPinvokeOutTargets(r.Value); break;
+                    case FilterReturnStmt fr: CollectPinvokeOutTargets(fr.Value); break;
                     case BranchStmt b when b.Condition != null: CollectPinvokeOutTargets(b.Condition); break;
                     case FieldAssignStmt f: CollectPinvokeOutTargets(f.Object); CollectPinvokeOutTargets(f.Value); break;
                 }
@@ -3613,6 +3625,7 @@ public static class CodeGenerator
                 case CallStmt vc: foreach (var a in vc.Args) CollectAddrTaken(a); break;
                 case ExprStmt es: CollectAddrTaken(es.Value); break;
                 case RetStmt r when r.Value != null: CollectAddrTaken(r.Value); break;
+                case FilterReturnStmt fr: CollectAddrTaken(fr.Value); break;
                 case BranchStmt b when b.Condition != null: CollectAddrTaken(b.Condition); break;
                 case FieldAssignStmt f: CollectAddrTaken(f.Object); CollectAddrTaken(f.Value); break;
             }
@@ -3821,6 +3834,24 @@ public static class CodeGenerator
                 .ToList();
         }
 
+        // FILTER clauses (`catch (E e) when (cond)` -- C# emits these as an IL
+        // filter block + handler). The filter block is a BOOLEAN EXPRESSION the
+        // dispatch evaluates before selecting a handler, so its statements must
+        // NOT run in the normal flow -- they are folded into the generated
+        // dispatch guard as an immediately-invoked lambda. MEASURED on net48
+        // (.opencode/tmp/ehfilter): filters run in clause order, a false result
+        // falls through to the NEXT clause of the same try, and locals assigned
+        // inside a filter keep their values in the handler.
+        var filterRegions = regions.Where(r => r.Kind == ExceptionRegionKind.Filter).ToList();
+        var filterBlockStmts = new Dictionary<int, List<Stmt>>();
+        foreach (var fr in filterRegions)
+        {
+            filterBlockStmts[fr.FilterOffset] = stmts
+                .Where(s => s.SourceOffset >= fr.FilterOffset
+                         && s.SourceOffset < fr.HandlerOffset)
+                .ToList();
+        }
+
         // M6 sibling-catch dispatch fix (exdeep f18): catch clauses sharing
         // ONE try range (same TryOffset/TryLength) must dispatch through a
         // SINGLE C++ catch + if/else-if chain. C++ semantics (verified on the
@@ -3834,14 +3865,21 @@ public static class CodeGenerator
         // range with >= 2 catch clauses; openChains tracks which chains have
         // their single catch currently open (sibling bodies open/close on the
         // block stack WITHOUT closing the chain).
+        // A clause of one try is a Catch OR a Filter region -- `catch (E e)
+        // when (...)` contributes a FILTER clause that shares the try range with
+        // its sibling catches, and dispatch order is table order across BOTH
+        // kinds. Without filters here each clause would open its OWN C++ try
+        // (the "catch with no try" build failure) and a rejected filter could
+        // never fall through to the next clause.
+        bool IsClause(int k) => regions[k].Kind is ExceptionRegionKind.Catch or ExceptionRegionKind.Filter;
         var catchChain = new Dictionary<int, List<int>>();
         for (var i = 0; i < regions.Count; i++)
         {
-            if (regions[i].Kind != ExceptionRegionKind.Catch || catchChain.ContainsKey(i)) continue;
+            if (!IsClause(i) || catchChain.ContainsKey(i)) continue;
             var siblings = new List<int>();
             for (var j = 0; j < regions.Count; j++)
             {
-                if (regions[j].Kind == ExceptionRegionKind.Catch
+                if (IsClause(j)
                     && regions[j].TryOffset == regions[i].TryOffset
                     && regions[j].TryLength == regions[i].TryLength)
                     siblings.Add(j);
@@ -3928,7 +3966,9 @@ public static class CodeGenerator
                 // try still open on the stack).
                 w.Close();
                 w.Line("}"); // close the try block before its catch
-                OpenCatch(w, md, closedRegion);
+                OpenCatch(w, md, closedRegion,
+                    filterBlockStmts.TryGetValue(closedRegion.FilterOffset, out var hf) ? hf : null,
+                    types, branchTargets, locKind);
                 blocks.Add(('H', r));
             }
             else if (closedRegion.Kind == ExceptionRegionKind.Finally)
@@ -3959,7 +3999,7 @@ public static class CodeGenerator
                 w.Line("throw; // rethrow the original exception (finally semantics)");
                 blocks.Add(('H', r));
             }
-            else if (closedRegion.Kind == ExceptionRegionKind.Catch
+            else if (closedRegion.Kind is ExceptionRegionKind.Catch or ExceptionRegionKind.Filter
                      && !stmts.Any(s => s.SourceOffset >= closedRegion.HandlerOffset
                                      && s.SourceOffset < closedRegion.HandlerOffset + closedRegion.HandlerLength))
             {
@@ -3967,10 +4007,18 @@ public static class CodeGenerator
                 // land in the handler, so the wrapper never opened -- a
                 // bare `try { }` is a C++ syntax error. Emit the empty
                 // catch clause (the type check still dispatches correctly
-                // in a multi-catch chain).
+                // in a multi-catch chain). A FILTER clause still evaluates its
+                // filter before the (empty) handler.
                 w.Close();
                 w.Line("}"); // close the try block
-                OpenCatch(w, md, closedRegion);
+                OpenCatch(w, md, closedRegion,
+                    filterBlockStmts.TryGetValue(closedRegion.FilterOffset, out var emptyF) ? emptyF : null,
+                    types, branchTargets, locKind);
+                if (closedRegion.Kind == ExceptionRegionKind.Filter)
+                {
+                    w.Close();
+                    w.Line("} else { throw; } // filter rejected: rethrow (empty handler)");
+                }
                 w.Close();
                 w.Line("} // end catch handler (empty handler)");
             }
@@ -3981,17 +4029,51 @@ public static class CodeGenerator
             }
         }
 
-        // Chain guard line for catch clause `s`: `if (<matches>) {` for the
-        // first clause, `} else if (<matches>) {` for later ones (the leading
-        // `}` closes the previous clause body); a catch-all clause (token 0,
-        // .NET requires it LAST) becomes the final `} else {`.
-        string ChainGuardLine(int s, bool first)
+        // Chain guard for catch clause `s`: `if (<matches>) {` for the first
+        // clause, `} else if (<matches>) {` for later ones (the leading `}`
+        // closes the previous clause body); a catch-all clause (Kind=Catch with
+        // token 0, .NET requires it LAST) becomes the final `} else {`.
+        //
+        // A FILTER clause's guard is its whole filter body, evaluated as an
+        // immediately-invoked boolean lambda. `catch (E e) when (cond)` must
+        // evaluate cond BEFORE choosing a handler, and a false result must fall
+        // through to the NEXT clause of the same try -- a C++ `throw;` cannot
+        // reach a sibling clause (see the catchChain note above), so the filter
+        // becomes part of the if/else-if chain instead of a rethrow.
+        void EmitChainGuard(int s, bool first)
         {
             var reg = regions[s];
+            if (reg.Kind == ExceptionRegionKind.Filter)
+            {
+                // MEASURED (net48, .opencode/tmp/ehfilter, case F6): an exception
+                // THROWN BY A FILTER is discarded and the filter behaves as if it
+                // returned false -- the search continues with the next clause and
+                // then the enclosing handlers, still carrying the ORIGINAL
+                // exception (the oracle prints the original message in the outer
+                // catch). Hence the inner catch that maps any managed exception
+                // from the filter body to `false`.
+                w.Line(first ? "if ([&]() -> bool {" : "} else if ([&]() -> bool {");
+                w.Open();
+                w.Line("bool __il2cpp_filter_result = false;");
+                w.Line("try {");
+                w.Open();
+                if (filterBlockStmts.TryGetValue(reg.FilterOffset, out var fstmts))
+                    foreach (var fs in fstmts)
+                        EmitStmt(w, fs, md, types, branchTargets, locKind);
+                w.Close();
+                w.Line("} catch (il2cpp::DotNetException&) { __il2cpp_filter_result = false; } // a filter that throws behaves as FALSE (net48)");
+                w.Line("return __il2cpp_filter_result;");
+                w.Close();
+                w.Line("}()) {");
+                return;
+            }
             if (reg.CatchTypeToken == 0)
-                return first ? "if (true) {" : "} else {";
+            {
+                w.Line(first ? "if (true) {" : "} else {");
+                return;
+            }
             var cond = $"il2cpp::il2cpp_exception_matches(\"{TypeTokenFullName(md, reg.CatchTypeToken)}\", __il2cpp_ex.type_name())";
-            return first ? $"if ({cond}) {{" : $"}} else if ({cond}) {{";
+            w.Line(first ? $"if ({cond}) {{" : $"}} else if ({cond}) {{");
         }
 
         // Open the single catch + the dispatch skeleton up to `arriving`
@@ -4012,7 +4094,7 @@ public static class CodeGenerator
             foreach (var s in chain)
             {
                 if (!first) w.Close(); // the previous (empty) clause body ends
-                w.Line(ChainGuardLine(s, first));
+                EmitChainGuard(s, first);
                 w.Open();
                 if (s == arriving) break;
                 first = false;
@@ -4025,7 +4107,7 @@ public static class CodeGenerator
         void ContinueChainCatch(int next)
         {
             w.Close(); // the previous clause body ends
-            w.Line(ChainGuardLine(next, first: false));
+            EmitChainGuard(next, first: false);
             w.Open();
         }
 
@@ -4041,10 +4123,16 @@ public static class CodeGenerator
                 // Remaining siblings have empty bodies (a statement in one of
                 // them would have arrived before any later statement).
                 w.Close();
-                w.Line(ChainGuardLine(chain[i], first: false));
+                EmitChainGuard(chain[i], first: false);
                 w.Open();
             }
-            if (regions[chain[^1]].CatchTypeToken == 0)
+            // A FILTER clause carries no CatchType token either (its type test
+            // lives inside the filter body), so the catch-all test must ALSO
+            // require Kind=Catch -- otherwise a filter-terminated chain would
+            // drop the rethrow tail and a false filter would fall out of the
+            // catch block instead of propagating.
+            if (regions[chain[^1]].Kind == ExceptionRegionKind.Catch
+                && regions[chain[^1]].CatchTypeToken == 0)
             {
                 // The chain ends in a catch-all: its body WAS the final else
                 // (always matches) -- just close it, no rethrow tail.
@@ -4082,6 +4170,14 @@ public static class CodeGenerator
             // Skip finally-handler statements (they are emitted duplicated).
             if (finallyRegions.Any(fr => s.SourceOffset >= fr.HandlerOffset
                                        && s.SourceOffset < fr.HandlerOffset + fr.HandlerLength))
+            {
+                continue;
+            }
+
+            // Skip FILTER-block statements: they are emitted inside the
+            // dispatch guard (see filterBlockStmts), never in the normal flow.
+            if (filterRegions.Any(fr => s.SourceOffset >= fr.FilterOffset
+                                     && s.SourceOffset < fr.HandlerOffset))
             {
                 continue;
             }
@@ -4130,6 +4226,13 @@ public static class CodeGenerator
                         continue;
                     }
                     w.Close(); // end the catch block body
+                    if (regions[r].Kind == ExceptionRegionKind.Filter)
+                    {
+                        // Filter clause: the open guard `if (filter) {` needs its
+                        // false arm -- an unmatched filter must keep unwinding.
+                        w.Line("} else { throw; } // filter rejected: rethrow");
+                        w.Close();
+                    }
                     w.Line("} // end catch handler");
                     blocks.RemoveAt(blocks.Count - 1);
                 }
@@ -4184,7 +4287,9 @@ public static class CodeGenerator
                 }
                 else
                 {
-                    OpenCatch(w, md, regions[h]);
+                    OpenCatch(w, md, regions[h],
+                        filterBlockStmts.TryGetValue(regions[h].FilterOffset, out var pf) ? pf : null,
+                        types, branchTargets, locKind);
                 }
                 blocks.Add(('H', h));
             }
@@ -4323,13 +4428,43 @@ public static class CodeGenerator
     // remaining same-try clauses, so per-clause `catch` + guard-rethrow can
     // only ever reach the first clause (exdeep f18 root cause).
     //--------------------------------------------------------------------------
-    private static void OpenCatch(CppWriter w, MetadataReader md, IlExceptionRegion region)
+    private static void OpenCatch(CppWriter w, MetadataReader md, IlExceptionRegion region,
+        IReadOnlyList<Stmt>? filterStmts = null, IReadOnlyList<TypeDef>? types = null,
+        HashSet<string>? branchTargets = null, Dictionary<string, string>? locKind = null)
     {
         // The closing '}' of the PREVIOUS block (try or handler) is written
         // by the closer -- OpenCatch writes only the catch clause itself.
         w.Line("catch (il2cpp::DotNetException& __il2cpp_ex) {");
         w.Open();
-        if (region.Kind == ExceptionRegionKind.Finally)
+        if (region.Kind == ExceptionRegionKind.Filter)
+        {
+            // A FILTER clause (`catch (E e) when (cond)`): the filter body is a
+            // boolean expression evaluated BEFORE the handler runs. It becomes
+            // an immediately-invoked lambda opening a guard `if (filter) {`, so
+            // a false filter leaves the catch block through the closer's
+            // `} else { throw; }` tail (the exception keeps unwinding).
+            // MEASURED on net48 (.opencode/tmp/ehfilter): the filter runs first,
+            // sees the exception object, and locals it assigns stay visible in
+            // the handler.
+            w.Line("if ([&]() -> bool {");
+            w.Open();
+            w.Line("bool __il2cpp_filter_result = false;");
+            w.Line("try {");
+            w.Open();
+            if (filterStmts != null && types != null && branchTargets != null && locKind != null)
+                foreach (var fs in filterStmts)
+                    EmitStmt(w, fs, md, types, branchTargets, locKind);
+            w.Close();
+            // MEASURED (net48): a filter that throws is treated as FALSE -- the
+            // original exception keeps unwinding (see the chain-guard note).
+            w.Line("} catch (il2cpp::DotNetException&) { __il2cpp_filter_result = false; }");
+            w.Line("return __il2cpp_filter_result;");
+            w.Close();
+            w.Line("}()) {");
+            w.Open();
+            w.Line("// filter matched: run the handler");
+        }
+        else if (region.Kind == ExceptionRegionKind.Finally)
         {
             // finally region: the catch-all runs the finally code then
             // RETHROWS (the original exception continues unwinding -- .NET
@@ -4744,6 +4879,14 @@ public static class CodeGenerator
                 var faCode = $"{faTarget} = {faValue};";
                 w.LineAligned(faCode,
                     $"IL {At(fa.SourceOpName, fa.SourceOffset)} -- {(fa.IsValueTypeObject ? "store into value-type field" : "null-checked store into instance field")} {fa.OwnerFullName}.{fa.FieldCppName}");
+                break;
+            case FilterReturnStmt fr:
+                // endfilter: the filter's boolean result feeds the dispatch
+                // guard. The surrounding lambda declares __il2cpp_filter_result
+                // and returns it (see EmitChainGuard/OpenCatch), so this is a
+                // plain store into that local.
+                w.LineAligned($"__il2cpp_filter_result = static_cast<bool>({EmitExpr(fr.Value, md, types)});",
+                    $"IL {At(fr.SourceOpName, fr.SourceOffset)} -- endfilter: filter clause result");
                 break;
             case RetStmt r:
                 if (r.Value == null)

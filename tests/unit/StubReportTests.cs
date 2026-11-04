@@ -353,8 +353,9 @@ public class StubReportTests
     private static void ArglistBody(InstructionEncoder e)
     {
         // A body the fold still rejects LOUD. `arglist` IS supported now
-        // (varargs/ArgIterator landed), so the stub fixture uses the remaining
-        // filter-clause gap (VB-only IL; still no EH model).
+        // (varargs/ArgIterator landed) and FILTER clauses are supported too
+        // (catch-when), so the fixture uses the shape that is still invalid:
+        // endfilter OUTSIDE any filter block (ECMA-335 III.3.21).
         e.LoadConstantI4(0);
         e.OpCode(ILOpCode.Endfilter);
         e.OpCode(ILOpCode.Ret);

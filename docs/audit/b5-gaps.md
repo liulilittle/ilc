@@ -4018,3 +4018,97 @@ and reference-element arrays (`string[,]`, `object[,]`) still reach the
    first divergence at record 22, `diff=9`.
 3. `PinvokeArrayPrimitiveElemSize` gives `i2` a width of 4: `short[,]` aborts,
    runtime exit code 3, **18/23 records**, `diff=5`.
+## 42. Exception FILTER clauses (`catch (E e) when (cond)`) (IMPLEMENTED)
+
+`StackFold` rejected `endfilter` outright:
+
+```
+throw new NotSupportedException(
+    $"endfilter at offset 0x{ins.Offset:X4}: filter exception clauses have no EH model (VB-only IL; research + decision in the ilop2 report)");
+```
+
+The rationale in that comment -- "VB-only emission; C# never produces them" -- was **false**.
+C# has emitted filter clauses since C# 6 for `catch (Exception e) when (predicate)`.
+Any assembly using `catch when` had every containing method turned into a
+NOT TRANSPILED stub.
+
+### Measured net48 contract (oracle `.opencode/tmp/ehfilter`, case `ehfilter1`)
+
+* Clauses of one `try` dispatch in TABLE ORDER across both kinds: a filter
+  clause is followed by its own handler, then the next sibling clause.
+* A filter runs BEFORE its handler is selected; a FALSE filter continues with
+  the NEXT clause of the same try, then with the enclosing handlers.
+* The filter sees the exception object (the case binds it via
+  `isinst Exception; dup; brtrue; stloc`) and locals it assigns keep their
+  values inside the handler (the case prints the hit counter from the filter).
+* Every clause's filter is evaluated until one matches (case F5 prints both
+  filters' side effects in source order).
+* An exception THROWN BY A FILTER is discarded and the filter behaves as if it
+  returned FALSE; the ORIGINAL exception keeps unwinding (case F6: the outer
+  handler prints the original message, not the filter's).
+* `finally` inside the filtered try runs before the filter is evaluated
+  (case F3 order: `[f3.fin]=1` then `[f3.catch]=inner`).
+
+### Implementation
+
+* `Ir/Stmt.cs`: new `FilterReturnStmt` (the `endfilter` value) + serialize/clone
+  arms. Every statement/expression walker gained an arm, because a walker that
+  misses it treats the filter's value temp as dead: `Opt/DcePass` deleted the
+  store and the generated C++ referenced an undeclared `tN`;
+  `Opt/RootSlotPass`, `Opt/TempSlotPass`, `Opt/LicmPass`, `Opt/StringPoolPass`,
+  `Ir/RootClearPass`, `CodeGenerator`'s three walkers and `StackFold`'s
+  `CountUsesInStatement` / `NoOtherCallIn` / `StmtReferencesName` /
+  `ReplaceInStatement` were all extended.
+* `Ir/StackFold.cs`:
+  * `endfilter` pops the result into a `FilterReturnStmt`. It stays LOUD (with a
+    precise message) when the instruction is NOT inside a filter block --
+    `endfilter` is legal only as a filter's last instruction (ECMA-335
+    III.3.21), and `StubReportTests` relies on that shape for its stub fixture.
+  * `handlerStarts` and the catch-entry push treat `FilterOffset` as an entry
+    point; the filter ALWAYS receives the exception object on its stack (the
+    first instruction is usually `isinst`, which does not consume, so the
+    existing "first instruction consumes" test could not be used).
+  * `isinst T` over the exception entry now records the catch-carrier hint
+    (`"System.Type"`) for the result temp and through `ObjTypeOf`, so
+    `e.Message` inside a filter resolves like it does in a catch handler.
+* `Emit/CodeGenerator.cs`:
+  * the filter block's statements are collected per `FilterOffset` and are NOT
+    emitted in the normal flow;
+  * a filter clause's guard is its whole body as an immediately-invoked
+    `[&]() -> bool` lambda with an inner `try { ... } catch (DotNetException&)
+    { result = false; }` (the measured throw-in-filter rule);
+  * `catchChain` now includes FILTER clauses, so all clauses of one try share a
+    single C++ `catch` + if/else-if dispatch (without it each clause opened its
+    own `try`, which does not even compile);
+  * the catch-all tail test now requires `Kind == Catch`, since a filter clause
+    also carries token 0 but must still fall through to the rethrow tail;
+  * `RegionContext` (reachability) knows filter ranges, otherwise the filter
+    statements were marked dead and their temps were never declared.
+
+### Evidence
+
+`tests/cases/ehfilter1` -- 8 probes / 17 records covering clause order, filter
+side effects, locals shared between filter and handler, finally-before-filter,
+rejection into an enclosing try, and an exception thrown by a filter. Oracle
+and runtime both **207B, sha
+`c63ca4f7a99b4d88c925acad370f86c710dab119e66b0a53a48b0ed1adcf4c18`**, diff=0.
+
+Existing EH cases re-verified byte-identical: `ehbrk1`, `ehcat1`, `ehcnt1`,
+`ehnest1`, `ehok1`, `ehret1`, `ehret2`, `ehret3`, `ehwhl1`, `exceptions`,
+`exceptions2`, `exceptionchain2`, `exdeep`, `gc-suppress`, `gcexcept`,
+`winforms1`.
+
+### Mutation coverage (each turns `ehfilter1` RED, restored GREEN)
+
+1. Invert the `endfilter` value (`!(static_cast<bool>(...))`): 5/17 records,
+   `diff=17`, `[c1]` becomes `one`, `[f1.0]` returns 2.
+2. Make the filter's exception guard rethrow instead of treating it as false:
+   218B vs 207B, `diff=1`, `[f6.outer]` becomes `fromfilter:original`.
+3. Force the filter result to `1` (always true): 186B, `diff=10`,
+   `[f1.1]` returns 1, `[f4]` returns -1.
+
+### Not covered
+
+* A filter that inspects state a DIFFERENT frame's finally modified (the model
+  runs each method in its own C++ frame, so the order is the frame's own).
+* `Fault` clauses remain rejected (no exceptional-path-only cleanup model).

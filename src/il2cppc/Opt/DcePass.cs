@@ -139,6 +139,12 @@ public static class DcePass
             case RetStmt r when r.Value != null:
                 CollectNames(r.Value, reads);
                 break;
+            case FilterReturnStmt fr:
+                // endfilter READS its boolean result -- missing this arm made the
+                // temp look dead and the store was deleted (undeclared 	N in the
+                // generated filter lambda).
+                CollectNames(fr.Value, reads);
+                break;
             case BranchStmt b when b.Condition != null:
                 CollectNames(b.Condition, reads);
                 break;
@@ -207,6 +213,9 @@ public static class DcePass
                 break;
             case RetStmt r when r.Value != null:
                 CollectExpr(r.Value, pos, reads, addrTaken);
+                break;
+            case FilterReturnStmt fr:
+                CollectExpr(fr.Value, pos, reads, addrTaken);
                 break;
             case BranchStmt b when b.Condition != null:
                 CollectExpr(b.Condition, pos, reads, addrTaken);

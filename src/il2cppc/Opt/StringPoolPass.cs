@@ -114,6 +114,7 @@ public static class StringPoolPass
                 case AssignStmt a: WalkExpr(pool, a.Value); break;
                 case ExprStmt e: WalkExpr(pool, e.Value); break;
                 case RetStmt r: if (r.Value != null) WalkExpr(pool, r.Value); break;
+                case FilterReturnStmt fr: WalkExpr(pool, fr.Value); break;
                 case BranchStmt b: if (b.Condition != null) WalkExpr(pool, b.Condition); break;
                 case CallStmt c:
                     // excext (m7m): throw_ args are the managed exception

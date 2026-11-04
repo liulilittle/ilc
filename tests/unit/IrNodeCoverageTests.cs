@@ -83,6 +83,8 @@ public class IrNodeCoverageTests
         [nameof(ExprStmt)] = () => new ExprStmt { Value = Call("il2cpp::f", Loc("x")) },
         [nameof(BranchStmt)] = () => new BranchStmt { TargetLabel = "L_4", Condition = Loc("c") },
         [nameof(RetStmt)] = () => new RetStmt { Value = Loc("x") },
+        // endfilter: the exception FILTER clause result (`catch (E e) when ...`).
+        [nameof(FilterReturnStmt)] = () => new FilterReturnStmt { Value = Loc("f") },
         [nameof(CallStmt)] = () =>
         {
             var c = new CallStmt { Function = "call_0x06000007", Resolved = null };

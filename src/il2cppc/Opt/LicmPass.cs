@@ -264,6 +264,7 @@ public static class LicmPass
             case AssignStmt a: CollectLocNames(names, a.Value); break;
             case ExprStmt es: CollectLocNames(names, es.Value); break;
             case RetStmt r: if (r.Value != null) CollectLocNames(names, r.Value); break;
+            case FilterReturnStmt fr: CollectLocNames(names, fr.Value); break;
             case BranchStmt b: if (b.Condition != null) CollectLocNames(names, b.Condition); break;
             case CallStmt c: foreach (var a in c.Args) CollectLocNames(names, a); break;
             case FieldAssignStmt f: CollectLocNames(names, f.Object); CollectLocNames(names, f.Value); break;

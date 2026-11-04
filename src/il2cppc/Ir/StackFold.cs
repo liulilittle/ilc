@@ -313,7 +313,17 @@ public static class StackFold
         // these points can be entered via paths that bypass the assignment.
         var locConst = new Dictionary<string, long>();
         var propagatedLocs = new HashSet<string>();
-        var handlerStarts = ctx.ExceptionRegions?.Select(r => r.HandlerOffset).ToHashSet() ?? new HashSet<int>();
+        // Filter regions: their FILTER block (not just the handler) is an entry
+        // point too -- nothing falls through into it, and the exception object
+        // arrives on the stack there. Treat FilterOffset as a handler start so
+        // local constant propagation is reset at both entry points.
+        var handlerStarts = ctx.ExceptionRegions == null
+            ? new HashSet<int>()
+            : ctx.ExceptionRegions
+                .SelectMany(r => r.Kind == ExceptionRegionKind.Filter
+                    ? new[] { r.HandlerOffset, r.FilterOffset }
+                    : new[] { r.HandlerOffset })
+                .ToHashSet();
 
         // M5 wiring: .NET CATCH handlers begin with the exception object on
         // the stack. Push a synthetic entry (ExceptionEntryExpr -- the
@@ -326,11 +336,19 @@ public static class StackFold
         var catchEntryOffsets = new HashSet<int>();
         if (ctx.ExceptionRegions != null)
         {
-            foreach (var r in ctx.ExceptionRegions.Where(r => r.Kind == ExceptionRegionKind.Catch))
+            foreach (var r in ctx.ExceptionRegions.Where(r => r.Kind is ExceptionRegionKind.Catch or ExceptionRegionKind.Filter))
             {
                 var idx = il.FindIndex(i => i.Offset >= r.HandlerOffset && i.Offset < r.HandlerOffset + r.HandlerLength);
                 if (idx >= 0 && OpcodeConsumesStack(il[idx].OpCode))
                     catchEntryOffsets.Add(r.HandlerOffset);
+                // A FILTER block ALWAYS begins with the exception object on the
+                // stack (ECMA-335 II.16.4 / III.3.21). C# emits this shape for
+                // `catch (E e) when (...)`, and the first instruction there is
+                // commonly `isinst` -- which does NOT consume a stack value, so
+                // the generic "first instruction consumes" test would miss it
+                // (the fold then failed with "Stack empty"). Push unconditionally.
+                if (r.Kind == ExceptionRegionKind.Filter)
+                    catchEntryOffsets.Add(r.FilterOffset);
             }
         }
 
@@ -493,6 +511,7 @@ public static class StackFold
                     // GetType()/get_Name on it fold to identities.
                     if (stValue is ExceptionEntryExpr)
                         objTypes[stName] = "System.Type";
+
                     // tuple1 (ValueTuple): propagate the tracked tuple type
                     // through the store so a later ldloca+callvirt (ToString /
                     // GetHashCode / Equals) sees the receiver hint.
@@ -2319,13 +2338,38 @@ public static class StackFold
                     Push(new LocExpr { Name = "va_frame" }, ins);
                     break;
                 case ILOpCode.Endfilter:
-                    // endfilter (0xFE11, ECMA-335 III.3.21 -- end a filter
-                    // clause): pops the int32 filter result and transfers to the
-                    // matching catch. The transpiler models catch/finally but
-                    // not filter clauses (VB-only emission; C# never produces
-                    // them), so the fold stays LOUD.
-                    throw new NotSupportedException(
-                        $"endfilter at offset 0x{ins.Offset:X4}: filter exception clauses have no EH model (VB-only IL; research + decision in the ilop2 report)");
+                    // endfilter (0xFE11, ECMA-335 III.3.21): pops the int32
+                    // filter result and ends the filter clause. C# DOES emit
+                    // filter clauses -- `catch (E e) when (cond)` -- so the
+                    // result must feed the catch dispatch. (The earlier note
+                    // claiming "VB-only, C# never produces them" was wrong;
+                    // MEASURED on net48, .opencode/tmp/ehfilter.) The filter
+                    // body is terminal: nothing of its stack survives into the
+                    // handler, which starts from its own exception entry.
+                    {
+                        // ECMA-335 III.3.21: endfilter is legal ONLY inside a
+                        // filter block. Rejecting it anywhere else keeps the
+                        // "malformed IL" diagnostics honest (the old blanket
+                        // LOUD also caught this shape, which is why the stub
+                        // fixture in StubReportTests used it).
+                        var inFilterBlock = ctx.ExceptionRegions != null
+                            && ctx.ExceptionRegions.Any(r =>
+                                r.Kind == ExceptionRegionKind.Filter
+                                && ins.Offset >= r.FilterOffset && ins.Offset < r.HandlerOffset);
+                        if (!inFilterBlock)
+                            throw new NotSupportedException(
+                                $"endfilter at offset 0x{ins.Offset:X4}: not inside an exception FILTER block " +
+                                "(ECMA-335 III.3.21: endfilter is valid only as the last instruction of a filter clause)");
+                        var filterResult = stack.Count > 0 ? stack.Pop() : new IntConstExpr { Value = 0 };
+                        stack.Clear();
+                        stmts.Add(new FilterReturnStmt
+                        {
+                            Value = filterResult,
+                            SourceOffset = ins.Offset,
+                            SourceOpName = OpName(ins.OpCode),
+                        });
+                    }
+                    break;
                 case ILOpCode.Mkrefany:
                     // mkrefany <token> (0xC6, ECMA-335 III.4.22): pop the
                     // ADDRESS of the referenced storage and push the
@@ -2609,6 +2653,16 @@ public static class StackFold
                 if (rkTuple is { } rk3 && rk3.StartsWith("vt:", StringComparison.Ordinal)
                     && ValueTupleSupport.IsValueTupleName(rk3["vt:".Length..]))
                     objTypes[name] = rk3["vt:".Length..];
+                // FILTER clause (`catch (E e) when (...)`): csc binds the caught
+                // variable through `isinst T; dup; brtrue; stloc`, and the
+                // isinst result materializes into THIS temp before the store.
+                // Carry the catch-carrier hint ("System.Type" -- the model's
+                // exception-carrier convention) to the temp; without it the
+                // later `e.Message` callvirt resolves with no receiver and dies
+                // at the phantom-call guard.
+                if (e is CallExpr isq && isq.Args.Count == 1 && isq.Args[0] is ExceptionEntryExpr
+                    && isq.Function.StartsWith("isinst_", StringComparison.Ordinal))
+                    objTypes[name] = "System.Type";
                 // p-refl2-gapmatrix (B08): a folded typeof-chain GetMethod/
                 // GetField result materializes into this temp -- carry its
                 // member provenance so a downstream member flag predicate on
@@ -2699,6 +2753,17 @@ public static class StackFold
                 return vt;
             if (value is NullExpr nn && nn.TypeName != null)
                 return nn.TypeName;
+            // FILTER clause (`catch (E e) when (...)`): csc binds the caught
+            // variable through `isinst T` over the exception ENTRY, not through
+            // a direct entry store. The entry IS the model's exception carrier
+            // (tracked as "System.Type" -- the catch-variable convention), so
+            // the isinst result keeps that hint through every spill temp and the
+            // final stloc; without it `e.Message` inside a filter resolves with
+            // no receiver hint and dies at the phantom-call guard (MEASURED:
+            // the first ehfilter1 run failed exactly there).
+            if (value is CallExpr ii && ii.Args.Count == 1 && ii.Args[0] is ExceptionEntryExpr
+                && ii.Function.StartsWith("isinst_", StringComparison.Ordinal))
+                return "System.Type";
             if (value is ValueTypeNewExpr vn2)
                 return vn2.TypeFullName;
             if (value is CallExpr rc && rc.Resolved?.ResultKind is string rk)
@@ -10127,6 +10192,9 @@ public static class StackFold
                     case RetStmt r:
                         if (r.Value != null && ReferencesTarget(r.Value, name)) return true;
                         break;
+                    case FilterReturnStmt fr:
+                        if (ReferencesTarget(fr.Value, name)) return true;
+                        break;
                     case BranchStmt b:
                         if (b.Condition != null && ReferencesTarget(b.Condition, name)) return true;
                         break;
@@ -11315,6 +11383,7 @@ public static class StackFold
         AssignStmt a => CountUsesInExpr(a.Value, name),
         ExprStmt es => CountUsesInExpr(es.Value, name),
         RetStmt r => r.Value == null ? 0 : CountUsesInExpr(r.Value, name),
+        FilterReturnStmt fr => CountUsesInExpr(fr.Value, name),
         BranchStmt b => b.Condition == null ? 0 : CountUsesInExpr(b.Condition, name),
         CallStmt c => c.Args.Sum(x => CountUsesInExpr(x, name)),
         FieldAssignStmt f => CountUsesInExpr(f.Object, name) + CountUsesInExpr(f.Value, name),
@@ -11350,6 +11419,7 @@ public static class StackFold
         AssignStmt a => NoOtherCallInExpr(a.Value, temp),
         ExprStmt es => NoOtherCallInExpr(es.Value, temp),
         RetStmt r => r.Value == null || NoOtherCallInExpr(r.Value, temp),
+        FilterReturnStmt fr => NoOtherCallInExpr(fr.Value, temp),
         BranchStmt b => b.Condition == null || NoOtherCallInExpr(b.Condition, temp),
         CallStmt c => c.Args.All(x => NoOtherCallInExpr(x, temp)),
         FieldAssignStmt f => NoOtherCallInExpr(f.Object, temp) && NoOtherCallInExpr(f.Value, temp),
@@ -11388,6 +11458,12 @@ public static class StackFold
             Value = ReplaceExpr(r.Value!, temp, value),
             SourceOffset = r.SourceOffset,
             SourceOpName = r.SourceOpName,
+        },
+        FilterReturnStmt fr => new FilterReturnStmt
+        {
+            Value = ReplaceExpr(fr.Value, temp, value),
+            SourceOffset = fr.SourceOffset,
+            SourceOpName = fr.SourceOpName,
         },
         BranchStmt b => new BranchStmt
         {

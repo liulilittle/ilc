@@ -105,6 +105,9 @@ public static class TempSlotPass
                 case RetStmt r when r.Value != null:
                     CollectUses(r.Value, i, uses, allNames);
                     break;
+                case FilterReturnStmt fr:
+                    CollectUses(fr.Value, i, uses, allNames);
+                    break;
                 case BranchStmt b when b.Condition != null:
                     CollectUses(b.Condition, i, uses, allNames);
                     break;

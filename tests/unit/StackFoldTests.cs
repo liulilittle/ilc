@@ -1747,7 +1747,8 @@ public class StackFoldTests
     [Fact]
     public void Fold_Endfilter_ThrowsNotSupported()
     {
-        // ldc.i4.0; endfilter (filter clauses -- VB-only, no EH model): LOUD.
+        // ldc.i4.0; endfilter with NO filter region: endfilter is legal only
+        // as the last instruction of a FILTER block (ECMA-335 III.3.21).
         Assert.Throws<NotSupportedException>(() => StackFold.Fold(
             IlDecoder.DecodeMethod(new byte[] { 0x16, 0xFE, 0x11, 0x2A }),
             new MethodContext { ArgCount = 0 }));

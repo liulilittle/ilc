@@ -22,6 +22,17 @@ public sealed class BranchStmt : Stmt
     public Expr? Condition { get; init; } // null = unconditional
 }
 public sealed class RetStmt : Stmt { public Expr? Value { get; init; } }
+
+//------------------------------------------------------------------------------
+// FilterReturnStmt -- the RESULT of an exception FILTER block (`endfilter`),
+// ECMA-335 III.3.21. C# emits filters for `catch (E e) when (cond)`; the
+// filter body runs as a boolean expression the catch dispatch evaluates BEFORE
+// the handler is selected (net48 contract, MEASURED: .opencode/tmp/ehfilter).
+// The emitter renders it inside the generated `<lambda>(...)` guard, so the
+// value feeds the dispatch condition rather than a statement result.
+//------------------------------------------------------------------------------
+public sealed class FilterReturnStmt : Stmt { public required Expr Value { get; init; } }
+
 // M5 BCL wiring: Resolved = the fold-time resolution (receiver-type-aware
 // resolution cannot be reproduced at emit time -- the emitter must use the
 // fold's answer verbatim, including the CppName and the arg-cast codes).
@@ -73,6 +84,7 @@ public static partial class IrNode
             ? $"goto {b.TargetLabel};"
             : $"if ({SerializeExpr(b.Condition)}) goto {b.TargetLabel};",
         RetStmt r => r.Value == null ? "return;" : $"return {SerializeExpr(r.Value)};",
+        FilterReturnStmt fr => $"filterReturn {SerializeExpr(fr.Value)};",
         CallStmt c => SerializeCall("CallStmt", c.Function, false, null, c.Resolved,
             System.Array.Empty<int>(), false, c.Args) + (c.ThrowCtorParamTypes == null ? "" : $"@throwctor({c.ThrowCtorParamTypes})"),
         FieldAssignStmt f => $"FieldAssign({SerializeExpr(f.Object)}, {f.OwnerFullName}.{f.FieldCppName}, {SerializeExpr(f.Value)}){(f.IsRefField ? "@ref" : "")}{(f.IsValueTypeObject ? "{vt}" : "")}",
@@ -100,6 +112,7 @@ public static partial class IrNode
             Condition = b.Condition == null ? null : CloneExpr(b.Condition),
         },
         RetStmt r => new RetStmt { Value = r.Value == null ? null : CloneExpr(r.Value) },
+        FilterReturnStmt fr => new FilterReturnStmt { Value = CloneExpr(fr.Value) },
         CallStmt c => CloneCallStmt(c),
         FieldAssignStmt f => new FieldAssignStmt
         {

@@ -157,6 +157,11 @@ public static class RootSlotPass
                     case RetStmt r when r.Value != null:
                         CollectUses(r.Value, g, addrTaken);
                         break;
+                    case FilterReturnStmt fr:
+                        // endfilter reads its boolean result; control then falls
+                        // through to the dispatch guard (NOT a function exit).
+                        CollectUses(fr.Value, g, addrTaken);
+                        break;
                     case CallStmt c:
                         foreach (var a in c.Args) CollectUses(a, g, addrTaken);
                         break;
@@ -431,6 +436,9 @@ public static class RootSlotPass
                 break;
             case RetStmt r when r.Value != null:
                 VisitForCallArgs(r.Value, userArgs, icallArgs);
+                break;
+            case FilterReturnStmt fr:
+                VisitForCallArgs(fr.Value, userArgs, icallArgs);
                 break;
             case CallStmt c:
                 if (IsUserCall(c.Function, c.Resolved))

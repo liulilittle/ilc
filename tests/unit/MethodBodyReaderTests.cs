@@ -459,20 +459,28 @@ public class MethodBodyReaderTests
     }
 
     [Fact]
-    public void Fold_FilterRegion_EndfilterRejectedLoud()
+    public void Fold_FilterRegion_EndfilterFoldsToFilterReturn()
     {
-        // Decoding a filter clause must NOT silently reach the emitter: the
-        // filter body's endfilter makes the fold throw LOUD (no EH model for
-        // filter clauses), keeping the pipeline fail-fast.
+        // C# DOES emit filter clauses (`catch (E e) when (cond)`), so the fold
+        // must HANDLE endfilter: the filter result becomes a FilterReturnStmt
+        // that the emitter folds into the catch dispatch condition. MEASURED on
+        // net48 (.opencode/tmp/ehfilter): the filter runs before the handler is
+        // selected and a false result continues to the next clause.
         using var pe = Synthesize(EmitFilter, 2, null,
             new SynthClause(ExceptionRegionKind.Filter, 0, 3, 6, 2, null, FilterOff: 3));
         var info = ReadBody(pe);
 
-        var ex = Assert.Throws<NotSupportedException>(() => StackFold.Fold(
+        var stmts = StackFold.Fold(
             IlDecoder.DecodeMethod(info.IlBytes),
             new MethodContext { ArgCount = 0, ReturnsVoid = true, ExceptionRegions = info.ExceptionRegions },
-            pe.GetMetadataReader(), Array.Empty<TypeDef>()));
-        Assert.Contains("endfilter", ex.Message);
+            pe.GetMetadataReader(), Array.Empty<TypeDef>());
+
+        var filterReturn = Assert.Single(stmts.OfType<FilterReturnStmt>());
+        var value = Assert.IsType<IntConstExpr>(filterReturn.Value);
+        Assert.Equal(1, value.Value); // ldc.i4.1 in the filter body
+        // The filter block is terminal: the `pop` at the handler start binds the
+        // handler's own exception entry and the `ret` ends the method.
+        Assert.Single(stmts.OfType<RetStmt>());
     }
 
     // fault shape: try=[0,3) fault handler=[3,6). Body: ldc.i4.0 @0; leave.s ->

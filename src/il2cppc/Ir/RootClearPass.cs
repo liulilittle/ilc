@@ -222,6 +222,7 @@ public static class RootClearPass
             case CallStmt cs: foreach (var a in cs.Args) Walk(a); break;
             case ExprStmt es: Walk(es.Value); break;
             case RetStmt r: Walk(r.Value); break;
+            case FilterReturnStmt fr: Walk(fr.Value); break;
             case BranchStmt b: Walk(b.Condition); break;
             case FieldAssignStmt f: Walk(f.Object); Walk(f.Value); break;
             case LabelStmt: break;
