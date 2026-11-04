@@ -3768,6 +3768,45 @@ Il2CppArray* il2cpp_linq_list_then_by_key_desc_i4(Il2CppObject* list, Il2CppObje
     return il2cpp_linq_then_by_key_desc_i4(snap, k1, k2);
 }
 
+// impl-listchain: the CHAINED ThenBy face over a List<T> (depth >= 3). The list
+// is snapped ONCE per call and the array chain kernel does the rest, so the
+// exactly-once contract and the level-by-level key phase are inherited
+// unchanged. Two entries: int32 elements (kind I4) and reference elements.
+Il2CppArray* il2cpp_linq_list_then_by_chain_i4(Il2CppObject* list,
+                                               Il2CppObject* k1, Il2CppObject* k2,
+                                               Il2CppObject* k3, Il2CppObject* k4,
+                                               int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                               int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                               int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (kind != IL2CPP_LIST_KIND_I4)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Chained ThenBy over a List of a non-int32 element family is not wired.");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_then_by_chain_i4(snap, k1, k2, k3, k4,
+                                        d1, d2, d3, d4, f1, f2, f3, f4);
+}
+
+Il2CppArray* il2cpp_linq_list_then_by_chain_ref(Il2CppObject* list,
+                                                Il2CppObject* k1, Il2CppObject* k2,
+                                                Il2CppObject* k3, Il2CppObject* k4,
+                                                int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                                int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                                int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, IL2CPP_LIST_KIND_REF);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_then_by_chain_ref(snap, k1, k2, k3, k4,
+                                         d1, d2, d3, d4, f1, f2, f3, f4);
+}
+
 // The List<T> aggregate family is implemented explicitly above (and below):
 // the source-only entries read the snapshot at the LIST element kind, and the
 // selector entries dispatch the selector ABI on that same kind. The earlier

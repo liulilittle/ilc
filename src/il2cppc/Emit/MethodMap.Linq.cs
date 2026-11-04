@@ -5650,17 +5650,37 @@ public static partial class MethodRefResolver
             case "ThenBy":
             case "ThenByDescending":
             {
-                // impl-collation: ThenBy over a REFERENCE-element List<T>. The
-                // fused composite is built by StackFold from the OrderBy
-                // assignment; this marker carries the SECONDARY key family code
-                // (4 = System.String -- culture collation, 5 = any other
-                // reference -- instance dispatch). A value-type secondary key
-                // over a reference-element list has no reference composite
-                // reader, so it stays LOUD.
+                // impl-listchain: ThenBy over a List<T>. The fused composite is
+                // built by StackFold from the OrderBy assignment; this marker
+                // carries the SECONDARY key family code plus the list's element
+                // kind literal.
+                //   * int32 elements (kind "0"): the numeric families 0..3 --
+                //     the LIST entry snaps the list ONCE and then runs the array
+                //     chain kernel, so the marker also carries the kind;
+                //   * reference elements (kind "1"): 4 = System.String (culture
+                //     collation), 5 = any other reference, or 0..3 numeric.
+                if (K == "0")
+                {
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    string? numK2 = LinqValKeyFamilyCode(genArgs[1]);
+                    if (numK2 is not ("0" or "1" or "2" or "3"))
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])}," +
+                            $"{GenericArgTypeName(genArgs[1])}> over a List is not wired: the fused " +
+                            "int32-element composite covers int32/int64/double/float secondary keys " +
+                            "(il2cpp_linq_list_then_by_key_i4)");
+                    return I(name == "ThenBy"
+                            ? ResolvedMethod.ThenByCombineMarker
+                            : ResolvedMethod.ThenByDescCombineMarker,
+                        2, false, false, false, new[] { "", "" },
+                        returnTypeName: "System.Int32[]",
+                        appendLiterals: new[] { numK2, K });
+                }
                 if (K != "1")
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a List of the element family kind {K} is not wired " +
-                        "(the fused reference composite covers string/object/class elements)");
+                        "(the fused composite covers int32 and reference elements)");
                 if (genArgs is not { Length: >= 2 })
                     return null;
                 string? listK2 = genArgs[1] == 0x0E ? "4"
@@ -5677,7 +5697,7 @@ public static partial class MethodRefResolver
                         : ResolvedMethod.ThenByDescCombineMarker,
                     2, false, false, false, new[] { "", "" },
                     returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
-                    appendLiterals: new[] { listK2 });
+                    appendLiterals: new[] { listK2, K });
             }
             case "Sum" or "Min" or "Max" or "Average":
             {

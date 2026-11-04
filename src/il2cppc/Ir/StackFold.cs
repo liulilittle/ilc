@@ -5519,6 +5519,14 @@ public static class StackFold
                 "il2cpp::il2cpp_linq_order_by_key_ref_string" => "_ref_arr_string",
                 // impl-collation: the same over a List<T> receiver (the list is
                 // snapped once; the desc flag is AppendLiterals[0]).
+                // impl-listchain: the INT32-element List<T> primaries. The
+                // list entry snaps the list ONCE and runs the array key
+                // kernel, so a ThenBy over it can fuse exactly like the array
+                // source (the composite stays on the list entry). Without
+                // these arms a two-key ThenBy over List<int> fell through to
+                // the "does not name an OrderBy" LOUD.
+                "il2cpp::il2cpp_linq_list_order_by_key_i4" => "list_i4",
+                "il2cpp::il2cpp_linq_list_order_by_key_desc_i4" => "list_i4",
                 "il2cpp::il2cpp_linq_list_order_by_key_ref_i4" => "_ref_list_i4",
                 "il2cpp::il2cpp_linq_list_order_by_key_ref_i8" => "_ref_list_i8",
                 "il2cpp::il2cpp_linq_list_order_by_key_ref_d" => "_ref_list_d",
@@ -5539,20 +5547,49 @@ public static class StackFold
             // value-struct / reference / List composites) returns false and
             // keeps the two-key (or LOUD) behaviour -- those families have no
             // chain kernel yet.
+            // impl-listchain: a List<int> OrderBy is a legitimate CHAIN SEED
+            // even though it has no two-key composite with a direction column
+            // (the runtime list_then_by_key_i4 entries take no k1desc). The
+            // chained entry accepts both directions and the element kind, so a
+            // two-key ThenBy over List<int> rides the chain with two levels.
+            static bool ListPrimarySeed(CallExpr call, out Expr src, out Expr sel,
+                out string desc, out string listKind)
+            {
+                src = null!;
+                sel = null!;
+                desc = "0";
+                listKind = "";
+                var name = call.Resolved?.CppName;
+                if (name is not ("il2cpp::il2cpp_linq_list_order_by_key_i4"
+                                 or "il2cpp::il2cpp_linq_list_order_by_key_desc_i4"))
+                    return false;
+                // The List<int> OrderBy arm declares TWO arguments (the list and
+                // the key selector) plus the element-kind literal.
+                if (call.Args.Count != 2 || call.Resolved!.AppendLiterals is not { Length: >= 1 })
+                    return false;
+                src = call.Args[0];
+                sel = call.Args[1];
+                desc = name.EndsWith("_desc_i4", StringComparison.Ordinal) ? "1" : "0";
+                listKind = call.Resolved.AppendLiterals[^1];
+                return true;
+            }
             static bool ChainLevelsOf(CallExpr call, out List<string> descs,
-                out List<string> fams, out List<Expr> selectors)
+                out List<string> fams, out List<Expr> selectors, out string? listKind)
             {
                 descs = new List<string>();
                 fams = new List<string>();
                 selectors = new List<Expr>();
+                listKind = null;
                 var name = call.Resolved?.CppName;
                 if (name == null) return false;
                 if (name is "il2cpp::il2cpp_linq_then_by_chain_i4"
                     or "il2cpp::il2cpp_linq_then_by_chain_i8"
-                    or "il2cpp::il2cpp_linq_then_by_chain_ref")
+                    or "il2cpp::il2cpp_linq_then_by_chain_ref"
+                    or "il2cpp::il2cpp_linq_list_then_by_chain_i4"
+                    or "il2cpp::il2cpp_linq_list_then_by_chain_ref")
                 {
                     var lits = call.Resolved!.AppendLiterals;
-                    if (lits is not { Length: 8 }) return false;
+                    if (lits is not { Length: 8 or 9 }) return false;
                     for (var l = 0; l < 4; ++l)
                     {
                         if (lits[4 + l] == "-1") break;
@@ -5561,49 +5598,67 @@ public static class StackFold
                         fams.Add(lits[4 + l]);
                         selectors.Add(call.Args[1 + l]);
                     }
+                    bool isList = name.StartsWith("il2cpp::il2cpp_linq_list_", StringComparison.Ordinal);
+                    if (isList)
+                    {
+                        // The list kind is the NINTH trailing literal of a list
+                        // chain call (AppendLiterals follow the arguments), NOT
+                        // an argument -- the list itself occupies Args[0].
+                        if (fams.Count < 2 || lits.Length != 9) return false;
+                        listKind = lits[8];
+                    }
                     return fams.Count >= 2;
                 }
+                var lits2 = call.Resolved!.AppendLiterals;
                 if (name is "il2cpp::il2cpp_linq_then_by_key_val_i4"
                     or "il2cpp::il2cpp_linq_then_by_key_val_i8")
                 {
-                    var lits = call.Resolved!.AppendLiterals;
-                    if (lits is not { Length: 4 } || call.Args.Count != 3) return false;
-                    descs.Add(lits[0]);
-                    descs.Add(lits[1]);
-                    fams.Add(lits[2]);
-                    fams.Add(lits[3]);
+                    if (lits2 is not { Length: 4 } || call.Args.Count != 3) return false;
+                    descs.Add(lits2[0]);
+                    descs.Add(lits2[1]);
+                    fams.Add(lits2[2]);
+                    fams.Add(lits2[3]);
                     selectors.Add(call.Args[1]);
                     selectors.Add(call.Args[2]);
                     return true;
                 }
-                // impl-refchain: a REFERENCE-element source's two-key composite
-                // carries its families the same way (0..5, where 4 = string and
-                // 5 = any other reference).
-                if (name is "il2cpp::il2cpp_linq_then_by_key_ref" or "il2cpp::il2cpp_linq_list_then_by_key_ref")
+                // impl-collation / impl-listchain: a REFERENCE-element source's
+                // two-key composite. The ARRAY entry takes (src, k1, k2) plus
+                // (k1desc, k2desc, k1fam, k2fam); the LIST entry additionally
+                // carries the element kind as its LAST argument.
+                if (name is "il2cpp::il2cpp_linq_then_by_key_ref"
+                    or "il2cpp::il2cpp_linq_list_then_by_key_ref")
                 {
-                    var lits = call.Resolved!.AppendLiterals;
-                    if (lits is not { Length: 4 } || call.Args.Count < 3) return false;
-                    descs.Add(lits[0]);
-                    descs.Add(lits[1]);
-                    fams.Add(lits[2]);
-                    fams.Add(lits[3]);
+                    if (lits2 is not { Length: 4 } || call.Args.Count < 3) return false;
+                    descs.Add(lits2[0]);
+                    descs.Add(lits2[1]);
+                    fams.Add(lits2[2]);
+                    fams.Add(lits2[3]);
                     selectors.Add(call.Args[1]);
                     selectors.Add(call.Args[2]);
-                    // A List<T> receiver is SNAPSHOT into an array by the two-key
-                    // entry, and the chain kernel would need the ORIGINAL list;
-                    // only the array-source shape chains (the List case stays on
-                    // the two-key composite).
-                    return name == "il2cpp::il2cpp_linq_then_by_key_ref";
+                    // A List<T> two-key composite is INHERENTLY the
+                    // reference-element entry (the list is snapped at the
+                    // reference kind); unlike the chain entries it carries NO
+                    // element-kind argument, so the kind must be derived from
+                    // the entry itself rather than read out of Args[^1].
+                    if (name == "il2cpp::il2cpp_linq_list_then_by_key_ref")
+                        listKind = "1";
+                    return true;
                 }
                 return false;
             }
             // The SOURCE family of a chainable composite. "ref" means a
             // reference-element source (Il2CppObject* slots); the numeric chain
-            // entry is chosen for i4 / i8.
+            // entry is chosen for i4 / i8. A LIST source keeps its own entries
+            // (the chain must snap the list once).
             static string? ChainSourceSuffix(CallExpr call)
             {
                 var name = call.Resolved?.CppName;
                 if (name == null) return null;
+                if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "list_ref";
+                if (name.EndsWith("list_then_by_chain_i4", StringComparison.Ordinal)) return "list_i4";
+                if (name.EndsWith("list_then_by_key_ref", StringComparison.Ordinal)) return "list_ref";
+                if (name.EndsWith("list_then_by_key_i4", StringComparison.Ordinal)) return "list_i4";
                 if (name.EndsWith("then_by_chain_ref", StringComparison.Ordinal)) return "ref";
                 if (name.EndsWith("then_by_chain_i8", StringComparison.Ordinal)) return "i8";
                 if (name.EndsWith("then_by_chain_i4", StringComparison.Ordinal)) return "i4";
@@ -5632,10 +5687,25 @@ public static class StackFold
                 // assignment (the csc shape for a chained extension call).
                 int chainIndex = -1;
                 var chase = chainRecv.Name;
+                // impl-listchain: a List<int> OrderBy seed (it has no two-key
+                // composite with a direction column, so a plain 2-level ThenBy
+                // over List<int> also rides the chain).
+                Expr? seedSrc = null, seedSel = null;
+                string seedDesc = "0", seedKind = "";
                 for (var si = stmts.Count - 1; si >= 0; --si)
                 {
                     if (stmts[si] is not AssignStmt cand || cand.Target != chase) continue;
-                    if (cand.Value is CallExpr candChain && ChainLevelsOf(candChain, out _, out _, out _)
+                    if (cand.Value is CallExpr candSeed
+                        && ListPrimarySeed(candSeed, out var ps, out var pk, out var pd, out var pkind))
+                    {
+                        chainIndex = si;
+                        seedSrc = ps;
+                        seedSel = pk;
+                        seedDesc = pd;
+                        seedKind = pkind;
+                        break;
+                    }
+                    if (cand.Value is CallExpr candChain && ChainLevelsOf(candChain, out _, out _, out _, out _)
                         && ChainSourceSuffix(candChain) != null)
                     {
                         chainIndex = si;
@@ -5652,8 +5722,28 @@ public static class StackFold
                 {
                     var chainAssign = (AssignStmt)stmts[chainIndex];
                     var prevChain = (CallExpr)chainAssign.Value;
-                    var suffix = ChainSourceSuffix(prevChain)!;
-                    ChainLevelsOf(prevChain, out var priorDescs, out var priorFams, out var priorSels);
+                    // A List<int> OrderBy seed becomes a two-level chain here;
+                    // an existing chain / two-key composite is extended.
+                    bool seedShape = seedSrc != null;
+                    var suffix = seedShape ? "list_i4" : ChainSourceSuffix(prevChain)!;
+                    var priorDescs = new List<string>();
+                    var priorFams = new List<string>();
+                    var priorSels = new List<Expr>();
+                    string? priorListKind = seedShape ? seedKind : null;
+                    Expr chainSource = seedShape ? seedSrc! : prevChain.Args[0];
+                    if (seedShape)
+                    {
+                        priorDescs.Add(seedDesc);
+                        // The List<int> OrderBy entries are int32-element +
+                        // int32-key only, so the seed's primary family is 0.
+                        priorFams.Add("0");
+                        priorSels.Add(seedSel!);
+                    }
+                    else
+                    {
+                        ChainLevelsOf(prevChain, out priorDescs, out priorFams,
+                                      out priorSels, out priorListKind);
+                    }
                     if (priorFams.Count >= 4)
                     {
                         throw new NotSupportedException(
@@ -5663,12 +5753,16 @@ public static class StackFold
                     }
                     var newFamily = resolved.AppendLiterals is { Length: >= 1 } chainLit
                         ? chainLit[0] : "0";
-                    // A numeric chain (int32[]/int64[] source) can only carry the
-                    // numeric families; a REFERENCE chain additionally carries 4
-                    // (System.String -> culture collation) and 5 (any other
-                    // reference). Anything else would need a reader the kernel
-                    // does not have, so it stays LOUD.
-                    bool refChain = suffix == "ref";
+                    // A numeric chain (int32[]/int64[] or List<int>) can only
+                    // carry the numeric families; a REFERENCE chain (array or
+                    // List) additionally carries 4 (System.String -> culture
+                    // collation) and 5 (any other reference). Anything else
+                    // would need a reader the kernel does not have, so it stays
+                    // LOUD.
+                    // impl-listchain: a LIST source keeps its own chain entries,
+                    // which snap the ORIGINAL list once.
+                    bool isListChain = suffix is "list_ref" or "list_i4";
+                    bool refChain = suffix is "ref" or "list_ref";
                     bool familyOk = refChain
                         ? newFamily is "0" or "1" or "2" or "3" or "4" or "5"
                         : newFamily is "0" or "1" or "2" or "3";
@@ -5700,27 +5794,47 @@ public static class StackFold
                         IsPInvoke = false,
                         SetLastError = false,
                         Resolved = new ResolvedMethod(
-                            suffix == "ref"
+                            isListChain
+                                ? (suffix == "list_ref"
+                                    ? "il2cpp::il2cpp_linq_list_then_by_chain_ref"
+                                    : "il2cpp::il2cpp_linq_list_then_by_chain_i4")
+                                : suffix == "ref"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_ref"
                                 : suffix == "i8"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_i8"
                                 : "il2cpp::il2cpp_linq_then_by_chain_i4",
-                            5, false, true, true, new[] { false, false, false, false, false },
+                            // A list chain takes the element kind as the NINTH
+                            // trailing literal (AppendLiterals always follow the
+                            // declared arguments), so the parameter count stays
+                            // five and the FIRST parameter is the List object
+                            // itself (Il2CppObject*), not an Il2CppArray*.
+                            5, false, true, true,
+                            new[] { false, false, false, false, false },
                             false,
-                            ParamTypeNames: new[] { "a", "", "", "", "" },
+                            ParamTypeNames: isListChain
+                                ? new[] { "", "", "", "", "" }
+                                : new[] { "a", "", "", "", "" },
                             // The eight trailing literals are the four per-level
                             // directions then the four per-level key families;
                             // an unused level is family -1 with a null selector.
-                            AppendLiterals: new[]
-                            {
-                                priorDescs[0], priorDescs[1], priorDescs[2], priorDescs[3],
-                                priorFams[0], priorFams[1], priorFams[2], priorFams[3],
-                            },
-                            ReturnTypeName: suffix == "ref"
+                            AppendLiterals: isListChain
+                                ? new[]
+                                {
+                                    priorDescs[0], priorDescs[1], priorDescs[2], priorDescs[3],
+                                    priorFams[0], priorFams[1], priorFams[2], priorFams[3],
+                                    priorListKind ?? throw new NotSupportedException(
+                                        "Enumerable.ThenBy over a List source carries no element kind"),
+                                }
+                                : new[]
+                                {
+                                    priorDescs[0], priorDescs[1], priorDescs[2], priorDescs[3],
+                                    priorFams[0], priorFams[1], priorFams[2], priorFams[3],
+                                },
+                            ReturnTypeName: suffix == "list_ref" || suffix == "ref"
                                 ? prevChain.Resolved!.ReturnTypeName
                                 : suffix == "i8" ? "System.Int64[]" : "System.Int32[]"),
                     };
-                    chainCall.Args.Add(prevChain.Args[0]);
+                    chainCall.Args.Add(chainSource);
                     for (var l = 0; l < 4; ++l)
                     {
                         chainCall.Args.Add(l < priorSels.Count ? priorSels[l] : new NullExpr());
@@ -12202,7 +12316,6 @@ public static class StackFold
         public required int Offset { get; init; }
     }
 }
-
 
 
 

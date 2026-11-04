@@ -4369,3 +4369,93 @@ Two mutations stayed GREEN and are recorded rather than claimed:
 * a chain deeper than four levels;
 * the decimal / value-struct (`DateTime`/`TimeSpan`/`Guid`/`DateTimeOffset`)
   element sources, which still use the two-key composites.
+## 46. Chained `ThenBy` over a `List<T>` source (IMPLEMENTED)
+
+`ThenBy` chains of depth >= 3 over a `List<T>` receiver now fuse into ONE
+runtime call, exactly like the array sources of §44/§45.
+
+### Why it was not a small gap
+
+The `List<T>` `OrderBy` entries (`il2cpp_linq_list_order_by_key[_desc]_i4` and
+the `_ref_*` family) snap the list ONCE and then run the array key kernel.
+A three-level chain over such a receiver therefore has TWO different shapes to
+extend:
+
+* the receiver of the second `ThenBy` is the LIST's two-key composite
+  (`il2cpp_linq_list_then_by_key_ref`), which carries
+  `(k1desc, k2desc, k1fam, k2fam)` in `AppendLiterals` and takes NO element-kind
+  argument -- the list entry is inherently the reference-element entry;
+* the receiver of a second `ThenBy` over `List<int>` is the plain
+  `il2cpp_linq_list_order_by_key[_desc]_i4` primary, which has no direction
+  column at all (the two-key `list_then_by_key_i4` entry takes no `k1desc`).
+
+The first shape was mis-handled by `ChainLevelsOf`, which read the element kind
+out of `Args[^1]`: for a two-key list composite that argument is the SECONDARY
+SELECTOR, not a kind, so the helper returned false and the fold fell through to
+the "receiver does not name an OrderBy assignment" LOUD. The second shape had no
+seed extraction at all.
+
+### Fix
+
+* runtime (`src/runtime/src/linq_list.cpp`): `il2cpp_linq_list_then_by_chain_i4`
+  and `il2cpp_linq_list_then_by_chain_ref` snap the ORIGINAL list once
+  (`SnapshotOf(list, kind)` inside a `RootScope`) and delegate to the array chain
+  kernels of §44/§45, so the level-by-level key phase, the exactly-once
+  selector contract and the stability of the chain are inherited unchanged.
+* `StackFold.ChainLevelsOf`: a two-key `il2cpp_linq_list_then_by_key_ref`
+  composite is recognised as a chain with `listKind = "1"` (derived from the
+  entry, not from an argument); a list CHAIN entry takes its kind as the NINTH
+  trailing literal.
+* `StackFold.ListPrimarySeed`: a bare `List<int>` `OrderBy` primary is a legal
+  chain seed with one level (primary family 0, direction from the entry name).
+* `StackFold`: the chain call for a list source declares FIVE parameters (the
+  list object occupies the first slot -- it is `Il2CppObject*`, not an
+  `Il2CppArray*`) and appends the element kind as the NINTH literal, because
+  `AppendLiterals` always follow every argument. Putting the kind in `Args`
+  emitted `chain(list, k1..k4, kind)` against a runtime signature of
+  `chain(list, k1..k4, d1..d4, f1..f4, kind)` and produced
+  `cannot convert 'Il2CppArray*' to 'Il2CppObject*'` when the first parameter was
+  typed `"a"`.
+* `MethodMap.Linq`: the `List<T>` `ThenBy` marker now carries
+  `(secondaryFamily, listKind)` for int32-element lists and
+  `(secondaryFamily, listKind)` for reference-element lists, so the fold can
+  validate the family against the source shape.
+
+### Contract evidence
+
+* oracle `thenby3list` = **262B `bda750a6...`**, 11 records: three keys over
+  `List<Item>`, three independent direction combinations, a `List<int>` seed
+  with three int keys, exactly-once selector counting (`list3_calls=24`),
+  full-tie stability, empty/single, and source-not-written.
+* mutations (all RED, two of them SILENT WRONG VALUES):
+  * M1 swap `d1`/`d2` in the ref chain delegation -> same 262B, sha
+    `49eed84d` (diff at byte 32);
+  * M2 swap the first two direction literals the compiler emits -> same 262B,
+    sha `49eed84d` (diff at byte 32);
+  * M3 make `isListChain` false -> runtime exit 1 (the array entry receives a
+    `List` header and rejects it).
+* unchanged: `thenby3` 585B `2ead0372`, `thenby3ref` 299B `69053d0c`,
+  `ctorunused` 64B `db1898a0`, `swapfield` 107B `eeb03e13`,
+  `pinvoke-multidim` 369B `ea05c185`, `ehfilter1` 207B `c63ca4f7`,
+  `pinvoke-pointer` 166B `26985af6`, `pinvoke-chararray-ansi` `12b9db92`,
+  `pinvoke-stringbuilder-ansi` `c006cc35`, `pinvoke-boolarray` `0cb3b7a1`,
+  `pinvoke-stringbuilder` `b5ed9717`, `pinvoke-bvalarray` `8593f050`,
+  `pinvoke-bvaltstr` `ba475e9b`, `pinvoke-string-ansi` `5335653d`,
+  `pinvoke-marshalas-string` `5f5186af`, `pinvoke-charref` `a885d8f5`,
+  `pinvoke-com-finalize` `dc72c98b`, `pinvoke-com-byval` `3cda832d`,
+  `pinvoke-com-outref` `27552108`, `pinvoke-object-any` `c1ea1d5c`,
+  `probe-p0b` `d8da0da5`, `imm32test` `4835ffed`, `winforms1` `8a4c0011`,
+  `cominvoke` `a1d34ab4`, `com17type` `cbd03919`, `comclsid` `8c600244`
+  (27/27);
+* LINQ surfaces re-checked: `linqorder2` 779B `6a72ece6`, `p0linq4` 689B
+  `14b4b964` (both oracle and runtime), `collation1` 1356B `90013e33`,
+  `thenby-decfkey` 537B, `thenby-floatprobe` 733B, `thenbyfamprobe` 5283B,
+  `thenbydescprobe` 1550B, `thenby-refkey` 161B;
+* unit tests 4155/0/0; C0 0 warnings 0 errors.
+
+### Still not covered
+
+* a chain over `List<double>` / `List<struct>` (their two-key primaries carry a
+  different literal layout and have no chain entry);
+* a chain deeper than four levels (unchanged from §44);
+* the decimal / value-struct element sources.
