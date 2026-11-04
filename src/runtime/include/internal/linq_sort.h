@@ -438,9 +438,20 @@ Il2CppArray* il2cpp_linq_then_by_key_val_i8(Il2CppArray* src, Il2CppObject* k1Se
 //             LOUD rejection, never a guessed reader.
 // The result is a fresh array of the SOURCE family (int32[] / int64[]), stable
 // on full key ties, source never written, every selector invoked exactly once.
-// A chain longer than four levels, a non-numeric key family and the
-// decimal / value-struct / reference source families are not wired yet.
+// A chain longer than four levels and the decimal / value-struct source
+// families are not wired yet (int32 / int64 / float / double / reference
+// sources are covered).
 //------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_then_by_chain_f(Il2CppArray* src,
+                                          Il2CppObject* k1, Il2CppObject* k2,
+                                          Il2CppObject* k3, Il2CppObject* k4,
+                                          int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4);
+Il2CppArray* il2cpp_linq_then_by_chain_d(Il2CppArray* src,
+                                          Il2CppObject* k1, Il2CppObject* k2,
+                                          Il2CppObject* k3, Il2CppObject* k4,
+                                          int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4);
 Il2CppArray* il2cpp_linq_then_by_chain_i4(Il2CppArray* src,
                                           Il2CppObject* k1, Il2CppObject* k2,
                                           Il2CppObject* k3, Il2CppObject* k4,

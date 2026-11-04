@@ -2752,6 +2752,25 @@ public static partial class MethodRefResolver
                 // slot -- a silent mis-order on x64. StackFold folds this into
                 // il2cpp_linq_then_by_key_val_i4 / _val_i8 with both family
                 // literals.
+                //
+                // b5-gaps section 47: a DOUBLE / FLOAT ELEMENT source folds its
+                // ThenBy into the chain surface (then_by_chain_d / _f). net48
+                // fuses OrderBy(k1).ThenBy(k2) over an IEnumerable<double> /
+                // IEnumerable<float> exactly like over int32/int64; the
+                // secondary KEY family is 0=int32, 1=int64, 2=double, 3=float
+                // (LinqValKeyFamilyCode). The OrderBy primaries carry the SOURCE
+                // and primary key families in the entry name, which StackFold
+                // reads out of the receiver's producing assignment.
+                if (genArgs is { Length: >= 2 } && linqSrcFam is "d" or "f"
+                    && LinqValKeyFamilyCode(genArgs[1]) is { } wideSecondary)
+                {
+                    return I(name == "ThenBy"
+                            ? ResolvedMethod.ThenByCombineMarker
+                            : ResolvedMethod.ThenByDescCombineMarker,
+                        2, false, false, false, new[] { "", "" },
+                        returnTypeName: linqSrcFam == "d" ? "System.Double[]" : "System.Single[]",
+                        appendLiterals: new[] { wideSecondary });
+                }
                 if (genArgs is { Length: >= 2 } && genArgs[0] == 0x11
                     && IsDecimalGenArg(genArgNames, 0)
                     && LinqKeyFamilyCode(genArgs[1], genArgNames, 1) is { } decSecondary)

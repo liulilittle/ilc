@@ -4459,3 +4459,105 @@ seed extraction at all.
   different literal layout and have no chain entry);
 * a chain deeper than four levels (unchanged from §44);
 * the decimal / value-struct element sources.
+
+## 47. Chained `ThenBy` over `double[]` / `float[]` element sources (IMPLEMENTED)
+
+Wide primitive element sources were the last "plain array" gap on the LINQ
+ThenBy chain surface: §44 covered int32/int64 elements, §45 covered
+reference elements, and `orderwide-elem` already handled `OrderBy` over
+double/float arrays, but the ThenBy chain kernels rejected them.
+
+### Measured net48 contract (the case's own oracle run, `thenbywide-elem`)
+
+`ss.OrderBy(sel).ThenBy(sel).ThenBy(sel)` on a `double[]` / `float[]` source
+behaves exactly like the numeric case: each selector runs exactly once per
+element, comparison proceeds by key tuple order with per-level direction,
+stability comes from the stable merge. The case cross-joins source kinds
+`{d,f}` with key families `{d,f,i8,i4}` and two directions, and verifies the
+source is not written.
+
+Note: the case deliberately uses method-group delegates for the selectors and
+a plain `s += a[i];` join. The lambda/`string.Format` shapes collide with two
+PRE-EXISTING defects that are unrelated to this section (documented below in
+"Pre-existing defects surfaced while wiring this"): a StackFold chain-fold
+use-before-def for inline lambda sources, and the float custom format icall
+reading a double-width value out of a 4-byte slot. Neither reproduces with
+the method-group + concatenation shapes used here.
+
+### Implementation
+
+* `MethodMap.Linq.cs` (array ThenBy arm, previously LOUD at 2793): accepts
+  `linqSrcFam is "d" or "f"` with the secondary key family from
+  `LinqValKeyFamilyCode(genArgs[1])`, returns `ThenByCombineMarker` /
+  `ThenByDescCombineMarker` and `returnTypeName "System.Double[]"` /
+  `"System.Single[]"`.
+* `StackFold.cs`:
+  * `ChainLevelsOf` recognizes `then_by_chain_f` / `_d`;
+  * `ChainSourceSuffix` maps them to `"f"` / `"d"`;
+  * new `WideArrayPrimarySeed` parses the primary entry name
+    `order_by_key[_desc]_<src>[_<keyfam>]` with `src in {d,f}`; an absent key
+    family means the key family equals the source family; the chase loop and
+    the wide seed build track source/key family and select suffix `d`/`f`;
+  * chain CppName selection and `ReturnTypeName` gain the `f`/`d` arms.
+* `linq_sort.cpp` / `linq_sort.h`: `ReadLkChainKeyF` / `ReadLkChainKeyD`
+  (float keys widen to double) invoke `InvokeKeyDSrcI4/I8/D/F`;
+  `il2cpp_linq_then_by_chain_f` / `_d` run `SortLkChainCopyT<float,
+  kElemKindF>` / `<double, kElemKindD>`. Header comment now lists
+  int32/int64/float/double/reference; decimal and value-struct elements
+  remain unwired (they have no by-value key carrier).
+
+### Contract evidence
+
+* oracle = runtime = **560B `f0676c0c...`**, 13 records (`dd_aa`, `dd_ad`,
+  `dd_da`, `dd_dd`, `di_aa`, `di_ad`, `dl_aa`, `df_aa`, `ff_aa`, `ff_dd`,
+  `fi_aa`, `d3`, `src_same`, `calls=170`), bytes identical.
+* mutations (all RED, all SILENT WRONG VALUES; restored GREEN to the same
+  560B `f0676c0c` after each):
+  * M1 `ReadLkChainKeyF`'s default float-key arm routed through
+    `InvokeKeyDSrcI4` instead of `InvokeKeyDSrcF` -> same 560B, sha
+    `dcec067e` (diff at byte 366);
+  * M2 `WideArrayPrimarySeed`'s bare `_d` face giving primary key family "0"
+    instead of "2" -> same 560B, sha `79c65768` (diff at byte 51);
+  * M3 `then_by_chain_d`'s result element width `sizeof(double)` ->
+    `sizeof(float)` -> different output size 2213B, sha `dd351ff4` (diff at
+    byte 10).
+  Note: two probe mutations proved to be NOT observable on this pathway and
+  were discarded -- flipping the result `kElemKind` stamp (the join reads
+  elements by stride, not by kind) and swapping the `ReadLkChainKeyF`/`_D`
+  reader (every `InvokeKeyDSrc*` takes a double, so a float element widens
+  to an identical double). The `kElemKind` stamp is still required by other
+  array consumers (arrayextra.cpp element-kind scans), so it stays correct.
+* unchanged: §44-§46 chain cases (`thenby3` `2ead0372`, `thenby3ref`
+  `69053d0c`, `thenby3list` `bda750a6`), `orderwide-elem` `94eb7f3e`,
+  `linqorder2` `6a72ece6`, `p0linq4` `14b4b964`, `collation1` `90013e33`,
+  `thenby-decfkey`, `thenby-floatprobe`, `thenbyfamprobe`,
+  `thenbydescprobe`, `thenby-refkey`, plus all 27 anchors; unit tests
+  4155/0/0; C0 0 warnings 0 errors.
+
+### Not covered
+
+* a chain over `List<double>` / `List<float>` (their two-key primaries carry
+  a different literal layout and have no wide chain entry);
+* a chain deeper than four levels (unchanged from §44);
+* the decimal / value-struct element sources.
+
+## 47a. Pre-existing defects surfaced while wiring §47 (NOT fixed here)
+
+Two defects exist in main independent of this work; the §47 case works around
+them with method-group delegates and concatenation. They are registered here
+with reproducers rather than fixed in this batch.
+
+1. **StackFold chain-fold use-before-def**: when a chain fold moves the
+   producing assignment to the end (`stmts.RemoveAt(chainIndex);
+   stmts.Add(chainCall)`), earlier pure receiver copies (`t4 = t3`) become
+   use-before-def, so the generated C++ fails with `invalid conversion from
+   'Il2CppObject*' to 'int32_t'` (or the reverse). Trigger = inline lambda
+   selector sources (csc emits conditional delegate-cache branches) with a
+   parameter source that goes through a null-check copy. Reproduced by a
+   temporary `thenbyprmchain` case built on `thenby3`'s shape with lambdas.
+2. **Float custom format icall reads double-width**: `JoinF` with
+   `.ToString("0.###")` on a `float` emits `*reinterpret_cast<double*>(t1)` on
+   a 4-byte float slot, producing garbage. `orderwide-elem` avoided this via
+   plain `a[i]` (which routes through `icall_single_to_string` with an
+   explicit `static_cast<double>`); the §47 case uses `s += a[i]` for the same
+   reason.

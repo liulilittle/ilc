@@ -1312,6 +1312,27 @@ void ReadLkChainKeyI8(int64_t elem, int32_t fam, Il2CppDelegate* d, LkChainKey& 
 // reference-element source can produce. The reference key cell lives in
 // LkChainKey::o and is held in a MANAGED side array (see the kernel below), so
 // a compacting GC rewrites it instead of leaving a dangling raw pointer.
+void ReadLkChainKeyF(float elem, int32_t fam, Il2CppDelegate* d, LkChainKey& out)
+{
+    switch (fam)
+    {
+    case 0: out.i = static_cast<int64_t>(InvokeKeyDSrcI4(d, elem)); break;
+    case 1: out.i = InvokeKeyDSrcI8(d, elem); break;
+    case 2: out.d = InvokeKeyDSrcD(d, elem); break;
+    default: out.d = static_cast<double>(InvokeKeyDSrcF(d, elem)); break;
+    }
+}
+
+void ReadLkChainKeyD(double elem, int32_t fam, Il2CppDelegate* d, LkChainKey& out)
+{
+    switch (fam)
+    {
+    case 0: out.i = static_cast<int64_t>(InvokeKeyDSrcI4(d, elem)); break;
+    case 1: out.i = InvokeKeyDSrcI8(d, elem); break;
+    case 2: out.d = InvokeKeyDSrcD(d, elem); break;
+    default: out.d = static_cast<double>(InvokeKeyDSrcF(d, elem)); break;
+    }
+}
 void ReadLkChainKeyRef(Il2CppObject* elem, int32_t fam, Il2CppDelegate* d, LkChainKey& out)
 {
     switch (fam)
@@ -1460,6 +1481,53 @@ Il2CppArray* il2cpp_linq_then_by_chain_i8(Il2CppArray* src,
     const int32_t descs[4] = { d1, d2, d3, d4 };
     return SortLkChainCopyT<int64_t>(s, nkeys, sels, descs, fams, ReadLkChainKeyI8,
                                      static_cast<int32_t>(sizeof(int64_t)), kElemKindI8);
+}
+
+// The WIDE-ELEMENT chained entries: a float[] / double[] source rides the
+// float / double element slot (a float element widens to double per the
+// selector ABI; the key families 0..3 select their own reader -- b5-gaps
+// 14 never reads a float key through the double reader). Same cached-once,
+// stable, source-family result contract and the same four-level table.
+Il2CppArray* il2cpp_linq_then_by_chain_f(Il2CppArray* src,
+                                         Il2CppObject* k1, Il2CppObject* k2,
+                                         Il2CppObject* k3, Il2CppObject* k4,
+                                         int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                         int32_t f1, int32_t f2, int32_t f3, int32_t f4)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    int32_t fams[4] = { f1, f2, f3, f4 };
+    const int32_t nkeys = LkChainLevelCount(fams, 4);
+    Il2CppObject* raw[4] = { k1, k2, k3, k4 };
+    Il2CppDelegate* sels[4] = { nullptr, nullptr, nullptr, nullptr };
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        sels[l] = RequireKeySelector(raw[l]);
+    }
+    const int32_t descs[4] = { d1, d2, d3, d4 };
+    return SortLkChainCopyT<float>(s, nkeys, sels, descs, fams, ReadLkChainKeyF,
+                                   static_cast<int32_t>(sizeof(float)), kElemKindF);
+}
+
+Il2CppArray* il2cpp_linq_then_by_chain_d(Il2CppArray* src,
+                                         Il2CppObject* k1, Il2CppObject* k2,
+                                         Il2CppObject* k3, Il2CppObject* k4,
+                                         int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                         int32_t f1, int32_t f2, int32_t f3, int32_t f4)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    int32_t fams[4] = { f1, f2, f3, f4 };
+    const int32_t nkeys = LkChainLevelCount(fams, 4);
+    Il2CppObject* raw[4] = { k1, k2, k3, k4 };
+    Il2CppDelegate* sels[4] = { nullptr, nullptr, nullptr, nullptr };
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        sels[l] = RequireKeySelector(raw[l]);
+    }
+    const int32_t descs[4] = { d1, d2, d3, d4 };
+    return SortLkChainCopyT<double>(s, nkeys, sels, descs, fams, ReadLkChainKeyD,
+                                    static_cast<int32_t>(sizeof(double)), kElemKindD);
 }
 
 // The REFERENCE-element chained entry. Same contract as the numeric chain but

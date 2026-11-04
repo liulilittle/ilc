@@ -5573,6 +5573,68 @@ public static class StackFold
                 listKind = call.Resolved.AppendLiterals[^1];
                 return true;
             }
+            // b5-gaps section 47: a bare DOUBLE/FLOAT-ELEMENT array OrderBy
+            // primary is a legal chain seed (it has no two-key composite with a
+            // direction column, so a plain 2-level ThenBy over a double[] /
+            // float[] source also rides the chain). The entry name encodes BOTH
+            // the source family and the primary key family:
+            //   order_by_key_d        -- double source, double key
+            //   order_by_key_d_i4     -- double source, int32 key
+            //   order_by_key_f_i8     -- float source, int64 key ...
+            // and the descending variants prefix "_desc".
+            static bool WideArrayPrimarySeed(CallExpr call, out Expr src,
+                out Expr sel, out string desc, out string priFam, out string srcFam)
+            {
+                src = null!;
+                sel = null!;
+                desc = "0";
+                priFam = "";
+                srcFam = "";
+                var name = call.Resolved?.CppName;
+                if (name == null) return false;
+                string? body;
+                if (name.Contains("order_by_key_desc", StringComparison.Ordinal))
+                {
+                    desc = "1";
+                    var i = name.IndexOf("order_by_key_desc", StringComparison.Ordinal);
+                    body = name.Substring(i + "order_by_key_desc".Length);
+                }
+                else if (name.Contains("order_by_key", StringComparison.Ordinal))
+                {
+                    var i = name.IndexOf("order_by_key", StringComparison.Ordinal);
+                    body = name.Substring(i + "order_by_key".Length);
+                }
+                else body = null;
+                if (body == null || body.Length < 1) return false;
+                if (body.StartsWith("_", StringComparison.Ordinal)) body = body.Substring(1);
+                if (body.Length < 1 || body[0] is not ('d' or 'f')) return false;
+                srcFam = body[0] == 'd' ? "d" : "f";
+                string keyPart = body.Substring(1);
+                if (keyPart.Length == 0)
+                {
+                    // No underscore: the key family is the SOURCE family (the
+                    // plain _d / _f double-key / float-key faces).
+                    priFam = srcFam == "d" ? "2" : "3";
+                }
+                else
+                {
+                    if (keyPart[0] != '_') return false;
+                    string kf = keyPart.Substring(1);
+                    priFam = kf switch
+                    {
+                        "i4" => "0",
+                        "i8" => "1",
+                        "d" => "2",
+                        "f" => "3",
+                        _ => "",
+                    };
+                    if (priFam.Length == 0) return false;
+                }
+                if (call.Args.Count != 2) return false;
+                src = call.Args[0];
+                sel = call.Args[1];
+                return true;
+            }
             static bool ChainLevelsOf(CallExpr call, out List<string> descs,
                 out List<string> fams, out List<Expr> selectors, out string? listKind)
             {
@@ -5584,6 +5646,8 @@ public static class StackFold
                 if (name == null) return false;
                 if (name is "il2cpp::il2cpp_linq_then_by_chain_i4"
                     or "il2cpp::il2cpp_linq_then_by_chain_i8"
+                    or "il2cpp::il2cpp_linq_then_by_chain_f"
+                    or "il2cpp::il2cpp_linq_then_by_chain_d"
                     or "il2cpp::il2cpp_linq_then_by_chain_ref"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_i4"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_ref")
@@ -5661,6 +5725,8 @@ public static class StackFold
                 if (name.EndsWith("list_then_by_key_i4", StringComparison.Ordinal)) return "list_i4";
                 if (name.EndsWith("then_by_chain_ref", StringComparison.Ordinal)) return "ref";
                 if (name.EndsWith("then_by_chain_i8", StringComparison.Ordinal)) return "i8";
+                if (name.EndsWith("then_by_chain_f", StringComparison.Ordinal)) return "f";
+                if (name.EndsWith("then_by_chain_d", StringComparison.Ordinal)) return "d";
                 if (name.EndsWith("then_by_chain_i4", StringComparison.Ordinal)) return "i4";
                 if (name.EndsWith("then_by_key_val_i8", StringComparison.Ordinal)) return "i8";
                 if (name.EndsWith("then_by_key_val_i4", StringComparison.Ordinal)) return "i4";
@@ -5690,8 +5756,13 @@ public static class StackFold
                 // impl-listchain: a List<int> OrderBy seed (it has no two-key
                 // composite with a direction column, so a plain 2-level ThenBy
                 // over List<int> also rides the chain).
+                // b5-gaps section 47: a double[]/float[] OrderBy primary is a
+                // similar seed; the chain kernel
+                // (then_by_chain_d/_f) carries the element family.
                 Expr? seedSrc = null, seedSel = null;
                 string seedDesc = "0", seedKind = "";
+                string? wideSrcFam = null;
+                string widePriFam = "0";
                 for (var si = stmts.Count - 1; si >= 0; --si)
                 {
                     if (stmts[si] is not AssignStmt cand || cand.Target != chase) continue;
@@ -5703,6 +5774,18 @@ public static class StackFold
                         seedSel = pk;
                         seedDesc = pd;
                         seedKind = pkind;
+                        break;
+                    }
+                    if (cand.Value is CallExpr candWide
+                        && WideArrayPrimarySeed(candWide, out var ws, out var wk,
+                            out var wd, out var wp, out var wf))
+                    {
+                        chainIndex = si;
+                        seedSrc = ws;
+                        seedSel = wk;
+                        seedDesc = wd;
+                        wideSrcFam = wf;
+                        widePriFam = wp;
                         break;
                     }
                     if (cand.Value is CallExpr candChain && ChainLevelsOf(candChain, out _, out _, out _, out _)
@@ -5723,9 +5806,13 @@ public static class StackFold
                     var chainAssign = (AssignStmt)stmts[chainIndex];
                     var prevChain = (CallExpr)chainAssign.Value;
                     // A List<int> OrderBy seed becomes a two-level chain here;
+                    // a double[]/float[] OrderBy seed likewise (the wide seed
+                    // carries the source family and the primary key family);
                     // an existing chain / two-key composite is extended.
                     bool seedShape = seedSrc != null;
-                    var suffix = seedShape ? "list_i4" : ChainSourceSuffix(prevChain)!;
+                    var suffix = seedShape
+                        ? wideSrcFam != null ? wideSrcFam : "list_i4"
+                        : ChainSourceSuffix(prevChain)!;
                     var priorDescs = new List<string>();
                     var priorFams = new List<string>();
                     var priorSels = new List<Expr>();
@@ -5734,10 +5821,17 @@ public static class StackFold
                     if (seedShape)
                     {
                         priorDescs.Add(seedDesc);
-                        // The List<int> OrderBy entries are int32-element +
-                        // int32-key only, so the seed's primary family is 0.
-                        priorFams.Add("0");
                         priorSels.Add(seedSel!);
+                        if (wideSrcFam != null)
+                        {
+                            priorFams.Add(widePriFam);
+                        }
+                        else
+                        {
+                            // The List<int> OrderBy entries are int32-element +
+                            // int32-key only, so the seed's primary family is 0.
+                            priorFams.Add("0");
+                        }
                     }
                     else
                     {
@@ -5802,6 +5896,10 @@ public static class StackFold
                                 ? "il2cpp::il2cpp_linq_then_by_chain_ref"
                                 : suffix == "i8"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_i8"
+                                : suffix == "f"
+                                ? "il2cpp::il2cpp_linq_then_by_chain_f"
+                                : suffix == "d"
+                                ? "il2cpp::il2cpp_linq_then_by_chain_d"
                                 : "il2cpp::il2cpp_linq_then_by_chain_i4",
                             // A list chain takes the element kind as the NINTH
                             // trailing literal (AppendLiterals always follow the
@@ -5832,7 +5930,10 @@ public static class StackFold
                                 },
                             ReturnTypeName: suffix == "list_ref" || suffix == "ref"
                                 ? prevChain.Resolved!.ReturnTypeName
-                                : suffix == "i8" ? "System.Int64[]" : "System.Int32[]"),
+                                : suffix == "i8" ? "System.Int64[]"
+                                : suffix == "f" ? "System.Single[]"
+                                : suffix == "d" ? "System.Double[]"
+                                : "System.Int32[]"),
                     };
                     chainCall.Args.Add(chainSource);
                     for (var l = 0; l < 4; ++l)
