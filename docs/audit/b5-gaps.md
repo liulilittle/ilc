@@ -4636,3 +4636,85 @@ are skipped from the main flow exactly like finally handler statements.
 * `endfault` (0xDC alias) / `endfinally` inside a fault body with a local
   `leave` to a label inside the handler (the renamed-label machinery covers
   it for finally; a fault-specific probe would be confirmatory).
+
+## 49. Chained `ThenBy` over `List<double>` / `List<float>` sources (IMPLEMENTED)
+
+§47 wired the ARRAY double/float element sources; the List<T> chain face
+covered only int32 (§46) and reference (§45) elements. A `List<double>` /
+`List<float>` OrderBy primary was folded into the ARRAY chain entry with the
+LIST cast to `Il2CppArray*` -- the generated code produced
+`il2cpp_linq_then_by_chain_d(reinterpret_cast<Il2CppArray*>(list), ...)`, which
+reads the items pointer as an array length (offsetof(Il2CppArray,length) ==
+offsetof(Il2CppList,items) == 8) and aborts at runtime. It was a runtime
+crash, not a LOUD.
+
+### Measured net48 contract (oracle: the case's own oracle run, `thenbywide-list`)
+
+`List<double>.OrderBy(k1).ThenBy(k2)[.ThenBy(k3)]` behaves exactly like the
+array source: the selector runs exactly once per element per level, comparison
+proceeds by key tuple order with per-level direction, stability comes from the
+stable merge, and the source list is never written. `List<float>` primaries
+(which previously LOUD-rejected even the OrderBy itself with "the list
+key-selector surface covers int32, double and reference elements") work the
+same.
+
+### Implementation
+
+* `linq_list.cpp` / `.h`:
+  * `il2cpp_linq_list_then_by_chain_d` / `_f`: snap the list ONCE at its
+    element kind (D=4 / F=3) under a RootScope, then delegate to the array
+    wide chain kernels `il2cpp_linq_then_by_chain_d` / `_f`. Rejects a
+    mismatched element kind loudly.
+  * `il2cpp_linq_list_order_by_key[_desc]_d_i4` / `_d_i8`: List<double>
+    primaries for int32/int64 keys (previously LOUD "double/float key only").
+  * `il2cpp_linq_list_order_by_key[_desc]_f_i4/i8/d/f`: List<float>
+    primaries for every key family (previously LOUD at the OrderBy itself,
+    kind 3).
+* `MethodMap.Linq.cs`:
+  * OrderBy list arm: K=="4" now covers int32/int64/double/float keys via the
+    `_d_i4/_d_i8/_d/_f` faces; new K=="3" (float element) arm covers the four
+    key families via `_f_<keyfam>`.
+  * ThenBy list arm: K=="3"/"4" return the chain marker with the secondary
+    key family (0..3), like the int32 list face.
+* `StackFold.cs`:
+  * `WideArrayPrimarySeed` now REJECTS names containing `list_` (they belong
+    to the list face -- this is the mis-emission fix).
+  * new `WideListPrimarySeed` parses `list_order_by_key[_desc]_<src>[_<key>]`
+    with src `d`/`f` and the key family from the name plus the element kind
+    literal; the chase loop recognises it, and the chain build picks suffix
+    `list_d` / `list_f` -> `list_then_by_chain_d` / `_f` and the
+    Double[]/Single[] return type.
+
+### Contract evidence
+
+* new case `tests/cases/thenbywide-list`: oracle = runtime = **380B
+  `bcdf6722...`**, 13 records (dd_aa / dd_ad / dd_da / dd_dd / di_aa /
+  ff_aa / ff_dd / d3 / src_same / calls and more), bytes identical.
+* mutations (all RED, restored GREEN to the same sha):
+  * M1 `WideListPrimarySeed`'s List<double> `d`-key arm returning primary key
+    family "0" instead of "2" -> same 380B, sha `efd24d04` (diff at byte 51);
+  * M2 `list_then_by_chain_d` delegating to `then_by_chain_f` (wrong array
+    kernel for the double snapshot) -> runtime exit 1;
+  * M3 `WideListPrimarySeed` desc arm ignoring `_desc` -> same 380B, sha
+    `32007ff0` (diff at byte 96).
+  One probe mutation was NOT observable and was discarded: mapping the
+  List<float> float-key primary family "3" -> "0" left the output identical,
+  because `(floor(f), f)` lexicographic order equals `order by f` for this
+  dataset (the truncated primary is monotone, so the float secondary decides
+  exactly) -- a semantic-equivalence-at-test-scale, not a coverage hole.
+* unchanged: `thenby3list` 262B `bda750a6`, `thenbywide-elem` 560B
+  `f0676c0c`, `orderwide-elem` 648B `94eb7f3e`, `thenby3` 585B `2ead0372`,
+  `thenby3ref` 299B `69053d0c`, `linqorder2` 779B `6a72ece6`, `p0linq4`
+  `14b4b964`, `collation1` 1356B `90013e33`, `thenby-decfkey`,
+  `thenbyfamprobe`, `thenby-refkey`, `ehfilter1` `c63ca4f7`, `ctorunused`;
+  unit tests 4155/0/0; C0 0 warnings 0 errors.
+
+### Still not covered
+
+* a chain over `List<decimal>` / `List<struct>` (their elements have no wide
+  chain element kind);
+* a chain deeper than four levels (unchanged from §44);
+* the one probe mutation above explained the non-observability of a truncated
+  float identity key -- a REAL float-key ordering (e.g. a `float` index
+  projection with out-of-order fractional parts) would exercise the fam-3
+  reader directly (the case's `ff_aa` uses the identity float key).

@@ -5592,6 +5592,11 @@ public static class StackFold
                 srcFam = "";
                 var name = call.Resolved?.CppName;
                 if (name == null) return false;
+                // b5-gaps section 49: the name-based parser below also matches
+                // the LIST wide primaries (list_order_by_key_d / _f ...) -- the
+                // array chain entry got a List where an Il2CppArray* was
+                // expected. A `list_` name belongs to WideListPrimarySeed.
+                if (name.Contains("list_", StringComparison.Ordinal)) return false;
                 string? body;
                 if (name.Contains("order_by_key_desc", StringComparison.Ordinal))
                 {
@@ -5635,6 +5640,90 @@ public static class StackFold
                 sel = call.Args[1];
                 return true;
             }
+            // b5-gaps section 49: a WIDE-ELEMENT List<T> OrderBy primary is also
+            // a legal chain seed. The list primaries are
+            //   il2cpp_linq_list_order_by_key[_desc]_d    -- List<double>, double key
+            //   il2cpp_linq_list_order_by_key[_desc]_f    -- List<double>, float key
+            //   il2cpp_linq_list_order_by_key[_desc]_f_<kf> -- List<float>, <kf> key
+            //   (kf in {i4,i8,d,f}).
+            // The element kind literal is AppendLiterals[^1] (K: "3"=float,
+            // "4"=double). The primary key family is derived from the name.
+            static bool WideListPrimarySeed(CallExpr call, out Expr src,
+                out Expr sel, out string desc, out string priFam, out string srcFam,
+                out string listKind)
+            {
+                src = null!;
+                sel = null!;
+                desc = "0";
+                priFam = "";
+                srcFam = "";
+                listKind = "";
+                var name = call.Resolved?.CppName;
+                if (name == null) return false;
+                var lit = call.Resolved!.AppendLiterals;
+                if (call.Args.Count != 2 || lit is not { Length: >= 1 }) return false;
+                listKind = lit[^1];
+                if (listKind is not ("3" or "4")) return false;
+                string? body;
+                if (name.Contains("list_order_by_key_desc", StringComparison.Ordinal))
+                {
+                    desc = "1";
+                    var i = name.IndexOf("list_order_by_key_desc", StringComparison.Ordinal);
+                    body = name.Substring(i + "list_order_by_key_desc".Length);
+                }
+                else if (name.Contains("list_order_by_key", StringComparison.Ordinal))
+                {
+                    var i = name.IndexOf("list_order_by_key", StringComparison.Ordinal);
+                    body = name.Substring(i + "list_order_by_key".Length);
+                }
+                else body = null;
+                if (body != null && body.StartsWith("_", StringComparison.Ordinal))
+                    body = body.Substring(1);
+                // List<double>: the entry is `d` (double key), `f` (float key) or
+                // `d_<keyfam>` (int32/int64 key -- b5-gaps section 49).
+                if (body == "d")
+                {
+                    srcFam = "d";
+                    priFam = "2";
+                }
+                else if (body == "f")
+                {
+                    srcFam = "d";
+                    priFam = "3";
+                }
+                else if (body is { Length: >= 3 } && body.StartsWith("f_", StringComparison.Ordinal))
+                {
+                    // List<float>: `f_<keyfam>`.
+                    srcFam = "f";
+                    priFam = body.Substring(2) switch
+                    {
+                        "i4" => "0",
+                        "i8" => "1",
+                        "d" => "2",
+                        "f" => "3",
+                        _ => "",
+                    };
+                    if (priFam.Length == 0) return false;
+                }
+                else if (body is { Length: >= 3 } && body.StartsWith("d_", StringComparison.Ordinal))
+                {
+                    // List<double>: `d_<keyfam>` (int32/int64 key).
+                    srcFam = "d";
+                    priFam = body.Substring(2) switch
+                    {
+                        "i4" => "0",
+                        "i8" => "1",
+                        "d" => "2",
+                        "f" => "3",
+                        _ => "",
+                    };
+                    if (priFam.Length == 0) return false;
+                }
+                else return false;
+                src = call.Args[0];
+                sel = call.Args[1];
+                return true;
+            }
             static bool ChainLevelsOf(CallExpr call, out List<string> descs,
                 out List<string> fams, out List<Expr> selectors, out string? listKind)
             {
@@ -5650,7 +5739,9 @@ public static class StackFold
                     or "il2cpp::il2cpp_linq_then_by_chain_d"
                     or "il2cpp::il2cpp_linq_then_by_chain_ref"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_i4"
-                    or "il2cpp::il2cpp_linq_list_then_by_chain_ref")
+                    or "il2cpp::il2cpp_linq_list_then_by_chain_ref"
+                    or "il2cpp::il2cpp_linq_list_then_by_chain_d"
+                    or "il2cpp::il2cpp_linq_list_then_by_chain_f")
                 {
                     var lits = call.Resolved!.AppendLiterals;
                     if (lits is not { Length: 8 or 9 }) return false;
@@ -5721,6 +5812,8 @@ public static class StackFold
                 if (name == null) return null;
                 if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "list_ref";
                 if (name.EndsWith("list_then_by_chain_i4", StringComparison.Ordinal)) return "list_i4";
+                if (name.EndsWith("list_then_by_chain_d", StringComparison.Ordinal)) return "list_d";
+                if (name.EndsWith("list_then_by_chain_f", StringComparison.Ordinal)) return "list_f";
                 if (name.EndsWith("list_then_by_key_ref", StringComparison.Ordinal)) return "list_ref";
                 if (name.EndsWith("list_then_by_key_i4", StringComparison.Ordinal)) return "list_i4";
                 if (name.EndsWith("then_by_chain_ref", StringComparison.Ordinal)) return "ref";
@@ -5763,6 +5856,7 @@ public static class StackFold
                 string seedDesc = "0", seedKind = "";
                 string? wideSrcFam = null;
                 string widePriFam = "0";
+                bool listWideSeed = false;
                 for (var si = stmts.Count - 1; si >= 0; --si)
                 {
                     if (stmts[si] is not AssignStmt cand || cand.Target != chase) continue;
@@ -5788,6 +5882,20 @@ public static class StackFold
                         widePriFam = wp;
                         break;
                     }
+                    if (cand.Value is CallExpr candWideList
+                        && WideListPrimarySeed(candWideList, out var wl, out var wlk,
+                            out var wld, out var wlp, out var wlf, out var wlkind))
+                    {
+                        chainIndex = si;
+                        seedSrc = wl;
+                        seedSel = wlk;
+                        seedDesc = wld;
+                        wideSrcFam = wlf;
+                        widePriFam = wlp;
+                        seedKind = wlkind;
+                        listWideSeed = true;
+                        break;
+                    }
                     if (cand.Value is CallExpr candChain && ChainLevelsOf(candChain, out _, out _, out _, out _)
                         && ChainSourceSuffix(candChain) != null)
                     {
@@ -5811,7 +5919,9 @@ public static class StackFold
                     // an existing chain / two-key composite is extended.
                     bool seedShape = seedSrc != null;
                     var suffix = seedShape
-                        ? wideSrcFam != null ? wideSrcFam : "list_i4"
+                        ? listWideSeed ? "list_" + wideSrcFam
+                        : wideSrcFam != null ? wideSrcFam
+                        : "list_i4"
                         : ChainSourceSuffix(prevChain)!;
                     var priorDescs = new List<string>();
                     var priorFams = new List<string>();
@@ -5855,7 +5965,7 @@ public static class StackFold
                     // LOUD.
                     // impl-listchain: a LIST source keeps its own chain entries,
                     // which snap the ORIGINAL list once.
-                    bool isListChain = suffix is "list_ref" or "list_i4";
+                    bool isListChain = suffix is "list_ref" or "list_i4" or "list_d" or "list_f";
                     bool refChain = suffix is "ref" or "list_ref";
                     bool familyOk = refChain
                         ? newFamily is "0" or "1" or "2" or "3" or "4" or "5"
@@ -5891,6 +6001,10 @@ public static class StackFold
                             isListChain
                                 ? (suffix == "list_ref"
                                     ? "il2cpp::il2cpp_linq_list_then_by_chain_ref"
+                                    : suffix == "list_d"
+                                    ? "il2cpp::il2cpp_linq_list_then_by_chain_d"
+                                    : suffix == "list_f"
+                                    ? "il2cpp::il2cpp_linq_list_then_by_chain_f"
                                     : "il2cpp::il2cpp_linq_list_then_by_chain_i4")
                                 : suffix == "ref"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_ref"
@@ -5930,6 +6044,8 @@ public static class StackFold
                                 },
                             ReturnTypeName: suffix == "list_ref" || suffix == "ref"
                                 ? prevChain.Resolved!.ReturnTypeName
+                                : suffix == "list_d" ? "System.Double[]"
+                                : suffix == "list_f" ? "System.Single[]"
                                 : suffix == "i8" ? "System.Int64[]"
                                 : suffix == "f" ? "System.Single[]"
                                 : suffix == "d" ? "System.Double[]"

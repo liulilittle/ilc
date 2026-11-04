@@ -3744,6 +3744,63 @@ Il2CppArray* il2cpp_linq_list_order_by_key_desc_f(Il2CppObject* list, Il2CppObje
     return il2cpp_linq_order_by_key_desc_d_f(snap, keySel);
 }
 
+// b5-gaps section 49: FLOAT-ELEMENT list OrderBy primaries. The array wide
+// face names the (<src>,<key>) pair in the entry suffix
+// (order_by_key_f_i4 / _i8 / _d / _f over a float[] source); the list face
+// keeps the same convention but on the snapshot: the entry is
+// list_order_by_key[_desc]_f_<keyfam>, the list is snapped ONCE at the float
+// element kind, and the array wide primitive does the sort. (The bare
+// list_order_by_key[_desc]_f entry above is unrelated: it is the DOUBLE-
+// element list with a FLOAT KEY.)
+#define WIDE_LIST_ORDER_BY_ENTRY(NAME, KEYTEST, KEYFAM, INVOKE, CMP)               \
+    Il2CppArray* il2cpp_linq_list_##NAME(Il2CppObject* list, Il2CppObject* keySel, \
+                                         int32_t kind)                             \
+    {                                                                               \
+        RequireList(list);                                                          \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                 \
+        if (kind != IL2CPP_LIST_KIND_F)                                             \
+        {                                                                           \
+            il2cpp_throw_not_supported_exception(                                   \
+                "OrderBy over a List of a non-float element family is not wired "   \
+                "for the float-source key-selector entry.");                        \
+        }                                                                           \
+        return il2cpp_linq_order_by_key_f_##KEYFAM(snap, keySel);                   \
+    }
+WIDE_LIST_ORDER_BY_ENTRY(order_by_key_f_i4, , i4, InvokeKeyDSrcI4, CmpKeyValue<int32_t>)
+WIDE_LIST_ORDER_BY_ENTRY(order_by_key_f_i8, , i8, InvokeKeyDSrcI8, CmpKeyValue<int64_t>)
+WIDE_LIST_ORDER_BY_ENTRY(order_by_key_f_d, , d, InvokeKeyDSrcD, CmpKeyValue<double>)
+WIDE_LIST_ORDER_BY_ENTRY(order_by_key_f_f, , f, InvokeKeyDSrcF, CmpKeyValue<float>)
+WIDE_LIST_ORDER_BY_ENTRY(order_by_key_desc_f_i4, , i4, InvokeKeyDSrcI4, CmpKeyValue<int32_t>)
+WIDE_LIST_ORDER_BY_ENTRY(order_by_key_desc_f_i8, , i8, InvokeKeyDSrcI8, CmpKeyValue<int64_t>)
+WIDE_LIST_ORDER_BY_ENTRY(order_by_key_desc_f_d, , d, InvokeKeyDSrcD, CmpKeyValue<double>)
+WIDE_LIST_ORDER_BY_ENTRY(order_by_key_desc_f_f, , f, InvokeKeyDSrcF, CmpKeyValue<float>)
+#undef WIDE_LIST_ORDER_BY_ENTRY
+
+// b5-gaps section 49: DOUBLE-ELEMENT list OrderBy with int32 / int64 keys.
+// (The d/f-key faces are the pre-existing list_order_by_key[_desc]_d / _f.)
+// The snapshot is a double array and the array double-source primitive sorts
+// it per key family.
+#define WIDE_LIST_ORDER_BY_D_ENTRY(NAME, KEYFAM, DESCNAMESEL)                       \
+    Il2CppArray* il2cpp_linq_list_order_by_key_##NAME(Il2CppObject* list,           \
+                                                      Il2CppObject* keySel,           \
+                                                      int32_t kind)                   \
+    {                                                                                 \
+        RequireList(list);                                                            \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                   \
+        if (kind != IL2CPP_LIST_KIND_D)                                               \
+        {                                                                             \
+            il2cpp_throw_not_supported_exception(                                     \
+                "OrderBy over a List of a non-double element family is not wired "    \
+                "for the double-source key-selector entry.");                         \
+        }                                                                             \
+        return il2cpp_linq_order_by_key_##NAME(snap, keySel);                         \
+    }
+WIDE_LIST_ORDER_BY_D_ENTRY(d_i4, i4, )
+WIDE_LIST_ORDER_BY_D_ENTRY(desc_d_i4, i4, )
+WIDE_LIST_ORDER_BY_D_ENTRY(d_i8, i8, )
+WIDE_LIST_ORDER_BY_D_ENTRY(desc_d_i8, i8, )
+#undef WIDE_LIST_ORDER_BY_D_ENTRY
+
 Il2CppArray* il2cpp_linq_list_then_by_key_i4(Il2CppObject* list, Il2CppObject* k1,
                                              Il2CppObject* k2, int32_t kind)
 {
@@ -3805,6 +3862,53 @@ Il2CppArray* il2cpp_linq_list_then_by_chain_ref(Il2CppObject* list,
     roots.Add(reinterpret_cast<void**>(&snap));
     return il2cpp_linq_then_by_chain_ref(snap, k1, k2, k3, k4,
                                          d1, d2, d3, d4, f1, f2, f3, f4);
+}
+
+// b5-gaps section 49: WIDE-ELEMENT list chains (List<double> / List<float>).
+// The list is snapped ONCE at its element kind and the ARRAY wide chain kernel
+// (then_by_chain_d / _f) does the level-by-level key phase, exactly-once
+// selector contract and stable merge. Previous behaviour was a mis-emission:
+// StackFold folded the wide-list OrderBy primary into the ARRAY chain entry,
+// passing the List object where an Il2CppArray* was expected (the generated
+// code cast the list to Il2CppArray*).
+Il2CppArray* il2cpp_linq_list_then_by_chain_d(Il2CppObject* list,
+                                              Il2CppObject* k1, Il2CppObject* k2,
+                                              Il2CppObject* k3, Il2CppObject* k4,
+                                              int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                              int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                              int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (kind != IL2CPP_LIST_KIND_D)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Chained ThenBy over a List of a non-double element family is not wired.");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_then_by_chain_d(snap, k1, k2, k3, k4,
+                                       d1, d2, d3, d4, f1, f2, f3, f4);
+}
+
+Il2CppArray* il2cpp_linq_list_then_by_chain_f(Il2CppObject* list,
+                                              Il2CppObject* k1, Il2CppObject* k2,
+                                              Il2CppObject* k3, Il2CppObject* k4,
+                                              int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                              int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                              int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (kind != IL2CPP_LIST_KIND_F)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Chained ThenBy over a List of a non-float element family is not wired.");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_then_by_chain_f(snap, k1, k2, k3, k4,
+                                       d1, d2, d3, d4, f1, f2, f3, f4);
 }
 
 // The List<T> aggregate family is implemented explicitly above (and below):

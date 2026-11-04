@@ -5615,33 +5615,78 @@ public static partial class MethodRefResolver
                         2, true, true, false, L2,
                         returnTypeName: "System.Int32[]", appendLiterals: new[] { K });
                 }
+                if (K == "3")
+                {
+                    // b5-gaps section 49: a FLOAT-ELEMENT list. The snapshot is
+                    // a float array; the key selector crosses in its own family
+                    // slot (int32/int64/double/float all wired -- the array
+                    // float-source face covers all four, so the list face
+                    // mirrors it per key family).
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    string? fKeyFam = genArgs[1] switch
+                    {
+                        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "i4",
+                        0x0A or 0x0B => "i8",
+                        0x0D => "d",
+                        0x0C => "f",
+                        _ => null,
+                    };
+                    if (fKeyFam == null)
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
+                            "over a List<float> not wired: the list float key-selector surface covers a " +
+                            "int32/int64/double/float key only (il2cpp_linq_list_order_by_key[_desc]_f_<keyfam>)");
+                    return I(desc
+                            ? $"il2cpp::il2cpp_linq_list_order_by_key_desc_f_{fKeyFam}"
+                            : $"il2cpp::il2cpp_linq_list_order_by_key_f_{fKeyFam}",
+                        2, true, true, false, L2,
+                        returnTypeName: "System.Single[]", appendLiterals: new[] { K });
+                }
                 if (K == "4")
                 {
                     // A DOUBLE-element list: the snapshot is a double array and
-                    // the key crosses in the F-stack slot. A DOUBLE key rides
+                    // the key crosses in its own family slot. A DOUBLE key rides
                     // the pre-existing il2cpp_linq_list_order_by_key[_desc]_d;
                     // a FLOAT key rides its OWN _f entries (impl-orderfam: a
                     // Func<double,float> leaf returns a 4-byte float per the
                     // MS x64 ABI, and the shared _d entry read it through a
                     // double(*) fn-pointer, mixing the callee's XMM0 residue
-                    // into every key -- b5-gaps §14, list-orderkey-float). A
-                    // non-double/float key over a double list has no list
-                    // kernel.
+                    // into every key -- b5-gaps §14, list-orderkey-float).
+                    // b5-gaps section 49: int32/int64 keys now ride their own
+                    // _d_i4 / _d_i8 entries (the array double-source face covers
+                    // all four key families).
                     if (genArgs is not { Length: >= 2 })
                         return null;
-                    if (genArgs[1] is not (0x0C or 0x0D))
+                    string? dKeyFam = genArgs[1] switch
+                    {
+                        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "i4",
+                        0x0A or 0x0B => "i8",
+                        0x0D => "d",
+                        0x0C => "f",
+                        _ => null,
+                    };
+                    if (dKeyFam == null)
                         throw new NotSupportedException(
                             $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
                             "over a List<double> not wired: the list double key-selector surface covers a " +
-                            "double/float key only (il2cpp_linq_list_order_by_key[_desc]_d / _f)");
-                    return I(genArgs[1] == 0x0C
-                            ? (desc
-                                ? "il2cpp::il2cpp_linq_list_order_by_key_desc_f"
-                                : "il2cpp::il2cpp_linq_list_order_by_key_f")
-                            : (desc
-                                ? "il2cpp::il2cpp_linq_list_order_by_key_desc_d"
-                                : "il2cpp::il2cpp_linq_list_order_by_key_d"),
-                        2, true, true, false, L2,
+                            "int32/int64/double/float key only (il2cpp_linq_list_order_by_key[_desc]{_d_<kf> / _f})");
+                    string dEntry = dKeyFam switch
+                    {
+                        "i4" => desc
+                            ? "il2cpp::il2cpp_linq_list_order_by_key_desc_d_i4"
+                            : "il2cpp::il2cpp_linq_list_order_by_key_d_i4",
+                        "i8" => desc
+                            ? "il2cpp::il2cpp_linq_list_order_by_key_desc_d_i8"
+                            : "il2cpp::il2cpp_linq_list_order_by_key_d_i8",
+                        "d" => desc
+                            ? "il2cpp::il2cpp_linq_list_order_by_key_desc_d"
+                            : "il2cpp::il2cpp_linq_list_order_by_key_d",
+                        _ => desc
+                            ? "il2cpp::il2cpp_linq_list_order_by_key_desc_f"
+                            : "il2cpp::il2cpp_linq_list_order_by_key_f",
+                    };
+                    return I(dEntry, 2, true, true, false, L2,
                         returnTypeName: "System.Double[]", appendLiterals: new[] { K });
                 }
                 if (K != "1")
@@ -5695,6 +5740,27 @@ public static partial class MethodRefResolver
                         2, false, false, false, new[] { "", "" },
                         returnTypeName: "System.Int32[]",
                         appendLiterals: new[] { numK2, K });
+                }
+                if (K is "3" or "4")
+                {
+                    // b5-gaps section 49: a FLOAT/DOUBLE-ELEMENT List ThenBy.
+                    // Folds into the list chain surface; the secondary key
+                    // family is 0=int32, 1=int64, 2=double, 3=float.
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    string? wideK2 = LinqValKeyFamilyCode(genArgs[1]);
+                    if (wideK2 is not ("0" or "1" or "2" or "3"))
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])}," +
+                            $"{GenericArgTypeName(genArgs[1])}> over a List is not wired: the fused " +
+                            "wide-element composite covers int32/int64/double/float secondary keys " +
+                            "(il2cpp_linq_list_then_by_chain_d / _f)");
+                    return I(name == "ThenBy"
+                            ? ResolvedMethod.ThenByCombineMarker
+                            : ResolvedMethod.ThenByDescCombineMarker,
+                        2, false, false, false, new[] { "", "" },
+                        returnTypeName: K == "4" ? "System.Double[]" : "System.Single[]",
+                        appendLiterals: new[] { wideK2, K });
                 }
                 if (K != "1")
                     throw new NotSupportedException(

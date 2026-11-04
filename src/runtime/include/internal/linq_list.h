@@ -294,10 +294,27 @@ Il2CppArray* il2cpp_linq_list_order_by_key_d(Il2CppObject* list, Il2CppObject* k
                                             int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_desc_d(Il2CppObject* list, Il2CppObject* keySel,
                                                   int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_d_i4(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_d_i4(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_d_i8(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_d_i8(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_f(Il2CppObject* list, Il2CppObject* keySel,
                                              int32_t kind);
 Il2CppArray* il2cpp_linq_list_order_by_key_desc_f(Il2CppObject* list, Il2CppObject* keySel,
                                                   int32_t kind);
+
+// b5-gaps section 49: FLOAT-ELEMENT list OrderBy. The array wide face names
+// the (<src>,<key>) pair in the suffix (order_by_key_f_i4 / _f_i8 / _f_d /
+// _f_f); the list face mirrors it on the snapshot -- list_order_by_key[_desc]
+// _f_<keyfam>, snapped once at the float element kind.
+Il2CppArray* il2cpp_linq_list_order_by_key_f_i4(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_f_i8(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_f_d(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_f_f(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_f_i4(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_f_i8(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_f_d(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_f_f(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
 
 // Ordering (int32 element + int32 key family: the array key-selector surface).
 Il2CppArray* il2cpp_linq_list_order_by_key_i4(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
@@ -313,11 +330,27 @@ Il2CppArray* il2cpp_linq_list_then_by_chain_i4(Il2CppObject* list,
                                                int32_t f1, int32_t f2, int32_t f3, int32_t f4,
                                                int32_t kind);
 Il2CppArray* il2cpp_linq_list_then_by_chain_ref(Il2CppObject* list,
-                                                Il2CppObject* k1, Il2CppObject* k2,
-                                                Il2CppObject* k3, Il2CppObject* k4,
-                                                int32_t d1, int32_t d2, int32_t d3, int32_t d4,
-                                                int32_t f1, int32_t f2, int32_t f3, int32_t f4,
-                                                int32_t kind);
+                                                 Il2CppObject* k1, Il2CppObject* k2,
+                                                 Il2CppObject* k3, Il2CppObject* k4,
+                                                 int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                                 int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                                 int32_t kind);
+
+// b5-gaps section 49: WIDE-ELEMENT list chains (List<double> / List<float>).
+// The list is snapped ONCE at its element kind and the ARRAY wide chain kernel
+// does the level-by-level key phase (same exactly-once / stable contract).
+Il2CppArray* il2cpp_linq_list_then_by_chain_d(Il2CppObject* list,
+                                              Il2CppObject* k1, Il2CppObject* k2,
+                                              Il2CppObject* k3, Il2CppObject* k4,
+                                              int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                              int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                              int32_t kind);
+Il2CppArray* il2cpp_linq_list_then_by_chain_f(Il2CppObject* list,
+                                              Il2CppObject* k1, Il2CppObject* k2,
+                                              Il2CppObject* k3, Il2CppObject* k4,
+                                              int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                              int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                              int32_t kind);
 
 //------------------------------------------------------------------------------
 // Source-only aggregates (net48 Sum/Min/Max/Average over the list's elements).

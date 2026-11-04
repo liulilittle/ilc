@@ -2870,22 +2870,23 @@ public class MethodMapTestsLinq
         Assert.Equal("System.Double[]", resolved.ReturnTypeName);
     }
 
-    // A List<double>.OrderBy with a non-double key (e.g. an int32 projection)
-    // stays LOUD -- the list double key-selector surface covers a double/float
-    // key only.
+    // b5-gaps section 49: a List<double>.OrderBy with an int32 key now maps
+    // to its own int32-key face (the list double key-selector surface covers
+    // all four key families).
     [Fact]
-    public void Resolve_ListDouble_OrderByIntKey_ThrowsLoud()
+    public void Resolve_ListDouble_OrderByIntKey_MapsToIntKeyFace()
     {
-        var ex = Assert.Throws<NotSupportedException>(() => ResolveMethodSpecWithReceiver(SynthesizeGeneric("OrderBy",
+        var resolved = ResolveMethodSpecWithReceiver(SynthesizeGeneric("OrderBy",
             memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
                 0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x08 },
             genericSignature: new byte[] { 0x0A, 0x02, 0x0D, 0x08 }),
-            receiverType: "System.Collections.Generic.List`1_double"));
+            receiverType: "System.Collections.Generic.List`1_double");
 
-        Assert.Contains("List<double>", ex.Message);
-        Assert.Contains("double/float key only", ex.Message);
+        Assert.Equal("il2cpp::il2cpp_linq_list_order_by_key_d_i4", resolved.CppName);
+        Assert.Equal(2, resolved.ParamCount);
+        Assert.Equal("System.Double[]", resolved.ReturnTypeName);
     }
 
     //==========================================================================
