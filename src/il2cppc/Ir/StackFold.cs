@@ -5548,7 +5548,8 @@ public static class StackFold
                 var name = call.Resolved?.CppName;
                 if (name == null) return false;
                 if (name is "il2cpp::il2cpp_linq_then_by_chain_i4"
-                    or "il2cpp::il2cpp_linq_then_by_chain_i8")
+                    or "il2cpp::il2cpp_linq_then_by_chain_i8"
+                    or "il2cpp::il2cpp_linq_then_by_chain_ref")
                 {
                     var lits = call.Resolved!.AppendLiterals;
                     if (lits is not { Length: 8 }) return false;
@@ -5575,18 +5576,40 @@ public static class StackFold
                     selectors.Add(call.Args[2]);
                     return true;
                 }
+                // impl-refchain: a REFERENCE-element source's two-key composite
+                // carries its families the same way (0..5, where 4 = string and
+                // 5 = any other reference).
+                if (name is "il2cpp::il2cpp_linq_then_by_key_ref" or "il2cpp::il2cpp_linq_list_then_by_key_ref")
+                {
+                    var lits = call.Resolved!.AppendLiterals;
+                    if (lits is not { Length: 4 } || call.Args.Count < 3) return false;
+                    descs.Add(lits[0]);
+                    descs.Add(lits[1]);
+                    fams.Add(lits[2]);
+                    fams.Add(lits[3]);
+                    selectors.Add(call.Args[1]);
+                    selectors.Add(call.Args[2]);
+                    // A List<T> receiver is SNAPSHOT into an array by the two-key
+                    // entry, and the chain kernel would need the ORIGINAL list;
+                    // only the array-source shape chains (the List case stays on
+                    // the two-key composite).
+                    return name == "il2cpp::il2cpp_linq_then_by_key_ref";
+                }
                 return false;
             }
-            // The SOURCE family of a chainable composite: only the numeric
-            // int32[] / int64[] element families have a chain kernel.
+            // The SOURCE family of a chainable composite. "ref" means a
+            // reference-element source (Il2CppObject* slots); the numeric chain
+            // entry is chosen for i4 / i8.
             static string? ChainSourceSuffix(CallExpr call)
             {
                 var name = call.Resolved?.CppName;
                 if (name == null) return null;
+                if (name.EndsWith("then_by_chain_ref", StringComparison.Ordinal)) return "ref";
                 if (name.EndsWith("then_by_chain_i8", StringComparison.Ordinal)) return "i8";
                 if (name.EndsWith("then_by_chain_i4", StringComparison.Ordinal)) return "i4";
                 if (name.EndsWith("then_by_key_val_i8", StringComparison.Ordinal)) return "i8";
                 if (name.EndsWith("then_by_key_val_i4", StringComparison.Ordinal)) return "i4";
+                if (name.EndsWith("then_by_key_ref", StringComparison.Ordinal)) return "ref";
                 return null;
             }
             // b5-gaps §44: CHAINED ThenBy, depth >= 3 --
@@ -5640,12 +5663,21 @@ public static class StackFold
                     }
                     var newFamily = resolved.AppendLiterals is { Length: >= 1 } chainLit
                         ? chainLit[0] : "0";
-                    if (newFamily is not ("0" or "1" or "2" or "3"))
+                    // A numeric chain (int32[]/int64[] source) can only carry the
+                    // numeric families; a REFERENCE chain additionally carries 4
+                    // (System.String -> culture collation) and 5 (any other
+                    // reference). Anything else would need a reader the kernel
+                    // does not have, so it stays LOUD.
+                    bool refChain = suffix == "ref";
+                    bool familyOk = refChain
+                        ? newFamily is "0" or "1" or "2" or "3" or "4" or "5"
+                        : newFamily is "0" or "1" or "2" or "3";
+                    if (!familyOk)
                     {
                         throw new NotSupportedException(
-                            $"Enumerable.ThenBy receiver '{chainRecv.Name}' marker carries no numeric " +
-                            "secondary key family literal; a chained composite must know every key family " +
-                            "to pick the right key readers (b5-gaps §44)");
+                            $"Enumerable.ThenBy receiver '{chainRecv.Name}' marker carries key family " +
+                            $"'{newFamily}', which the {(refChain ? "reference" : "numeric")} chained " +
+                            "composite cannot read (b5-gaps §44)");
                     }
                     var newDesc = resolved.CppName == ResolvedMethod.ThenByDescCombineMarker ? "1" : "0";
                     priorDescs.Add(newDesc);
@@ -5668,7 +5700,9 @@ public static class StackFold
                         IsPInvoke = false,
                         SetLastError = false,
                         Resolved = new ResolvedMethod(
-                            suffix == "i8"
+                            suffix == "ref"
+                                ? "il2cpp::il2cpp_linq_then_by_chain_ref"
+                                : suffix == "i8"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_i8"
                                 : "il2cpp::il2cpp_linq_then_by_chain_i4",
                             5, false, true, true, new[] { false, false, false, false, false },
@@ -5682,7 +5716,9 @@ public static class StackFold
                                 priorDescs[0], priorDescs[1], priorDescs[2], priorDescs[3],
                                 priorFams[0], priorFams[1], priorFams[2], priorFams[3],
                             },
-                            ReturnTypeName: suffix == "i8" ? "System.Int64[]" : "System.Int32[]"),
+                            ReturnTypeName: suffix == "ref"
+                                ? prevChain.Resolved!.ReturnTypeName
+                                : suffix == "i8" ? "System.Int64[]" : "System.Int32[]"),
                     };
                     chainCall.Args.Add(prevChain.Args[0]);
                     for (var l = 0; l < 4; ++l)

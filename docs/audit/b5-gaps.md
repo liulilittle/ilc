@@ -4280,3 +4280,92 @@ before trusting a green mutation.
   the two-key composites, so a THIRD ThenBy over them rejects;
 * the `ThenBy` family literals for those sources (0..7 / 4..5 codes) are not
   translated into `LkChainKey` slots.
+## 45. Chained `ThenBy` over a REFERENCE-element source (IMPLEMENTED)
+
+Section 44 wired the chained composite for the numeric sources only, so
+`items.OrderBy(x => x.A).ThenBy(x => x.B).ThenBy(x => x.C)` -- the shape LINQ
+code actually writes -- still dropped its method to a NOT TRANSPILED stub.
+
+Nothing about a reference source is harder to ORDER: net48 runs the same
+`EnumerableSorter` chain, and the measured contract is unchanged (key phase
+level by level, every selector exactly once per element). What differs is
+where a cached key may live.
+
+### Why the numeric kernel could not be reused as-is
+
+The numeric chain keeps its keys in a `std::vector<LkChainKey>` and never
+touches them again after the key phase. That is safe for `int64_t` / `double`.
+A reference KEY (`string` / any class) MOVES when the collector compacts, and
+`RootScope` only rewrites the slots it was given -- a raw `Il2CppObject*` copied
+into a native vector would dangle after the first compaction triggered by a
+later selector call. So the reference chain stores every reference key in a
+MANAGED side array (one per level, rooted for the whole sort), writes through
+`il2cpp_write_barrier`, and re-reads `LkChainKey::o` from that array immediately
+before each comparison -- the array is the storage of record, the native cell is
+just a scratch copy.
+
+### Implementation
+
+* `linq_sort.cpp`:
+  * `LkChainKey` gains `Il2CppObject* o` for families 4/5;
+  * `CmpLkRefKey(a, b, fam)` reproduces what `CompareStringKeys` /
+    `CompareRefKeys` do for the two-key reference composite -- null-first, then
+    `runtime::il2cpp_string_compare_culture` for family 4 and
+    `il2cpp_icomparable_compare_to` for family 5. It is written INLINE next to
+    the chain comparator on purpose: a forward declaration of the two later
+    definitions creates an overload set and every `&CompareStringKeys` /
+    `&CompareRefKeys` fn-pointer use in the reference sort surface then fails to
+    convert ("ambiguous overloaded function");
+  * `il2cpp_linq_then_by_chain_ref` -- the reference-source chain entry, with the
+    managed per-level key arrays described above;
+  * `LkChainLevelCount` now accepts families 0..5 (it used to reject > 3).
+* `linq_sort.h`: the `_ref` declaration.
+* `StackFold`:
+  * `ChainLevelsOf` also recognises `il2cpp_linq_then_by_key_ref` (the
+    reference two-key composite) so a third level EXTENDS it. The `List<T>`
+    variant deliberately returns false: the two-key list entry SNAPSHOTS the
+    list, and the chain kernel would need the original list, so a 3-level chain
+    over `List<T>` stays on the two-key composite / LOUD;
+  * `ChainSourceSuffix` maps `then_by_key_ref` / `then_by_chain_ref` to `"ref"`;
+  * the secondary-family gate is now per source family: numeric chains accept
+    0..3, reference chains accept 0..5 (4 = string, 5 = other reference).
+
+### Evidence
+
+`tests/cases/thenby3ref` -- 13 records over a shuffled `Item[]`: three
+ascending keys, three independent direction combinations, a full-tie stability
+probe, an exactly-once counter for all three selectors, a mixed
+int32 -> int64 -> double chain, a CULTURE-COLLATED string key, a mixed-case
+string key (`ref3_case=a,A,b,B,z,Z` -- the record that makes the collation
+decision observable), empty/single inputs, four keys, and a source-not-written
+check. Oracle and runtime both **299B, sha
+`69053d0ca2f5e2b65c85323df9c90a8441b7d15109a4ac95c99d2e318db24eec`**, diff=0.
+
+### Mutation coverage
+
+1. Ignore the per-level direction in the reference chain: 299B same length,
+   different sha, `firstDiff=30` -- a SILENT wrong order (RED).
+2. `LkChainLevelCount` treats family 0 as a terminator (`fams[l] <= 0`): 299B,
+   different sha, `firstDiff=5` -- SILENT (RED).
+3. Map the reference source to the int32 chain entry in `ChainSourceSuffix`:
+   the runtime rejects the array (`Only one-dimensional value-element arrays of
+   the expected stride`), 0 bytes (RED).
+
+Two mutations stayed GREEN and are recorded rather than claimed:
+
+* forcing the string branch of `CmpLkRefKey` off -- `il2cpp_icomparable_compare_to`
+  has its own String arm that also collates culturally, so the two paths are
+  not distinguishable from the managed side;
+* dropping the `il2cpp_write_barrier` on the side-array store -- net48-shaped
+  tests recycle within the nursery, and the barrier only matters for an
+  old-gen -> young-gen slot, so no case in this corpus can observe it. The
+  barrier is kept because it is required for correctness under a full
+  generational collector.
+
+### Not covered
+
+* a 3-level chain over `List<T>` (the two-key list entry snapshots; the chain
+  would need the original list);
+* a chain deeper than four levels;
+* the decimal / value-struct (`DateTime`/`TimeSpan`/`Guid`/`DateTimeOffset`)
+  element sources, which still use the two-key composites.

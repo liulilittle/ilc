@@ -451,5 +451,10 @@ Il2CppArray* il2cpp_linq_then_by_chain_i8(Il2CppArray* src,
                                           Il2CppObject* k3, Il2CppObject* k4,
                                           int32_t d1, int32_t d2, int32_t d3, int32_t d4,
                                           int32_t f1, int32_t f2, int32_t f3, int32_t f4);
+Il2CppArray* il2cpp_linq_then_by_chain_ref(Il2CppArray* src,
+                                          Il2CppObject* k1, Il2CppObject* k2,
+                                          Il2CppObject* k3, Il2CppObject* k4,
+                                          int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4);
 
 } // namespace il2cpp

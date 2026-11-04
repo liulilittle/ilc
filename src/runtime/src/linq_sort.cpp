@@ -1245,10 +1245,41 @@ struct LkChainKey
 {
     int64_t i;
     double d;
+    // Reference key FAMILIES 4/5 only. The cell stays a raw pointer and is
+    // NEVER the storage of record: the reference chain kernel keeps every
+    // reference key in a MANAGED side array (so a compacting GC rewrites it)
+    // and refreshes `o` from there before each comparison.
+    Il2CppObject* o;
 };
+
+// The reference-key comparison used by the chained composite. It reproduces
+// exactly what the two-key reference composite does through CompareStringKeys /
+// CompareRefKeys (defined later in this file, where the reference sort surface
+// lives): null-first, then culture collation for System.String and
+// IComparable.CompareTo for every other reference. Inlined here so the chain
+// kernel does not need a forward declaration that would create an overload set.
+int32_t CmpLkRefKey(Il2CppObject* a, Il2CppObject* b, int32_t fam)
+{
+    if (a == b) return 0;
+    if (a == nullptr) return -1;
+    if (b == nullptr) return 1;
+    if (fam == 4 && a->klass == il2cpp_string_class() && b->klass == il2cpp_string_class())
+    {
+        return runtime::il2cpp_string_compare_culture(a, b, 0);
+    }
+    return il2cpp_icomparable_compare_to(a, b);
+}
 
 int32_t CmpLkChainKey(const LkChainKey& a, const LkChainKey& b, int32_t fam)
 {
+    if (fam >= 4)
+    {
+        // A reference key: null-first, then the family own comparer
+        // (family 4 = System.String -> culture collation, family 5 = any other
+        // reference -> IComparable.CompareTo). CompareStringKeys / CompareRefKeys
+        // are the SAME comparators the two-key reference composite uses.
+        return CmpLkRefKey(a.o, b.o, fam);
+    }
     // An int32 key and an int64 key compare identically once widened to
     // int64_t (the reader already sign-extends the int32 value).
     return fam <= 1 ? CmpKeyValue<int64_t>(a.i, b.i) : CmpKeyValue<double>(a.d, b.d);
@@ -1273,6 +1304,23 @@ void ReadLkChainKeyI8(int64_t elem, int32_t fam, Il2CppDelegate* d, LkChainKey& 
     case 1: out.i = InvokeKeyI8SrcI8(d, elem); break;
     case 2: out.d = InvokeKeyI8SrcD(d, elem); break;
     default: out.d = static_cast<double>(InvokeKeyI8SrcF(d, elem)); break;
+    }
+}
+
+// Item[] source: the numeric key families PLUS the REFERENCE key families
+// (4 = System.String -- culture collation, 5 = any other reference) that only a
+// reference-element source can produce. The reference key cell lives in
+// LkChainKey::o and is held in a MANAGED side array (see the kernel below), so
+// a compacting GC rewrites it instead of leaving a dangling raw pointer.
+void ReadLkChainKeyRef(Il2CppObject* elem, int32_t fam, Il2CppDelegate* d, LkChainKey& out)
+{
+    switch (fam)
+    {
+    case 0: out.i = static_cast<int64_t>(InvokeKeyRefI4(d, elem)); break;
+    case 1: out.i = InvokeKeyRefI8(d, elem); break;
+    case 2: out.d = InvokeKeyRefD(d, elem); break;
+    case 3: out.d = static_cast<double>(InvokeKeyRefF(d, elem)); break;
+    default: out.o = InvokeKeyRefRef(d, elem); break;
     }
 }
 
@@ -1354,10 +1402,11 @@ int32_t LkChainLevelCount(const int32_t* fams, int32_t maxLevels)
         {
             break;
         }
-        if (fams[l] > 3)
+        if (fams[l] > 5)
         {
             il2cpp_throw_not_supported_exception(
-                "Chained ThenBy: only the numeric key families (int32/int64/double/float) are wired.");
+                "Chained ThenBy: only the numeric (int32/int64/double/float) and "
+                "reference (string/other) key families are wired.");
         }
         ++used;
     }
@@ -1411,6 +1460,123 @@ Il2CppArray* il2cpp_linq_then_by_chain_i8(Il2CppArray* src,
     const int32_t descs[4] = { d1, d2, d3, d4 };
     return SortLkChainCopyT<int64_t>(s, nkeys, sels, descs, fams, ReadLkChainKeyI8,
                                      static_cast<int32_t>(sizeof(int64_t)), kElemKindI8);
+}
+
+// The REFERENCE-element chained entry. Same contract as the numeric chain but
+// the elements are Il2CppObject* slots (read FRESH through the rooted source,
+// never through a raw cached address) and the result is a fresh reference
+// array of the SOURCE's element class. Reference KEY families (4 string /
+// 5 other) are legal here because ONLY a reference source can produce them.
+//
+// GC: the numeric chain can keep its keys in a native vector because int64 /
+// double never move. A reference KEY does move, so every reference key cell is
+// stored in a MANAGED side array (one per level, rooted for the whole sort) and
+// the comparator re-reads it from that array -- a raw pointer cached in the
+// native vector would dangle after the first compaction.
+Il2CppArray* il2cpp_linq_then_by_chain_ref(Il2CppArray* src,
+                                           Il2CppObject* k1, Il2CppObject* k2,
+                                           Il2CppObject* k3, Il2CppObject* k4,
+                                           int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                           int32_t f1, int32_t f2, int32_t f3, int32_t f4)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    int32_t fams[4] = { f1, f2, f3, f4 };
+    const int32_t nkeys = LkChainLevelCount(fams, 4);
+    Il2CppObject* raw[4] = { k1, k2, k3, k4 };
+    Il2CppDelegate* sels[4] = { nullptr, nullptr, nullptr, nullptr };
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        sels[l] = RequireKeySelector(raw[l]);
+    }
+    const int32_t descs[4] = { d1, d2, d3, d4 };
+    const int32_t n = s->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&s));
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        roots.Add(reinterpret_cast<void**>(&sels[l]));
+    }
+
+    if (n <= 0)
+    {
+        return il2cpp_array_new(s->elemClass, static_cast<int32_t>(sizeof(void*)), true, 0);
+    }
+
+    // Numeric keys in a native vector; reference keys in MANAGED arrays.
+    std::vector<LkChainKey> keys(static_cast<size_t>(n) * static_cast<size_t>(nkeys));
+    Il2CppArray* refKeys[4] = { nullptr, nullptr, nullptr, nullptr };
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        LkChainKey* level = keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+        if (fams[l] >= 4)
+        {
+            refKeys[l] = il2cpp_array_new(s->elemClass, static_cast<int32_t>(sizeof(void*)), true, n);
+            roots.Add(reinterpret_cast<void**>(&refKeys[l]));
+            for (int32_t i = 0; i < n; ++i)
+            {
+                // the reference key crosses in the object slot
+                Il2CppObject* kv = InvokeKeyRefRef(sels[l], RefSlot(s, i));
+                Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+                    il2cpp_array_get_elem_ptr(refKeys[l], i));
+                *slot = kv;
+                il2cpp_write_barrier(reinterpret_cast<void**>(slot), kv);
+                level[i].o = kv;
+            }
+        }
+        else
+        {
+            for (int32_t i = 0; i < n; ++i)
+            {
+                ReadLkChainKeyRef(RefSlot(s, i), fams[l], sels[l], level[i]);
+            }
+        }
+    }
+
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        order[i] = i;
+    }
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        for (int32_t l = 0; l < nkeys; ++l)
+                        {
+                            const LkChainKey* level =
+                                keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+                            LkChainKey ka = level[a];
+                            LkChainKey kb = level[b];
+                            if (fams[l] >= 4)
+                            {
+                                // Refresh from the MANAGED array: that is the
+                                // storage of record, so a compaction between
+                                // selector calls is already reflected there.
+                                ka.o = *reinterpret_cast<Il2CppObject**>(
+                                    il2cpp_array_get_elem_ptr(refKeys[l], a));
+                                kb.o = *reinterpret_cast<Il2CppObject**>(
+                                    il2cpp_array_get_elem_ptr(refKeys[l], b));
+                            }
+                            const int32_t c = CmpLkChainKey(ka, kb, fams[l]);
+                            if (c != 0)
+                            {
+                                return descs[l] != 0 ? -c : c;
+                            }
+                        }
+                        return 0;
+                    });
+
+    Il2CppArray* result = il2cpp_array_new(s->elemClass, static_cast<int32_t>(sizeof(void*)), true, n);
+    roots.Add(reinterpret_cast<void**>(&result));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(result, i));
+        *slot = RefSlot(s, order[i]);
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), *slot);
+    }
+    return result;
 }
 
 //------------------------------------------------------------------------------
