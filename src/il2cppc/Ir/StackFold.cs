@@ -5919,7 +5919,7 @@ public static class StackFold
             // slot already IS an Il2CppObject*, reinterpreted as
             // Il2CppObject**). The bridge temp is declared Il2CppObject*
             // (ExprKind of the box call -> "ref") and GC-rooted.
-            var byrefBridgeSuffix = new List<AssignStmt>();
+            var byrefBridgeSuffix = new List<Stmt>();
             var sharedByref = md != null ? SharedByrefVarSlots(md, (int)ins.Operand) : null;
             if (sharedByref != null)
             {
@@ -5928,45 +5928,103 @@ public static class StackFold
                 {
                     if (!sharedByref[bi]) continue;
                     var bArgIdx = bi + argOffset;
-                    if (call.Args[bArgIdx] is not LocAddrExpr laB || LocWidth(laB.Name, ctx, tempWidths) == "r")
+                    var bArg = call.Args[bArgIdx];
+                    if (bArg is not LocAddrExpr laB || LocWidth(laB.Name, ctx, tempWidths) == "r")
                     {
                         // P-G4 (2): a field ADDRESS argument (ref obj.field) to a
                         // SHARED byref slot. A REFERENCE-typed field's address
                         // is &f == Il2CppObject** -> the callee's Il2CppObject**
-                        // slot matches directly (zero-copy, correct). A VALUE
-                        // slot field's address is &f == int32_t*/... -> an ABI
-                        // mismatch that cannot be bridged (the box-to-temp-then-
-                        // write-back bridge is local-only). Loud-reject the value
-                        // slot shape here (the fold catch turns it into a stub +
-                        // warning); the complete field bridge is future work
-                        // (P-G5).
-                        if (SharedByrefFieldArgSlotIsValue(md, types, call.Args[bArgIdx]))
-                            throw new NotSupportedException("shared byref arg = ref field ADDRESS over a VALUE slot (ref obj.field); route through a local ref first (P-G5 field bridge)");
-                        continue; // reference slot: &slot is Il2CppObject**-compatible (zero-copy)
+                        // slot matches directly (zero-copy, correct).
+                        if (!SharedByrefFieldArgSlotIsValue(md, types, bArg))
+                            continue; // reference slot: &slot is Il2CppObject**-compatible (zero-copy)
+                        // P-G5: `ref obj.Field` / `ref Type.Field` over a VALUE
+                        // slot. MEASURED on net48 (case swapfield): SwapRef(ref
+                        // o.I, ref p.I) swaps the two FIELDS (30,10), the same
+                        // holds for int64/double fields, and Bump(ref o.I)
+                        // leaves the field at default(T). So the bridge is
+                        // exactly the local one -- box the field VALUE into a
+                        // rooted temp, pass the box's address, then write the
+                        // unboxed result back INTO THE FIELD.
+                        if (bArg is FieldAddrExpr faB)
+                        {
+                            var faRead = new FieldExpr
+                            {
+                                Object = faB.Object,
+                                FieldCppName = faB.FieldCppName,
+                                OwnerFullName = faB.OwnerFullName,
+                                IsRefField = false,
+                                IsValueTypeObject = faB.IsValueTypeObject,
+
+                            };
+                            AddSharedByrefBridge(bi, bArg, faRead, v => new FieldAssignStmt
+                            {
+                                Object = faB.Object,
+                                FieldCppName = faB.FieldCppName,
+                                OwnerFullName = faB.OwnerFullName,
+                                IsRefField = false,
+                                IsValueTypeObject = faB.IsValueTypeObject,
+                                RefTargetFullName = "",
+                                Value = v,
+                                SourceOffset = ins.Offset,
+                                SourceOpName = OpName(ins.OpCode),
+                            });
+                            continue;
+                        }
+                        if (bArg is StaticFieldAddrExpr sfaB)
+                        {
+                            // The static field's C++ name IS "Owner.Field" (the
+                            // same target the stsfld fold writes), so the box
+                            // read is a StaticFieldExpr and the write-back is a
+                            // plain dotted AssignStmt.
+                            var sfaRead = new StaticFieldExpr { FieldName = sfaB.FieldName };
+                            AddSharedByrefBridge(bi, bArg, sfaRead, v => new AssignStmt
+                            {
+                                Target = sfaB.FieldName,
+                                Value = v,
+                                SourceOffset = ins.Offset,
+                                SourceOpName = OpName(ins.OpCode),
+                            });
+                            continue;
+                        }
+                        throw new NotSupportedException(
+                            $"shared byref arg {bArg.GetType().Name} over a VALUE slot has no write-back bridge " +
+                            "(only a local address, an instance field address and a static field address are bridged)");
                     }
+                    AddSharedByrefBridge(bi, laB, laB, v => new AssignStmt
+                    {
+                        Target = laB.Name,
+                        Value = v,
+                        SourceOffset = ins.Offset,
+                        SourceOpName = OpName(ins.OpCode),
+                    });
+                }
+
+                // One byref-T bridge: box the value behind `addr` into a rooted
+                // temp, hand the box's ADDRESS to the shared object-ABI call,
+                // and register `writeBack` so the callee's mutation reaches the
+                // caller's storage once the call returns.
+                void AddSharedByrefBridge(int paramIdx, Expr addr, Expr boxSource, Func<Expr, Stmt> writeBack)
+                {
                     var btemp = $"t{temps.Count}";
                     temps.Add(btemp);
                     tempWidths[btemp] = "r";
-                    // D5 (surface 4): the box/unbox bridge is TYPE-AWARE --
-                    // a VALUE slot's box/unbox helper is keyed on the shared
-                    // MVAR param's CONCRETE type (the MethodSpec genArg:
-                    // int32 -> il2cpp_box_int32, double -> icall_box_double,
-                    // ...). The old int32-only bridge read only the low 32
-                    // bits of a double/int64 slot.
-                    var br = SharedByrefConcreteBridge(md!, (int)ins.Operand, bi, types);
+                    // D5 (surface 4): the box/unbox bridge is TYPE-AWARE -- a
+                    // VALUE slot's box/unbox helper is keyed on the shared MVAR
+                    // param's CONCRETE type (the MethodSpec genArg: int32 ->
+                    // il2cpp_box_int32, double -> icall_box_double, ...).
+                    var br = SharedByrefConcreteBridge(md!, (int)ins.Operand, paramIdx, types);
                     string boxFn, boxDeref, unboxFn, unboxKind;
                     bool userValueBox = false;
                     if (br?.IsUserValue == true)
                     {
-                        // D5: a USER VALUE TYPE byref slot. The box goes
-                        // through the SAME box_{token} emission path the
-                        // per-instance P25b path uses (struct -> the struct's
-                        // own {T}_class descriptor + byte-exact payload copy;
-                        // enum -> icall_box_enum). The VALUE slot is read as a
-                        // value expression (LocExpr), not the address -- the
-                        // box_{token} emitter wraps &(value) itself. The
-                        // unbox: user structs use the unbox_{token} cast
-                        // emitter (*reinterpret_cast<T*>(...)); user enums
+                        // D5: a USER VALUE TYPE byref slot. The box goes through
+                        // the SAME box_{token} emission path the per-instance
+                        // P25b path uses (struct -> the struct's own {T}_class
+                        // descriptor + byte-exact payload copy; enum ->
+                        // icall_box_enum). The VALUE is read as a value
+                        // expression (the box_{token} emitter wraps &(value)
+                        // itself). The unbox: user structs use the unbox_{token}
+                        // cast emitter (*reinterpret_cast<T*>(...)); user enums
                         // unbox through icall_unbox_long (accepts enum boxes,
                         // int64 carrier -- the enum local slot is int32_t).
                         boxFn = $"box_{br.UserValueToken}";
@@ -5996,10 +6054,10 @@ public static class StackFold
                     };
                     if (boxFn == "il2cpp::il2cpp_box_int32")
                         boxCall.Args.Add(new NullExpr());
-                    // D5 user value types: pass the VALUE slot (the box_{token}
+                    // D5 user value types: pass the VALUE (the box_{token}
                     // emitter adds the &(...) itself). Primitives pass the
                     // ADDRESS (the boxDeref cast reads the value through it).
-                    boxCall.Args.Add(userValueBox ? new LocExpr { Name = laB.Name } : laB);
+                    boxCall.Args.Add(userValueBox ? boxSource : addr);
                     stmts.Add(new AssignStmt
                     {
                         Target = btemp,
@@ -6007,7 +6065,7 @@ public static class StackFold
                         SourceOffset = ins.Offset,
                         SourceOpName = OpName(ins.OpCode),
                     });
-                    call.Args[bArgIdx] = new LocAddrExpr { Name = btemp };
+                    call.Args[paramIdx + argOffset] = new LocAddrExpr { Name = btemp };
                     var unboxCall = new CallExpr
                     {
                         Function = unboxFn,
@@ -6017,13 +6075,33 @@ public static class StackFold
                             new[] { true }, false),
                     };
                     unboxCall.Args.Add(new LocExpr { Name = btemp });
-                    byrefBridgeSuffix.Add(new AssignStmt
+                    // The callee is the SHARED object-ABI clone: its `a =
+                    // default(T)` lowers to a null store into the byref slot.
+                    // MEASURED on net48 (swapfield Bump(ref o.I)): the caller's
+                    // field becomes default(T), i.e. 0 -- not a
+                    // NullReferenceException. So a null box on the way back means
+                    // "the callee reset the slot": write default(T) instead of
+                    // unboxing null (every unbox helper throws NRE on null).
+                    var boxSlot = new LocExpr { Name = btemp };
+                    var lblDefault = $"L_byrefdef_{temps.Count}";
+                    var lblAfter = $"L_byrefend_{temps.Count}";
+                    byrefBridgeSuffix.Add(new BranchStmt
                     {
-                        Target = laB.Name,
-                        Value = unboxCall,
+                        TargetLabel = lblDefault,
+                        Condition = new BinaryExpr { Op = BinaryOp.Ceq, Left = boxSlot, Right = new IntConstExpr { Value = 0 } },
                         SourceOffset = ins.Offset,
                         SourceOpName = OpName(ins.OpCode),
                     });
+                    byrefBridgeSuffix.Add(writeBack(unboxCall));
+                    byrefBridgeSuffix.Add(new BranchStmt
+                    {
+                        TargetLabel = lblAfter,
+                        SourceOffset = ins.Offset,
+                        SourceOpName = OpName(ins.OpCode),
+                    });
+                    byrefBridgeSuffix.Add(new LabelStmt { Name = lblDefault, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
+                    byrefBridgeSuffix.Add(writeBack(SharedByrefDefaultValue(unboxKind)));
+                    byrefBridgeSuffix.Add(new LabelStmt { Name = lblAfter, SourceOffset = ins.Offset, SourceOpName = OpName(ins.OpCode) });
                 }
             }
             if (resolved == null || resolved.ReturnsValue)
@@ -10754,6 +10832,21 @@ public static class StackFold
     {
         public bool IsUserValue => UserValueToken != null;
     }
+
+    // The `default(T)` value written back when a shared object-ABI callee
+    // RESET its byref T slot (the box came back null). MEASURED on net48
+    // (swapfield `Bump(ref o.I)`): the caller's field ends up 0, not a
+    // NullReferenceException. Keyed on the box/unbox kind code the bridge
+    // already carries, so every primitive family (and the reference family)
+    // gets a well-formed literal.
+    static Expr SharedByrefDefaultValue(string unboxKind) => unboxKind switch
+    {
+        "d" => new DoubleConstExpr { Value = 0.0 },
+        "l" or "ul" => new Int64ConstExpr { Value = 0 },
+        "b" or "c" or "i" or "u1" or "u2" or "ui" => new IntConstExpr { Value = 0 },
+        "r" => new NullExpr(),
+        _ => new IntConstExpr { Value = 0 },
+    };
 
     static SharedByrefBridge? SharedByrefConcreteBridge(
         MetadataReader md, int token, int paramIndex, IReadOnlyList<TypeDef>? types)

@@ -4112,3 +4112,78 @@ Existing EH cases re-verified byte-identical: `ehbrk1`, `ehcat1`, `ehcnt1`,
 * A filter that inspects state a DIFFERENT frame's finally modified (the model
   runs each method in its own C++ frame, so the order is the frame's own).
 * `Fault` clauses remain rejected (no exceptional-path-only cleanup model).
+## 43. `ref obj.Field` / `ref Type.Field` into a SHARED generic byref T slot (P-G5, IMPLEMENTED)
+
+`StackFold` rejected a VALUE-slot field address passed to a shared
+(object-ABI) generic method's `ref T` parameter:
+
+```
+throw new NotSupportedException("shared byref arg = ref field ADDRESS over a VALUE slot (ref obj.field); route through a local ref first (P-G5 field bridge)");
+```
+
+That rejection was not an ABI impossibility: the local form of the same bridge
+already existed (box the value into a rooted temp, pass the box's address, unbox
+after the call), and a field is just another storage location.
+
+### Measured net48 contract (oracle: the case's own oracle run, `swapfield`)
+
+| probe | measured |
+|---|---|
+| `SwapRef(ref o.I, ref p.I)` (int field) | the two FIELDS swap (`30,10`) |
+| `SwapRef(ref o.L, ref p.L)` (long field) | `40,20` |
+| `SwapRef(ref o.D, ref p.D)` (double field) | `2.5,1.5` |
+| `SwapRef(ref o.S, ref p.S)` (string field) | `cd,ab` (reference slot: exact, no boxing) |
+| `SwapRef(ref o.B, ref p.B)` (bool field) | `False,True` |
+| `SwapRef(ref StaticI, ref local)` | the STATIC field swaps with the local |
+| **`Bump(ref o.I)` where the callee assigns `default(T)`** | **the field becomes `0`, NOT a NullReferenceException** |
+
+The last row is the one that shaped the implementation: the shared clone clears
+its byref slot to null, and every unbox helper throws NRE on null, so the
+write-back must branch on `box == null` and store `default(T)`.
+
+### Implementation
+
+* `StackFold` shared-byref bridge is now a local helper
+  (`AddSharedByrefBridge`) used by three storage shapes: a local/param address
+  (unchanged), an instance field address (`FieldAssignStmt` write-back), and a
+  static field address (dotted `AssignStmt` write-back -- the same target the
+  `stsfld` fold writes). The reference-slot shapes still pass through
+  zero-copy; an unrecognised address shape stays LOUD.
+* `SharedByrefDefaultValue(unboxKind)` supplies the `default(T)` literal per
+  box/unbox kind, and the write-back is emitted as
+  `if (box == null) store(default) else store(unbox(box))`.
+* `initobj VAR` in a SHARED body (`Bump<T>` has no TypeDef clone, so the
+  suffix classifier answers "value") now honours `_curMethodShare` and emits the
+  object-slot null store. Without it the `int32` zero store half-cleared the
+  `Il2CppObject**` slot and the next unbox crashed with an access violation.
+
+### Evidence
+
+`tests/cases/swapfield` -- 9 records covering int/long/double/string/bool
+instance fields, a static int and static long field, and the
+`default(T)` write-back. Oracle and runtime both **107B, sha
+`eeb03e13035dad1bb41b219e37b148ebe787cb8e5037411eec0f7e07a043cc80`**, diff=0.
+
+Existing generic/byref cases re-verified byte-identical: `swapcase`,
+`generics`, `mvarreturncase`, `mvarusecase`, `genericiface`,
+`genericvirtdeep`.
+
+### Mutation coverage (each turns `swapfield` RED, restored GREEN)
+
+1. Pass the field ADDRESS instead of the field VALUE as the box source
+   (`AddSharedByrefBridge(..., bArg, ...)`): 100B, `diff=4`, every swapped
+   field reads `0,0`.
+2. Drop the null->default write-back branch (always unbox): runtime throws
+   NullReferenceException, 62B, 5/9 records (`[bump]`, `[sbump]`, `[si]`,
+   `[sl]` missing).
+3. Make the int `default(T)` literal `7` instead of `0`: 107B same length but
+   `diff=1` with `[bump]` = `7` -- a SILENT wrong value (this is the mutation
+   that proves the default-value arm is observable).
+
+### Not covered
+
+* A `ref` field whose declared type differs from the concrete generic argument
+  (the box/unbox kind comes from the MethodSpec genArg, so a mismatch would be
+  a genuine type error in the source).
+* Reference-typed fields with the shared byref bridge were already fine and
+  stay zero-copy; only value slots needed boxing.

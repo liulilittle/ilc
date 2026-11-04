@@ -5359,7 +5359,17 @@ public static class CodeGenerator
                         // arity>=2 clone (Pair<int[,],int>: VAR1 -> int32 zero
                         // store, not the 8-byte reference store); MVAR (0x1E)
                         // and arity-1 keep the legacy whole-suffix classifier.
+                        // The SHARED method body (a generic method on a
+                        // non-generic type -- `Bump<T>(ref T)`) has no TypeDef
+                        // clone, so _curInstantiationSuffix is null and the
+                        // classifier would answer "value". Its VAR slot is
+                        // nevertheless the Il2CppObject** object ABI slot (the
+                        // same face the ldobj/stobj arms key on via
+                        // _curMethodShare). Without this the int32 zero store
+                        // half-clears the pointer and the following unbox
+                        // crashes (MEASURED: swapfield access violation).
                         if (TryVarTypeSpecIndex(md, initobjTok, out var initobjVarIdx)
+                            && !_curMethodShare
                             && !TypeDef.CloneArgSlotIsRef(_curInstantiationSuffix, MethodRefResolver.InstantiationSuffixHintParts, initobjVarIdx))
                         {
                             w.LineAligned($"(*reinterpret_cast<int32_t*>({initobjAddr})) = 0;",
