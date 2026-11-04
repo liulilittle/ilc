@@ -3822,9 +3822,14 @@ public static class CodeGenerator
         var openedTrys = new HashSet<int>();
         // Finally regions: their handler statements are DUPLICATED (normal
         // path after the try + exceptional path inside the catch-all, then
-        // rethrow). The handler statements themselves are skipped in the main
-        // flow (they are emitted at the two duplication points).
-        var finallyRegions = regions.Where(r => r.Kind == ExceptionRegionKind.Finally).ToList();
+        // rethrow). Fault regions run the handler ONLY on the exceptional path
+        // (a normal `leave` from the try skips it -- measured on net48), so
+        // their statements ride the same collection but the normal-path
+        // duplication arm is gated on Kind==Finally (see CloseTryBlock). The
+        // handler statements themselves are skipped in the main flow below
+        // (they are emitted at the duplication points).
+        var finallyRegions = regions.Where(r => r.Kind is ExceptionRegionKind.Finally
+            or ExceptionRegionKind.Fault).ToList();
         var finallyHandlerStmts = new Dictionary<int, List<Stmt>>();
         foreach (var fr in finallyRegions)
         {
@@ -3971,17 +3976,21 @@ public static class CodeGenerator
                     types, branchTargets, locKind);
                 blocks.Add(('H', r));
             }
-            else if (closedRegion.Kind == ExceptionRegionKind.Finally)
+            else if (closedRegion.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault)
             {
-                // Exceptional path for finally: catch-all, duplicate the
-                // finally code, then rethrow the original exception.
+                // Exceptional path for finally/fault: catch-all, duplicate the
+                // handler code, then rethrow the original exception. A fault
+                // handler runs ONLY on the exceptional path (a normal `leave`
+                // from the try skips it -- net48), so unlike a finally it is
+                // NOT duplicated into the try body by the arm above; both get
+                // this catch-all form.
                 w.Close();
                 w.Line("}"); // close the try block before its catch-all
                 OpenCatch(w, md, closedRegion);
                 if (finallyHandlerStmts.TryGetValue(closedRegion.HandlerOffset, out var fin2))
                 {
                     // M7 CG-FIX (lockcase cmake FAIL: redefinition of label):
-                    // the finally handler statements are emitted TWICE -- the
+                    // a FINALLY's handler statements are emitted TWICE -- the
                     // normal path (in the try body) and this exceptional path
                     // (in the catch-all). A label inside the handler (lockcase's
                     // `L_54:`, the lockTaken guard target) would therefore be
@@ -3993,10 +4002,12 @@ public static class CodeGenerator
                     // branch target ("dead label"), and the renamed label
                     // would otherwise be suppressed while the renamed branch
                     // still jumps to it ("use of undeclared label").
+                    // A FAULT's handler is emitted only here, so renaming is
+                    // harmless for it too (single copy, self-consistent).
                     foreach (var fs in RenameFinallyLabels(fin2, "_exc", branchTargets))
                         EmitStmt(w, fs, md, types, branchTargets, locKind);
                 }
-                w.Line("throw; // rethrow the original exception (finally semantics)");
+                w.Line("throw; // rethrow the original exception (finally/fault semantics)");
                 blocks.Add(('H', r));
             }
             else if (closedRegion.Kind is ExceptionRegionKind.Catch or ExceptionRegionKind.Filter
@@ -4473,6 +4484,15 @@ public static class CodeGenerator
             // used (msvc C4101 "unreferenced local variable" on every finally).
             w.Line("(void)__il2cpp_ex; // finally: the exception is rethrown, never inspected");
             w.Line("// finally block: cleanup code runs, then the original exception is rethrown");
+        }
+        else if (region.Kind == ExceptionRegionKind.Fault)
+        {
+            // fault region: exceptional-path-only cleanup. Same catch-all +
+            // rethrow shape as a finally, but the handler NEVER runs on the
+            // normal completion path (a `leave`-based normal exit skips it --
+            // measured net48 behavior). The catch variable is never inspected.
+            w.Line("(void)__il2cpp_ex; // fault: the exception is rethrown, never inspected");
+            w.Line("// fault block: exceptional-path cleanup, then the original exception is rethrown");
         }
         else if (region.CatchTypeToken != 0)
         {

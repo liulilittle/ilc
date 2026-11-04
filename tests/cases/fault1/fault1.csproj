@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>fault1</AssemblyName>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48"
+                      Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+  <!-- b5-gaps section 48: the fault IL cannot be produced by csc, so the
+       AfterBuild target OVERWRITES the emitted exe with fault1.il assembled by
+       the .NET Framework ilasm. Both the net48 oracle and the transpiler read
+       the same ilasm-built exe, keeping the differential fair. -->
+  <Target Name="IlasmOverwrite" AfterTargets="Build">
+    <Exec Command="&quot;C:\Windows\Microsoft.NET\Framework64\v4.0.30319\ilasm.exe&quot; &quot;$(MSBuildProjectDirectory)\fault1.il&quot; /output:&quot;$(OutDir)fault1.exe&quot; /QUIET" />
+  </Target>
+</Project>

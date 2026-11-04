@@ -35,10 +35,10 @@ using Xunit;
 //     silently fell through and misaligned every later local).
 //
 // EH clause kinds (ECMA-335 II.16.4.1): typed catch (0x00) / filter (0x01) /
-// finally (0x02) / fault (0x04). filter + finally + catch are decoded (the
-// fold rejects a filter clause's Endfilter LOUDLY -- StackFold.cs Endfilter
-// case); fault is rejected LOUD at the reader (the emission layer has no fault
-// model -- decoding would mis-emit it as a swallowing catch-all).
+// finally (0x02) / fault (0x04). All four are decoded. The fold rejects a
+// filter clause's Endfilter LOUDLY (StackFold.cs Endfilter case); a fault
+// clause is real statically-analyzable IL -- the emitter runs it only on the
+// exceptional path (CodeGenerator CloseTryBlock Fault arm).
 //
 // maxstack: the method-header MaxStack (ECMA-335 II.15.4.3.2) is now surfaced
 // on MethodBodyInfo (previously unread).
@@ -499,15 +499,19 @@ public class MethodBodyReaderTests
     }
 
     [Fact]
-    public void Decode_FaultRegion_RejectsLoud()
+    public void Decode_FaultRegion_Decodes()
     {
-        // fault clause (0x04): no emission model exists (a fault handler = cleanup
-        // on the exceptional path only; decoding it would mis-emit it as a
-        // swallowing catch-all) -- the reader stays LOUD with a precise message.
+        // fault clause (0x04): REAL statically-analyzable IL (C++/CLI emits it).
+        // The reader decodes it like any region; the EMITTER runs it only on the
+        // exceptional path (see CodeGenerator CloseTryBlock Fault arm).
         using var pe = Synthesize(EmitFault, 2, null,
             new SynthClause(ExceptionRegionKind.Fault, 0, 3, 3, 3, null));
-        var ex = Assert.Throws<NotSupportedException>(() => ReadBody(pe));
-        Assert.Contains("fault", ex.Message);
-        Assert.Contains("try=", ex.Message);
+        var body = ReadBody(pe);
+        var region = Assert.Single(body.ExceptionRegions);
+        Assert.Equal(ExceptionRegionKind.Fault, region.Kind);
+        Assert.Equal(0, region.TryOffset);
+        Assert.Equal(3, region.TryLength);
+        Assert.Equal(3, region.HandlerOffset);
+        Assert.Equal(3, region.HandlerLength);
     }
 }

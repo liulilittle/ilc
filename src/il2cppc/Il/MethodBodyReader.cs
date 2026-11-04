@@ -127,11 +127,13 @@ public static class MethodBodyReader
 
     // Exception handling region table (ECMA-335 II.16.4.1): try blocks + handler
     // blocks, one entry per clause -- typed catch (0x00), filter (0x01), finally
-    // (0x02), fault (0x04). All four are valid ECMA-335 table entries; the parser
-    // decodes catch/finally/filter. Fault (0x04) is deliberately kept LOUD here:
-    // a fault handler runs cleanup on the EXCEPTIONAL path only, and the emission
-    // layer has no fault model (CodeGenerator.CloseTryBlock has no Fault arm -- a
-    // decoded fault region would silently mis-emit as a swallowing catch-all).
+    // (0x02), fault (0x04). All four are valid ECMA-335 table entries and all
+    // four are decoded. Fault (0x04) is REAL statically-analyzable IL (C++/CLI
+    // compilers emit it): the handler runs cleanup on the EXCEPTIONAL path only
+    // (a normal `leave` from the try skips it -- measured on net48), and after
+    // the handler ends the ORIGINAL exception keeps unwinding. CodeGenerator
+    // CloseTryBlock emits it as the finally shape WITHOUT the normal-path
+    // duplication (a catch-all running the handler body, then `throw;`).
     // Filter (0x01, C# `catch when`): the filter body is part of the handler
     // range and ends in `endfilter`; the fold rejects Endfilter LOUDLY
     // (StackFold.cs Endfilter case) so decode keeps the parser complete for valid
@@ -141,9 +143,6 @@ public static class MethodBodyReader
         var regions = new List<IlExceptionRegion>();
         foreach (var region in body.ExceptionRegions)
         {
-            if (region.Kind == ExceptionRegionKind.Fault)
-                throw new NotSupportedException(
-                    $"exception fault region (try=[0x{region.TryOffset:X4},0x{region.TryOffset + region.TryLength:X4})) not supported: the generated code has no fault model (a fault handler = exceptional-path-only cleanup; decoding it would mis-emit it as a swallowing catch-all)");
             regions.Add(new IlExceptionRegion
             {
                 TryOffset = region.TryOffset,

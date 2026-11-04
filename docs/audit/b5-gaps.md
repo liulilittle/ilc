@@ -4561,3 +4561,78 @@ with reproducers rather than fixed in this batch.
    plain `a[i]` (which routes through `icall_single_to_string` with an
    explicit `static_cast<double>`); the §47 case uses `s += a[i]` for the same
    reason.
+
+## 48. CIL `fault` EH clause (0x04) (IMPLEMENTED)
+
+A `fault` region is REAL, statically-analyzable ECMA-335 IL (II.16.4.1),
+produced by C++/CLI and hand-written IL -- csc never emits it (C# lowers
+try/finally to `finally`), so the whole surface was previously LOUD-rejected
+at `MethodBodyReader.cs:144` ("the generated code has no fault model").
+
+### Measured net48 contract (oracle: the case's own ilasm-built exe, `fault1`)
+
+A fault handler is a finally that runs ONLY on the exceptional path:
+
+* NORMAL path: try body runs, the fault handler is SKIPPED (`np-before` then
+  `np-after`, no `np-fault`) -- a normal `leave` from the try does not run it.
+* EXCEPTIONAL path: try body runs, the fault handler RUNS (`tp-before` then
+  `tp-fault`), then the ORIGINAL exception keeps unwinding to the caller's
+  catch (`main-caught`) -- it does NOT swallow the exception.
+
+So the emitted C++ shape is a finally's exceptional-path catch-all WITHOUT
+the normal-path duplication: `try { ... } catch (DotNetException&) { <fault
+code duplicated, labels renamed>; throw; }`, and the fault handler statements
+are skipped from the main flow exactly like finally handler statements.
+
+### Implementation
+
+* `MethodBodyReader.cs`: removed the Fault throw; the decode already handled
+  all four kinds via the generic `regions.Add`, and the region ordering
+  contract (outer-first / inner-last) applies to fault like every kind.
+* `CodeGenerator.cs` EmitBody:
+  * `finallyRegions` now selects `Finally` OR `Fault` -- both kinds' handler
+    statements are collected and skipped in the main flow.
+  * `CloseTryBlock`: the exceptional-path catch-all arm now fires for
+    `Finally or Fault` (same renamed-label duplication + `throw;`). The
+    NORMAL-path duplication arm stays gated on `== Finally` -- that is the
+    whole point: a fault must not run on the normal completion path.
+  * `OpenCatch`: new Fault arm emitting the
+    `(void)__il2cpp_ex; // fault: ... rethrown, never inspected` +
+    `// fault block: exceptional-path cleanup, then the original exception
+    is rethrown` marker lines (mirrors the finally arm).
+
+### Contract evidence
+
+* new case `tests/cases/fault1`: the csproj builds a net48 Program.cs
+  placeholder, then an `IlasmOverwrite` AfterBuild target OVERWRITES the
+  emitted exe with `fault1.il` assembled by the .NET Framework ilasm -- both
+  the net48 oracle and the transpiler read the SAME ilasm-built exe, keeping
+  the differential fair. oracle = runtime = **55B `87c46289...`**, all six
+  lines byte-identical.
+* mutations (all RED, two SILENT WRONG VALUES + one unit-red):
+  * M-A: normal-path duplication armed for Fault too (runs the fault body on
+    the normal leave) -> runtime 65B `cec73063` (diff at byte 14 -- the extra
+    `np-fault` line), restored GREEN;
+  * M-B: `finallyRegions` selects `Finally` only (fault handler never
+    collected/skipped) -> runtime 53B `75d6900c` (diff at byte 47 -- the
+    `tp-fault` line never ran on the exceptional path), restored GREEN;
+  * M-R: reader throw restored -> `Decode_FaultRegion_Decodes` unit test RED
+    (1/28 failed), restored GREEN.
+* unchanged: `ehfilter1` 207B `c63ca4f7`, `thenby3` 585B `2ead0372`,
+  `thenby3ref` 299B `69053d0c`, `thenby3list` 262B `bda750a6`,
+  `thenbywide-elem` 560B `f0676c0c`, `ctorunused` 64B `db1898a0`, `swapfield`
+  `eeb03e13`, `pinvoke-multidim` `ea05c185`, `pinvoke-pointer` `26985af6`,
+  `pinvoke-charref` `a885d8f5`; unit tests 4155/0/0; C0 0 warnings 0 errors.
+
+### Still not covered
+
+* a fault region NESTED inside another fault/try body (the block stack walk
+  is generic, but no oracle exercises the nesting);
+* a fault handler that itself throws (net48 replaces the in-flight exception
+  with the new one from the fault body; the emitted `throw;` after the
+  duplicated body preserves the ORIGINAL only when the body falls through --
+  the body throwing would need the same "rethrow replaces" reasoning as
+  finally, unverified on this build);
+* `endfault` (0xDC alias) / `endfinally` inside a fault body with a local
+  `leave` to a label inside the handler (the renamed-label machinery covers
+  it for finally; a fault-specific probe would be confirmatory).
