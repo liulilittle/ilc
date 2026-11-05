@@ -5063,3 +5063,73 @@ that must be snapshotted at its element kind.
   ships no such overload.
 * the remaining measured LOUDs from §52 (ToDictionary/ToLookup/ToHashSet,
   OfType/Cast, Join/GroupJoin/SelectMany, the comparer overloads) are unchanged.
+## 54. `Enumerable.Cast<T>` / `Enumerable.OfType<T>` over an object-element array (IMPLEMENTED)
+
+Both operators were refused at transpile time ("generic instantiation of
+System.Linq.Enumerable.Cast/OfType has no BCL mapping in M5"). They are the
+boxed-element projection/filter surface and have real net48 semantics:
+
+* `Cast<T>` = `unbox.any` / `castclass` per element: a null element throws
+  NullReferenceException, a wrong boxed type (or a reference that is not
+  T-compatible) throws InvalidCastException.
+* `OfType<T>` DROPS nulls and non-matching elements; `isinst` semantics for a
+  reference T (derived types match).
+* Both return a FRESH array of the result family (exact size, so OfType makes
+  two passes), never aliasing the source.
+
+### Implementation
+
+* `linq_map.cpp` / `linq_map.h`:
+  * `il2cpp_linq_cast(src, fam)` / `il2cpp_linq_of_type(src, fam)` for the 17
+    value families (int32/int64/uint64/uint32/sbyte/byte/int16/uint16/bool/
+    char/single/double/decimal/DateTime/TimeSpan/Guid/DateTimeOffset);
+  * `il2cpp_linq_cast_ref(src, klass)` / `il2cpp_linq_of_type_ref(src, klass)`
+    for a reference TResult (conformance by `il2cpp_is_instance`, base chain +
+    interface scan; the emitted call passes the class descriptor);
+  * box classification is the box klass NAME (the arraysort.cpp
+    UnboxInt64Payload authority), then the family's own unbox icall
+    (`icall_unbox_*` / `runtime::icall_unbox_date_time` ...) performs the typed
+    extraction -- so a misclassification can never silently reinterpret a
+    payload;
+  * the result array records the family's cell width + element kind, so a
+    downstream join/format reads it correctly;
+  * the source must be a REFERENCE-element array: a value-element array or a
+    List receiver is rejected loudly (reinterpreting a List as Il2CppArray
+    reads its items pointer as a length -- the D-2 defect class);
+  * source and result are rooted across the result allocation; the ref
+    variants use the write barrier.
+* `MethodMap.Linq.cs`: `Cast`/`OfType` are handled before the Sum/Min/Max
+  block. The result byte maps to a family literal; a reference result appends
+  the class-expression literal (`&System_String_class` / `&System_Object_class`
+  / `&<Sanitized>_class`). A non-array receiver hint (e.g. a List) and a user
+  struct TResult keep the LOUD.
+
+### Contract evidence
+
+* new case `tests/cases/probe-castoftype`: oracle = runtime = **392B
+  `76fbcf3e...`**, 17 records -- `object[]` holding int/string/long/double/
+  bool/char/decimal/DateTime/Guid/null; every `OfType<T>` family, the
+  `OfType<int>().Count()` composition, `Cast<int>` (identity order), 
+  `Cast<string>` (null passes for a reference T), `Cast<object>`,
+  `Cast<int>` over `{1,"x"}` -> InvalidCastException, `Cast<int>` over
+  `{1,null}` -> NullReferenceException.
+* mutations (all RED, restored GREEN to the same sha):
+  * M1 the int32 unbox store adds 1 -> 392B `45bf9792` (of.i4 1,2 -> 2,3 and
+    cast.i4 3,1,2 -> 4,2,3 -- silent wrong values);
+  * M2 the transpiler routed Cast to the OfType entry -> 392B `82c7468e`
+    (cast.bad/cast.null lose their exceptions; cast.obj/cast.str drop nulls).
+* unchanged: `probe-vtaggsrc` 788B `75b8c04c`, `probe-vtlistagg` 769B
+  `c159ec54`, `probe-vtops` 1736B `31665731`, `thenbyvtchain` 939B
+  `f5c9391b`, `thenbydecchain` 376B `b2edbdbe`, `thenby3ref` 299B `69053d0c`,
+  `linqorder2` 779B `6a72ece6`, `p0linq4`; unit tests 4159/0/0; C0 0 warnings
+  0 errors.
+
+### Still not covered
+
+* `Cast<T>`/`OfType<T>` over a VALUE-element array source (e.g. `int[]`
+  through the non-generic IEnumerable) and over a List receiver -- both stay
+  LOUD. net48 would box/unbox per element there; the runtime has no
+  array-to-boxed enumerator wired for this shape.
+* a user struct TResult (no cell ABI / no class identity rule here).
+* the remaining measured LOUDs from §52 (ToDictionary/ToLookup/ToHashSet,
+  Join/GroupJoin/SelectMany, the comparer overloads) are unchanged.

@@ -1512,5 +1512,14 @@ Il2CppArray* il2cpp_linq_except_i4(Il2CppArray* first, Il2CppArray* second);
 Il2CppArray* il2cpp_linq_zip_i4(Il2CppArray* first, Il2CppArray* second,
                                 Il2CppObject* sel);
 
+// b5-gaps §54: Cast<T> / OfType<T> over an OBJECT-element array source. The
+// value-family entries take the result family code; the *_ref entries take the
+// TARGET Il2CppClass* (conformance by il2cpp_is_instance). Cast<T> follows
+// unbox.any (null -> NullReferenceException, wrong type -> InvalidCastException);
+// OfType<T> drops nulls/non-matching elements.
+Il2CppArray* il2cpp_linq_cast(Il2CppArray* src, int32_t fam);
+Il2CppArray* il2cpp_linq_of_type(Il2CppArray* src, int32_t fam);
+Il2CppArray* il2cpp_linq_cast_ref(Il2CppArray* src, Il2CppClass* klass);
+Il2CppArray* il2cpp_linq_of_type_ref(Il2CppArray* src, Il2CppClass* klass);
 } // namespace il2cpp
 

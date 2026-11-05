@@ -97,6 +97,86 @@ public static partial class MethodRefResolver
         if (name == "Zip")
             srcType = receiverType ?? arg0Type;
 
+        // b5-gaps §54: Enumerable.Cast<TResult> / OfType<TResult> over the
+        // non-generic IEnumerable form. The source elements are BOXED; the
+        // runtime classifies each box and unboxes through the family's own
+        // icall (Cast: unbox.any semantics; OfType: drop non-matching/nulls).
+        // A VALUE-element array source is rejected at runtime; here the source
+        // must be a TRACKED array, because casting a List object to
+        // Il2CppArray* would read its items pointer as a length (the D-2
+        // defect class).
+        if (name is "Cast" or "OfType")
+        {
+            if (count != 1 || genArgs is not { Length: >= 1 })
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.{name} is not wired for this shape (expected the "
+                    + "single-generic result over one non-generic IEnumerable source) "
+                    + "-- see docs/audit/b5-gaps.md");
+            }
+            if (srcType is { } srcIndicated
+                && !srcIndicated.EndsWith("[]", StringComparison.Ordinal))
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.{name} over '{srcIndicated}' is not wired: only an "
+                    + "object-element ARRAY source is supported (a List or another "
+                    + "IEnumerable receiver needs its own element-kind snapshot) "
+                    + "-- see docs/audit/b5-gaps.md");
+            }
+            byte castRes = genArgs[0];
+            bool castIsRef = IsRefFamilyByte(castRes);
+            string? castFam = castRes switch
+            {
+                0x08 => "0",  // int32
+                0x0A => "1",  // int64
+                0x0B => "2",  // uint64
+                0x09 => "3",  // uint32
+                0x04 => "4",  // sbyte
+                0x05 => "5",  // byte
+                0x06 => "6",  // int16
+                0x07 => "7",  // uint16
+                0x02 => "8",  // bool
+                0x03 => "9",  // char
+                0x0C => "10", // single
+                0x0D => "11", // double
+                _ => null,
+            };
+            if (castFam is null && castRes == 0x11)
+            {
+                castFam = LinqStructNameOf(genArgNames is { Length: >= 1 } ? genArgNames[0] : null) switch
+                {
+                    "System.Decimal" => "12",
+                    "System.DateTime" => "13",
+                    "System.TimeSpan" => "14",
+                    "System.Guid" => "15",
+                    "System.DateTimeOffset" => "16",
+                    _ => null,
+                };
+            }
+            string castOp = name == "Cast" ? "cast" : "of_type";
+            if (castFam != null)
+            {
+                return I($"il2cpp::il2cpp_linq_{castOp}", 1, true, true, false, OneArg,
+                    returnTypeName: LinqArrayTypeNameExact(castRes, genArgNames, 0),
+                    appendLiterals: new[] { castFam });
+            }
+            if (castIsRef)
+            {
+                string castName = castRes == 0x0E
+                    ? "System.String"
+                    : genArgNames is { Length: >= 1 }
+                        ? LinqStructNameOf(genArgNames[0]) : "System.Object";
+                return I($"il2cpp::il2cpp_linq_{castOp}_ref", 1, true, true, false, OneArg,
+                    returnTypeName: castName + "[]",
+                    appendLiterals: new[] { LinqClassSymbolOf(castName) });
+            }
+            throw new NotSupportedException(
+                $"Enumerable.{name} TResult '{GenericArgTypeName(castRes)}' is not "
+                + "wired: the cast surface covers the primitive/narrow families, "
+                + "System.Decimal/DateTime/TimeSpan/Guid/DateTimeOffset and reference "
+                + "types -- see docs/audit/b5-gaps.md");
+        }
+
         // Sum/Min/Max are special: net48 carries a CONCRETE non-generic
         // overload family Sum(this IEnumerable<int32>) / Min / Max (no
         // MethodSpec -- the il2cpp_linq_*_i4 aggregate). The element byte is
@@ -3767,6 +3847,20 @@ public static partial class MethodRefResolver
         return srcType != null && srcType.EndsWith("[]", StringComparison.Ordinal)
             ? srcType[..^2] : "System.Object";
     }
+
+    // b5-gaps §54: the class-descriptor EXPRESSION for a Cast/OfType reference
+    // TResult. The runtime compares with il2cpp_is_instance, so a boxed element
+    // that derives from (or IS) the target passes -- isinst semantics. The
+    // primitives/specials resolve to the metadata globals (the same table
+    // CodeGenerator's BoxClassDescriptorCpp uses); every other reference type
+    // uses the generated `_class` symbol the isinst/castclass emitter already
+    // relies on.
+    private static string LinqClassSymbolOf(string? typeName) => typeName switch
+    {
+        null or "?" or "System.Object" => "&System_Object_class",
+        "System.String" => "&System_String_class",
+        _ => "&" + TypeEmitter.Sanitize(typeName) + "_class",
+    };
 
     //--------------------------------------------------------------------------
     // LinqElementFamily -- the SOURCE element family of an Enumerable operator.
