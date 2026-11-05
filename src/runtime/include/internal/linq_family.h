@@ -228,6 +228,20 @@ Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
 Il2CppArray* il2cpp_linq_select_many3(Il2CppArray* src, Il2CppObject* collSel,
                                       Il2CppObject* resSel, int32_t srcCell,
                                       int32_t collCell, int32_t resCell);
+
+// b5-gaps section 62: Enumerable.Join(outer, inner, outerKeySelector,
+// innerKeySelector, resultSelector) over ARRAY sources. Pass 1 indexes the
+// inner sequence by TKey (per-key-cell carrier/reference hashing; reference
+// TKeys live only for this call and are held by a per-slot rooted vector);
+// pass 2 collects (outer, inner) match pairs as pure int indices; pass 3
+// invokes the two-argument result selector once per pair through the
+// section-61 table and materializes the exact-size TResult array. The outer /
+// inner element cells, the TKey cell and the TResult cell ride trailing
+// literals. List/IEnumerable sources are rejected loudly by the D-2 guard.
+Il2CppArray* il2cpp_linq_join(Il2CppArray* outer, Il2CppArray* inner,
+                              Il2CppObject* outerKeySel, Il2CppObject* innerKeySel,
+                              Il2CppObject* resSel, int32_t outerCell,
+                              int32_t innerCell, int32_t keyCell, int32_t resCell);
 bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
 bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
 bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);

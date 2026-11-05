@@ -5574,3 +5574,62 @@ still need the generic inner-enumeration infrastructure". The ARRAY-inner
   (IEnumerable) still need the generic enumeration; List/IEnumerable SOURCES
   of the 3-arg form stay LOUD (rejected by the D-2 guard); decimal/vt cells
   have no line-2 selector ABI yet.
+## 62. Enumerable.Join over array sources with value and reference keys (IMPLEMENTED)
+
+Join was in the "generic instantiation ... has no BCL mapping" band. The
+5-argument form over ARRAY sources is now real; List/IEnumerable sources and
+decimal/vt keys stay registered.
+
+### Implementation
+
+* `linq_family.cpp` / `linq_family.h`: `il2cpp_linq_join(outer, inner,
+  outerKeySel, innerKeySel, resSel, outerCell, innerCell, keyCell, resCell)`:
+  1. pass 1 indexes the inner sequence by TKey into a bucket/slot table
+     (per-key-cell hashing: int32 folds to its low bits, int64 and double fold
+     their 64-bit carriers, reference keys hash ordinals for strings and the
+     address otherwise);
+  2. reference TKeys live only for the duration of the call and are held by a
+     PER-SLOT ROOTED key vector (the section-59 shape); strings compare with
+     ordinal equality (net48 `EqualityComparer<string>.Default`), other
+     reference keys with reference equality;
+  3. pass 2 walks the outer sequence, walks ONLY the matching bucket chain,
+     and collects (outer, inner) match pairs as PURE int indices (no managed
+     pointers -> the pair vector never needs rooting); the chain is emitted in
+     reverse so the inner insertion order per key survives;
+  4. pass 3 allocates the exact-size TResult array, invokes the two-argument
+     result selector EXACTLY ONCE per pair through the section-61 erased ABI
+     table, and materializes each cell (reference stores through the write
+     barrier, values width-exact).
+  A D-2 guard rejects non-array sources from the object descriptor before any
+  array-shaped read.
+* `MethodMap.Linq.cs`: a Join arm binds count==5 with
+  [TOuter, TInner, TKey, TResult] -- outer/inner element cells, TKey cell and
+  TResult cell ride trailing literals; the two sources ride the "a" cast; the
+  result is tracked as the TResult array.
+
+### Contract evidence
+
+* new case `tests/cases/probe-join`: oracle = runtime = **119B
+  sha c424737a**, 9 records -- int-key joins with duplicate inner keys,
+  string-key joins, an int result, `GC.Collect(); WaitForPendingFinalizers();
+  GC.Collect();` inside the THIRD outer key selector (proves the pass-1
+  reference keys survive a compaction), empty inner, empty outer, a
+  duplicate-key ordering record (10/20/21 keyed val/10), and a double-key
+  join.
+* mutations RED -> restored GREEN (both SILENT):
+  * M16 emit the match chain forward instead of reversed -> 119B `ef21f34a`,
+    1 record wrong (`[o]` 1-10,2-20,2-21 -> 1-10,2-21,2-20: inner order lost);
+  * M18 flip the double key equality (== -> !=) -> 131B `6cbdf256`, 1 record
+    wrong (`[d]` 2.5~2.5 -> all four pairs joined).
+* unit tests 4159/0/0; C0 `--no-incremental` 0 warnings 0 errors;
+  probe-selectmany3 / probe-selectmanylist / probe-selectmany /
+  probe-castoftype / probe-cmpval / linqgroup / thenby3list /
+  probe-tohashset unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* GroupJoin (the inner GROUP materialization) is the next step on the same
+  table; the comparer / IEqualityComparer overloads need comparer injection
+  into the join table.
+* List/IEnumerable sources of the 5-arg form stay LOUD (the D-2 guard rejects
+  them loudly); decimal/vt key cells have no line-2 selector ABI yet.

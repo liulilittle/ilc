@@ -238,6 +238,39 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             return null;
         }
 
+        // b5-gaps section 62: Enumerable.Join(outer, inner, outerKeySelector,
+        // innerKeySelector, resultSelector) over ARRAY sources. genArgs =
+        // [TOuter, TInner, TKey, TResult]; the outer element cell, the inner
+        // element cell, the TKey cell and the TResult cell ride trailing
+        // literals. The array sources ride the "a" cast; array-ness is
+        // enforced by the runtime D-2 guard (a 5-argument operator reaches no
+        // argument-hint for the sources).
+        if (name == "Join")
+        {
+            if (genArgs is not { Length: >= 4 } || count != 5) return null;
+            string? jOuter = LinqCellCodeOfElemByte(genArgs[0])
+                ?? (IsRefFamilyByte(genArgs[0]) ? "15" : null);
+            string? jInner = LinqCellCodeOfElemByte(genArgs[1])
+                ?? (IsRefFamilyByte(genArgs[1]) ? "15" : null);
+            string? jKey = LinqCellCodeOfElemByte(genArgs[2])
+                ?? (IsRefFamilyByte(genArgs[2]) ? "15" : null);
+            string? jRes = LinqCellCodeOfElemByte(genArgs[3])
+                ?? (IsRefFamilyByte(genArgs[3]) ? "15" : null);
+            if (jOuter == null || jInner == null || jKey == null || jRes == null)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.Join<{GenericArgTypeName(genArgs[0])}," +
+                    $"{GenericArgTypeName(genArgs[1])},{GenericArgTypeName(genArgs[2])}," +
+                    $"{GenericArgTypeName(genArgs[3])}> is not wired: no cell code " +
+                    "for a source / key / result element (b5-gaps section 62, " +
+                    "docs/audit/b5-gaps.md).");
+            }
+            return I("il2cpp::il2cpp_linq_join", 5, true, true, false,
+                new[] { "a", "a", "", "", "" },
+                returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),
+                appendLiterals: new[] { jOuter, jInner, jKey, jRes });
+        }
+
         // nb9 FIX: the SOURCE receiver hint. For an extension call the source
         // is the FIRST IL argument -- the stack's SECOND value for arity >= 2
         // (arg1Type) and the ONLY value for arity 1 (arg0Type); an instance

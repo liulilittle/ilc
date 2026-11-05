@@ -2034,4 +2034,442 @@ Il2CppArray* il2cpp_linq_select_many3(Il2CppArray* src, Il2CppObject* collSel,
     return out;
 }
 
+//------------------------------------------------------------------------------
+// b5-gaps section 62: Enumerable.Join(outer, inner, outerKeySelector,
+// innerKeySelector, resultSelector) over ARRAY sources (outer element cell,
+// inner element cell, TKey cell, TResult cell as trailing literals). The
+// TKey carries ride the single-argument erased table below (key selectors);
+// the TWO-ARGUMENT result selector reuses the section-61 kSel2 table. The
+// matched pairs are collected as PURE int indices (no managed pointers), so
+// the pair vector never needs rooting; reference TKeys only live for the
+// duration of the call and are held by the per-slot rooted key vector.
+//------------------------------------------------------------------------------
+namespace {
+
+struct JoinSlot
+{
+    int32_t       next;     // bucket-chain successor (-1 at tail)
+    int64_t       key;      // value-key carrier (ref keys: unused)
+    Il2CppObject* keyRef;   // reference key (null for value keys)
+    int32_t       innerIndex;
+};
+
+#define S3_ARG_T_i4 int32_t
+#define S3_ARG_T_i8 int64_t
+#define S3_ARG_T_d double
+#define S3_ARG_T_o Il2CppObject*
+#define S3_RT_T_i4 int32_t
+#define S3_RT_T_i8 int64_t
+#define S3_RT_T_d double
+#define S3_RT_T_o Il2CppObject*
+
+typedef int64_t (*Sel1Fn)(Il2CppDelegate*, Sel2Arg);
+
+#define IL2CPP_SEL1_IMPL(RT, A1)                                                \
+    int64_t Sel1_##RT##_##A1(Il2CppDelegate* d, Sel2Arg a1)                     \
+    {                                                                            \
+        S3_RT_T_##RT r = d->target != nullptr                                   \
+            ? (reinterpret_cast<S3_RT_T_##RT (*)(Il2CppObject*,                 \
+                                                 S3_ARG_T_##A1)>(d->methodPtr)) \
+                  (d->target, Sel2Get<S3_ARG_T_##A1>(a1))                      \
+            : (reinterpret_cast<S3_RT_T_##RT (*)(S3_ARG_T_##A1)>(d->methodPtr)) \
+                  (Sel2Get<S3_ARG_T_##A1>(a1));                                 \
+        return Sel2Erase(r);                                                     \
+    }
+
+#define IL2CPP_SEL1_4(RT)                   \
+    IL2CPP_SEL1_IMPL(RT, i4)                \
+    IL2CPP_SEL1_IMPL(RT, i8)                \
+    IL2CPP_SEL1_IMPL(RT, d)                 \
+    IL2CPP_SEL1_IMPL(RT, o)
+
+IL2CPP_SEL1_4(i4)
+IL2CPP_SEL1_4(i8)
+IL2CPP_SEL1_4(d)
+IL2CPP_SEL1_4(o)
+
+#undef IL2CPP_SEL1_IMPL
+#undef IL2CPP_SEL1_4
+
+#define S1K(RT, A1) Sel1_##RT##_##A1,
+#define S1R(RT)                \
+    S1K(RT, i4) S1K(RT, i8)    \
+    S1K(RT, d)  S1K(RT, o)
+
+static const Sel1Fn kSel1[16] = {
+    S1R(i4)
+    S1R(i8)
+    S1R(d)
+    S1R(o)
+};
+
+#undef S1K
+#undef S1R
+#undef S3_ARG_T_i4
+#undef S3_ARG_T_i8
+#undef S3_ARG_T_d
+#undef S3_ARG_T_o
+#undef S3_RT_T_i4
+#undef S3_RT_T_i8
+#undef S3_RT_T_d
+#undef S3_RT_T_o
+
+int32_t JoinRefHash(Il2CppObject* o)
+{
+    if (o == nullptr)
+    {
+        return 0;
+    }
+    if (o->klass != nullptr && o->klass->name != nullptr &&
+        std::strcmp(o->klass->name, "System.String") == 0)
+    {
+        const Il2CppString* s = reinterpret_cast<const Il2CppString*>(o);
+        uint32_t h = 17u;
+        for (int32_t i = 0; i < s->length; ++i)
+        {
+            h = h * 33u + static_cast<uint16_t>(s->chars[i]);
+        }
+        return static_cast<int32_t>(h & 0x7FFFFFFFu);
+    }
+    return static_cast<int32_t>(
+        (reinterpret_cast<uintptr_t>(o) >> 4) & 0x7FFFFFFFu);
+}
+
+bool JoinRefEquals(Il2CppObject* a, Il2CppObject* b)
+{
+    if (a == b)
+    {
+        return true;
+    }
+    if (a == nullptr || b == nullptr)
+    {
+        return false;
+    }
+    const bool aStr = a->klass != nullptr && a->klass->name != nullptr &&
+        std::strcmp(a->klass->name, "System.String") == 0;
+    const bool bStr = b->klass != nullptr && b->klass->name != nullptr &&
+        std::strcmp(b->klass->name, "System.String") == 0;
+    if (aStr && bStr)
+    {
+        return il2cpp_string_equals_ordinal(
+            reinterpret_cast<Il2CppString*>(a),
+            reinterpret_cast<Il2CppString*>(b));
+    }
+    return false;
+}
+
+int32_t JoinKeyHash(int64_t carrier, Il2CppObject* keyRef, int32_t keyCell)
+{
+    switch (keyCell)
+    {
+        case IL2CPP_LINQ_CELL_SBYTE:
+        case IL2CPP_LINQ_CELL_BYTE:
+        case IL2CPP_LINQ_CELL_BOOL:
+        case IL2CPP_LINQ_CELL_SHORT:
+        case IL2CPP_LINQ_CELL_USHORT:
+        case IL2CPP_LINQ_CELL_CHAR:
+        case IL2CPP_LINQ_CELL_UINT:
+        case IL2CPP_LINQ_CELL_I4:
+            return static_cast<int32_t>(carrier) & 0x7FFFFFFF;
+        case IL2CPP_LINQ_CELL_I8:
+        {
+            const uint64_t u = static_cast<uint64_t>(carrier);
+            return static_cast<int32_t>((u ^ (u >> 33)) & 0x7FFFFFFFULL);
+        }
+        case IL2CPP_LINQ_CELL_F:
+        case IL2CPP_LINQ_CELL_D:
+        {
+            double dv = 0.0;
+            std::memcpy(&dv, &carrier, sizeof(dv));
+            uint64_t u = 0;
+            std::memcpy(&u, &dv, sizeof(u));
+            return static_cast<int32_t>((u ^ (u >> 33)) & 0x7FFFFFFFULL);
+        }
+        case IL2CPP_LINQ_CELL_REF:
+            return JoinRefHash(keyRef);
+        default:
+            return 0;
+    }
+}
+
+bool JoinKeyEquals(int64_t ca, Il2CppObject* ra, int64_t cb, Il2CppObject* rb,
+                   int32_t keyCell)
+{
+    switch (keyCell)
+    {
+        case IL2CPP_LINQ_CELL_SBYTE:
+        case IL2CPP_LINQ_CELL_BYTE:
+        case IL2CPP_LINQ_CELL_BOOL:
+        case IL2CPP_LINQ_CELL_SHORT:
+        case IL2CPP_LINQ_CELL_USHORT:
+        case IL2CPP_LINQ_CELL_CHAR:
+        case IL2CPP_LINQ_CELL_UINT:
+        case IL2CPP_LINQ_CELL_I4:
+            return ca == cb;
+        case IL2CPP_LINQ_CELL_I8:
+            return ca == cb;
+        case IL2CPP_LINQ_CELL_F:
+        case IL2CPP_LINQ_CELL_D:
+        {
+            double da = 0.0;
+            double db = 0.0;
+            std::memcpy(&da, &ca, sizeof(da));
+            std::memcpy(&db, &cb, sizeof(cb));
+            return da == db;
+        }
+        case IL2CPP_LINQ_CELL_REF:
+            return JoinRefEquals(ra, rb);
+        default:
+            return false;
+    }
+}
+
+int32_t RoundUpPow2(int32_t v)
+{
+    int32_t p = 1;
+    while (p < v)
+    {
+        p <<= 1;
+    }
+    return p;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_join(Il2CppArray* outer, Il2CppArray* inner,
+                              Il2CppObject* outerKeySel, Il2CppObject* innerKeySel,
+                              Il2CppObject* resSel, int32_t outerCell,
+                              int32_t innerCell, int32_t keyCell, int32_t resCell)
+{
+    if (outer == nullptr || inner == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("outer");
+        return nullptr;
+    }
+    Il2CppClass* oCls = reinterpret_cast<Il2CppObject*>(outer)->klass;
+    Il2CppClass* iCls = reinterpret_cast<Il2CppObject*>(inner)->klass;
+    if (oCls == nullptr || oCls->name == nullptr || oCls->name[0] != '[' ||
+        iCls == nullptr || iCls->name == nullptr || iCls->name[0] != '[')
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.Join: a source is not a one-dimensional array "
+            "(List/IEnumerable sources stay LOUD, b5-gaps section 62).");
+        return nullptr;
+    }
+    LinqRequireCell(outer, outerCell);
+    LinqRequireCell(inner, innerCell);
+    const int32_t k1o = Sel2ArgSlotOf(outerCell);
+    const int32_t k2i = Sel2ArgSlotOf(innerCell);
+    const int32_t kkey = Sel2ArgSlotOf(keyCell);
+    const int32_t rres = Sel2ArgSlotOf(resCell);
+    if (k1o < 0 || k2i < 0 || kkey < 0 || rres < 0)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.Join: a source / key / result cell has no line-2 "
+            "selector ABI (b5-gaps section 62).");
+        return nullptr;
+    }
+    Il2CppDelegate* ok = reinterpret_cast<Il2CppDelegate*>(outerKeySel);
+    Il2CppDelegate* ik = reinterpret_cast<Il2CppDelegate*>(innerKeySel);
+    Il2CppDelegate* rs = reinterpret_cast<Il2CppDelegate*>(resSel);
+    if (ok == nullptr || ok->methodPtr == nullptr || ik == nullptr ||
+        ik->methodPtr == nullptr || rs == nullptr || rs->methodPtr == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    const int32_t on = outer->length;
+    const int32_t inn = inner->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&outer));
+    roots.Add(reinterpret_cast<void**>(&inner));
+    roots.Add(reinterpret_cast<void**>(&ok));
+    roots.Add(reinterpret_cast<void**>(&ik));
+    roots.Add(reinterpret_cast<void**>(&rs));
+
+    // Pass 1: index the inner sequence by TKey.
+    const bool refKey = kkey == 3;
+    size_t bucketCount = 0;
+    std::vector<int32_t> buckets;
+    std::vector<JoinSlot> slots;
+    std::vector<Il2CppObject*> keyRoots;
+    if (inn > 0)
+    {
+        bucketCount = static_cast<size_t>(RoundUpPow2(inn * 2));
+        if (bucketCount < 8)
+        {
+            bucketCount = 8;
+        }
+        try
+        {
+            buckets.assign(bucketCount, -1);
+            slots.reserve(static_cast<size_t>(inn));
+            if (refKey)
+            {
+                keyRoots.reserve(static_cast<size_t>(inn));
+            }
+        }
+        catch (const std::bad_alloc&)
+        {
+            il2cpp_throw_new(
+                "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                "Insufficient memory to continue the execution of the program.");
+            return nullptr;
+        }
+        const Sel1Fn ike1 = kSel1[(kkey * 4 + k2i)];
+        for (int32_t j = 0; j < inn; ++j)
+        {
+            Sel2Arg a2;
+            switch (k2i)
+            {
+                case 0: a2.i4 = LinqCellReadI4(inner, j, innerCell); break;
+                case 1: a2.i8 = LinqCellReadI8(inner, j, innerCell); break;
+                case 2: a2.d = LinqCellReadD(inner, j, innerCell); break;
+                default: a2.o = LinqCellReadRef(inner, j, innerCell); break;
+            }
+            const int64_t key = ike1(ik, a2);
+            Il2CppObject* keyRef = refKey ? reinterpret_cast<Il2CppObject*>(key) : nullptr;
+            const int32_t h = JoinKeyHash(key, keyRef, keyCell) & (static_cast<int32_t>(bucketCount) - 1);
+            const size_t slotIdx = slots.size();
+            JoinSlot slot;
+            slot.next = buckets[h];
+            slot.key = key;
+            slot.keyRef = keyRef;
+            slot.innerIndex = j;
+            try
+            {
+                slots.push_back(slot);
+                if (refKey)
+                {
+                    keyRoots.push_back(keyRef);
+                }
+            }
+            catch (const std::bad_alloc&)
+            {
+                il2cpp_throw_new(
+                    "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                    "Insufficient memory to continue the execution of the program.");
+                return nullptr;
+            }
+            if (refKey)
+            {
+                roots.Add(reinterpret_cast<void**>(&keyRoots[keyRoots.size() - 1]));
+            }
+            buckets[h] = static_cast<int32_t>(slotIdx);
+        }
+    }
+
+    // Pass 2: walk the outer sequence, collect (outer, inner) match pairs as
+    // pure int indices (the inner ordering of the chain is preserved by
+    // walking the head chain and emitting in reverse).
+    std::vector<int32_t> pairs;
+    if (inn > 0)
+    {
+        try { pairs.reserve(static_cast<size_t>(on)); }
+        catch (const std::bad_alloc&) { /* fall through to grow on push */ }
+        const Sel1Fn oke1 = kSel1[(kkey * 4 + k1o)];
+        std::vector<int32_t> chain;
+        for (int32_t i = 0; i < on; ++i)
+        {
+            Sel2Arg a1;
+            switch (k1o)
+            {
+                case 0: a1.i4 = LinqCellReadI4(outer, i, outerCell); break;
+                case 1: a1.i8 = LinqCellReadI8(outer, i, outerCell); break;
+                case 2: a1.d = LinqCellReadD(outer, i, outerCell); break;
+                default: a1.o = LinqCellReadRef(outer, i, outerCell); break;
+            }
+            const int64_t key = oke1(ok, a1);
+            Il2CppObject* keyRef = refKey ? reinterpret_cast<Il2CppObject*>(key) : nullptr;
+            const int32_t h = JoinKeyHash(key, keyRef, keyCell) & (static_cast<int32_t>(bucketCount) - 1);
+            chain.clear();
+            for (int32_t s = buckets[h]; s >= 0; s = slots[s].next)
+            {
+                if (JoinKeyEquals(key, keyRef, slots[s].key, slots[s].keyRef, keyCell))
+                {
+                    chain.push_back(slots[s].innerIndex);
+                }
+            }
+            for (size_t c = chain.size(); c > 0; --c)
+            {
+                pairs.push_back(i);
+                pairs.push_back(chain[c - 1]);
+            }
+        }
+    }
+
+    // Pass 3: materialize the result array (result selector invoked once per
+    // matched pair, straight into the preallocated exact-size array).
+    const size_t pairCount = pairs.size() / 2;
+    Il2CppArray* out = LinqNewArray(resCell, static_cast<int32_t>(pairCount));
+    roots.Add(reinterpret_cast<void**>(&out));
+    const Sel2Fn pick = kSel2[(rres * 4 + k1o) * 4 + k2i];
+    for (size_t p = 0; p < pairCount; ++p)
+    {
+        const int32_t o = pairs[p * 2];
+        const int32_t i = pairs[p * 2 + 1];
+        Sel2Arg a1;
+        switch (k1o)
+        {
+            case 0: a1.i4 = LinqCellReadI4(outer, o, outerCell); break;
+            case 1: a1.i8 = LinqCellReadI8(outer, o, outerCell); break;
+            case 2: a1.d = LinqCellReadD(outer, o, outerCell); break;
+            default: a1.o = LinqCellReadRef(outer, o, outerCell); break;
+        }
+        Sel2Arg a2;
+        switch (k2i)
+        {
+            case 0: a2.i4 = LinqCellReadI4(inner, i, innerCell); break;
+            case 1: a2.i8 = LinqCellReadI8(inner, i, innerCell); break;
+            case 2: a2.d = LinqCellReadD(inner, i, innerCell); break;
+            default: a2.o = LinqCellReadRef(inner, i, innerCell); break;
+        }
+        const int64_t r = pick(rs, a1, a2);
+        char* dst = LinqCellPtr(out, static_cast<int32_t>(p));
+        if (rres == 3)
+        {
+            Il2CppObject* v = reinterpret_cast<Il2CppObject*>(r);
+            *reinterpret_cast<Il2CppObject**>(dst) = v;
+            il2cpp_write_barrier(reinterpret_cast<void**>(dst), v);
+        }
+        else
+        {
+            switch (resCell)
+            {
+                case IL2CPP_LINQ_CELL_SBYTE:
+                case IL2CPP_LINQ_CELL_BYTE:
+                case IL2CPP_LINQ_CELL_BOOL:
+                case IL2CPP_LINQ_CELL_SHORT:
+                case IL2CPP_LINQ_CELL_USHORT:
+                case IL2CPP_LINQ_CELL_CHAR:
+                case IL2CPP_LINQ_CELL_UINT:
+                case IL2CPP_LINQ_CELL_I4:
+                {
+                    const int32_t i4 = static_cast<int32_t>(r);
+                    std::memcpy(dst, &i4, sizeof(i4));
+                    break;
+                }
+                case IL2CPP_LINQ_CELL_I8:
+                    std::memcpy(dst, &r, sizeof(int64_t));
+                    break;
+                case IL2CPP_LINQ_CELL_F:
+                {
+                    double dv = 0.0;
+                    std::memcpy(&dv, &r, sizeof(dv));
+                    const float fv = static_cast<float>(dv);
+                    std::memcpy(dst, &fv, sizeof(fv));
+                    break;
+                }
+                case IL2CPP_LINQ_CELL_D:
+                    std::memcpy(dst, &r, sizeof(double));
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+    return out;
+}
+
 } // namespace il2cpp
