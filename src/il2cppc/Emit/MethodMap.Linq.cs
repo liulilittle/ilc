@@ -154,7 +154,7 @@ public static partial class MethodRefResolver
             // At the call site the LAST IL operand is on the stack top, so
             // arg0Type names the comparer for the 2-argument form and the
             // array's type lives in arg1Type (verified by probe).
-            string srcTypeName = count >= 2 ? arg1Type : arg0Type;
+            string? srcTypeName = count >= 2 ? arg1Type : arg0Type;
             bool arraySrc = srcTypeName != null
                 && srcTypeName.EndsWith("[]", StringComparison.Ordinal);
             string srcCast = arraySrc ? "a" : "";
@@ -184,15 +184,30 @@ public static partial class MethodRefResolver
                     $"{GenericArgTypeName(genArgs[1])}> is not wired: no cell ABI for " +
                     "the source / result element (b5-gaps section 59).");
             }
-            string srcTypeName = count >= 2 ? arg1Type : arg0Type;
-            if (srcTypeName == null || !srcTypeName.EndsWith("[]", StringComparison.Ordinal))
+            string? srcTypeName = count >= 2 ? arg1Type : arg0Type;
+            if (srcTypeName == null) return null;
+            if (srcTypeName.EndsWith("[]", StringComparison.Ordinal))
             {
-                return null;
+                return I("il2cpp::il2cpp_linq_select_many", 2, true, true, false,
+                    new[] { "a", "" },
+                    returnTypeName: LinqArrayTypeNameExact(genArgs[1], genArgNames, 1),
+                    appendLiterals: new[] { srcCell, resCell });
             }
-            return I("il2cpp::il2cpp_linq_select_many", 2, true, true, false,
-                new[] { "a", "" },
-                returnTypeName: LinqArrayTypeNameExact(genArgs[1], genArgNames, 1),
-                appendLiterals: new[] { srcCell, resCell });
+            // b5-gaps section 60: a List<T> source snapshots into its element
+            // cell. The list kind literal selects the snapshot family; the
+            // source element cell (selector ABI) and TResult cell ride as for
+            // the array form.
+            if (srcTypeName.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal))
+            {
+string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
+                    ?? (IsRefFamilyByte(genArgs[0]) ? "1" : null);
+                if (smListKind == null) return null;
+                return I("il2cpp::il2cpp_linq_list_select_many", 2, true, true, false,
+                    new[] { "", "" },
+                    returnTypeName: LinqArrayTypeNameExact(genArgs[1], genArgNames, 1),
+                    appendLiterals: new[] { srcCell, resCell, smListKind });
+            }
+            return null;
         }
 
         // nb9 FIX: the SOURCE receiver hint. For an extension call the source

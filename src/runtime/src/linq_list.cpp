@@ -663,6 +663,19 @@ Il2CppArray* il2cpp_linq_list_to_array(Il2CppObject* list, int32_t kind)
     return il2cpp_linq_list_snapshot(list, kind);
 }
 
+// b5-gaps section 60: Enumerable.SelectMany(list, collectionSelector) over a
+// List<T> source. The snapshot (an exact-size array of the list's own cell)
+// is delegated to the array select_many kernel in linq_family.cpp; the
+// srcCell selects the per-element selector ABI and resCell shapes the result
+// array. The snapshot is a fresh rooted copy, so the delegation never outlives
+// the source list.
+Il2CppArray* il2cpp_linq_list_select_many(Il2CppObject* list, Il2CppObject* sel,
+    int32_t srcCell, int32_t resCell, int32_t listKind)
+{
+    Il2CppArray* snap = SnapshotOf(list, listKind);
+    return il2cpp_linq_select_many(snap, sel, srcCell, resCell);
+}
+
 Il2CppObject* il2cpp_linq_list_to_list(Il2CppObject* list, int32_t kind)
 {
     RequireList(list);

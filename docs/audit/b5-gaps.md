@@ -5458,3 +5458,60 @@ Func<TSource,IEnumerable<TResult>>)` form over ARRAY sources now flattens.
   (the CollectCarriers family dispatch) before the inward loop can open;
 * the decimal / DateTime / TimeSpan / Guid / DateTimeOffset cell codes stay
   unset for this operator.
+## 60. Enumerable.SelectMany single-level over List<T> sources (IMPLEMENTED)
+
+Section 59 registered "List/other sources stay M5 (TryMapLinqList)"; the
+single-`collectionSelector` form over List<T> sources now flattens.
+
+### Implementation
+
+* `linq_list.cpp` / `linq_list.h`: `il2cpp_linq_list_select_many(list, sel,
+  srcCell, resCell, listKind)` -- `SnapshotOf(list, listKind)` produces an
+  exact-size array in the source element's own cell (rooted fresh copy; the
+  list is never modified), then delegates to the section-59 array kernel
+  `il2cpp_linq_select_many`. It is intentionally a 5-line shell: every
+  ordering / per-slot-rooting / duplicate-inner guarantee rides the kernel
+  (inners cached in a RESERVED std::vector with PER-SLOT static roots).
+* `MethodMap.Linq.cs` SelectMany arm: accepts a
+  `System.Collections.Generic.List`1_*` source after the array branch; the
+  IL2CPP_LIST_KIND_* literal (ref -> 1, int32 -> 0, int64 -> 2, float -> 3,
+  double -> 4, narrow -> 5..11 via `LinqListKindOfElemByte`) is appended as a
+  third trailing literal; the list rides the `""` cast. Also removed two
+  pre-existing CS8600 nullable warnings (sections 58/59 debt).
+
+### Contract evidence
+
+* new case `tests/cases/probe-selectmanylist`: oracle = runtime = **121B
+  sha ddd6a93e**, 7 records -- int / long / string / double sources each
+  flattening two-element array inners, empty source, empty inners, and an
+  exact-once selector counter with `GC.Collect(); WaitForPendingFinalizers();
+  GC.Collect();` inside the SECOND invocation (proves the per-slot rooting
+  survives the compaction a later selector call triggers).
+* mutations RED -> restored GREEN (the list-only decisions are
+  all-or-nothing: any snapshot-width / ABI-alias divergence dies loudly, so
+  the reachable red form is the runtime abort; the shared kernel's SILENT
+  mutations M9/M10 from section 59 already prove value-level divergence is
+  caught):
+  * M11 `SnapshotOf(list, IL2CPP_LIST_KIND_I4)` -> runtime exit=1,
+    19B `7451fe9a`, 6/7 records missing;
+  * M12 transpiler aliases the ref source to list kind "0" -> same abort;
+  * M13 transpiler forces srcCell "7" on the list arm -> same abort.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 warnings 0 errors;
+  probe-selectmany / probe-cmpval / probe-cmpref / probe-tohashset /
+  probe-castoftype / thenby3list / linqgroup unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* **Enumerable.ToDictionary / ToLookup BLOCKER**: the dictsi / dictgen
+  tables hold stored reference KEYS as raw pointers and their documented
+  contract is "the caller keeps every stored key reachable"
+  (`dictgen.cpp:116` "the table never holds an unrooted box"); the
+  delegate-returned keys a LINQ ToDictionary would insert are NOT kept
+  reachable anywhere else, so a moving GC could collect them while the
+  dictionary lives. Section 58's ToHashSet was safe only because the HashSet
+  items live in a GC-TRACKED managed array inside the wrapper. The wired
+  int32-keyed shapes (int->string etc.) are safe, but the string key /
+  string value wrappers would need ownership rooting added to the wrapper
+  object before ToDictionary can seed faithfully. Next-round item.
+* SelectMany with IEnumerable inner collections / a 3-arg resultSelector
+  still need the generic inner-enumeration infrastructure.

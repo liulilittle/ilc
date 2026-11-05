@@ -76,6 +76,14 @@ int32_t il2cpp_linq_list_count(Il2CppObject* list);
 // ToArray over the list (the snapshot IS the exact-size copy).
 Il2CppArray* il2cpp_linq_list_to_array(Il2CppObject* list, int32_t kind);
 
+// b5-gaps section 60: Enumerable.SelectMany(list, collectionSelector) over a
+// List<T> source -- snapshots the list into its element-cell array and defers
+// to the array select_many kernel (linq_family.h). The source element cell
+// (selector ABI) and the TResult cell ride trailing literals; listKind is the
+// IL2CPP_LIST_KIND_* snapshot code for the source element family.
+Il2CppArray* il2cpp_linq_list_select_many(Il2CppObject* list, Il2CppObject* sel,
+    int32_t srcCell, int32_t resCell, int32_t listKind);
+
 // ToList over the list: a fresh List<T> holding the same elements.
 Il2CppObject* il2cpp_linq_list_to_list(Il2CppObject* list, int32_t kind);
 
