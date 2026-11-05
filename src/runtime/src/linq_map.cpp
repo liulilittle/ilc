@@ -5904,15 +5904,14 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
 {
     if (keyKind == 11)
     {
-        // A REFERENCE key: the default contract is reference equality (a user
-        // IEqualityComparer over a reference key is not wired).
+        // A REFERENCE key: the default contract is reference-or-Equals equality
+        // (net48 EqualityComparer<string>.Default -- string keys dedupe by
+        // value). A USER IEqualityComparer over a reference key dispatches
+        // through LinqRefEqualsCmp (the StringComparer singletons + the
+        // reflected virtual Equals(T,T) slot), b5-gaps section 56.
         if (cmp != nullptr)
         {
-            il2cpp_throw_not_supported_exception(
-                "GroupBy with a user IEqualityComparer over a reference key "
-                "(System.String / class / object): the reference key comparer is not "
-                "wired; the default comparer (null) compares by reference.");
-            return false; // unreachable (the factory throws)
+            return LinqRefEqualsCmp(cmp, existing->keyRef, keyRef);
         }
         return existing->keyRef == keyRef ||
                (existing->keyRef != nullptr && keyRef != nullptr &&

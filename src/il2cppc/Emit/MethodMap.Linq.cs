@@ -72,6 +72,38 @@ namespace Il2Cpp.Transpiler.Emit;
 //------------------------------------------------------------------------------
 public static partial class MethodRefResolver
 {
+    // b5-gaps section 56: does the call carry a user comparer parameter
+    // (IEqualityComparer`1 / IComparer`1 / the non-generic IComparer)? A
+    // comparer overload this surface does not wire must go LOUD instead of
+    // silently binding the plain kernel and dropping the comparer.
+    private static bool LinqHasComparerParam(MetadataReader md, BlobHandle sigHandle)
+    {
+        // The signature decode may read the TYPE DEF/REF rows behind a
+        // parameter (a Func`2 / IEqualityComparer`1 coded row). Synthetic PEs in
+        // the unit suite carry only the Enumerable TypeRef, so a decode there
+        // throws -- treat it as "no comparer" (a real comparer call always
+        // carries the resolved TypeRef it came from, which decodes fine).
+        try
+        {
+            var ps = LinqEncodedParamTypes(md, sigHandle);
+            for (int pi = 0; pi < ps.Length; pi++)
+            {
+                string def = GenericDefNameOf(ps[pi]);
+                if (def == "System.Collections.Generic.IEqualityComparer`1" ||
+                    def == "System.Collections.Generic.IComparer`1" ||
+                    def == "System.Collections.IComparer")
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or NotSupportedException)
+        {
+            return false;
+        }
+        return false;
+    }
+
     private static ResolvedMethod? TryMapLinq(MetadataReader md, BlobHandle sigHandle, string owner, string name,
         byte[] ps, int count, byte[]? genArgs, string[]? genArgNames, string? receiverType, bool receiverIsAddress,
         string? arg0Type, string? arg1Type)
@@ -669,6 +701,15 @@ public static partial class MethodRefResolver
             || (srcType != null && srcType.StartsWith("System.Linq.IGrouping_key_", StringComparison.Ordinal))
             || (owner == "System.Linq.IGrouping`2" && name == "get_Key"))
         {
+            // b5-gaps section 56: a comparer overload over a GroupBy bucket /
+            // its operators is not wired -- the bucket arms would silently
+            // drop the comparer (see docs/audit/b5-gaps.md).
+            if (LinqHasComparerParam(md, sigHandle))
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.{name} over a GroupBy bucket with a user comparer is not wired yet: " +
+                    "the bucket kernels would silently drop the comparer (b5-gaps section 56).");
+            }
             if (name == "get_Key" && count == 0)
             {
                 // INSTANCE property accessor: ParamCount is the EXPLICIT
@@ -2226,6 +2267,16 @@ public static partial class MethodRefResolver
                             "OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) shape is a " +
                             ".NET 9 Index() family form (see docs/audit/b5-gaps.md)");
                     string keySuffix = LinqKeyFamilySuffixNamed(genArgs[1], genArgNames, 1);
+                    // b5-gaps section 56: OrderBy(source, keySelector, comparer):
+                    // ANY reference TKey rides the user IComparer (the key
+                    // family suffix is irrelevant -- the comparer decides).
+                    if (count >= 3)
+                    {
+                        return I("il2cpp::il2cpp_linq_order_by_key_ref_cmp", 3, true, true, false,
+                            new[] { "a", "", "" },
+                            returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                            appendLiterals: new[] { name == "OrderBy" ? "0" : "1" });
+                    }
                     // impl-collation: a STATICALLY System.String key (0x0E) is a
                     // real, statically analysable statement now. It binds the
                     // dedicated culture-collation entry, which pins
@@ -2307,21 +2358,40 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_linq_concat_family", 2, true, true, false,
                         new[] { "a", "a" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { "15" });
-                case "Distinct":
+                case "Distinct" when count < 2:
                     return I("il2cpp::il2cpp_linq_distinct_family", 1, true, true, false,
                         OneArg, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { "15" });
-                case "Except":
+                case "Distinct":
+                    // b5-gaps section 56: Distinct(source, comparer) -- the
+                    // user comparer rides the last IL slot; the result keeps
+                    // FIRST-APPEARANCE order (net48).
+                    return I("il2cpp::il2cpp_linq_distinct_family_cmp", 2, true, true, false,
+                        new[] { "a", "" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Except" when count < 3:
                     return I("il2cpp::il2cpp_linq_except_family", 2, true, true, false,
                         new[] { "a", "a" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { "15" });
-                case "Union":
+                case "Except":
+                    return I("il2cpp::il2cpp_linq_except_family_cmp", 3, true, true, false,
+                        new[] { "a", "a", "" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Union" when count < 3:
                     return I("il2cpp::il2cpp_linq_union_family", 2, true, true, false,
                         new[] { "a", "a" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { "15" });
-                case "Intersect":
+                case "Union":
+                    return I("il2cpp::il2cpp_linq_union_family_cmp", 3, true, true, false,
+                        new[] { "a", "a", "" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Intersect" when count < 3:
                     return I("il2cpp::il2cpp_linq_intersect_family", 2, true, true, false,
                         new[] { "a", "a" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
+                        appendLiterals: new[] { "15" });
+                case "Intersect":
+                    return I("il2cpp::il2cpp_linq_intersect_family_cmp", 3, true, true, false,
+                        new[] { "a", "a", "" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { "15" });
                 case "DefaultIfEmpty" when count < 2:
                     return I("il2cpp::il2cpp_linq_default_if_empty_family", 1, true, true, false,
@@ -2337,12 +2407,21 @@ public static partial class MethodRefResolver
                 case "LongCount" when count < 2:
                     return I("il2cpp::il2cpp_linq_long_count_family", 1, true, false, false,
                         OneArg, resultKind: "l", appendLiterals: new[] { "15" });
-                case "SequenceEqual":
+                case "SequenceEqual" when count < 3:
                     return I("il2cpp::il2cpp_linq_sequence_equal_family", 2, true, false, false,
                         new[] { "a", "a" }, appendLiterals: new[] { "15" });
-                case "Contains":
+                case "SequenceEqual":
+                    // b5-gaps section 56: SequenceEqual(source, second, comparer).
+                    return I("il2cpp::il2cpp_linq_sequence_equal_family_cmp", 3, true, false, false,
+                        new[] { "a", "a", "" }, appendLiterals: new[] { "15" });
+                case "Contains" when count < 3:
                     return I("il2cpp::il2cpp_linq_contains_family_ref", 2, true, false, false,
                         new[] { "a", "" }, appendLiterals: new[] { "15" });
+                case "Contains":
+                    // b5-gaps section 56: Contains(source, value, comparer) --
+                    // the comparer rides the last IL slot (never the value's).
+                    return I("il2cpp::il2cpp_linq_contains_family_ref_cmp", 3, true, false, false,
+                        new[] { "a", "", "" }, appendLiterals: new[] { "15" });
                 case "ElementAt":
                     return I("il2cpp::il2cpp_linq_element_at_fam_ref", 2, true, true, false,
                         new[] { "a", "i" },
@@ -2439,6 +2518,19 @@ public static partial class MethodRefResolver
                 default:
                     break;
             }
+        }
+
+        // b5-gaps section 56: a user-comparer call that reached PAST the arms
+        // above (Reference-element siblings / GroupBy, which consume their
+        // comparer) has no wired kernel here. The plain kernels would silently
+        // DROP the comparer, so it must go LOUD (value/List comparer kernels
+        // are the pending surface, see docs/audit/b5-gaps.md).
+        if (name != "GroupBy" && LinqHasComparerParam(md, sigHandle))
+        {
+            throw new NotSupportedException(
+                $"Enumerable.{name} over this source with a user comparer is not wired yet: " +
+                "the plain kernel would silently drop the comparer (b5-gaps section 56 " +
+                "pending value-family / List comparer kernels).");
         }
 
         // Wide / narrow VALUE-element ARRAY source (int64 / float / double /
@@ -5260,6 +5352,16 @@ public static partial class MethodRefResolver
         var elemScalar = genArgs is { Length: >= 1 }
             ? LinqArrayTypeNameExact(genArgs[0], genArgNames, 0).TrimEnd('[', ']')
             : (srcFam == "ref" ? "System.Object" : "System.Int32");
+
+        // b5-gaps section 56: a user-comparer call over a List<T> that reached
+        // here (no List arm consumes a comparer yet) must go LOUD rather than
+        // silently drop the comparer on the plain list kernel.
+        if (name != "GroupBy" && LinqHasComparerParam(md, sigHandle))
+        {
+            throw new NotSupportedException(
+                $"Enumerable.{name} over this List<T> with a user comparer is not wired yet: " +
+                "the plain list kernel would silently drop the comparer (b5-gaps section 56).");
+        }
 
         // impl-listvtops: the by-value VALUE-STRUCT list element kinds
         // (13..16). Before this seat EVERY operator except Count/Any/

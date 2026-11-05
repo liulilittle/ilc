@@ -229,6 +229,16 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_ref(Il2CppArray* src, Il2CppObject* ke
 Il2CppArray* il2cpp_linq_order_by_key_ref_string(Il2CppArray* src, Il2CppObject* keySel,
                                                  int32_t desc);
 
+// b5-gaps section 56: OrderBy / OrderByDescending over a REFERENCE-element
+// source with a USER IComparer<TKey> for the key. The comparer object replaces
+// the default per-family comparator (a string key no longer rides the culture
+// collation; the comparer's own Compare is the authority). The dispatched
+// slot resolves the "(r:" (and "(r:System.Object) reflection like the sort
+// comparer machinery; the StringComparer singletons take the direct ordinal
+// path. desc rides a trailing literal as in the other OrderBy entries.
+Il2CppArray* il2cpp_linq_order_by_key_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                              Il2CppObject* cmp, int32_t desc);
+
 // impl-collation: the reference-element ThenBy / ThenByDescending FUSED
 // COMPOSITE, i.e. the net48 EnumerableSorter chain for
 // OrderBy(k1).ThenBy(k2). The primary key's comparison wins and the secondary

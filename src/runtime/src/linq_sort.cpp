@@ -2302,6 +2302,140 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_string(Il2CppArray* src, Il2CppObject*
 }
 
 //------------------------------------------------------------------------------
+// b5-gaps section 56: OrderBy / OrderByDescending over a reference element
+// source with a USER IComparer<TKey>. The comparer's own Compare is the
+// authority (a string key no longer binds the culture collation). Dispatch
+// mirrors the sort comparer machinery in arraysort.cpp: the StringComparer
+// singletons take the direct ordinal path; other comparers ride the reflected
+// "(r:" Compare slot; the non-generic IComparer falls to "(r:System.Object".
+// Null keys behave exactly like the comparer says (the user comparer is
+// called as-is, matching net48 OrderBy when a key is null).
+//------------------------------------------------------------------------------
+namespace {
+
+// int32_t(*)(this, key, key) -- the generic-ref IComparer/T IComparer ABI.
+typedef int32_t (*RefCompareFn)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
+
+int32_t LinqRefCompareCmp(Il2CppObject* cmp, Il2CppObject* a, Il2CppObject* b)
+{
+    if (cmp->klass != nullptr && cmp->klass->name != nullptr &&
+        std::strncmp(cmp->klass->name, "System.StringComparer.", 22) == 0)
+    {
+        const bool ignoreCase = std::strcmp(
+            cmp->klass->name, "System.StringComparer.OrdinalIgnoreCase") == 0;
+        return ignoreCase
+            ? il2cpp_string_compare_ordinal_ignore_case(
+                  reinterpret_cast<const Il2CppString*>(a),
+                  reinterpret_cast<const Il2CppString*>(b))
+            : il2cpp_string_compare_ordinal(
+                  reinterpret_cast<const Il2CppString*>(a),
+                  reinterpret_cast<const Il2CppString*>(b));
+    }
+    int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Compare", "(r:");
+    if (slot >= 0 && cmp->klass != nullptr && cmp->klass->vtable != nullptr &&
+        slot < cmp->klass->vtableSize && cmp->klass->vtable[slot] != nullptr)
+    {
+        return reinterpret_cast<RefCompareFn>(cmp->klass->vtable[slot])(cmp, a, b);
+    }
+    slot = FindVirtualSlotByNameAndSignature(cmp, "Compare", "(r:System.Object");
+    if (slot >= 0 && cmp->klass != nullptr && cmp->klass->vtable != nullptr &&
+        slot < cmp->klass->vtableSize && cmp->klass->vtable[slot] != nullptr)
+    {
+        return reinterpret_cast<RefCompareFn>(cmp->klass->vtable[slot])(cmp, a, b);
+    }
+    il2cpp_throw_not_supported_exception(
+        "OrderBy with a user IComparer over a reference key: the comparer type "
+        "has no reflected virtual Compare(T,T) slot (see docs/audit/b5-gaps.md).");
+    return 0; // unreachable (the factory throws)
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------
+// SortRefsKeysCmpCopy -- SortRefsKeyCopy with a USER key comparer. The cached
+// keys live in a ROOTED reference array (not a raw std::vector) because a user
+// IComparer may allocate during the sort and the GC compacts: a raw key would
+// be left MOVED, a rooted array is re-read through its (rooted) slot on every
+// comparison (the M-6 groupby precedent). Keys are still cached EXACTLY ONCE
+// per element (net48 EnumerableSorter contract).
+//------------------------------------------------------------------------------
+template <typename Cmp>
+Il2CppArray* SortRefsKeysCmpCopy(Il2CppArray* src, Il2CppDelegate* keySel, bool desc,
+                                 Cmp cmp)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+
+    if (n == 0)
+    {
+        return il2cpp_array_new(src->elemClass, sizeof(void*), true, 0);
+    }
+
+    Il2CppArray* keyArr = il2cpp_array_new(src->elemClass, sizeof(void*), true, n);
+    roots.Add(reinterpret_cast<void**>(&keyArr));
+    Il2CppObject** keySlot = reinterpret_cast<Il2CppObject**>(keyArr->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        keySlot[i] = InvokeKeyRefRef(keySel, RefSlot(src, i));
+    }
+    for (int32_t i = 0; i < n; ++i)
+    {
+        il2cpp_write_barrier(reinterpret_cast<void**>(&keySlot[i]), keySlot[i]);
+    }
+
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i) order[i] = i;
+
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        // Re-read through the rooted array: a comparison may
+                        // allocate and compact, moving the array object.
+                        Il2CppObject* const* ks =
+                            reinterpret_cast<Il2CppObject* const*>(keyArr->data);
+                        const int32_t c = cmp(ks[a], ks[b]);
+                        return desc ? -c : c;
+                    });
+
+    Il2CppArray* result = il2cpp_array_new(src->elemClass, sizeof(void*), true, n);
+    roots.Add(reinterpret_cast<void**>(&result));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(result, i));
+        *slot = RefSlot(src, order[i]);
+    }
+    Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(result->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        il2cpp_write_barrier(reinterpret_cast<void**>(&slots[i]), slots[i]);
+    }
+    return result;
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                              Il2CppObject* cmp, int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireRefLinqArray(s);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    if (cmp == nullptr)
+    {
+        return SortRefsKeysCmpCopy(s, d, desc != 0, CompareStringKeys);
+    }
+    Il2CppObject* c = cmp;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&c));
+    return SortRefsKeysCmpCopy(s, d, desc != 0,
+        [c](Il2CppObject* a, Il2CppObject* b) -> int32_t {
+            return LinqRefCompareCmp(c, a, b);
+        });
+}
+
+//------------------------------------------------------------------------------
 // impl-collation: the REFERENCE-element ThenBy / ThenByDescending FUSED
 // COMPOSITE (net48 EnumerableSorter chain for OrderBy(k1).ThenBy(k2)). The
 // primary key's comparison wins; the secondary key only breaks ties; equal

@@ -5219,3 +5219,89 @@ compile error. Three distinct defects were the chain:
 * P/Invoke REFERENCE-element array parameters (string[]/object[]/class[]) are
   rejected at `CodeGenerator.cs:10229`; struct-element MULTI-dimensional
   arrays and sequential struct[] parameters are green.
+## 56. User comparers over REFERENCE sources (Distinct/Except/Union/Intersect/Contains/SequenceEqual/OrderBy + GroupBy ref-key) (IMPLEMENTED)
+
+The comparer overloads across the LINQ surface were a "resolves but WRONG"
+defect class (worse than LOUD): the transpiler dropped the comparer silently or
+misplaced it. Probe evidence (deleted `probe-cmpovl`): `Distinct(cmp)` ignored
+the comparer, `Contains(value, cmp)` swapped source and value (runtime "LINQ
+element family mismatch"), `SequenceEqual(_, cmp)` ignored the comparer,
+`OrderBy(key, cmp)` fed the comparer into a literal slot, and a string-key
+`GroupBy(key, cmp)` was rejected at runtime ("reference key comparer is not
+wired"). The same silent-drop shape existed on EVERY source family.
+
+### Implementation
+
+* `linq_family.cpp` / `linq_family.h`:
+  * `LinqRefEqualsCmp(cmp, a, b)` -- the shared reference-key equality
+    dispatcher (mirrors hashset.cpp ComparerEquals): the
+    `System.StringComparer.*` singletons take the direct
+    `il2cpp_string_equals_ordinal(_ignore_case)` path (no typeinfo); every
+    other comparer rides the reflected virtual `Equals(T,T)` slot found by
+    the `"(r:"` signature fragment; a null comparer keeps
+    `icall_object_equals` (the default never changes behavior).
+  * comparer twins of the reference-cell set/sequence kernels:
+    `distinct_family_cmp`, `except_family_cmp`, `union_family_cmp`,
+    `intersect_family_cmp`, `sequence_equal_family_cmp`,
+    `contains_family_ref_cmp` (nullable `cmp`; the ref cell is validated so a
+    misplaced value-family call cannot silently compare by reference).
+* `linq_sort.cpp` / `linq_sort.h`:
+  * `il2cpp_linq_order_by_key_ref_cmp(src, keySel, cmp, desc)` plus
+    `SortRefsKeysCmpCopy` -- the user-comparer stable OrderBy. The cached
+    keys live in a ROOTED reference array (a user comparer can allocate,
+    the GC compacts, a raw std::vector key would be left MOVED); the
+    comparator re-reads the rooted slots on every comparison (the M-6
+    groupby precedent). `LinqRefCompareCmp` dispatches StringComparer
+    singletons directly, else the `"(r:"`/`"(r:System.Object" Compare slots.
+* `linq_map.cpp`: `GroupKeysEqual` keyKind 11 routes a non-null comparer to
+  `LinqRefEqualsCmp` (a string/class/object-keyed GroupBy with a user
+  IEqualityComparer now buckets by the comparer's equality); the previous
+  runtime LOUD is gone. The groupby build walks buckets LINEARLY, so this
+  one fold is the whole comparer path.
+* `MethodMap.Linq.cs`:
+  * the reference-element ARRAY arms split by arity: `Distinct` (1 vs 2),
+    `Except`/`Union`/`Intersect`/`SequenceEqual`/`Contains` (2 vs 3) bind
+    the `*_cmp` entry with the comparer riding the LAST slot (never the
+    value's); the OrderBy/OrderByDescending arm with `count >= 3` binds
+    `order_by_key_ref_cmp` (the key-family suffix is irrelevant -- the
+    comparer decides).
+  * `LinqHasComparerParam` + a global gate: any comparer-carrying call that
+    reaches PAST the ref/GroupBy arms, the GroupBy-BUCKET surface, or the
+    List<T> surface now throws a self-describing LOUD INSTEAD of silently
+    dropping the comparer on the plain kernel. (The helper decodes the
+    signature defensively: synthetic unit PEs that lack the comparer TypeRef
+    throw BadImageFormat/NotSupported and are treated as "no comparer".)
+
+### Contract evidence
+
+* new case `tests/cases/probe-cmpref`: oracle = runtime = **158B sha
+  647b0bb6**, 16 records -- Degenerate each of the six operators with
+  OrdinalIgnoreCase AND a custom user comparer (`FirstCharComparer`,
+  equality on first char; `LengthComparer`, IComparer on length), plus
+  OrderBy/OrderByDescending/GroupBy with both. The comparer CLASSES exercise
+  the reflected `"(r:"` slots end to end (their vtable signatures are
+  `b(r:System.String,r:System.String)` and `i(r:System.String,...)`).
+* mutations (all RED, restored GREEN to the same 158B sha):
+  * M1 `StringComparer.OrdinalIgnoreCase` stops folding case -> 179B
+    `1c60ed2c` (record 4 `[d1]` Distinct output diverges; silent wrong).
+  * M2 `distinct_family_cmp` keeps every element -> 166B `83215f66`
+    (record 4; duplicates present).
+  * M3 the OrderBy comparer falls back to culture ordering -> 158B
+    `15f03c1d` (record 105 `[o1]`; same size, wrong content).
+  * M4 the GroupBy ref-key fold ignores the comparer -> 174B `144b938d`
+    (record 131 `[g1]` splits the case-insensitive buckets).
+* the LOUD closure verified by transpiling an int[] `Distinct(comparer)` +
+  `List<string>.Contains(value, comparer)` program: the resolver now emits 4
+  "silently drop the comparer (b5-gaps section 56)" messages instead of
+  binding the plain kernel.
+* unit tests 4159/0/0 (C0 0 warnings 0 errors); 15 regression pins unchanged
+  (probe-strcatint, probe-grpselect, linqgroup, probe-castoftype,
+  probe-vtaggsrc, probe-vtlistagg, probe-vtops, thenby3ref, thenbyvtchain,
+  thenbydecchain, thenby3, thenby3list, thenbywide-elem, thenbywide-list).
+
+### Registered-remaining (measured, now LOUD not silent)
+
+* VALUE-source comparer kernels (i4/i8/d/f/dec/dt/ts/guid/dto, List<T>
+  comparer overloads, bucket-surface comparer overloads) stay pending -- the
+  global gate turned them LOUD so no silent wrong survives; the value-key
+  machinery to build on already exists in hashset.cpp/arraysort.cpp.

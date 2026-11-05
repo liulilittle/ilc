@@ -971,4 +971,214 @@ IL2CPP_LINQ_DEF_ELEM_ENTRIES_NOARG(single_or_default, RequireAtMostOne, true)
 #undef IL2CPP_LINQ_DEF_ELEM_ENTRIES
 #undef IL2CPP_LINQ_DEF_ELEM_ENTRIES_NOARG
 
+//------------------------------------------------------------------------------
+// b5-gaps section 56: USER IEqualityComparer dispatchers over a REFERENCE
+// element / key. `cmp` is nullable: null compares by icall_object_equals
+// exactly like the plain kernels, so the default behavior never changes. The
+// dispatch order mirrors hashset.cpp ComparerEquals: the StringComparer
+// singletons have no typeinfo, so they get a direct weighted string compare;
+// everything else rides the reflected virtual Equals(T,T) slot found by the
+// "(r:" signature fragment.
+//------------------------------------------------------------------------------
+bool LinqRefEqualsCmp(Il2CppObject* cmp, Il2CppObject* a, Il2CppObject* b)
+{
+    if (cmp == nullptr)
+    {
+        return runtime::icall_object_equals(a, b);
+    }
+    if (cmp->klass != nullptr && cmp->klass->name != nullptr &&
+        std::strncmp(cmp->klass->name, "System.StringComparer.", 22) == 0)
+    {
+        bool ignoreCase = std::strcmp(cmp->klass->name,
+                                      "System.StringComparer.OrdinalIgnoreCase") == 0;
+        return ignoreCase
+            ? il2cpp_string_equals_ordinal_ignore_case(
+                  reinterpret_cast<const Il2CppString*>(a),
+                  reinterpret_cast<const Il2CppString*>(b))
+            : il2cpp_string_equals_ordinal(
+                  reinterpret_cast<const Il2CppString*>(a),
+                  reinterpret_cast<const Il2CppString*>(b));
+    }
+    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", "(r:");
+    if (slot >= 0 && cmp->klass != nullptr && cmp->klass->vtable != nullptr &&
+        slot < cmp->klass->vtableSize && cmp->klass->vtable[slot] != nullptr)
+    {
+        typedef bool (*EqFn)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
+        return reinterpret_cast<EqFn>(cmp->klass->vtable[slot])(cmp, a, b);
+    }
+    return runtime::icall_object_equals(a, b);
+}
+
+//------------------------------------------------------------------------------
+// b5-gaps section 56: the user-comparer twins of the reference-element set /
+// sequence operators. `cmp` is nullable; the reference cell is validated so a
+// misplaced binding cannot silently compare a value family by reference.
+//------------------------------------------------------------------------------
+static inline bool LinqRefCmpEqCell(Il2CppArray* a, int32_t ia,
+                                    Il2CppArray* b, int32_t ib,
+                                    Il2CppObject* cmp, int32_t cell)
+{
+    return LinqRefEqualsCmp(cmp, LinqCellReadRef(a, ia, cell),
+                            LinqCellReadRef(b, ib, cell));
+}
+
+Il2CppArray* il2cpp_linq_distinct_family_cmp(Il2CppArray* src, Il2CppObject* cmp,
+                                             int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (cell != IL2CPP_LINQ_CELL_REF)
+    {
+        il2cpp_throw_not_supported_exception(
+            "il2cpp_linq_distinct_family_cmp: the comparer twin is wired for the "
+            "reference cell family only (see docs/audit/b5-gaps.md).");
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    std::vector<int32_t> order;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        bool seen = false;
+        for (size_t k = 0; k < order.size() && !seen; ++k)
+        {
+            seen = LinqRefCmpEqCell(src, static_cast<int32_t>(order[k]), src, i, cmp, cell);
+        }
+        if (!seen) order.push_back(i);
+    }
+    return MaterializeIndices(src, order, cell);
+}
+
+Il2CppArray* il2cpp_linq_except_family_cmp(Il2CppArray* first, Il2CppArray* second,
+                                           Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(first, cell);
+    LinqRequireCell(second, cell);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&first));
+    roots.Add(reinterpret_cast<void**>(&second));
+    std::vector<int32_t> order;
+    for (int32_t i = 0; i < first->length; ++i)
+    {
+        bool inSecond = false;
+        for (int32_t j = 0; j < second->length && !inSecond; ++j)
+        {
+            inSecond = LinqRefCmpEqCell(first, i, second, j, cmp, cell);
+        }
+        if (inSecond) continue;
+        bool seen = false;
+        for (size_t k = 0; k < order.size() && !seen; ++k)
+        {
+            seen = LinqRefCmpEqCell(first, static_cast<int32_t>(order[k]), first, i, cmp, cell);
+        }
+        if (!seen) order.push_back(i);
+    }
+    return MaterializeIndices(first, order, cell);
+}
+
+Il2CppArray* il2cpp_linq_union_family_cmp(Il2CppArray* first, Il2CppArray* second,
+                                          Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(first, cell);
+    LinqRequireCell(second, cell);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&first));
+    roots.Add(reinterpret_cast<void**>(&second));
+    std::vector<int32_t> fromFirst;
+    std::vector<int32_t> fromSecond;
+    for (int32_t i = 0; i < first->length; ++i)
+    {
+        bool dup = false;
+        for (size_t k = 0; k < fromFirst.size() && !dup; ++k)
+        {
+            dup = LinqRefCmpEqCell(first, static_cast<int32_t>(fromFirst[k]), first, i, cmp, cell);
+        }
+        for (size_t k = 0; k < fromSecond.size() && !dup; ++k)
+        {
+            dup = LinqRefCmpEqCell(second, static_cast<int32_t>(fromSecond[k]), first, i, cmp, cell);
+        }
+        if (!dup) fromFirst.push_back(i);
+    }
+    for (int32_t i = 0; i < second->length; ++i)
+    {
+        bool dup = false;
+        for (size_t k = 0; k < fromFirst.size() && !dup; ++k)
+        {
+            dup = LinqRefCmpEqCell(first, static_cast<int32_t>(fromFirst[k]), second, i, cmp, cell);
+        }
+        for (size_t k = 0; k < fromSecond.size() && !dup; ++k)
+        {
+            dup = LinqRefCmpEqCell(second, static_cast<int32_t>(fromSecond[k]), second, i, cmp, cell);
+        }
+        if (!dup) fromSecond.push_back(i);
+    }
+    Il2CppArray* out = LinqNewArray(
+        cell, static_cast<int32_t>(fromFirst.size() + fromSecond.size()));
+    roots.Add(reinterpret_cast<void**>(&out));
+    int32_t w = 0;
+    for (size_t k = 0; k < fromFirst.size(); ++k, ++w)
+    {
+        char* dst = LinqCellPtr(out, w);
+        LinqCellCopy(dst, reinterpret_cast<Il2CppObject**>(dst), first,
+                     static_cast<int32_t>(fromFirst[k]), cell);
+    }
+    for (size_t k = 0; k < fromSecond.size(); ++k, ++w)
+    {
+        char* dst = LinqCellPtr(out, w);
+        LinqCellCopy(dst, reinterpret_cast<Il2CppObject**>(dst), second,
+                     static_cast<int32_t>(fromSecond[k]), cell);
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_intersect_family_cmp(Il2CppArray* first, Il2CppArray* second,
+                                              Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(first, cell);
+    LinqRequireCell(second, cell);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&first));
+    roots.Add(reinterpret_cast<void**>(&second));
+    std::vector<int32_t> order;
+    for (int32_t i = 0; i < first->length; ++i)
+    {
+        bool inSecond = false;
+        for (int32_t j = 0; j < second->length && !inSecond; ++j)
+        {
+            inSecond = LinqRefCmpEqCell(first, i, second, j, cmp, cell);
+        }
+        if (!inSecond) continue;
+        bool seen = false;
+        for (size_t k = 0; k < order.size() && !seen; ++k)
+        {
+            seen = LinqRefCmpEqCell(first, static_cast<int32_t>(order[k]), first, i, cmp, cell);
+        }
+        if (!seen) order.push_back(i);
+    }
+    return MaterializeIndices(first, order, cell);
+}
+
+bool il2cpp_linq_sequence_equal_family_cmp(Il2CppArray* first, Il2CppArray* second,
+                                           Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(first, cell);
+    LinqRequireCell(second, cell);
+    if (first->length != second->length) return false;
+    for (int32_t i = 0; i < first->length; ++i)
+    {
+        if (!LinqRefCmpEqCell(first, i, second, i, cmp, cell)) return false;
+    }
+    return true;
+}
+
+bool il2cpp_linq_contains_family_ref_cmp(Il2CppArray* src, Il2CppObject* value,
+                                         Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (LinqRefEqualsCmp(cmp, LinqCellReadRef(src, i, cell), value)) return true;
+    }
+    return false;
+}
+
 } // namespace il2cpp

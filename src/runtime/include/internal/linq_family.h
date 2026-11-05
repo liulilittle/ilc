@@ -156,11 +156,32 @@ Il2CppArray* il2cpp_linq_default_if_empty_family(Il2CppArray* src, int32_t cell)
 int64_t      il2cpp_linq_long_count_family(Il2CppArray* src, int32_t cell);
 bool         il2cpp_linq_sequence_equal_family(Il2CppArray* first, Il2CppArray* second, int32_t cell);
 
+// b5-gaps section 56: a USER IEqualityComparer<T> over a REFERENCE element /
+// key. Rides the string-comparer singleton fast path then the reflected
+// "(r:" Equals slot; falls back to icall_object_equals so a default (null)
+// comparer never changes behavior. Shared by the linq_family kernels and the
+// groupby key-equality fold (linq_map.cpp).
+bool LinqRefEqualsCmp(Il2CppObject* cmp, Il2CppObject* a, Il2CppObject* b);
+
 // Contains: the value rides the family's own parameter slot.
 bool il2cpp_linq_contains_family_i4(Il2CppArray* src, int32_t value, int32_t cell);
 bool il2cpp_linq_contains_family_i8(Il2CppArray* src, int64_t value, int32_t cell);
 bool il2cpp_linq_contains_family_d(Il2CppArray* src, double value, int32_t cell);
 bool il2cpp_linq_contains_family_ref(Il2CppArray* src, Il2CppObject* value, int32_t cell);
+
+// b5-gaps section 56: the user-comparer twins of the reference-element set /
+// sequence operators. `cmp` is nullable (null == the default equality).
+Il2CppArray* il2cpp_linq_distinct_family_cmp(Il2CppArray* src, Il2CppObject* cmp, int32_t cell);
+Il2CppArray* il2cpp_linq_except_family_cmp(Il2CppArray* first, Il2CppArray* second,
+                                           Il2CppObject* cmp, int32_t cell);
+Il2CppArray* il2cpp_linq_union_family_cmp(Il2CppArray* first, Il2CppArray* second,
+                                          Il2CppObject* cmp, int32_t cell);
+Il2CppArray* il2cpp_linq_intersect_family_cmp(Il2CppArray* first, Il2CppArray* second,
+                                              Il2CppObject* cmp, int32_t cell);
+bool         il2cpp_linq_sequence_equal_family_cmp(Il2CppArray* first, Il2CppArray* second,
+                                                   Il2CppObject* cmp, int32_t cell);
+bool         il2cpp_linq_contains_family_ref_cmp(Il2CppArray* src, Il2CppObject* value,
+                                                 Il2CppObject* cmp, int32_t cell);
 bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
 bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
 bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);
