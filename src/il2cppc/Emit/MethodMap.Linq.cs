@@ -112,6 +112,18 @@ public static partial class MethodRefResolver
         string[] TwoArg = { "a", "" };
         string[] OneArg = { "a" };
 
+        // b5-gaps section 68: Enumerable.Range(start, count) -> a fresh
+        // int32[] of `count` consecutive integers beginning at `start`. The
+        // runtime validates net48's front-loaded argument contract (count < 0
+        // or start + count - 1 overflow) and answers the same sequence an
+        // eager array, so the results feed every array source below.
+        if (name == "Range")
+        {
+            if (count != 2) return null;
+            return I("il2cpp::il2cpp_linq_range", 2, true, true, false,
+                new[] { "", "" }, returnTypeName: "System.Int32[]");
+        }
+
         // b5-gaps section 58: Enumerable.ToHashSet(source[, comparer]). The
         // element byte picks the HashSet instantiation tag (the tracked
         // receiver for the downstream HashSet members) and the CELL literal

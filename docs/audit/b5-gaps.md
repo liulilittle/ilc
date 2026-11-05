@@ -5880,3 +5880,42 @@ array so every enumerable inner binds.
 * List-of-bool/char/narrow inners could be added with a cell->list-kind table
   (they map to the boxed list domain today, so the ref snapshot route keeps
   them LOUD).
+## 68. Enumerable.Range(start, count) (IMPLEMENTED)
+
+Range was found unimplemented while wiring the section-67 SelectMany inner
+probe: `Enumerable.Range(x, 2)` emitted a call to a stub
+`System_Linq_Enumerable_Range_...` that had no declaration, so the generated
+C++ failed to compile.
+
+### Implementation
+
+* `linq_family.cpp` `il2cpp_linq_range(start, count)`: if `count < 0` or
+  `(long)start + count - 1 > int.MaxValue`, throws
+  `ArgumentOutOfRangeException("count")` (net48 front-loaded contract;
+  measured on a zh-CN oracle); otherwise returns a LINQ I4 cell array filled
+  `start..start+count-1`. Eager materialization is byte-equivalent (Range has
+  no side effects) and the result is an int32[], so every array-source path
+  (ToArray / SelectMany / foreach) accepts it -- the section-67 snapshot
+  inner passes it through unchanged.
+* `MethodMap.Linq.cs`: a `"Range"` arm in `TryMapLinq` routes the static
+  2-argument form with `returnTypeName: System.Int32[]`.
+
+### Contract evidence
+
+* new case `tests/cases/probe-range`: oracle = runtime = **291B sha
+  7f2e8727**, 7 records -- basic / empty / negative-start values, a
+  SelectMany over an inner Range (section-67 snapshot inner enumeraing it),
+  the TWO exception paths (count<0 and start+count overflow, both
+  AOORE naming "count"), and a GC pact.
+* mutations (silent-wrong, restored green):
+  * M30 overflow guard vs INT64_MAX -> [overflow] no-throw (silent);
+  * M31 count guard widened to `count < -1` -> Range(1,-1) no longer throws
+    (LinqNewArray clamps negative length to empty), [negcount] no-throw.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 errors 0 warnings;
+  probe-selectmanyseq / probe-selectmany / probe-joincmpval unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* Enumerable.Repeat / RepeatOfType / Empty and the other deferred LINQ
+  factories are still unmapped (Range was the one hit by the section-67
+  surface).

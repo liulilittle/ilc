@@ -1661,6 +1661,28 @@ Il2CppArray* SnapshotManyInner(Il2CppObject* inner, int32_t cell)
     return out;
 }
 
+//------------------------------------------------------------------------------
+// b5-gaps section 68: Enumerable.Range(start, count). net48 validates up
+// front (count < 0, or (long)start + count - 1 > int.MaxValue) and answers a
+// lazy iterator; materializing into an int32[] yields the exact same
+// sequence with zero side effects and feeds every array source below.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_range(int32_t start, int32_t count)
+{
+    if (count < 0 || (static_cast<int64_t>(start) + count - 1) > static_cast<int64_t>(INT32_MAX))
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", nullptr);
+        return nullptr;
+    }
+    Il2CppArray* arr = LinqNewArray(IL2CPP_LINQ_CELL_I4, count);
+    for (int32_t i = 0; i < count; ++i)
+    {
+        const int32_t v = start + i;
+        std::memcpy(LinqCellPtr(arr, i), &v, sizeof(int32_t));
+    }
+    return arr;
+}
+
 Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
                                      int32_t srcCell, int32_t resCell)
 {

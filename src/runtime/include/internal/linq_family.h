@@ -329,4 +329,12 @@ IL2CPP_LINQ_DECL_ELEM_ENTRIES_NOARG(single_or_default)
 #undef IL2CPP_LINQ_DECL_ELEM_ENTRIES
 #undef IL2CPP_LINQ_DECL_ELEM_ENTRIES_NOARG
 
+// b5-gaps section 68: Enumerable.Range(start, count) -- a fresh int32 array
+// of `count` consecutive integers beginning at `start`. net48 validates the
+// range up front: count < 0, or (long)start + count - 1 > int.MaxValue, throws
+// ArgumentOutOfRangeException("count"). The eager array answers the same
+// enumeration net48's lazy RangeIterator yields (the sequence has no
+// side effects), and being an int32[] it feeds every existing array source.
+Il2CppArray* il2cpp_linq_range(int32_t start, int32_t count);
+
 } // namespace il2cpp
