@@ -263,11 +263,11 @@ public class MethodMapTestsLinq
             memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
             genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
 
-        Assert.Equal("il2cpp::il2cpp_linq_count", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_count_object", resolved.CppName);
         Assert.Equal(1, resolved.ParamCount);
         Assert.True(resolved.ReturnsValue);
         Assert.False(resolved.ReturnsRef);
-        Assert.Equal(new[] { "a" }, resolved.ParamTypeNames);
+        Assert.Equal(new[] { "" }, resolved.ParamTypeNames);
     }
 
     //--------------------------------------------------------------------------
@@ -355,8 +355,11 @@ public class MethodMapTestsLinq
         var plain = ResolveMethodSpec(SynthesizeGeneric("Any",
             memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x02, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
             genericSignature: new byte[] { 0x0A, 0x01, 0x08 }));
-        Assert.Equal("il2cpp::il2cpp_linq_any", plain.CppName);
+        // b5-gaps §55: an unknown receiver dispatches on the runtime class
+        // (array / GroupBy bucket / whole result), never an array-header read.
+        Assert.Equal("il2cpp::il2cpp_linq_any_object", plain.CppName);
         Assert.Equal(1, plain.ParamCount);
+        Assert.Equal(new[] { "" }, plain.ParamTypeNames);
 
         var pred = ResolveMethodSpec(SynthesizeGeneric("Any",
             memberRefSignature: new byte[] { 0x10, 0x01, 0x02, 0x02,
@@ -645,7 +648,7 @@ public class MethodMapTestsLinq
             memberRefSignature: new byte[] { 0x10, 0x01, 0x01, 0x08, 0x15, 0x12, 0x09, 0x01, 0x13, 0x00 },
             genericSignature: new byte[] { 0x0A, 0x01, 0x0E }));
 
-        Assert.Equal("il2cpp::il2cpp_linq_count", resolved.CppName);
+        Assert.Equal("il2cpp::il2cpp_linq_count_object", resolved.CppName);
         Assert.Equal(1, resolved.ParamCount);
     }
     //--------------------------------------------------------------------------

@@ -5133,3 +5133,89 @@ boxed-element projection/filter surface and have real net48 semantics:
 * a user struct TResult (no cell ABI / no class identity rule here).
 * the remaining measured LOUDs from §52 (ToDictionary/ToLookup/ToHashSet,
   Join/GroupJoin/SelectMany, the comparer overloads) are unchanged.
+## 55. GroupBy-RESULT operators (Select / element Count·Any / string-key get_Key) (IMPLEMENTED)
+
+`.Select(g => g.Key + ":" + g.Count())` over a `GroupBy` RESULT crashed at
+runtime with "Object is not an array", and a string-key `g.Key` produced a C++
+compile error. Three distinct defects were the chain:
+
+1. **The whole-result Select cast the result OBJECT to an array.** The
+   `Select` over `System.Linq.IGroupingResult` fell to the generic ref Select,
+   emitting `il2cpp_linq_select_ref_ref(reinterpret_cast<Il2CppArray*>(result))`
+   -- reading the result's header as a length (the D-2 defect class; the
+   result is an OBJECT listing bucket objects, never an array).
+2. **`g.Count()` / `g.Any()` had no grouping routing for the bucket ELEMENT.**
+   The lambda's parameter decodes as the closed name
+   `System.Linq.IGrouping`2<...>`, which the grouping surface only recognized
+   for `get_Key`; `Count`/`Any` then cast the bucket to an array too.
+3. **A string-key `g.Key` bound the default (int64-returning) int get_Key**
+   because the closed-`IGrouping`2` name has no `_key_ref` marker -- the int64
+   return was stored into an `Il2CppObject*` temp (compile error) or, for
+   numeric keys, silently returned the wrong accessor.
+
+### Implementation
+
+* `linq_map.cpp` / `linq_map.h`:
+  * `il2cpp_linq_count_object(Il2CppObject*)` / `il2cpp_linq_any_object(...)`:
+    dispatch on the RUNTIME class (array klass name starts with `[`, the
+    bucket klass is `System.Linq.Grouping`, the whole result is
+    `System.Linq.GroupingResult`); anything else is rejected loudly instead of
+    an array-header read. Bound when the transpiler cannot tag the receiver
+    (Object / IEnumerable / a closed IGrouping`2 name / unknown);
+  * `il2cpp_linq_grouping_result_select(result, sel, resKind)`: materializes
+    the bucket object[] (rooted, exactly like `grouping_result_to_array`) then
+    dispatches to `select_ref_ref/_i4/_i8/_f/_d` (resKind 0..4).
+* `MethodMap.Linq.cs`:
+  * the `IGroupingResult` operator block gains `Select` (TResult byte → resKind
+    literal + exact tracked result array name);
+  * the `Count`/`Any` arms accept a receiver whose name STARTS WITH
+    `System.Linq.IGrouping` (bucket) or is Object/IEnumerable/unknown, binding
+    the object-dispatch entries instead of the array cast;
+  * `get_Key` decodes the CLOSED name `System.Linq.IGrouping`2<TKey,...>` when
+    the `_key_*` marker is absent: the first generic argument maps to
+    `_key_i8/_d/_dec/_dt/_guid/_ref/_ts/_dto`;
+  * the REFERENCE-source operator block (which eagerly bound `il2cpp_linq_any`
+    over a "ref" source) now SKIPS a receiver whose name starts with
+    `System.Linq.IGrouping` -- so a bucket's no-predicate `Any()`/`Count()`
+    routes through the grouping-aware entries, not an array header read.
+
+### Contract evidence
+
+* new case `tests/cases/probe-strcatint`: oracle = runtime = **76B
+  `e14a1ee3...`**, 8 records (int + string concat; the Select-over-result shape
+  `g.Key + ":" + g.Count()`; `g.Any()` inside a lambda; the whole-result count).
+* new case `tests/cases/probe-grpselect`: oracle = runtime = **68B
+  `50733949...`**, 4 records (STRING-key GroupBy result `Select(g => g.Key +
+  ":" + g.Count())`, `g.Any()`, whole-result Count, plus an int-key [plain]
+  shape) -- pins the closed-`IGrouping`2` get_Key decode and the result-Select
+  materialization together.
+* mutations (all RED, restored GREEN to the same sha):
+  * M1 `count_object` answers 1 for every bucket -> 76B `6fe91c43`
+    (`[g]` 1:2,0:1 -> 1:1,0:1 -- silent wrong value).
+* unit tests: three assertions re-pinned to the unknown-receiver object
+  dispatch (Count/Any over a synthesized null receiver now bind
+  `count_object`/`any_object`); 4159/0/0.
+* unchanged: `linqgroup` 1162B `b5ed5e91`, `thenby3ref` 299B `69053d0c`,
+  `probe-castoftype` 392B `76fbcf3e`, `probe-vtaggsrc` 788B `75b8c04c`,
+  `probe-vtlistagg` 769B `c159ec54`, `probe-vtops` 1736B `31665731`,
+  `thenbyvtchain` 939B `f5c9391b`, `thenbydecchain` 376B `b2edbdbe`.
+  C0 0 warnings 0 errors.
+
+### Measured-new gaps registered (research seats, probe evidence)
+
+* The COMPARER overloads over a reference source are resolved but WRONG where
+  they resolve: `Distinct(cmp)`/`SequenceEqual(_,cmp)` ignore the comparer;
+  `Contains(v,cmp)` swaps source and value (the emitted call fed the value as
+  the source array); `OrderBy(key,cmp)` passes the comparer where a direction
+  literal belongs. A string-key `GroupBy(key,cmp)` additionally rejects the
+  reference-key comparer at runtime ("the reference key comparer is not
+  wired"). These need implementation, not mapping: a user
+  IEqualityComparer/Object/IComparer must be invoked virtually per element.
+* `ToDictionary` / `ToLookup` / `ToHashSet` / `Join` / `GroupJoin` /
+  `SelectMany` are all "generic instantiation ... has no BCL mapping in M5"
+  (no TryMapLinq name arm). Sub-seat concluded `ToHashSet` is implementable
+  with existing building blocks (class descriptor + per-family ctor/add
+  icalls).
+* P/Invoke REFERENCE-element array parameters (string[]/object[]/class[]) are
+  rejected at `CodeGenerator.cs:10229`; struct-element MULTI-dimensional
+  arrays and sequential struct[] parameters are green.

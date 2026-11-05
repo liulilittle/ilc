@@ -1160,6 +1160,11 @@ int32_t       il2cpp_linq_grouping_min_i4(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_max_i4(Il2CppObject* grouping);
 bool          il2cpp_linq_grouping_any(Il2CppObject* grouping);
 bool          il2cpp_linq_grouping_any_pred(Il2CppObject* grouping, Il2CppObject* pred);
+// b5-gaps §55: the OBJECT-dispatch no-arg Count/Any. Used when the receiver's
+// tracked type is System.Object (a GroupBy bucket/result element inside a
+// lambda); the runtime dispatches by the object's class name.
+int32_t       il2cpp_linq_count_object(Il2CppObject* obj);
+bool          il2cpp_linq_any_object(Il2CppObject* obj);
 bool          il2cpp_linq_grouping_all(Il2CppObject* grouping, Il2CppObject* pred);
 int32_t       il2cpp_linq_grouping_first_i4(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_first_or_default_i4(Il2CppObject* grouping);
@@ -1409,6 +1414,11 @@ int32_t il2cpp_linq_grouping_sum(Il2CppObject* grouping);
 //     the public surface materializes exact storage, listi4 to_array
 //     contract; independent of the bucket's internal buffer).
 int32_t       il2cpp_linq_grouping_result_get_count(Il2CppObject* result);
+// b5-gaps §55: Select over the whole GroupBy result. resKind 0 ref / 1 i4 /
+// 2 i8 / 3 f / 4 d.
+Il2CppArray*   il2cpp_linq_grouping_result_select(Il2CppObject* result,
+                                                  Il2CppObject* sel,
+                                                  int32_t resKind);
 Il2CppObject* il2cpp_linq_grouping_result_get_grouping(Il2CppObject* result, int32_t index);
 int32_t       il2cpp_linq_grouping_get_key(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_get_count(Il2CppObject* grouping);

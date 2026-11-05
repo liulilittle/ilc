@@ -677,6 +677,32 @@ public static partial class MethodRefResolver
                 // marker ("System.Linq.IGrouping_key_i8/_dec/_dt/_guid").
                 var keyMarker = srcType != null && srcType.StartsWith("System.Linq.IGrouping_key_", StringComparison.Ordinal)
                     ? srcType["System.Linq.IGrouping".Length..] : "";
+                if (keyMarker.Length == 0 && srcType != null
+                    && srcType.StartsWith("System.Linq.IGrouping`2<", StringComparison.Ordinal))
+                {
+                    // b5-gaps §55: the comparer-GroupBy lambda parameter decodes
+                    // as the CLOSED name "System.Linq.IGrouping`2<r:System.
+                    // String, ...>" -- the FIRST generic argument is the KEY
+                    // family. Without it the default int get_key bound a
+                    // string-key bucket (an int64-return ABI into an
+                    // Il2CppObject* slot: a compile error).
+                    var grInner = srcType.Substring("System.Linq.IGrouping`2<".Length);
+                    var grComma = grInner.IndexOf(',');
+                    var grTKey = grComma >= 0 ? grInner[..grComma] : grInner;
+                    keyMarker = grTKey switch
+                    {
+                        "l" or "l8" => "_key_i8",
+                        "d" => "_key_d",
+                        "r:System.String" => "_key_ref",
+                        "V:System.Decimal" => "_key_dec",
+                        "V:System.DateTime" => "_key_dt",
+                        "V:System.Guid" => "_key_guid",
+                        "V:System.TimeSpan" => "_key_ts",
+                        "V:System.DateTimeOffset" => "_key_dto",
+                        _ when grTKey.StartsWith("r:", StringComparison.Ordinal) => "_key_ref",
+                        _ => "",
+                    };
+                }
                 return keyMarker switch
                 {
                     "_key_i8" => I("il2cpp::il2cpp_linq_grouping_get_key_i8", 0, true, false, true,
@@ -1100,6 +1126,45 @@ public static partial class MethodRefResolver
                 case "ToList":
                     return I("il2cpp::il2cpp_linq_grouping_result_to_list", 1, true, true, false, new[] { "" },
                         returnTypeName: "System.Collections.Generic.List`1_object");
+                case "Select":
+                {
+                    // b5-gaps §55: Select over the WHOLE result materializes the
+                    // bucket object[] first (il2cpp_linq_grouping_result_select);
+                    // a direct treat-the-result-as-array cast reads its header
+                    // as a length (the D-2 class). resKind: 0 ref/1 i4/2 i8/3 f/4 d.
+                    if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    {
+                        throw new NotSupportedException(
+                            "Enumerable.Select (index form) over the GroupBy result is not wired: "
+                            + "the materializing result-select takes the element and index-form "
+                            + "selector together -- see docs/audit/b5-gaps.md");
+                    }
+                    byte selResByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x0E;
+                    string? grResKind = selResByte switch
+                    {
+                        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                        0x0A or 0x0B => "2",
+                        0x0C => "3",
+                        0x0D => "4",
+                        _ when IsRefFamilyByte(selResByte) => "0",
+                        _ => null,
+                    };
+                    if (grResKind == null)
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.Select TResult '{GenericArgTypeName(selResByte)}' over the "
+                            + "GroupBy result is not wired: the materializing result-select covers "
+                            + "the reference and the i4/i8/f/d result families -- see docs/audit/b5-gaps.md");
+                    }
+                    string grResType = IsRefFamilyByte(selResByte)
+                        ? (genArgNames is { Length: >= 2 } ? LinqStructNameOf(genArgNames[1]) : "System.Object") + "[]"
+                        : LinqArrayTypeNameExact(selResByte, genArgNames, 1);
+                    string? grRk = grResKind == "2" ? "l"
+                        : grResKind is "3" or "4" ? "d" : null;
+                    return I("il2cpp::il2cpp_linq_grouping_result_select", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: grResType, resultKind: grRk,
+                        appendLiterals: new[] { grResKind });
+                }
                 case "First" when count < 2:
                     return I("il2cpp::il2cpp_linq_grouping_result_first", 1, true, true, false, new[] { "" },
                         returnTypeName: "System.Linq.IGrouping");
@@ -2003,12 +2068,16 @@ public static partial class MethodRefResolver
         // they must stay LOUD (the familyAgnostic gate below rejects them)
         // instead of silently binding the ref ABI.
         if (linqSrcFam == "ref" && listKind == null
+            && !(srcType != null
+                && srcType.StartsWith("System.Linq.IGrouping", StringComparison.Ordinal))
             && !IsLinqValueTypeSource(genArgs, receiverType, arg0Type))
         {
             switch (name)
             {
                 case "Any" when count < 2:
-                    // il2cpp_linq_any reads only the array header.
+                    // il2cpp_linq_any reads only the array header (a GroupBy
+                    // bucket / result receiver is OBJECT, never an array -- the
+                    // ref-array arms are skipped by the IGrouping guard above).
                     return I("il2cpp::il2cpp_linq_any", 1, true, false, false, OneArg);
                 case "Any":
                     return I("il2cpp::il2cpp_linq_any_ref", 2, true, false, false, TwoArg);
@@ -2599,6 +2668,16 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_linq_grouping_get_count", 1, true, false, false, new[] { "" });
                 if (count < 2 && countRecv == "System.Linq.IGroupingResult")
                     return I("il2cpp::il2cpp_linq_grouping_result_get_count", 1, true, false, false, new[] { "" });
+                // b5-gaps §55: a receiver whose tracked type is System.Object
+                // (a GroupBy bucket/result element inside a lambda) has no
+                // grouping tag, yet the runtime object IS a grouping. Dispatch
+                // on the runtime class instead of reinterpreting it as an
+                // array header.
+                if (count < 2
+                    && (countRecv is "System.Object" or null or "System.Collections.IEnumerable"
+                        || (countRecv != null
+                            && countRecv.StartsWith("System.Linq.IGrouping", StringComparison.Ordinal))))
+                    return I("il2cpp::il2cpp_linq_count_object", 1, true, false, false, new[] { "" });
                 // impl-linqfix: the PREDICATE form of Count over a VALUE-TYPE
                 // source (DateTime / TimeSpan / Guid / a user struct) must not
                 // ride the int32 predicate kernel: il2cpp_linq_count_i4 calls
@@ -2619,11 +2698,17 @@ public static partial class MethodRefResolver
                 // Any() / Any(predicate) -- bool result (int32 slot).
                 // impl-linqfix: the PREDICATE form over a non-decimal
                 // VALUE-TYPE source stays LOUD (see the Count arm above).
+                var anyRecv = receiverType ?? arg0Type;
                 if (count >= 2 && IsLinqNonDecimalValueTypeSource(genArgs, genArgNames, receiverType, arg0Type))
                     throw new NotSupportedException(
                         $"Enumerable.Any with a predicate over a {ValueTypeSourceName(genArgs, genArgNames, receiverType, arg0Type)} source is not wired: " +
                         "the runtime has no predicate kernel for a non-decimal value-type element family " +
                         "(il2cpp_linq_any_i4 reads 4-byte int32 cells and calls the predicate through the int32 ABI)");
+                if (count < 2
+                    && (anyRecv is "System.Object" or null or "System.Collections.IEnumerable"
+                        || (anyRecv != null
+                            && anyRecv.StartsWith("System.Linq.IGrouping", StringComparison.Ordinal))))
+                    return I("il2cpp::il2cpp_linq_any_object", 1, true, false, false, new[] { "" });
                 return count >= 2
                     ? I("il2cpp::il2cpp_linq_any_i4", 2, true, false, false, TwoArg)
                     : I("il2cpp::il2cpp_linq_any", 1, true, false, false, OneArg);

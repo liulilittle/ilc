@@ -7351,6 +7351,29 @@ int32_t il2cpp_linq_grouping_result_get_count(Il2CppObject* result)
     return AsGroupingResult(result)->count;
 }
 
+// b5-gaps §55: Select over the WHOLE GroupBy RESULT (IEnumerable<IGrouping>).
+// The receiver is an IGroupingResult OBJECT, never an array -- a direct
+// select_ref_* call would cast it to Il2CppArray* and read its header as a
+// length (the D-2 defect class). Materialize the bucket list through
+// grouping_result_to_array (a rooted object[]), then reuse the reference
+// ELEMENT select kernel with the TResult carrier (resKind 0 ref / 1 i4 /
+// 2 i8 / 3 f / 4 d).
+Il2CppArray* il2cpp_linq_grouping_result_select(Il2CppObject* result,
+                                                Il2CppObject* sel,
+                                                int32_t resKind)
+{
+    ThrowIfNullReceiver(result);
+    Il2CppArray* elems = il2cpp_linq_grouping_result_to_array(result);
+    switch (resKind)
+    {
+        case 0: return il2cpp_linq_select_ref_ref(elems, sel);
+        case 1: return il2cpp_linq_select_ref_i4(elems, sel);
+        case 2: return il2cpp_linq_select_ref_i8(elems, sel);
+        case 3: return il2cpp_linq_select_ref_f(elems, sel);
+        default: return il2cpp_linq_select_ref_d(elems, sel);
+    }
+}
+
 Il2CppObject* il2cpp_linq_grouping_result_get_grouping(Il2CppObject* result, int32_t index)
 {
     ThrowIfNullReceiver(result);
@@ -9295,6 +9318,54 @@ bool il2cpp_linq_grouping_any(Il2CppObject* grouping)
 {
     ThrowIfNullReceiver(grouping);
     return AsGrouping(grouping)->count > 0;
+}
+
+// b5-gaps §55: the OBJECT-dispatch no-arg operator entries. A GroupBy bucket or
+// whole-result ELEMENT that reaches the lambda of `.Select/Where` over a
+// grouping-result object[] has NO tracked element type, so the transpiler
+// cannot route g.Count()/g.Any() to the grouping surface (the receiver's
+// tracked name is System.Object). These entries dispatch on the RUNTIME class:
+//   * an ARRAY klass name starts with '['
+//   * the bucket klass name is "System.Linq.Grouping"
+//   * the whole-result klass name is "System.Linq.GroupingResult"
+// Anything else (e.g. an untracked List) is rejected loudly instead of being
+// read through a foreign header.
+int32_t il2cpp_linq_count_object(Il2CppObject* obj)
+{
+    if (obj == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+    }
+    const char* n = obj->klass != nullptr ? obj->klass->name : nullptr;
+    if (n != nullptr && n[0] == '[')
+        return reinterpret_cast<Il2CppArray*>(obj)->length;
+    if (n != nullptr && std::strcmp(n, "System.Linq.Grouping") == 0)
+        return AsGrouping(obj)->count;
+    if (n != nullptr && std::strcmp(n, "System.Linq.GroupingResult") == 0)
+        return AsGroupingResult(obj)->count;
+    il2cpp_throw_not_supported_exception(
+        "Enumerable.Count over this IEnumerable shape is not wired (the receiver "
+        "is neither an array nor a GroupBy bucket/result).");
+    return 0; // unreachable
+}
+
+bool il2cpp_linq_any_object(Il2CppObject* obj)
+{
+    if (obj == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+    }
+    const char* n = obj->klass != nullptr ? obj->klass->name : nullptr;
+    if (n != nullptr && n[0] == '[')
+        return reinterpret_cast<Il2CppArray*>(obj)->length > 0;
+    if (n != nullptr && std::strcmp(n, "System.Linq.Grouping") == 0)
+        return AsGrouping(obj)->count > 0;
+    if (n != nullptr && std::strcmp(n, "System.Linq.GroupingResult") == 0)
+        return AsGroupingResult(obj)->count > 0;
+    il2cpp_throw_not_supported_exception(
+        "Enumerable.Any over this IEnumerable shape is not wired (the receiver "
+        "is neither an array nor a GroupBy bucket/result).");
+    return false; // unreachable
 }
 
 bool il2cpp_linq_grouping_any_pred(Il2CppObject* grouping, Il2CppObject* pred)
