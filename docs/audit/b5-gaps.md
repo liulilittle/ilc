@@ -5412,3 +5412,49 @@ operator became a thin two-entry bridge over the family seeding ctors.
   narrow / float elements stays LOUD -- the set domain ships no seeding ctor
   for those families (they need new HashSet<T> families before the LINQ arm
   can open).
+## 59. Enumerable.SelectMany single-level over array sources (IMPLEMENTED)
+
+`SelectMany` was in the "generic instantiation ... has no BCL mapping in M5"
+band. The `SelectMany<TSource,TResult>(IEnumerable<TSource>,
+Func<TSource,IEnumerable<TResult>>)` form over ARRAY sources now flattens.
+
+### Implementation
+
+* `linq_family.cpp` / `linq_family.h`:
+  * `il2cpp_linq_select_many(src, sel, srcCell, resCell)` -- the per-SOURCE-cell
+    selector ABI (int32 slot for the narrow/i4 cells, int64 for int64, double
+    for float/double, object for a reference source) returns the INNER object;
+    every inner is cached in a RESERVED std::vector with PER-SLOT static roots
+    (a later selector call may allocate and compact/relocate earlier inners --
+    the reserve pins the vector buffer), then a second pass copies the inner
+    cells into a fresh `resCell` array. Inner collections must be reference
+    ARRAYS at runtime (klass name starts with '['); a null or non-array inner
+    is rejected loudly.
+  * local `InvokeSelMany{I4,I8,D,Ref}` invokers with the per-binding target/
+    plain dispatch (the linq_map.cpp precedent).
+* `MethodMap.Linq.cs`: an early `SelectMany` arm -- the source element cell
+  (selector ABI) and the TResult cell ride trailing literals; the result is
+  tracked as the TResult array (`LinqArrayTypeNameExact`). Only ARRAY sources
+  bind; List/etc. stay on the M5 path.
+
+### Contract evidence
+
+* new case `tests/cases/probe-selectmany`: oracle = runtime = **61B
+  sha 38b882bab**, 4 records (int / long / string / double sources each
+  flattening a two-element array inner).
+* mutations (RED, restored GREEN to the same 61B sha):
+  * M9 the int64-source selector rides the int32 ABI -> 61B `a0af71ce`
+    (record 2 `[l:]` silent wrong);
+  * M10 pass 2 copies only the FIRST inner -> 51B `58171b87` (record 1 `[m:]`
+    truncated, silent wrong).
+* unit tests 4159/0/0; C0 0 warnings 0 errors; probe-cmpval/probe-cmpref/
+  probe-tohashset/probe-strcatint/probe-grpselect/linqgroup/probe-vtops/
+  thenby3ref unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* SelectMany over List sources / IEnumerable inner collections / the 3-argument
+  `resultSelector` form need the GENERIC INNER-ENUMERATION infrastructure
+  (the CollectCarriers family dispatch) before the inward loop can open;
+* the decimal / DateTime / TimeSpan / Guid / DateTimeOffset cell codes stay
+  unset for this operator.

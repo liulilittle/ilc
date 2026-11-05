@@ -206,6 +206,14 @@ bool         il2cpp_linq_contains_value_cmp_i8(Il2CppArray* src, int64_t value,
                                                Il2CppObject* cmp, int32_t cell);
 bool         il2cpp_linq_contains_value_cmp_d(Il2CppArray* src, double value,
                                               Il2CppObject* cmp, int32_t cell);
+
+// b5-gaps section 59: Enumerable.SelectMany(source, collectionSelector) --
+// the selector (per-SOURCE-cell ABI, returning Il2CppObject*) flattens the
+// outer sequence into a fresh RESULT-cell array. Inner collections must be
+// ARRAYS at runtime (the List/IEnumerable inner is a registered LOUD for this
+// section). The source / inner-element cells ride trailing literals.
+Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
+                                     int32_t srcCell, int32_t resCell);
 bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
 bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
 bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);

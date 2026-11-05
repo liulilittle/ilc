@@ -166,6 +166,35 @@ public static partial class MethodRefResolver
                 appendLiterals: new[] { cell! });
         }
 
+        // b5-gaps section 59: Enumerable.SelectMany(source, collectionSelector)
+        // over an ARRAY source. The source element cell (selector ABI) and the
+        // TResult cell ride trailing literals; the result array is tracked as
+        // the TResult array. List/other sources stay M5 (TryMapLinqList).
+        if (name == "SelectMany")
+        {
+            if (genArgs is not { Length: >= 2 } || count != 2) return null;
+            string? srcCell = LinqCellCodeOfElemByte(genArgs[0])
+                ?? (IsRefFamilyByte(genArgs[0]) ? "15" : null);
+            string? resCell = LinqCellCodeOfElemByte(genArgs[1])
+                ?? (IsRefFamilyByte(genArgs[1]) ? "15" : null);
+            if (srcCell == null || resCell == null)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.SelectMany<{GenericArgTypeName(genArgs[0])}," +
+                    $"{GenericArgTypeName(genArgs[1])}> is not wired: no cell ABI for " +
+                    "the source / result element (b5-gaps section 59).");
+            }
+            string srcTypeName = count >= 2 ? arg1Type : arg0Type;
+            if (srcTypeName == null || !srcTypeName.EndsWith("[]", StringComparison.Ordinal))
+            {
+                return null;
+            }
+            return I("il2cpp::il2cpp_linq_select_many", 2, true, true, false,
+                new[] { "a", "" },
+                returnTypeName: LinqArrayTypeNameExact(genArgs[1], genArgNames, 1),
+                appendLiterals: new[] { srcCell, resCell });
+        }
+
         // nb9 FIX: the SOURCE receiver hint. For an extension call the source
         // is the FIRST IL argument -- the stack's SECOND value for arity >= 2
         // (arg1Type) and the ONLY value for arity 1 (arg0Type); an instance

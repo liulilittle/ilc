@@ -1498,4 +1498,158 @@ bool il2cpp_linq_contains_value_cmp_d(Il2CppArray* src, double value,
     return false;
 }
 
+//------------------------------------------------------------------------------
+// b5-gaps section 59: Enumerable.SelectMany(source, collectionSelector).
+// The selector returns the INNER collection as Il2CppObject* regardless of
+// the source family; the source-element ABI is per-cell (int32 slot for the
+// narrow/i4 cells, int64 for i8, double for float/double, object for ref).
+//------------------------------------------------------------------------------
+namespace {
+
+typedef Il2CppObject* (*SelI4ReqFn)(int32_t);
+typedef Il2CppObject* (*SelI4ReqThisFn)(Il2CppObject*, int32_t);
+typedef Il2CppObject* (*SelI8ReqFn)(int64_t);
+typedef Il2CppObject* (*SelI8ReqThisFn)(Il2CppObject*, int64_t);
+typedef Il2CppObject* (*SelDReqFn)(double);
+typedef Il2CppObject* (*SelDReqThisFn)(Il2CppObject*, double);
+typedef Il2CppObject* (*SelRefReqFn)(Il2CppObject*);
+typedef Il2CppObject* (*SelRefReqThisFn)(Il2CppObject*, Il2CppObject*);
+
+Il2CppObject* InvokeSelManyI4(Il2CppDelegate* d, int32_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelI4ReqThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelI4ReqFn>(d->methodPtr)(v);
+}
+
+Il2CppObject* InvokeSelManyI8(Il2CppDelegate* d, int64_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelI8ReqThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelI8ReqFn>(d->methodPtr)(v);
+}
+
+Il2CppObject* InvokeSelManyD(Il2CppDelegate* d, double v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelDReqThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<SelDReqFn>(d->methodPtr)(v);
+}
+
+Il2CppObject* InvokeSelManyRef(Il2CppDelegate* d, Il2CppObject* o)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<SelRefReqThisFn>(d->methodPtr)(d->target, o)
+        : reinterpret_cast<SelRefReqFn>(d->methodPtr)(o);
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
+                                     int32_t srcCell, int32_t resCell)
+{
+    LinqRequireCell(src, srcCell);
+    Il2CppDelegate* d = reinterpret_cast<Il2CppDelegate*>(sel);
+    if (d == nullptr || d->methodPtr == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("selector");
+        return nullptr;
+    }
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&d));
+
+    if (n == 0)
+    {
+        return LinqNewArray(resCell, 0);
+    }
+
+    // Pass 1: cache each inner collection in a RESERVED vector and root every
+    // slot (a later selector call may allocate and compact/relocate the
+    // earlier inners). The reserve pins the vector buffer, so the per-slot
+    // roots point at stable addresses.
+    std::vector<Il2CppObject*> inners;
+    try
+    {
+        inners.reserve(static_cast<size_t>(n));
+    }
+    catch (const std::bad_alloc&)
+    {
+        il2cpp_throw_new(
+            "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+            "Insufficient memory to continue the execution of the program.");
+        return nullptr;
+    }
+    std::vector<int32_t> lens(static_cast<size_t>(n));
+    int64_t total = 0;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject* inner = nullptr;
+        switch (srcCell)
+        {
+            case IL2CPP_LINQ_CELL_SBYTE:
+            case IL2CPP_LINQ_CELL_BYTE:
+            case IL2CPP_LINQ_CELL_BOOL:
+            case IL2CPP_LINQ_CELL_SHORT:
+            case IL2CPP_LINQ_CELL_USHORT:
+            case IL2CPP_LINQ_CELL_CHAR:
+            case IL2CPP_LINQ_CELL_UINT:
+            case IL2CPP_LINQ_CELL_I4:
+                inner = InvokeSelManyI4(d, LinqCellReadI4(src, i, srcCell));
+                break;
+            case IL2CPP_LINQ_CELL_I8:
+                inner = InvokeSelManyI8(d, LinqCellReadI8(src, i, srcCell));
+                break;
+            case IL2CPP_LINQ_CELL_F:
+            case IL2CPP_LINQ_CELL_D:
+                inner = InvokeSelManyD(d, LinqCellReadD(src, i, srcCell));
+                break;
+            case IL2CPP_LINQ_CELL_REF:
+                inner = InvokeSelManyRef(d, LinqCellReadRef(src, i, srcCell));
+                break;
+            default:
+                il2cpp_throw_not_supported_exception(
+                    "SelectMany: the source element family has no selector ABI "
+                    "(b5-gaps section 59).");
+                return nullptr;
+        }
+        if (inner == nullptr)
+        {
+            il2cpp_throw_argument_null_exception(
+                "The collectionSelector returned a null sequence (b5-gaps section 59).");
+            return nullptr;
+        }
+        if (inner->klass == nullptr || inner->klass->name == nullptr ||
+            inner->klass->name[0] != '[')
+        {
+            il2cpp_throw_not_supported_exception(
+                "SelectMany: the collectionSelector returned a non-ARRAY inner "
+                "(b5-gaps section 59: List/IEnumerable inners stay LOUD).");
+            return nullptr;
+        }
+        Il2CppArray* ia = reinterpret_cast<Il2CppArray*>(inner);
+        inners.push_back(inner);
+        roots.Add(reinterpret_cast<void**>(&inners[inners.size() - 1]));
+        lens[i] = ia->length;
+        total += ia->length;
+    }
+
+    Il2CppArray* out = LinqNewArray(resCell, static_cast<int32_t>(total));
+    roots.Add(reinterpret_cast<void**>(&out));
+    int32_t w = 0;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppArray* ia = reinterpret_cast<Il2CppArray*>(inners[i]);
+        for (int32_t j = 0; j < lens[i]; ++j)
+        {
+            char* dst = LinqCellPtr(out, w);
+            LinqCellCopy(dst, reinterpret_cast<Il2CppObject**>(dst), ia, j, resCell);
+            ++w;
+        }
+    }
+    return out;
+}
+
 } // namespace il2cpp
