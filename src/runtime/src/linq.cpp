@@ -570,6 +570,49 @@ Il2CppGuid il2cpp_linq_max_guid(Il2CppArray* src)
     return best;
 }
 
+// impl-linq-vtagg (§52): the System.DateTimeOffset selector-less Min/Max. The
+// 16-byte cell is the raw image; Comparer<DateTimeOffset>.Default orders by the
+// UTC INSTANT (DateTimeOffset.Compare -> DateTime.Compare(UtcDateTime)), so the
+// comparison defers to icall_dtoffset_compare and the WINNING CELL is returned
+// unchanged (the offset stays with the element).
+runtime::Il2CppDateTimeOffset il2cpp_linq_min_dtoffset(Il2CppArray* src)
+{
+    CheckSource(src);
+    RequireLinqCell(src, 16);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    runtime::Il2CppDateTimeOffset best;
+    std::memcpy(&best, il2cpp_array_get_elem_ptr(src, 0), sizeof(best));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        runtime::Il2CppDateTimeOffset v;
+        std::memcpy(&v, il2cpp_array_get_elem_ptr(src, i), sizeof(v));
+        if (runtime::icall_dtoffset_compare(v, best) < 0) best = v;
+    }
+    return best;
+}
+
+runtime::Il2CppDateTimeOffset il2cpp_linq_max_dtoffset(Il2CppArray* src)
+{
+    CheckSource(src);
+    RequireLinqCell(src, 16);
+    if (src->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    }
+    runtime::Il2CppDateTimeOffset best;
+    std::memcpy(&best, il2cpp_array_get_elem_ptr(src, 0), sizeof(best));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        runtime::Il2CppDateTimeOffset v;
+        std::memcpy(&v, il2cpp_array_get_elem_ptr(src, i), sizeof(v));
+        if (runtime::icall_dtoffset_compare(v, best) > 0) best = v;
+    }
+    return best;
+}
+
 //------------------------------------------------------------------------------
 // impl-collation: Enumerable.Min/Max over a System.String SOURCE.
 //

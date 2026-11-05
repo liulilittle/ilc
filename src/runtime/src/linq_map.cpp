@@ -8597,6 +8597,264 @@ IL2CPP_LINQ_NARROW_AGG(u4src, uint32_t)
 IL2CPP_LINQ_NARROW_AGG(csrc, char16_t)
 #undef IL2CPP_LINQ_NARROW_AGG
 
+//------------------------------------------------------------------------------
+// impl-linq-vtagg (§52) -- the SELECTOR aggregates
+// Sum/Min/Max/Average<TSource>(source, Func<TSource, TResult>) over the BY-VALUE
+// value-struct SOURCES (System.DateTime / System.TimeSpan / System.Guid /
+// System.DateTimeOffset).
+//
+// The selector receives the element BY VALUE through the family's own struct
+// ABI (the PredDtFn / InvokePredDt precedent above) and returns the projection
+// in its own slot: int32 / int64 / F-stack / decimal-result-slot. The fold
+// semantics are exactly the wide/narrow source surfaces: Sum of an empty
+// source is the identity, Min/Max/Average throw InvalidOperationException.
+//
+// Every entry checks the source CELL family first: an array of another family
+// must not be read through this family's reader (its 8/16-byte cells can have
+// the same width, so the cell code is the only discriminator).
+//------------------------------------------------------------------------------
+#define IL2CPP_LINQ_DEF_VT_SEL_ABI(FAM, TYPE)                                       \
+    typedef int32_t (*SelVt##FAM##I4Fn)(TYPE);                                      \
+    typedef int32_t (*SelVt##FAM##I4ThisFn)(Il2CppObject*, TYPE);                   \
+    static int32_t InvokeSelVt##FAM##I4(Il2CppDelegate* d, const TYPE& v)           \
+    {                                                                               \
+        return d->target != nullptr                                                 \
+            ? reinterpret_cast<SelVt##FAM##I4ThisFn>(d->methodPtr)(d->target, v)    \
+            : reinterpret_cast<SelVt##FAM##I4Fn>(d->methodPtr)(v);                  \
+    }                                                                               \
+    typedef int64_t (*SelVt##FAM##I8Fn)(TYPE);                                      \
+    typedef int64_t (*SelVt##FAM##I8ThisFn)(Il2CppObject*, TYPE);                   \
+    static int64_t InvokeSelVt##FAM##I8(Il2CppDelegate* d, const TYPE& v)           \
+    {                                                                               \
+        return d->target != nullptr                                                 \
+            ? reinterpret_cast<SelVt##FAM##I8ThisFn>(d->methodPtr)(d->target, v)    \
+            : reinterpret_cast<SelVt##FAM##I8Fn>(d->methodPtr)(v);                  \
+    }                                                                               \
+    typedef double (*SelVt##FAM##DFn)(TYPE);                                        \
+    typedef double (*SelVt##FAM##DThisFn)(Il2CppObject*, TYPE);                     \
+    static double InvokeSelVt##FAM##D(Il2CppDelegate* d, const TYPE& v)             \
+    {                                                                               \
+        return d->target != nullptr                                                 \
+            ? reinterpret_cast<SelVt##FAM##DThisFn>(d->methodPtr)(d->target, v)     \
+            : reinterpret_cast<SelVt##FAM##DFn>(d->methodPtr)(v);                   \
+    }                                                                               \
+    typedef float (*SelVt##FAM##FFn)(TYPE);                                         \
+    typedef float (*SelVt##FAM##FThisFn)(Il2CppObject*, TYPE);                      \
+    static float InvokeSelVt##FAM##F(Il2CppDelegate* d, const TYPE& v)              \
+    {                                                                               \
+        return d->target != nullptr                                                 \
+            ? reinterpret_cast<SelVt##FAM##FThisFn>(d->methodPtr)(d->target, v)     \
+            : reinterpret_cast<SelVt##FAM##FFn>(d->methodPtr)(v);                   \
+    }                                                                               \
+    typedef runtime::Il2CppDecimal (*SelVt##FAM##DecFn)(TYPE);                      \
+    typedef runtime::Il2CppDecimal (*SelVt##FAM##DecThisFn)(Il2CppObject*, TYPE);   \
+    static runtime::Il2CppDecimal InvokeSelVt##FAM##Dec(                            \
+        Il2CppDelegate* d, const TYPE& v)                                           \
+    {                                                                               \
+        return d->target != nullptr                                                 \
+            ? reinterpret_cast<SelVt##FAM##DecThisFn>(d->methodPtr)(d->target, v)   \
+            : reinterpret_cast<SelVt##FAM##DecFn>(d->methodPtr)(v);                 \
+    }
+
+template <typename TSource, typename ReadSrc, typename InvokeSel>
+static void VtDecSelSumT(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                         Il2CppDelegate* d, ReadSrc readSrc, InvokeSel invoke)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = invoke(d, readSrc(src, i));
+        runtime::icall_decimal_add(result, result, &v);
+    }
+}
+
+template <typename TSource, typename ReadSrc, typename InvokeSel>
+static void VtDecSelMinMaxT(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                            Il2CppDelegate* d, ReadSrc readSrc, InvokeSel invoke,
+                            bool wantMax)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    runtime::Il2CppDecimal best = invoke(d, readSrc(src, 0));
+    for (int32_t i = 1; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = invoke(d, readSrc(src, i));
+        const int32_t c = runtime::icall_decimal_compare(&v, &best);
+        if (wantMax ? (c > 0) : (c < 0)) best = v;
+    }
+    std::memcpy(result, &best, sizeof(runtime::Il2CppDecimal));
+}
+
+template <typename TSource, typename ReadSrc, typename InvokeSel>
+static void VtDecSelAverageT(runtime::Il2CppDecimal* result, Il2CppArray* src,
+                             Il2CppDelegate* d, ReadSrc readSrc, InvokeSel invoke)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+    if (src->length == 0)
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+    std::memset(result, 0, sizeof(runtime::Il2CppDecimal));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = invoke(d, readSrc(src, i));
+        runtime::icall_decimal_add(result, result, &v);
+    }
+    runtime::Il2CppDecimal count;
+    std::memset(&count, 0, sizeof(runtime::Il2CppDecimal));
+    runtime::icall_decimal_ctor_int32(&count, src->length);
+    runtime::icall_decimal_div(result, result, &count);
+}
+
+#define IL2CPP_LINQ_DEF_VT_SEL_ENTRIES(FAM, CELL, TYPE, READ)                              \
+    int32_t il2cpp_linq_sum_sel_##FAM##src_i4(Il2CppArray* src, Il2CppObject* sel)         \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelSumT<TYPE, int32_t>(src, d, READ, InvokeSelVt##FAM##I4);             \
+    }                                                                                      \
+    int64_t il2cpp_linq_sum_sel_##FAM##src_i8(Il2CppArray* src, Il2CppObject* sel)         \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelSumT<TYPE, int64_t>(src, d, READ, InvokeSelVt##FAM##I8);             \
+    }                                                                                      \
+    double il2cpp_linq_sum_sel_##FAM##src_d(Il2CppArray* src, Il2CppObject* sel)           \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelSumT<TYPE, double>(src, d, READ, InvokeSelVt##FAM##D);               \
+    }                                                                                      \
+    float il2cpp_linq_sum_sel_##FAM##src_f(Il2CppArray* src, Il2CppObject* sel)            \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelSumT<TYPE, float>(src, d, READ, InvokeSelVt##FAM##F);                \
+    }                                                                                      \
+    int32_t il2cpp_linq_min_sel_##FAM##src_i4(Il2CppArray* src, Il2CppObject* sel)         \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelMinMaxT<TYPE, int32_t>(src, d, READ, InvokeSelVt##FAM##I4, false);   \
+    }                                                                                      \
+    int64_t il2cpp_linq_min_sel_##FAM##src_i8(Il2CppArray* src, Il2CppObject* sel)         \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelMinMaxT<TYPE, int64_t>(src, d, READ, InvokeSelVt##FAM##I8, false);   \
+    }                                                                                      \
+    double il2cpp_linq_min_sel_##FAM##src_d(Il2CppArray* src, Il2CppObject* sel)           \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelMinMaxT<TYPE, double>(src, d, READ, InvokeSelVt##FAM##D, false);     \
+    }                                                                                      \
+    float il2cpp_linq_min_sel_##FAM##src_f(Il2CppArray* src, Il2CppObject* sel)            \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelMinMaxT<TYPE, float>(src, d, READ, InvokeSelVt##FAM##F, false);      \
+    }                                                                                      \
+    int32_t il2cpp_linq_max_sel_##FAM##src_i4(Il2CppArray* src, Il2CppObject* sel)         \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelMinMaxT<TYPE, int32_t>(src, d, READ, InvokeSelVt##FAM##I4, true);    \
+    }                                                                                      \
+    int64_t il2cpp_linq_max_sel_##FAM##src_i8(Il2CppArray* src, Il2CppObject* sel)         \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelMinMaxT<TYPE, int64_t>(src, d, READ, InvokeSelVt##FAM##I8, true);    \
+    }                                                                                      \
+    double il2cpp_linq_max_sel_##FAM##src_d(Il2CppArray* src, Il2CppObject* sel)           \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelMinMaxT<TYPE, double>(src, d, READ, InvokeSelVt##FAM##D, true);      \
+    }                                                                                      \
+    float il2cpp_linq_max_sel_##FAM##src_f(Il2CppArray* src, Il2CppObject* sel)            \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelMinMaxT<TYPE, float>(src, d, READ, InvokeSelVt##FAM##F, true);       \
+    }                                                                                      \
+    double il2cpp_linq_average_sel_##FAM##src_i4(Il2CppArray* src, Il2CppObject* sel)      \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelAverageT<TYPE, int32_t>(src, d, READ, InvokeSelVt##FAM##I4);         \
+    }                                                                                      \
+    double il2cpp_linq_average_sel_##FAM##src_i8(Il2CppArray* src, Il2CppObject* sel)      \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelAverageT<TYPE, int64_t>(src, d, READ, InvokeSelVt##FAM##I8);         \
+    }                                                                                      \
+    double il2cpp_linq_average_sel_##FAM##src_d(Il2CppArray* src, Il2CppObject* sel)       \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelAverageT<TYPE, double>(src, d, READ, InvokeSelVt##FAM##D);           \
+    }                                                                                      \
+    double il2cpp_linq_average_sel_##FAM##src_f(Il2CppArray* src, Il2CppObject* sel)       \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        return WideSelAverageT<TYPE, float>(src, d, READ, InvokeSelVt##FAM##F);            \
+    }                                                                                      \
+    void il2cpp_linq_sum_sel_##FAM##src_dec(runtime::Il2CppDecimal* result,                \
+        Il2CppArray* src, Il2CppObject* sel)                                               \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        VtDecSelSumT<TYPE>(result, src, d, READ, InvokeSelVt##FAM##Dec);                   \
+    }                                                                                      \
+    void il2cpp_linq_min_sel_##FAM##src_dec(runtime::Il2CppDecimal* result,                \
+        Il2CppArray* src, Il2CppObject* sel)                                               \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        VtDecSelMinMaxT<TYPE>(result, src, d, READ, InvokeSelVt##FAM##Dec, false);         \
+    }                                                                                      \
+    void il2cpp_linq_max_sel_##FAM##src_dec(runtime::Il2CppDecimal* result,                \
+        Il2CppArray* src, Il2CppObject* sel)                                               \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        VtDecSelMinMaxT<TYPE>(result, src, d, READ, InvokeSelVt##FAM##Dec, true);          \
+    }                                                                                      \
+    void il2cpp_linq_average_sel_##FAM##src_dec(runtime::Il2CppDecimal* result,            \
+        Il2CppArray* src, Il2CppObject* sel)                                               \
+    {                                                                                      \
+        Il2CppDelegate* d = RequireCallback(sel, "selector");                              \
+        LinqRequireCell(src, CELL);                                                        \
+        VtDecSelAverageT<TYPE>(result, src, d, READ, InvokeSelVt##FAM##Dec);               \
+    }
+
+IL2CPP_LINQ_DEF_VT_SEL_ABI(dt, runtime::Il2CppDateTime)
+IL2CPP_LINQ_DEF_VT_SEL_ABI(ts, runtime::Il2CppTimeSpan)
+IL2CPP_LINQ_DEF_VT_SEL_ABI(guid, Il2CppGuid)
+IL2CPP_LINQ_DEF_VT_SEL_ABI(dto, runtime::Il2CppDateTimeOffset)
+
+IL2CPP_LINQ_DEF_VT_SEL_ENTRIES(dt, IL2CPP_LINQ_CELL_DATETIME,
+    runtime::Il2CppDateTime, LinqCellReadDt)
+IL2CPP_LINQ_DEF_VT_SEL_ENTRIES(ts, IL2CPP_LINQ_CELL_TIMESPAN,
+    runtime::Il2CppTimeSpan, LinqCellReadTs)
+IL2CPP_LINQ_DEF_VT_SEL_ENTRIES(guid, IL2CPP_LINQ_CELL_GUID,
+    Il2CppGuid, LinqCellReadGuid)
+IL2CPP_LINQ_DEF_VT_SEL_ENTRIES(dto, IL2CPP_LINQ_CELL_DTOFFSET,
+    runtime::Il2CppDateTimeOffset, LinqCellReadDto)
+
+#undef IL2CPP_LINQ_DEF_VT_SEL_ENTRIES
+#undef IL2CPP_LINQ_DEF_VT_SEL_ABI
+
 double il2cpp_linq_average_sel_i4(Il2CppArray* src, Il2CppObject* sel)
 {
     RequireArray(src);

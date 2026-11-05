@@ -345,6 +345,86 @@ public static partial class MethodRefResolver
             }
             if (genArgs[0] != 0x08)
             {
+                // b5-gaps §52: the BY-VALUE value-struct SOURCE families
+                // (System.DateTime / System.TimeSpan / System.Guid /
+                // System.DateTimeOffset). The selector receives the ELEMENT by
+                // value through the family's own struct ABI, so an int32 or
+                // reference kernel would call it through a foreign ABI (a silent
+                // wrong value). The SOURCE NAME decides the family (the 0x11
+                // byte is shared by every value type; a user struct has no cell
+                // ABI and keeps the LOUD below).
+                if (genArgs[0] == 0x11
+                    && LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type)
+                        is { } vtCell)
+                {
+                    string vtFam = vtCell switch
+                    {
+                        "12" => "dt",
+                        "13" => "ts",
+                        "14" => "guid",
+                        "16" => "dtoffset",
+                        _ => "",
+                    };
+                    string vtResultKind = vtCell switch
+                    {
+                        "14" => "guidv",
+                        "16" => "dto",
+                        _ => vtFam,
+                    };
+                    if (vtFam.Length != 0)
+                    {
+                        // The selector entries' source suffix spells the
+                        // DateTimeOffset family "dto" (the element entries use
+                        // the full "dtoffset" name).
+                        string vtSrcSuffix = vtCell == "16" ? "dto" : vtFam;
+                        if (count < 2)
+                        {
+                            // net48 has no selector-less Sum/Average over a
+                            // non-numeric element; Min/Max use
+                            // Comparer<TSource>.Default (the family's own
+                            // CompareTo order).
+                            if (name == "Min")
+                                return I($"il2cpp::il2cpp_linq_min_{vtFam}", 1, true,
+                                    false, false, OneArg, resultKind: vtResultKind);
+                            if (name == "Max")
+                                return I($"il2cpp::il2cpp_linq_max_{vtFam}", 1, true,
+                                    false, false, OneArg, resultKind: vtResultKind);
+                            throw new NotSupportedException(
+                                $"Enumerable.{name} over a {GenericArgTypeName(genArgs[0])} " +
+                                "source WITHOUT a selector is not a net48 overload");
+                        }
+                        string? vtProj = LinqSelectorProjectionType(md, sigHandle) switch
+                        {
+                            "i" or "c" => "i4",
+                            "l" => "i8",
+                            "d" => "d",
+                            "f" => "f",
+                            "V:System.Decimal" or "System.Decimal" => "dec",
+                            _ => null,
+                        };
+                        if (vtProj is null)
+                        {
+                            throw new NotSupportedException(
+                                $"Enumerable.{name} over a {GenericArgTypeName(genArgs[0])} source " +
+                                "with a selector not wired: the value-struct source surface covers " +
+                                "the System.DateTime/System.TimeSpan/System.Guid/" +
+                                "System.DateTimeOffset elements with an int32/int64/double/float/" +
+                                "decimal projection only (see docs/audit/b5-gaps.md)");
+                        }
+                        string vtEntry = name switch
+                        {
+                            "Sum" => $"il2cpp::il2cpp_linq_sum_sel_{vtSrcSuffix}src_{vtProj}",
+                            "Min" => $"il2cpp::il2cpp_linq_min_sel_{vtSrcSuffix}src_{vtProj}",
+                            "Max" => $"il2cpp::il2cpp_linq_max_sel_{vtSrcSuffix}src_{vtProj}",
+                            _ => $"il2cpp::il2cpp_linq_average_sel_{vtSrcSuffix}src_{vtProj}",
+                        };
+                        string? vtRk = vtProj == "dec" ? "dec"
+                            : name == "Average" ? "d"
+                            : vtProj == "i8" ? "l"
+                            : vtProj is "f" or "d" ? "d" : null;
+                        return I(vtEntry, 2, true, false, false, TwoArg, resultKind: vtRk);
+                    }
+                }
                 // The WIDE source families (long / float / double) and the
                 // NARROW-INTEGRAL source families (sbyte / byte / short /
                 // ushort / uint / char -- impl-linq3 A): the selector's RESULT
@@ -4053,21 +4133,31 @@ public static partial class MethodRefResolver
                 // for them (non-numeric), and a user struct has no comparison
                 // carrier, so those stay LOUD.
                 string? aggCell = LinqValueFamilyCellCode(genArgs, genArgNames, receiverType, arg0Type);
-                if ((name == "Min" || name == "Max") && aggCell is "12" or "13" or "14")
+                if ((name == "Min" || name == "Max")
+                    && aggCell is "12" or "13" or "14" or "16")
                 {
-                    string aggFam = aggCell == "12" ? "dt" : aggCell == "13" ? "ts" : "guid";
+                    string aggFam = aggCell == "12" ? "dt"
+                        : aggCell == "13" ? "ts"
+                        : aggCell == "14" ? "guid" : "dtoffset";
                     // A Guid rides the BY-VALUE return kind "guidv" (the
                     // GuidValueBytePtr/result-slot contract); DateTime/TimeSpan
-                    // return their runtime struct by value directly.
-                    string aggKind = aggFam == "guid" ? "guidv" : aggFam;
+                    // return their runtime struct by value directly and the
+                    // 16-byte DateTimeOffset carrier is "dto".
+                    string aggKind = aggFam switch
+                    {
+                        "guid" => "guidv",
+                        "dtoffset" => "dto",
+                        _ => aggFam,
+                    };
                     return I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_{aggFam}",
                         1, true, false, false, new[] { "a" }, resultKind: aggKind);
                 }
                 throw new NotSupportedException(
                     $"Enumerable.{name} over a value-type source is not wired: the source-only " +
                     "aggregate surface covers int32/int64/float/double/decimal, plus " +
-                    "Min/Max over System.DateTime/System.TimeSpan/System.Guid " +
-                    "(Comparer<T>.Default); Sum/Average and user structs stay LOUD " +
+                    "Min/Max over System.DateTime/System.TimeSpan/System.Guid/" +
+                    "System.DateTimeOffset (Comparer<T>.Default); Sum/Average and user " +
+                    "structs stay LOUD " +
                     "[Reference Source: System.Core/System/Linq/Enumerable.cs]");
             }
             // decimal: the 16-byte result slot (decimal T3 contract). The

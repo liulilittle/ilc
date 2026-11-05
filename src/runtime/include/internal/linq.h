@@ -36,6 +36,7 @@
 #include "decimal.h"      // impl-arrayagg: runtime::Il2CppDecimal (cell matrix)
 #include "guid.h"         // delta 1: Il2CppGuid (Min/Max over Guid[])
 #include "il2cpp_time.h"  // delta 1: Il2CppDateTime / Il2CppTimeSpan
+#include "il2cpp_dtoffset.h" // impl-linq-vtagg: Il2CppDateTimeOffset (Min/Max)
 
 #include <cstdint>
 
@@ -575,6 +576,8 @@ runtime::Il2CppTimeSpan  il2cpp_linq_min_ts(Il2CppArray* src);
 runtime::Il2CppTimeSpan  il2cpp_linq_max_ts(Il2CppArray* src);
 Il2CppGuid               il2cpp_linq_min_guid(Il2CppArray* src);
 Il2CppGuid               il2cpp_linq_max_guid(Il2CppArray* src);
+runtime::Il2CppDateTimeOffset il2cpp_linq_min_dtoffset(Il2CppArray* src);
+runtime::Il2CppDateTimeOffset il2cpp_linq_max_dtoffset(Il2CppArray* src);
 
 //------------------------------------------------------------------------------
 // impl-collation: Enumerable.Min/Max over a System.String SOURCE -- net48 uses

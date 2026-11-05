@@ -1010,6 +1010,96 @@ double  il2cpp_linq_average_sel_csrc_i8(Il2CppArray* src, Il2CppObject* sel);
 double  il2cpp_linq_average_sel_csrc_d(Il2CppArray* src, Il2CppObject* sel);
 float   il2cpp_linq_average_sel_csrc_f(Il2CppArray* src, Il2CppObject* sel);
 
+// impl-linq-vtagg (§52): the selector aggregates over the BY-VALUE value-struct
+// SOURCES (System.DateTime / System.TimeSpan / System.Guid /
+// System.DateTimeOffset). The selector takes the element by value through the
+// family's own struct ABI; the projection crosses in its own slot (the decimal
+// projection rides the result-slot-first contract). The source cell family is
+// checked at entry.
+int32_t il2cpp_linq_sum_sel_dtsrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_sum_sel_dtsrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_sum_sel_dtsrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_sum_sel_dtsrc_f(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_min_sel_dtsrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_min_sel_dtsrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_min_sel_dtsrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_min_sel_dtsrc_f(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_max_sel_dtsrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_max_sel_dtsrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_max_sel_dtsrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_max_sel_dtsrc_f(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_dtsrc_i4(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_dtsrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_dtsrc_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_dtsrc_f(Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_sum_sel_dtsrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_min_sel_dtsrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_max_sel_dtsrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_average_sel_dtsrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+
+int32_t il2cpp_linq_sum_sel_tssrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_sum_sel_tssrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_sum_sel_tssrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_sum_sel_tssrc_f(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_min_sel_tssrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_min_sel_tssrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_min_sel_tssrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_min_sel_tssrc_f(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_max_sel_tssrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_max_sel_tssrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_max_sel_tssrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_max_sel_tssrc_f(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_tssrc_i4(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_tssrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_tssrc_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_tssrc_f(Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_sum_sel_tssrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_min_sel_tssrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_max_sel_tssrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_average_sel_tssrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+
+int32_t il2cpp_linq_sum_sel_guidsrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_sum_sel_guidsrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_sum_sel_guidsrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_sum_sel_guidsrc_f(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_min_sel_guidsrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_min_sel_guidsrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_min_sel_guidsrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_min_sel_guidsrc_f(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_max_sel_guidsrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_max_sel_guidsrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_max_sel_guidsrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_max_sel_guidsrc_f(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_guidsrc_i4(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_guidsrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_guidsrc_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_guidsrc_f(Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_sum_sel_guidsrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_min_sel_guidsrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_max_sel_guidsrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_average_sel_guidsrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+
+int32_t il2cpp_linq_sum_sel_dtosrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_sum_sel_dtosrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_sum_sel_dtosrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_sum_sel_dtosrc_f(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_min_sel_dtosrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_min_sel_dtosrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_min_sel_dtosrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_min_sel_dtosrc_f(Il2CppArray* src, Il2CppObject* sel);
+int32_t il2cpp_linq_max_sel_dtosrc_i4(Il2CppArray* src, Il2CppObject* sel);
+int64_t il2cpp_linq_max_sel_dtosrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_max_sel_dtosrc_d(Il2CppArray* src, Il2CppObject* sel);
+float   il2cpp_linq_max_sel_dtosrc_f(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_dtosrc_i4(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_dtosrc_i8(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_dtosrc_d(Il2CppArray* src, Il2CppObject* sel);
+double  il2cpp_linq_average_sel_dtosrc_f(Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_sum_sel_dtosrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_min_sel_dtosrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_max_sel_dtosrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+void il2cpp_linq_average_sel_dtosrc_dec(runtime::Il2CppDecimal* result, Il2CppArray* src, Il2CppObject* sel);
+
 // The same selector forms for the int64 / double projection families
 // (Func<TSource,long> / Func<TSource,double>). net48 has these overloads, so
 // the transpiler must not silently truncate them into the int32 family.
