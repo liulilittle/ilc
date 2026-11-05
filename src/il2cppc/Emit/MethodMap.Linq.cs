@@ -5229,11 +5229,82 @@ public static partial class MethodRefResolver
                     },
                     argOrder: new[] { 0, 1, vtElemArg, vtCmpArg, vtResArg });
             }
+            if (name is "Sum" or "Min" or "Max" or "Average")
+            {
+                // b5-gaps §53: the aggregates over a List of a BY-VALUE
+                // value-struct element. The selector-less Min/Max exist in
+                // net48 (Comparer<TSource>.Default); the SELECTOR forms take
+                // the element BY VALUE through the family ABI. Every entry
+                // snapshots the list ONCE at the kind below, so no kind
+                // literal is passed. Sum/Average WITHOUT a selector do not
+                // exist for these elements in net48.
+                string listFam = K switch
+                {
+                    "13" => "dt",
+                    "14" => "ts",
+                    "15" => "guid",
+                    _ => "dtoffset",
+                };
+                string listSrc = K switch
+                {
+                    "13" => "dt",
+                    "14" => "ts",
+                    "15" => "guid",
+                    _ => "dto",
+                };
+                string listResult = K switch
+                {
+                    "13" => "dt",
+                    "14" => "ts",
+                    "15" => "guidv",
+                    _ => "dto",
+                };
+                if (count < 2)
+                {
+                    if (name == "Min")
+                        return I($"il2cpp::il2cpp_linq_list_min_{listFam}", 1, true,
+                            false, false, L1, resultKind: listResult);
+                    if (name == "Max")
+                        return I($"il2cpp::il2cpp_linq_list_max_{listFam}", 1, true,
+                            false, false, L1, resultKind: listResult);
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a List<{LinqStructNameOf(genArgNames?[0])}> " +
+                        "WITHOUT a selector is not a net48 overload");
+                }
+                string? listProj = LinqSelectorProjectionType(md, sigHandle) switch
+                {
+                    "i" or "c" => "i4",
+                    "l" => "i8",
+                    "d" => "d",
+                    "f" => "f",
+                    "V:System.Decimal" or "System.Decimal" => "dec",
+                    _ => null,
+                };
+                if (listProj is null)
+                {
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a List<{LinqStructNameOf(genArgNames?[0])}> " +
+                        "with a selector is not wired: the value-struct list source surface covers " +
+                        "the System.DateTime/System.TimeSpan/System.Guid/" +
+                        "System.DateTimeOffset elements with an int32/int64/double/float/" +
+                        "decimal projection only (see docs/audit/b5-gaps.md)");
+                }
+                string listOp = name switch
+                {
+                    "Sum" => "sum",
+                    "Min" => "min",
+                    "Max" => "max",
+                    _ => "average",
+                };
+                string? listRk = listProj == "dec" ? "dec"
+                    : name == "Average" ? "d"
+                    : listProj == "i8" ? "l"
+                    : listProj is "f" or "d" ? "d" : null;
+                return I($"il2cpp::il2cpp_linq_list_{listOp}_sel_{listSrc}_{listProj}",
+                    2, true, false, false, L2, resultKind: listRk);
+            }
             bool unsupported = name switch
             {
-                // net48 has no numeric Sum/Min/Max/Average over these types
-                // (Enumerable.cs defines them for the numeric families only).
-                "Sum" or "Min" or "Max" or "Average" => true,
                 // The predicate forms of Single have no by-value kernel.
                 "Single" or "SingleOrDefault" => count >= 2,
                 _ => false,
@@ -5242,12 +5313,9 @@ public static partial class MethodRefResolver
             {
                 throw new NotSupportedException(
                     $"Enumerable.{name} over a List<{LinqStructNameOf(genArgs is { Length: >= 1 } ? genArgNames?[0] : null)}> " +
-                    (name is "Sum" or "Min" or "Max" or "Average"
-                        ? "is not wired because net48 Enumerable ships no numeric overload for this " +
-                          "element type (the numeric aggregates exist for the numeric families only)"
-                        : "with a predicate is not wired: the runtime ships no by-value value-struct " +
-                          "predicate kernel for this operator (the wired predicate forms are First/Last/" +
-                          "FirstOrDefault/LastOrDefault/Single-free Count/Any/All/Where)") +
+                    "with a predicate is not wired: the runtime ships no by-value value-struct " +
+                    "predicate kernel for this operator (the wired predicate forms are First/Last/" +
+                    "FirstOrDefault/LastOrDefault/Single-free Count/Any/All/Where) " +
                     " -- see docs/audit/b5-gaps.md");
             }
         }

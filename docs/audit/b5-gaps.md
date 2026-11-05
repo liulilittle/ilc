@@ -5003,3 +5003,63 @@ the cell (a silent wrong value) and an int32 callback ABI would pass garbage.
   `OfType` LOUD aborted the fold before them);
 * the selector aggregates over a `List<DateTime|TimeSpan|Guid|
   DateTimeOffset>` SOURCE (the list domain) -- NOT verified in this batch.
+## 53. Aggregates over a List of a by-value value-struct element (IMPLEMENTED)
+
+`Enumerable.Min/Max()` over a `List<System.DateTime|TimeSpan|Guid|
+DateTimeOffset>` and every SELECTOR form (`Sum/Min/Max/Average(selector)`) over
+those lists were refused at transpile time with a message claiming "net48
+Enumerable ships no numeric overload for this element type". That is wrong:
+net48 has `Min/Max<TSource>(IEnumerable<TSource>)` for any `IComparable`
+element (Comparer<T>.Default) and the full selector surface per projection
+type. Only `Sum`/`Average` WITHOUT a selector truly do not exist for these
+elements.
+
+The array surface had been wired in §52; the list surface was not, and the list
+domain needs its own entries because the receiver is an `Il2CppObject*` List
+that must be snapshotted at its element kind.
+
+### Implementation
+
+* `linq_list.cpp` / `linq_list.h`: `il2cpp_linq_list_min|max_<dt|ts|guid|
+  dtoffset>` and `il2cpp_linq_list_<sum|min|max|average>_sel_<dt|ts|guid|dto>_
+  <i4|i8|d|f|dec>`. Each entry validates the receiver, snapshots the list ONCE
+  with `SnapshotOf(list, KIND)` (the List element kind 13..16) and delegates to
+  the ARRAY vt kernel of §52 -- the cells, the by-value selector ABI and the
+  Comparer<T>.Default order are identical, so the fold logic stays single-
+  sourced. The list and snapshot are rooted across the snapshot allocation.
+* `MethodMap.Linq.cs`: the list arm's vt block replaced the blanket
+  Sum/Min/Max/Average LOUD with the family dispatch. The list kind `K`
+  (13/14/15/16) picks dt/ts/guid/dtoffset; the projection comes from
+  `LinqSelectorProjectionType` (i4/i8/d/f/dec); a selector-less `Sum`/`Average`
+  and a user struct keep the LOUD. `ResultKind` mirrors the array surface
+  (`dt`/`ts`/`guidv`/`dto`, `l` for int64, `d` for float/double/Average, `dec`).
+
+### Contract evidence
+
+* new case `tests/cases/probe-vtlistagg`: oracle = runtime = **769B
+  `c159ec54...`**, 34 records -- List<DateTime> (selector-less Min/Max; int32/
+  int64/double/float/decimal projections of Sum/Min/Max/Average),
+  List<TimeSpan>, List<Guid> and List<DateTimeOffset>.
+* mutations (all RED, restored GREEN to the same sha):
+  * M1 the list `min` entry returned the `max` kernel -> 769B `24b462f3`
+    (4 records: ldt.min / lts.min / lg.min / lo.min);
+  * M2 the transpiler mapped the TimeSpan list to the DateTime source suffix
+    -> 769B `8c44610f` (5 records: a TimeSpan cell read through the DateTime
+    struct reader is silently wrong).
+* unit tests: 4 new cases pin the wiring (Sum/Average int-projection entries
+  per family, selector-less Min/Max); 4159/0/0.
+* unchanged: `probe-vtaggsrc` 788B `75b8c04c`, `probe-vtops` 1736B `31665731`,
+  `thenbyvtchain` 939B `f5c9391b`, `thenbydecchain` 376B `b2edbdbe`,
+  `thenby3list` 262B `bda750a6`, `thenbywide-list` 380B `bcdf6722`,
+  `agg-vtsrc` 147B `19fe5585`, `audit-fix3-d2a` 123B `5aa068ff`,
+  `probe-vtsel` 605B `3f83afa1`, `linqorder2` 779B `6a72ece6`, `p0linq4`,
+  `thenby3` 585B `2ead0372`, `thenby3ref` 299B `69053d0c`,
+  `thenbywide-elem` 560B `f0676c0c`, `thenby-decfkey` 537B `afc01112`;
+  C0 0 warnings 0 errors.
+
+### Still not covered
+
+* `List<vt>.Sum()` / `.Average()` WITHOUT a selector -- correctly LOUD: net48
+  ships no such overload.
+* the remaining measured LOUDs from §52 (ToDictionary/ToLookup/ToHashSet,
+  OfType/Cast, Join/GroupJoin/SelectMany, the comparer overloads) are unchanged.

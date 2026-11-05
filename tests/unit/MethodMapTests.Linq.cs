@@ -5783,6 +5783,50 @@ public class MethodMapTestsLinq
         _ = second;
     }
 
+    // b5-gaps §53: the SELECTOR aggregates over a by-value value-struct List<T>
+    // are WIRED (the selector receives the element BY VALUE, the projection
+    // picks the entry) and the SELECTOR-LESS Min/Max are WIRED through the
+    // family entry. Sum/Average WITHOUT a selector keep the LOUD above (net48
+    // has no such overload).
+    [Theory]
+    [InlineData("DateTime", "dt")]
+    [InlineData("TimeSpan", "ts")]
+    [InlineData("Guid", "guid")]
+    [InlineData("DateTimeOffset", "dto")]
+    public void Resolve_ListValueStruct_SelectorAggregate_MapsToFamilyEntry(
+        string typeName, string srcSuffix)
+    {
+        var selInt = (byte[])ValueTypeSourceSignature("predicate").Clone();
+        selInt[selInt.Length - 1] = 0x08; // Func<TSource,int32>
+
+        var sum = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("Sum", selInt, "System", typeName),
+            ListReceiverOf(typeName));
+        Assert.Equal("il2cpp::il2cpp_linq_list_sum_sel_" + srcSuffix + "_i4", sum.CppName);
+        Assert.Equal(2, sum.ParamCount);
+        Assert.True(sum.AppendLiterals is null || sum.AppendLiterals.Length == 0);
+
+        var avg = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("Average", selInt, "System", typeName),
+            ListReceiverOf(typeName));
+        Assert.Equal("il2cpp::il2cpp_linq_list_average_sel_" + srcSuffix + "_i4", avg.CppName);
+        Assert.Equal("d", avg.ResultKind);
+
+        string famEntry = typeName == "DateTimeOffset" ? "dtoffset" : srcSuffix;
+        var min = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("Min", ValueTypeSourceSignature("source"),
+                "System", typeName),
+            ListReceiverOf(typeName));
+        Assert.Equal("il2cpp::il2cpp_linq_list_min_" + famEntry, min.CppName);
+        Assert.Equal(1, min.ParamCount);
+
+        var max = ResolveMethodSpecWithReceiver(
+            SynthesizeGenericValueTypeSource("Max", ValueTypeSourceSignature("source"),
+                "System", typeName),
+            ListReceiverOf(typeName));
+        Assert.Equal("il2cpp::il2cpp_linq_list_max_" + famEntry, max.CppName);
+    }
+
     // A USER struct still has no list cell ABI: LinqListKind answers the
     // reference tag, so it never reaches the by-value surface.
     [Fact]

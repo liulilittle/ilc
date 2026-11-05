@@ -864,5 +864,50 @@ Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
                                              int32_t elemKind, int32_t rsKind,
                                              int32_t kind, int32_t keyKind);
 
+// b5-gaps §53: the aggregates over a List of a BY-VALUE value-struct element.
+// Each entry snapshots the list ONCE at its element kind and delegates to the
+// ARRAY vt kernel (identical cell, selector ABI and Comparer<T>.Default order).
+runtime::Il2CppDateTime il2cpp_linq_list_min_dt(Il2CppObject* list);
+runtime::Il2CppDateTime il2cpp_linq_list_max_dt(Il2CppObject* list);
+runtime::Il2CppTimeSpan il2cpp_linq_list_min_ts(Il2CppObject* list);
+runtime::Il2CppTimeSpan il2cpp_linq_list_max_ts(Il2CppObject* list);
+Il2CppGuid il2cpp_linq_list_min_guid(Il2CppObject* list);
+Il2CppGuid il2cpp_linq_list_max_guid(Il2CppObject* list);
+runtime::Il2CppDateTimeOffset il2cpp_linq_list_min_dtoffset(Il2CppObject* list);
+runtime::Il2CppDateTimeOffset il2cpp_linq_list_max_dtoffset(Il2CppObject* list);
+
+#define IL2CPP_LINQ_DECL_LIST_VT_SEL(FAMSRC)                                            \
+    int32_t il2cpp_linq_list_sum_sel_##FAMSRC##_i4(Il2CppObject*, Il2CppObject*);       \
+    int64_t il2cpp_linq_list_sum_sel_##FAMSRC##_i8(Il2CppObject*, Il2CppObject*);       \
+    double il2cpp_linq_list_sum_sel_##FAMSRC##_d(Il2CppObject*, Il2CppObject*);         \
+    float il2cpp_linq_list_sum_sel_##FAMSRC##_f(Il2CppObject*, Il2CppObject*);          \
+    int32_t il2cpp_linq_list_min_sel_##FAMSRC##_i4(Il2CppObject*, Il2CppObject*);       \
+    int64_t il2cpp_linq_list_min_sel_##FAMSRC##_i8(Il2CppObject*, Il2CppObject*);       \
+    double il2cpp_linq_list_min_sel_##FAMSRC##_d(Il2CppObject*, Il2CppObject*);         \
+    float il2cpp_linq_list_min_sel_##FAMSRC##_f(Il2CppObject*, Il2CppObject*);          \
+    int32_t il2cpp_linq_list_max_sel_##FAMSRC##_i4(Il2CppObject*, Il2CppObject*);       \
+    int64_t il2cpp_linq_list_max_sel_##FAMSRC##_i8(Il2CppObject*, Il2CppObject*);       \
+    double il2cpp_linq_list_max_sel_##FAMSRC##_d(Il2CppObject*, Il2CppObject*);         \
+    float il2cpp_linq_list_max_sel_##FAMSRC##_f(Il2CppObject*, Il2CppObject*);          \
+    double il2cpp_linq_list_average_sel_##FAMSRC##_i4(Il2CppObject*, Il2CppObject*);    \
+    double il2cpp_linq_list_average_sel_##FAMSRC##_i8(Il2CppObject*, Il2CppObject*);    \
+    double il2cpp_linq_list_average_sel_##FAMSRC##_d(Il2CppObject*, Il2CppObject*);     \
+    double il2cpp_linq_list_average_sel_##FAMSRC##_f(Il2CppObject*, Il2CppObject*);     \
+    void il2cpp_linq_list_sum_sel_##FAMSRC##_dec(runtime::Il2CppDecimal*,              \
+        Il2CppObject*, Il2CppObject*);                                                 \
+    void il2cpp_linq_list_min_sel_##FAMSRC##_dec(runtime::Il2CppDecimal*,              \
+        Il2CppObject*, Il2CppObject*);                                                 \
+    void il2cpp_linq_list_max_sel_##FAMSRC##_dec(runtime::Il2CppDecimal*,              \
+        Il2CppObject*, Il2CppObject*);                                                 \
+    void il2cpp_linq_list_average_sel_##FAMSRC##_dec(runtime::Il2CppDecimal*,          \
+        Il2CppObject*, Il2CppObject*);
+
+IL2CPP_LINQ_DECL_LIST_VT_SEL(dt)
+IL2CPP_LINQ_DECL_LIST_VT_SEL(ts)
+IL2CPP_LINQ_DECL_LIST_VT_SEL(guid)
+IL2CPP_LINQ_DECL_LIST_VT_SEL(dto)
+
+#undef IL2CPP_LINQ_DECL_LIST_VT_SEL
+
 } // namespace il2cpp
 

@@ -5168,6 +5168,237 @@ Il2CppObject* il2cpp_linq_list_group_by_full(Il2CppObject* list,
                                               elemKind, rsKind, keyKind, srcKind, srcCell);
 }
 
+//------------------------------------------------------------------------------
+// b5-gaps §53 -- the aggregates over a List of a BY-VALUE value-struct element
+// (System.DateTime / System.TimeSpan / System.Guid / System.DateTimeOffset).
+//
+// The list is snapshotted ONCE at its element kind (SnapshotOf) and the
+// snapshot is handed to the ARRAY vt kernels: the element cells, the by-value
+// selector ABI and the Comparer<T>.Default order are identical, so the fold
+// semantics ride one implementation. Sum/Average of a non-numeric element does
+// not exist in net48 (only the selector forms do); the selector-less Min/Max
+// do (Comparer<TSource>.Default).
+//------------------------------------------------------------------------------
+#define IL2CPP_LINQ_DEF_LIST_VT_MINMAX(FAM, TYPE, KIND)                                 \
+    TYPE il2cpp_linq_list_min_##FAM(Il2CppObject* list)                                 \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_min_##FAM(snap);                                             \
+    }                                                                                   \
+    TYPE il2cpp_linq_list_max_##FAM(Il2CppObject* list)                                 \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_max_##FAM(snap);                                             \
+    }
+
+#define IL2CPP_LINQ_DEF_LIST_VT_SEL(FAMSRC, KIND)                                       \
+    int32_t il2cpp_linq_list_sum_sel_##FAMSRC##_i4(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_sum_sel_##FAMSRC##src_i4(snap, sel);                         \
+    }                                                                                   \
+    int64_t il2cpp_linq_list_sum_sel_##FAMSRC##_i8(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_sum_sel_##FAMSRC##src_i8(snap, sel);                         \
+    }                                                                                   \
+    double il2cpp_linq_list_sum_sel_##FAMSRC##_d(Il2CppObject* list, Il2CppObject* sel)  \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_sum_sel_##FAMSRC##src_d(snap, sel);                          \
+    }                                                                                   \
+    float il2cpp_linq_list_sum_sel_##FAMSRC##_f(Il2CppObject* list, Il2CppObject* sel)   \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_sum_sel_##FAMSRC##src_f(snap, sel);                          \
+    }                                                                                   \
+    int32_t il2cpp_linq_list_min_sel_##FAMSRC##_i4(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_min_sel_##FAMSRC##src_i4(snap, sel);                         \
+    }                                                                                   \
+    int64_t il2cpp_linq_list_min_sel_##FAMSRC##_i8(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_min_sel_##FAMSRC##src_i8(snap, sel);                         \
+    }                                                                                   \
+    double il2cpp_linq_list_min_sel_##FAMSRC##_d(Il2CppObject* list, Il2CppObject* sel)  \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_min_sel_##FAMSRC##src_d(snap, sel);                          \
+    }                                                                                   \
+    float il2cpp_linq_list_min_sel_##FAMSRC##_f(Il2CppObject* list, Il2CppObject* sel)   \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_min_sel_##FAMSRC##src_f(snap, sel);                          \
+    }                                                                                   \
+    int32_t il2cpp_linq_list_max_sel_##FAMSRC##_i4(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_max_sel_##FAMSRC##src_i4(snap, sel);                         \
+    }                                                                                   \
+    int64_t il2cpp_linq_list_max_sel_##FAMSRC##_i8(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_max_sel_##FAMSRC##src_i8(snap, sel);                         \
+    }                                                                                   \
+    double il2cpp_linq_list_max_sel_##FAMSRC##_d(Il2CppObject* list, Il2CppObject* sel)  \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_max_sel_##FAMSRC##src_d(snap, sel);                          \
+    }                                                                                   \
+    float il2cpp_linq_list_max_sel_##FAMSRC##_f(Il2CppObject* list, Il2CppObject* sel)   \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_max_sel_##FAMSRC##src_f(snap, sel);                          \
+    }                                                                                   \
+    double il2cpp_linq_list_average_sel_##FAMSRC##_i4(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_average_sel_##FAMSRC##src_i4(snap, sel);                     \
+    }                                                                                   \
+    double il2cpp_linq_list_average_sel_##FAMSRC##_i8(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_average_sel_##FAMSRC##src_i8(snap, sel);                     \
+    }                                                                                   \
+    double il2cpp_linq_list_average_sel_##FAMSRC##_d(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_average_sel_##FAMSRC##src_d(snap, sel);                      \
+    }                                                                                   \
+    double il2cpp_linq_list_average_sel_##FAMSRC##_f(Il2CppObject* list, Il2CppObject* sel) \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        return il2cpp_linq_average_sel_##FAMSRC##src_f(snap, sel);                      \
+    }                                                                                   \
+    void il2cpp_linq_list_sum_sel_##FAMSRC##_dec(runtime::Il2CppDecimal* result,        \
+        Il2CppObject* list, Il2CppObject* sel)                                          \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        il2cpp_linq_sum_sel_##FAMSRC##src_dec(result, snap, sel);                       \
+    }                                                                                   \
+    void il2cpp_linq_list_min_sel_##FAMSRC##_dec(runtime::Il2CppDecimal* result,        \
+        Il2CppObject* list, Il2CppObject* sel)                                          \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        il2cpp_linq_min_sel_##FAMSRC##src_dec(result, snap, sel);                       \
+    }                                                                                   \
+    void il2cpp_linq_list_max_sel_##FAMSRC##_dec(runtime::Il2CppDecimal* result,        \
+        Il2CppObject* list, Il2CppObject* sel)                                          \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        il2cpp_linq_max_sel_##FAMSRC##src_dec(result, snap, sel);                       \
+    }                                                                                   \
+    void il2cpp_linq_list_average_sel_##FAMSRC##_dec(runtime::Il2CppDecimal* result,    \
+        Il2CppObject* list, Il2CppObject* sel)                                          \
+    {                                                                                   \
+        RequireList(list);                                                              \
+        RootScope roots;                                                                \
+        roots.Add(reinterpret_cast<void**>(&list));                                     \
+        Il2CppArray* snap = SnapshotOf(list, KIND);                                     \
+        roots.Add(reinterpret_cast<void**>(&snap));                                     \
+        il2cpp_linq_average_sel_##FAMSRC##src_dec(result, snap, sel);                   \
+    }
+
+IL2CPP_LINQ_DEF_LIST_VT_MINMAX(dt, runtime::Il2CppDateTime, IL2CPP_LIST_KIND_DT)
+IL2CPP_LINQ_DEF_LIST_VT_MINMAX(ts, runtime::Il2CppTimeSpan, IL2CPP_LIST_KIND_TS)
+IL2CPP_LINQ_DEF_LIST_VT_MINMAX(guid, Il2CppGuid, IL2CPP_LIST_KIND_GUID)
+IL2CPP_LINQ_DEF_LIST_VT_MINMAX(dtoffset, runtime::Il2CppDateTimeOffset,
+    IL2CPP_LIST_KIND_DTOFFSET)
+
+IL2CPP_LINQ_DEF_LIST_VT_SEL(dt, IL2CPP_LIST_KIND_DT)
+IL2CPP_LINQ_DEF_LIST_VT_SEL(ts, IL2CPP_LIST_KIND_TS)
+IL2CPP_LINQ_DEF_LIST_VT_SEL(guid, IL2CPP_LIST_KIND_GUID)
+IL2CPP_LINQ_DEF_LIST_VT_SEL(dto, IL2CPP_LIST_KIND_DTOFFSET)
+
+#undef IL2CPP_LINQ_DEF_LIST_VT_SEL
+#undef IL2CPP_LINQ_DEF_LIST_VT_MINMAX
+
 } // namespace il2cpp
 
 
