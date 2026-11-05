@@ -5724,6 +5724,119 @@ public static class StackFold
                 sel = call.Args[1];
                 return true;
             }
+            // b5-gaps section 50: a DECIMAL-ELEMENT array OrderBy primary is a
+            // legal chain seed (the decimal source has the 7-family dispatch
+            // and the array decimal chain kernel reads them). The entry name
+            // carries the KEY family suffix:
+            //   order_by_key[_desc]_dec_i4   -- decimal source, int32 key
+            //   order_by_key[_desc]_dec_i8   -- decimal source, int64 key
+            //   order_by_key[_desc]_dec_d    -- decimal source, double key
+            //   order_by_key[_desc]_dec_f    -- decimal source, float key
+            //   order_by_key[_desc]_dec_dec  -- decimal source, decimal key
+            //   order_by_key[_desc]_dec_dt   -- decimal source, DateTime key
+            //   order_by_key[_desc]_dec_guid -- decimal source, Guid key
+            // The family code is the DECIMAL dispatch code (0=int32,1=int64,
+            // 2=double,3=decimal,4=DateTime,5=Guid,6=float).
+            static bool DecArrayPrimarySeed(CallExpr call, out Expr src,
+                out Expr sel, out string desc, out string priFam)
+            {
+                src = null!;
+                sel = null!;
+                desc = "0";
+                priFam = "";
+                var name = call.Resolved?.CppName;
+                if (name == null) return false;
+                // b5-gaps section 50: the name-based parser below also matches
+                // the LIST decimal primaries (list_order_by_key_dec_* -- they
+                // contain "order_by_key"). A `list_` name belongs to
+                // DecListPrimarySeed; the array chain entry has no way to take
+                // a List (the §49 mis-emission lesson).
+                if (name.Contains("list_", StringComparison.Ordinal)) return false;
+                if (call.Args.Count != 2) return false;
+                string? body;
+                if (name.Contains("order_by_key_desc", StringComparison.Ordinal))
+                {
+                    desc = "1";
+                    var i = name.IndexOf("order_by_key_desc", StringComparison.Ordinal);
+                    body = name.Substring(i + "order_by_key_desc".Length);
+                }
+                else if (name.Contains("order_by_key", StringComparison.Ordinal))
+                {
+                    var i = name.IndexOf("order_by_key", StringComparison.Ordinal);
+                    body = name.Substring(i + "order_by_key".Length);
+                }
+                else body = null;
+                if (body != null && body.StartsWith("_", StringComparison.Ordinal))
+                    body = body.Substring(1);
+                if (body is not { Length: >= 4 } || !body.StartsWith("dec_", StringComparison.Ordinal))
+                    return false;
+                priFam = body.Substring(4) switch
+                {
+                    "i4" => "0",
+                    "i8" => "1",
+                    "d" => "2",
+                    "dec" => "3",
+                    "dt" => "4",
+                    "guid" => "5",
+                    "f" => "6",
+                    _ => "",
+                };
+                if (priFam.Length == 0) return false;
+                src = call.Args[0];
+                sel = call.Args[1];
+                return true;
+            }
+            // b5-gaps section 50: the DECIMAL-ELEMENT List<T> OrderBy primary (a
+            // chain seed like the List<double>/List<float> primaries). The entry
+            // is list_order_by_key[_desc]_dec_<keyfam> and the element kind
+            // literal is AppendLiterals[^1] ("12" = IL2CPP_LIST_KIND_DEC).
+            static bool DecListPrimarySeed(CallExpr call, out Expr src,
+                out Expr sel, out string desc, out string priFam, out string listKind)
+            {
+                src = null!;
+                sel = null!;
+                desc = "0";
+                priFam = "";
+                listKind = "";
+                var name = call.Resolved?.CppName;
+                if (name == null) return false;
+                var lit = call.Resolved!.AppendLiterals;
+                if (call.Args.Count != 2 || lit is not { Length: >= 1 }) return false;
+                listKind = lit[^1];
+                if (listKind != "12") return false;
+                string? body;
+                if (name.Contains("list_order_by_key_desc", StringComparison.Ordinal))
+                {
+                    desc = "1";
+                    var i = name.IndexOf("list_order_by_key_desc", StringComparison.Ordinal);
+                    body = name.Substring(i + "list_order_by_key_desc".Length);
+                }
+                else if (name.Contains("list_order_by_key", StringComparison.Ordinal))
+                {
+                    var i = name.IndexOf("list_order_by_key", StringComparison.Ordinal);
+                    body = name.Substring(i + "list_order_by_key".Length);
+                }
+                else body = null;
+                if (body != null && body.StartsWith("_", StringComparison.Ordinal))
+                    body = body.Substring(1);
+                if (body is not { Length: >= 4 } || !body.StartsWith("dec_", StringComparison.Ordinal))
+                    return false;
+                priFam = body.Substring(4) switch
+                {
+                    "i4" => "0",
+                    "i8" => "1",
+                    "d" => "2",
+                    "dec" => "3",
+                    "dt" => "4",
+                    "guid" => "5",
+                    "f" => "6",
+                    _ => "",
+                };
+                if (priFam.Length == 0) return false;
+                src = call.Args[0];
+                sel = call.Args[1];
+                return true;
+            }
             static bool ChainLevelsOf(CallExpr call, out List<string> descs,
                 out List<string> fams, out List<Expr> selectors, out string? listKind)
             {
@@ -5737,11 +5850,13 @@ public static class StackFold
                     or "il2cpp::il2cpp_linq_then_by_chain_i8"
                     or "il2cpp::il2cpp_linq_then_by_chain_f"
                     or "il2cpp::il2cpp_linq_then_by_chain_d"
+                    or "il2cpp::il2cpp_linq_then_by_chain_dec"
                     or "il2cpp::il2cpp_linq_then_by_chain_ref"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_i4"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_ref"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_d"
-                    or "il2cpp::il2cpp_linq_list_then_by_chain_f")
+                    or "il2cpp::il2cpp_linq_list_then_by_chain_f"
+                    or "il2cpp::il2cpp_linq_list_then_by_chain_dec")
                 {
                     var lits = call.Resolved!.AppendLiterals;
                     if (lits is not { Length: 8 or 9 }) return false;
@@ -5810,16 +5925,18 @@ public static class StackFold
             {
                 var name = call.Resolved?.CppName;
                 if (name == null) return null;
-                if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "list_ref";
+if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "list_ref";
                 if (name.EndsWith("list_then_by_chain_i4", StringComparison.Ordinal)) return "list_i4";
                 if (name.EndsWith("list_then_by_chain_d", StringComparison.Ordinal)) return "list_d";
                 if (name.EndsWith("list_then_by_chain_f", StringComparison.Ordinal)) return "list_f";
-                if (name.EndsWith("list_then_by_key_ref", StringComparison.Ordinal)) return "list_ref";
+                if (name.EndsWith("list_then_by_chain_dec", StringComparison.Ordinal)) return "list_dec";
                 if (name.EndsWith("list_then_by_key_i4", StringComparison.Ordinal)) return "list_i4";
+                if (name.EndsWith("list_then_by_key_ref", StringComparison.Ordinal)) return "list_ref";
                 if (name.EndsWith("then_by_chain_ref", StringComparison.Ordinal)) return "ref";
                 if (name.EndsWith("then_by_chain_i8", StringComparison.Ordinal)) return "i8";
                 if (name.EndsWith("then_by_chain_f", StringComparison.Ordinal)) return "f";
                 if (name.EndsWith("then_by_chain_d", StringComparison.Ordinal)) return "d";
+                if (name.EndsWith("then_by_chain_dec", StringComparison.Ordinal)) return "dec";
                 if (name.EndsWith("then_by_chain_i4", StringComparison.Ordinal)) return "i4";
                 if (name.EndsWith("then_by_key_val_i8", StringComparison.Ordinal)) return "i8";
                 if (name.EndsWith("then_by_key_val_i4", StringComparison.Ordinal)) return "i4";
@@ -5857,6 +5974,10 @@ public static class StackFold
                 string? wideSrcFam = null;
                 string widePriFam = "0";
                 bool listWideSeed = false;
+                // b5-gaps section 50: a DECIMAL-element seed (decimal[] or
+                // List<decimal> source). The entry name carries the decimal key
+                // family and the suffix becomes "dec" (array) / "list_dec".
+                string? decSrcFam = null;
                 for (var si = stmts.Count - 1; si >= 0; --si)
                 {
                     if (stmts[si] is not AssignStmt cand || cand.Target != chase) continue;
@@ -5896,6 +6017,31 @@ public static class StackFold
                         listWideSeed = true;
                         break;
                     }
+                    if (cand.Value is CallExpr candDec
+                        && DecArrayPrimarySeed(candDec, out var ds, out var dk, out var dd, out var dp))
+                    {
+                        chainIndex = si;
+                        seedSrc = ds;
+                        seedSel = dk;
+                        seedDesc = dd;
+                        decSrcFam = "dec";
+                        widePriFam = dp;
+                        break;
+                    }
+                    if (cand.Value is CallExpr candDecList
+                        && DecListPrimarySeed(candDecList, out var dls, out var dlk,
+                            out var dld, out var dlp, out var dlkind))
+                    {
+                        chainIndex = si;
+                        seedSrc = dls;
+                        seedSel = dlk;
+                        seedDesc = dld;
+                        decSrcFam = "list_dec";
+                        widePriFam = dlp;
+                        seedKind = dlkind;
+                        listWideSeed = true;
+                        break;
+                    }
                     if (cand.Value is CallExpr candChain && ChainLevelsOf(candChain, out _, out _, out _, out _)
                         && ChainSourceSuffix(candChain) != null)
                     {
@@ -5919,7 +6065,8 @@ public static class StackFold
                     // an existing chain / two-key composite is extended.
                     bool seedShape = seedSrc != null;
                     var suffix = seedShape
-                        ? listWideSeed ? "list_" + wideSrcFam
+                        ? decSrcFam != null ? decSrcFam
+                        : listWideSeed ? "list_" + wideSrcFam
                         : wideSrcFam != null ? wideSrcFam
                         : "list_i4"
                         : ChainSourceSuffix(prevChain)!;
@@ -5932,7 +6079,7 @@ public static class StackFold
                     {
                         priorDescs.Add(seedDesc);
                         priorSels.Add(seedSel!);
-                        if (wideSrcFam != null)
+                        if (wideSrcFam != null || decSrcFam != null)
                         {
                             priorFams.Add(widePriFam);
                         }
@@ -5965,16 +6112,24 @@ public static class StackFold
                     // LOUD.
                     // impl-listchain: a LIST source keeps its own chain entries,
                     // which snap the ORIGINAL list once.
-                    bool isListChain = suffix is "list_ref" or "list_i4" or "list_d" or "list_f";
+                    bool isListChain = suffix is "list_ref" or "list_i4" or "list_d" or "list_f" or "list_dec";
                     bool refChain = suffix is "ref" or "list_ref";
+                    // b5-gaps section 50: a DECIMAL chain carries the decimal
+                    // dispatch key families 0..6 (int32/int64/double/decimal/
+                    // DateTime/Guid/float) -- a wider set than the numeric
+                    // chain's 0..3 (decimal/DateTime/Guid need the 16/8/16-byte
+                    // decimal cells, so only the decimal kernel reads them).
+                    bool decChain = suffix is "dec" or "list_dec";
                     bool familyOk = refChain
                         ? newFamily is "0" or "1" or "2" or "3" or "4" or "5"
+                        : decChain
+                        ? newFamily is "0" or "1" or "2" or "3" or "4" or "5" or "6"
                         : newFamily is "0" or "1" or "2" or "3";
                     if (!familyOk)
                     {
                         throw new NotSupportedException(
                             $"Enumerable.ThenBy receiver '{chainRecv.Name}' marker carries key family " +
-                            $"'{newFamily}', which the {(refChain ? "reference" : "numeric")} chained " +
+                            $"'{newFamily}', which the {(refChain ? "reference" : decChain ? "decimal" : "numeric")} chained " +
                             "composite cannot read (b5-gaps §44)");
                     }
                     var newDesc = resolved.CppName == ResolvedMethod.ThenByDescCombineMarker ? "1" : "0";
@@ -5999,13 +6154,15 @@ public static class StackFold
                         SetLastError = false,
                         Resolved = new ResolvedMethod(
                             isListChain
-                                ? (suffix == "list_ref"
+                                ? suffix == "list_ref"
                                     ? "il2cpp::il2cpp_linq_list_then_by_chain_ref"
                                     : suffix == "list_d"
                                     ? "il2cpp::il2cpp_linq_list_then_by_chain_d"
                                     : suffix == "list_f"
                                     ? "il2cpp::il2cpp_linq_list_then_by_chain_f"
-                                    : "il2cpp::il2cpp_linq_list_then_by_chain_i4")
+                                    : suffix == "list_dec"
+                                    ? "il2cpp::il2cpp_linq_list_then_by_chain_dec"
+                                    : "il2cpp::il2cpp_linq_list_then_by_chain_i4"
                                 : suffix == "ref"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_ref"
                                 : suffix == "i8"
@@ -6014,6 +6171,8 @@ public static class StackFold
                                 ? "il2cpp::il2cpp_linq_then_by_chain_f"
                                 : suffix == "d"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_d"
+                                : suffix == "dec"
+                                ? "il2cpp::il2cpp_linq_then_by_chain_dec"
                                 : "il2cpp::il2cpp_linq_then_by_chain_i4",
                             // A list chain takes the element kind as the NINTH
                             // trailing literal (AppendLiterals always follow the
@@ -6044,6 +6203,7 @@ public static class StackFold
                                 },
                             ReturnTypeName: suffix == "list_ref" || suffix == "ref"
                                 ? prevChain.Resolved!.ReturnTypeName
+                                : suffix == "list_dec" || suffix == "dec" ? "System.Decimal[]"
                                 : suffix == "list_d" ? "System.Double[]"
                                 : suffix == "list_f" ? "System.Single[]"
                                 : suffix == "i8" ? "System.Int64[]"

@@ -468,4 +468,17 @@ Il2CppArray* il2cpp_linq_then_by_chain_ref(Il2CppArray* src,
                                           int32_t d1, int32_t d2, int32_t d3, int32_t d4,
                                           int32_t f1, int32_t f2, int32_t f3, int32_t f4);
 
+// b5-gaps section 50: the DECIMAL-source chained ThenBy. Same contract as the
+// numeric chain (level-by-level exactly-once key phase, stable merge on the
+// key tuple, up to four levels, -1 terminates) but the element is a 16-byte
+// System.Decimal crossed BY VALUE, and the per-level family codes are the
+// DECIMAL dispatch space 0..6 (int32/int64/double/decimal/DateTime/Guid/float
+// -- the SortDecTwoKeysDispatch codes). The result is a fresh decimal[].
+// A family outside 0..6 is a LOUD rejection.
+Il2CppArray* il2cpp_linq_then_by_chain_dec(Il2CppArray* src,
+                                          Il2CppObject* k1, Il2CppObject* k2,
+                                          Il2CppObject* k3, Il2CppObject* k4,
+                                          int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4);
+
 } // namespace il2cpp

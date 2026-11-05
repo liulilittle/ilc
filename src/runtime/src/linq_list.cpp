@@ -3801,6 +3801,64 @@ WIDE_LIST_ORDER_BY_D_ENTRY(d_i8, i8, )
 WIDE_LIST_ORDER_BY_D_ENTRY(desc_d_i8, i8, )
 #undef WIDE_LIST_ORDER_BY_D_ENTRY
 
+// b5-gaps section 50: DECIMAL-ELEMENT list OrderBy primaries. The list is
+// snapped ONCE at the decimal element kind (IL2CPP_LIST_KIND_DEC = 12) and the
+// ARRAY decimal key-selector entry does the sort (the decimal element crosses
+// BY VALUE, so only the decimal-source entries accept the snapshot). Every key
+// family the array decimal source supports gets a list face.
+#define DEC_LIST_ORDER_BY_ENTRY(NAME)                                              \
+    Il2CppArray* il2cpp_linq_list_##NAME(Il2CppObject* list, Il2CppObject* keySel, \
+                                         int32_t kind)                             \
+    {                                                                               \
+        RequireList(list);                                                          \
+        Il2CppArray* snap = SnapshotOf(list, kind);                                 \
+        if (kind != IL2CPP_LIST_KIND_DEC)                                           \
+        {                                                                           \
+            il2cpp_throw_not_supported_exception(                                   \
+                "OrderBy over a List of a non-decimal element family is not wired " \
+                "for the decimal-source key-selector entry.");                      \
+        }                                                                           \
+        return il2cpp_linq_##NAME(snap, keySel);                                    \
+    }
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_dec_i4)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_dec_i8)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_dec_d)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_dec_f)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_dec_dec)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_dec_dt)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_dec_guid)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_desc_dec_i4)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_desc_dec_i8)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_desc_dec_d)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_desc_dec_f)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_desc_dec_dec)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_desc_dec_dt)
+DEC_LIST_ORDER_BY_ENTRY(order_by_key_desc_dec_guid)
+#undef DEC_LIST_ORDER_BY_ENTRY
+
+// b5-gaps section 50: the DECIMAL-ELEMENT list chain (List<decimal> Chained
+// ThenBy). Snap the list ONCE at the decimal element kind and let the ARRAY
+// decimal chain kernel do the level-by-level key phase.
+Il2CppArray* il2cpp_linq_list_then_by_chain_dec(Il2CppObject* list,
+                                                Il2CppObject* k1, Il2CppObject* k2,
+                                                Il2CppObject* k3, Il2CppObject* k4,
+                                                int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                                int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                                int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    if (kind != IL2CPP_LIST_KIND_DEC)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Chained ThenBy over a List of a non-decimal element family is not wired.");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_then_by_chain_dec(snap, k1, k2, k3, k4,
+                                         d1, d2, d3, d4, f1, f2, f3, f4);
+}
+
 Il2CppArray* il2cpp_linq_list_then_by_key_i4(Il2CppObject* list, Il2CppObject* k1,
                                              Il2CppObject* k2, int32_t kind)
 {

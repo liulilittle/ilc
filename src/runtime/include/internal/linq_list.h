@@ -352,6 +352,37 @@ Il2CppArray* il2cpp_linq_list_then_by_chain_f(Il2CppObject* list,
                                               int32_t f1, int32_t f2, int32_t f3, int32_t f4,
                                               int32_t kind);
 
+// b5-gaps section 50: DECIMAL-ELEMENT list OrderBy primaries. A List<decimal>
+// (element kind IL2CPP_LIST_KIND_DEC = 12) is snapped ONCE through its own
+// accessor and the ARRAY decimal key-selector entry sorts it; the entry name
+// carries the KEY family (int32/int64/double/decimal/DateTime/Guid/float --
+// the array decimal source's full family surface). Previously LOUD ("the list
+// key-selector surface covers int32, double and reference elements").
+Il2CppArray* il2cpp_linq_list_order_by_key_dec_i4(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_dec_i8(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_dec_d(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_dec_f(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_dec_dec(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_dec_dt(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_dec_guid(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_dec_i4(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_dec_i8(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_dec_d(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_dec_f(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_dec_dec(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_dec_dt(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+Il2CppArray* il2cpp_linq_list_order_by_key_desc_dec_guid(Il2CppObject* list, Il2CppObject* keySel, int32_t kind);
+
+// b5-gaps section 50: the DECIMAL-ELEMENT list chain (List<decimal> Chained
+// ThenBy). The list is snapped ONCE at the decimal element kind and the ARRAY
+// decimal chain kernel does the level-by-level key phase.
+Il2CppArray* il2cpp_linq_list_then_by_chain_dec(Il2CppObject* list,
+                                                Il2CppObject* k1, Il2CppObject* k2,
+                                                Il2CppObject* k3, Il2CppObject* k4,
+                                                int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                                int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                                int32_t kind);
+
 //------------------------------------------------------------------------------
 // Source-only aggregates (net48 Sum/Min/Max/Average over the list's elements).
 // The suffix is the RESULT family, exactly like the array entries.

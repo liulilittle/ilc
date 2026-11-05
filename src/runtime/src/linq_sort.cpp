@@ -1434,6 +1434,146 @@ int32_t LkChainLevelCount(const int32_t* fams, int32_t maxLevels)
     return used;
 }
 
+// b5-gaps section 50: the DECIMAL-source chained ThenBy. The decimal chain is
+// NOT the LkChainKey path above: a decimal element crosses BY VALUE to every
+// selector (the InvokeKeyDec* ABI), and the decimal key families include a
+// 16-byte System.Decimal (3), a DateTime (4) and a Guid (5), which cannot ride
+// the int64/double LkChainKey cell. So the decimal chain keeps its own key cell
+// per level and its own comparator dispatch, then reuses the level-by-level
+// exactly-once / stable-index-merge machinery of SortLkChainCopyT.
+struct LkDecChainKey
+{
+    int64_t i;                     // family 0 (int32) / 1 (int64)
+    double d;                      // family 2 (double)
+    runtime::Il2CppDecimal dec;    // family 3 (decimal)
+    runtime::Il2CppDateTime dt;    // family 4 (DateTime)
+    Il2CppGuid guid;               // family 5 (Guid)
+    float f;                       // family 6 (float -- the decimal dispatch's
+                                   // float column, b5-gaps 搂14)
+};
+
+void ReadLkDecChainKey(const runtime::Il2CppDecimal& elem, int32_t fam,
+                       Il2CppDelegate* d, LkDecChainKey& out)
+{
+    switch (fam)
+    {
+    case 0: out.i = static_cast<int64_t>(InvokeKeyDecI4(d, elem)); break;
+    case 1: out.i = InvokeKeyDecI8(d, elem); break;
+    case 2: out.d = InvokeKeyDecD(d, elem); break;
+    case 3: out.dec = InvokeKeyDecDec(d, elem); break;
+    case 4: out.dt = InvokeKeyDecDt(d, elem); break;
+    case 5: out.guid = InvokeKeyDecGuid(d, elem); break;
+    case 6: out.f = InvokeKeyDecF(d, elem); break;
+    default:
+        il2cpp_throw_not_supported_exception(
+            "Chained ThenBy: unknown decimal-source key family.");
+        break;
+    }
+}
+
+int32_t CmpLkDecChainKey(const LkDecChainKey& a, const LkDecChainKey& b, int32_t fam)
+{
+    switch (fam)
+    {
+    case 0: return static_cast<int32_t>(a.i) < static_cast<int32_t>(b.i) ? -1
+        : static_cast<int32_t>(a.i) > static_cast<int32_t>(b.i) ? 1 : 0;
+    case 1: return CmpKeyValue<int64_t>(a.i, b.i);
+    case 2: return CmpKeyValue<double>(a.d, b.d);
+    case 3: return CmpDecKeyValue(a.dec, b.dec);
+    case 4: return CmpDateTimeKey(a.dt, b.dt);
+    case 5: return CmpGuidKey(a.guid, b.guid);
+    case 6: return CmpKeyValue<float>(a.f, b.f);
+    default: return 0;
+    }
+}
+
+// The decimal chain level-count validator: the decimal dispatch families are
+// 0..6 (int32/int64/double/decimal/DateTime/Guid/float), unlike the numeric
+// chain's 0..5.
+int32_t LkDecChainLevelCount(const int32_t* fams, int32_t maxLevels)
+{
+    int32_t used = 0;
+    for (int32_t l = 0; l < maxLevels; ++l)
+    {
+        if (fams[l] < 0)
+        {
+            break;
+        }
+        if (fams[l] > 6)
+        {
+            il2cpp_throw_not_supported_exception(
+                "Chained ThenBy: only the decimal-source key families (int32/int64/"
+                "double/decimal/DateTime/Guid/float) are wired.");
+        }
+        ++used;
+    }
+    return used;
+}
+
+template <typename ReadKey, typename CmpKey>
+Il2CppArray* SortDecChainCopyT(Il2CppArray* src, int32_t nkeys, Il2CppDelegate** sels,
+                               const int32_t* descs, const int32_t* fams,
+                               ReadKey readKey, CmpKey cmpKey)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        roots.Add(reinterpret_cast<void**>(&sels[l]));
+    }
+
+    if (n <= 0)
+    {
+        return il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, 0);
+    }
+
+    std::vector<runtime::Il2CppDecimal> elems(static_cast<size_t>(n));
+    std::memcpy(elems.data(), src->data,
+                static_cast<size_t>(n) * sizeof(runtime::Il2CppDecimal));
+
+    std::vector<LkDecChainKey> keys(static_cast<size_t>(n) * static_cast<size_t>(nkeys));
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        LkDecChainKey* level = keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            readKey(elems[i], fams[l], sels[l], level[i]);
+        }
+    }
+
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        order[i] = i;
+    }
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        for (int32_t l = 0; l < nkeys; ++l)
+                        {
+                            const LkDecChainKey* level =
+                                keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+                            const int32_t c = cmpKey(level[a], level[b], fams[l]);
+                            if (c != 0)
+                            {
+                                return descs[l] != 0 ? -c : c;
+                            }
+                        }
+                        return 0;
+                    });
+
+    Il2CppArray* result = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, n);
+    runtime::Il2CppDecimal* out = reinterpret_cast<runtime::Il2CppDecimal*>(result->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        out[i] = elems[order[i]];
+    }
+    return result;
+}
+
 } // namespace
 
 } // namespace
@@ -1645,6 +1785,34 @@ Il2CppArray* il2cpp_linq_then_by_chain_ref(Il2CppArray* src,
         il2cpp_write_barrier(reinterpret_cast<void**>(slot), *slot);
     }
     return result;
+}
+
+// b5-gaps section 50: the DECIMAL-source chained ThenBy. The entries mirror
+// the numeric chain contract exactly (up to four key selectors, parallel
+// per-level direction / family literal tables, -1 terminates) but the element
+// is a 16-byte System.Decimal cell crossed BY VALUE to each selector, and the
+// key families are the decimal-dispatch codes 0..6 (int32/int64/double/
+// decimal/DateTime/Guid/float -- the SortDecTwoKeysDispatch space). The result
+// is a fresh decimal[].
+Il2CppArray* il2cpp_linq_then_by_chain_dec(Il2CppArray* src,
+                                          Il2CppObject* k1, Il2CppObject* k2,
+                                          Il2CppObject* k3, Il2CppObject* k4,
+                                          int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)));
+    int32_t fams[4] = { f1, f2, f3, f4 };
+    const int32_t nkeys = LkDecChainLevelCount(fams, 4);
+    Il2CppObject* raw[4] = { k1, k2, k3, k4 };
+    Il2CppDelegate* sels[4] = { nullptr, nullptr, nullptr, nullptr };
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        sels[l] = RequireKeySelector(raw[l]);
+    }
+    const int32_t descs[4] = { d1, d2, d3, d4 };
+    return SortDecChainCopyT(s, nkeys, sels, descs, fams,
+                             ReadLkDecChainKey, CmpLkDecChainKey);
 }
 
 //------------------------------------------------------------------------------

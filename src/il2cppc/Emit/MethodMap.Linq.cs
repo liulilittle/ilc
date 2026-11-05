@@ -5689,6 +5689,39 @@ public static partial class MethodRefResolver
                     return I(dEntry, 2, true, true, false, L2,
                         returnTypeName: "System.Double[]", appendLiterals: new[] { K });
                 }
+                if (K == "12")
+                {
+                    // b5-gaps section 50: a DECIMAL-ELEMENT list. The snapshot
+                    // is a decimal array; the key selector crosses in its own
+                    // family slot. The array decimal source supports the
+                    // int32/int64/double/float/decimal primary families plus
+                    // a System.DateTime / System.Guid struct key, so the list
+                    // face mirrors the full seven-family surface.
+                    if (genArgs is not { Length: >= 2 })
+                        return null;
+                    string? decKeyFam = genArgs[1] switch
+                    {
+                        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "i4",
+                        0x0A or 0x0B => "i8",
+                        0x0D => "d",
+                        0x0C => "f",
+                        0x11 when IsDecimalGenArg(genArgNames, 1) => "dec",
+                        0x11 when LinqStructKeyFamilyName(genArgNames, 1) is { } sk2
+                            and ("dt" or "guid") => sk2,
+                        _ => null,
+                    };
+                    if (decKeyFam == null)
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])},{GenericArgTypeName(genArgs[1])}> " +
+                            "over a List<decimal> not wired: the list decimal key-selector surface covers " +
+                            "int32/int64/double/float/decimal and the System.DateTime/System.Guid keys only " +
+                            "(il2cpp_linq_list_order_by_key[_desc]_dec_<keyfam>)");
+                    return I(desc
+                            ? $"il2cpp::il2cpp_linq_list_order_by_key_desc_dec_{decKeyFam}"
+                            : $"il2cpp::il2cpp_linq_list_order_by_key_dec_{decKeyFam}",
+                        2, true, true, false, L2,
+                        returnTypeName: "System.Decimal[]", appendLiterals: new[] { K });
+                }
                 if (K != "1")
                     throw new NotSupportedException(
                         $"Enumerable.{name} over a List of the element family kind {K} is not wired " +

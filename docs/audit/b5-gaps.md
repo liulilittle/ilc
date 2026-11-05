@@ -4718,3 +4718,109 @@ same.
   float identity key -- a REAL float-key ordering (e.g. a `float` index
   projection with out-of-order fractional parts) would exercise the fam-3
   reader directly (the case's `ff_aa` uses the identity float key).
+
+## 50. Chained `ThenBy` over `decimal[]` / `List<decimal>` sources (IMPLEMENTED)
+
+§47/§49 wired the wide ARRAY and LIST sources; a decimal-element source chain
+stayed broken on BOTH faces:
+
+* `List<decimal>.OrderBy` itself was LOUD ("the list key-selector surface
+  covers int32, double and reference elements" -- element kind 12);
+* a THREE-level chain over `decimal[]` (`ds.OrderBy(k1).ThenBy(k2).ThenBy(k3)`)
+  died in the fold with "receiver does not name an OrderBy(keySelector)
+  assignment": the decimal two-key composite `then_by_key_dec` exists, but
+  `ChainLevelsOf` never recognised it as a chainable prior, so the third level
+  had no extend path.
+
+The decimal source is a distinct DOMAIN from the numeric/reference chain: the
+element is a 16-byte `System.Decimal` crossed BY VALUE to every selector, and
+the key families are the decimal dispatch codes 0..6 (int32/int64/double/
+decimal/DateTime/Guid/float -- the `SortDecTwoKeysDispatch` matrix), NOT the
+numeric chain's 0..3. The 16-byte decimal / DateTime / Guid key values cannot
+ride the numeric chain's `LkChainKey { i, d, o }` cell.
+
+### Measured net48 contract (oracle: the case's own oracle run, `thenbydecchain`)
+
+`decimal[].OrderBy(k1).ThenBy(k2).ThenBy(k3)` and
+`List<decimal>.OrderBy(k1).ThenBy(k2)...` behave exactly like every other
+EnumerableSorter chain: level-by-level exactly-once selector invocation,
+tuple-ordered comparison with per-level direction, stable merge, fresh
+decimal[] result, source list never written.
+
+### Implementation
+
+* `linq_sort.cpp` / `.h`:
+  * `LkDecChainKey` cell + `ReadLkDecChainKey` (dispatch the seven decimal
+    families through `InvokeKeyDec{i4,i8,D,Dec,Dt,Guid,F}`) + `CmpLkDecChainKey`
+    (dispatch the seven comparators incl. `CmpDecKeyValue`/`CmpDateTimeKey`/
+    `CmpGuidKey`) + `LkDecChainLevelCount` (families 0..6).
+  * `SortDecChainCopyT<ReadKey,CmpKey>`: mirrors `SortLkChainCopyT` (snapshot
+    the decimal elements, key phase level by level, stable index merge on the
+    tuple, fresh decimal[] result allocated after the last selector call).
+  * `il2cpp_linq_then_by_chain_dec` -- the array decimal chain entry (same
+    four-key / direction-family literal-table ABI as the numeric chains).
+* `linq_list.cpp` / `.h`:
+  * `il2cpp_linq_list_order_by_key[_desc]_dec_<keyfam>` -- FOURTEEN primaries
+    (i4/i8/d/f/dec/dt/guid x asc/desc): snap the List<decimal> ONCE through
+    its own accessor, then delegate to the array decimal key-selector entry.
+  * `il2cpp_linq_list_then_by_chain_dec` -- snap once, delegate to the array
+    decimal chain kernel.
+* `MethodMap.Linq.cs`:
+  * OrderBy list arm: new K=="12" arm maps the eleven genArg bytes + the
+    decimal/DateTime/Guid key names to the seven `_dec_<keyfam>` faces.
+  * (A ThenBy K=="12" arm was written first and then REMOVED as dead code:
+    the pre-existing decimal-source ThenBy arm at genArgs[0]==0x11 +
+    `IsDecimalGenArg` (line ~2774) already intercepts a List<decimal> receiver
+    and returns the `ThenByCombineMarker` with the decimal secondary; the
+    composition works because the decimal LIST seed carries the element kind.)
+* `StackFold.cs`:
+  * `DecArrayPrimarySeed` / `DecListPrimarySeed` parse
+    `order_by_key[_desc]_dec_<kfam>` / `list_order_by_key[_desc]_dec_<kfam>`
+    into the decimal dispatch primary family (0..6), rejecting `list_` names in
+    the array parser (the §49 mis-emission lesson, now the second occurrence).
+  * `ChainLevelsOf` recognises `then_by_chain_dec` / `list_then_by_chain_dec`;
+    `ChainSourceSuffix` maps them to "dec" / "list_dec".
+  * The chain build picks `il2cpp_linq_then_by_chain_dec` /
+    `il2cpp_linq_list_then_by_chain_dec`, validates the decimal family 0..6
+    (`decChain` gate) and returns `System.Decimal[]`.
+
+### Contract evidence
+
+* new case `tests/cases/thenbydecchain`: oracle = runtime = **376B
+  `b2edbdbe...`**, 7 records (d3.iid.dec / d3.desc.iid / d3.i.ddi --
+  decimal[] 3-level with mixed directions; l3.iid.dec / l3.desc.iid /
+  l2.i.dec -- List<decimal> chains with decimal secondary; l3.dec.dec --
+  decimal PRIMARY over the list), bytes identical.
+* mutations (all RED, restored GREEN to the same sha):
+  * M1 `DecListPrimarySeed`'s List<decimal> `dec`-key arm returning primary
+    family "0" instead of "3" -> 376B `7b46c135` (diff at byte 337 --
+    l3.dec.dec flipped), restored;
+  * M2 `CmpLkDecChainKey` family 3 comparing the decimal cell as a float ->
+    376B `834b7ad9` (ALL 7 records flipped -- every case carries a decimal
+    primary or tertiary), restored;
+  * M3 `MethodMap` List<decimal> OrderBy `IsDecimalGenArg` arm -> "i4" instead
+    of "dec" -> 376B `7b46c135` (same diff as M1 -- it feeds the same seed
+    parser on the decimal-primary seed), restored.
+  One mutation was NOT observable and the ARM WAS DELETED as dead code: a
+  K=="12" ThenBy arm in MethodMap (hardcoded "0" secondary) left the output
+  unchanged because the earlier decimal-source ThenBy arm intercepts a
+  List<decimal> receiver first.
+* unchanged: `thenby-decfkey` 537B `afc01112` (the decimal two-key composite
+  face), `thenby3` 585B, `thenby3list` 262B `bda750a6` (regression caught by
+  this suite: my first `ChainSourceSuffix` edit dropped the
+  `list_then_by_key_ref`/`list_then_by_key_i4` arms, so a List<Item> 2-key
+  composite got suffix "ref" and the next level cast the List to Il2CppArray*
+  -- "Object is not an array"; restored the two arms and re-ran),
+  `thenbywide-list` 380B `bcdf6722`, `thenbywide-elem` 560B `f0676c0c`,
+  `orderwide-elem` 648B `94eb7f3e`, `linqorder2` 779B `6a72ece6`, `p0linq4`
+  `14b4b964`, `collation1` 1356B `90013e33`, `thenbyfamprobe` 5283B,
+  `thenbydescprobe` 1550B, `thenby-refkey` 161B `1f21013d`, `thenby-floatprobe`
+  733B; unit tests 4155/0/0; C0 0 warnings 0 errors.
+
+### Still not covered
+
+* a chain over `List<value-struct>` besides decimal (DateTime/TimeSpan/Guid
+  sources have the 2-key `_vt` composite but no chain entry);
+* a decimal chain deeper than four levels (unchanged from §44);
+* a decimal-source GroupBy-bucket chain (the `grp_dec` composite exists but the
+  chase loop only seeds from the plain decimal OrderBy entries).
