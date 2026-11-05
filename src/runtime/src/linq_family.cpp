@@ -1683,6 +1683,112 @@ Il2CppArray* il2cpp_linq_range(int32_t start, int32_t count)
     return arr;
 }
 
+//------------------------------------------------------------------------------
+// b5-gaps section 69: Enumerable.Empty<T>() and Enumerable.Repeat(element,
+// count). net48 validates count up front (count < 0 throws
+// ArgumentOutOfRangeException("count")) and yields lazily; eager arrays give
+// the exact same sequence (no side effects), and a REFERENCE element is
+// stored as the SAME pointer in every slot via write barriers.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_empty(int32_t cell)
+{
+    return LinqNewArray(cell, 0);
+}
+
+Il2CppArray* il2cpp_linq_repeat_i4(int32_t element, int32_t count, int32_t cell)
+{
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", nullptr);
+        return nullptr;
+    }
+    Il2CppArray* arr = LinqNewArray(cell, count);
+    for (int32_t i = 0; i < count; ++i)
+    {
+        char* dst = LinqCellPtr(arr, i);
+        switch (cell)
+        {
+            case IL2CPP_LINQ_CELL_SBYTE:
+                *reinterpret_cast<int8_t*>(dst) = static_cast<int8_t>(element);
+                break;
+            case IL2CPP_LINQ_CELL_BYTE:
+            case IL2CPP_LINQ_CELL_BOOL:
+                *reinterpret_cast<uint8_t*>(dst) = element != 0 ? 1u : 0u;
+                break;
+            case IL2CPP_LINQ_CELL_SHORT:
+                *reinterpret_cast<int16_t*>(dst) = static_cast<int16_t>(element);
+                break;
+            case IL2CPP_LINQ_CELL_USHORT:
+            case IL2CPP_LINQ_CELL_CHAR:
+                *reinterpret_cast<uint16_t*>(dst) = static_cast<uint16_t>(element);
+                break;
+            case IL2CPP_LINQ_CELL_UINT:
+                *reinterpret_cast<uint32_t*>(dst) = static_cast<uint32_t>(element);
+                break;
+            default:
+                std::memcpy(dst, &element, sizeof(int32_t));
+                break;
+        }
+    }
+    return arr;
+}
+
+Il2CppArray* il2cpp_linq_repeat_i8(int64_t element, int32_t count, int32_t cell)
+{
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", nullptr);
+        return nullptr;
+    }
+    Il2CppArray* arr = LinqNewArray(cell, count);
+    for (int32_t i = 0; i < count; ++i)
+    {
+        std::memcpy(LinqCellPtr(arr, i), &element, sizeof(int64_t));
+    }
+    return arr;
+}
+
+Il2CppArray* il2cpp_linq_repeat_d(double element, int32_t count, int32_t cell)
+{
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", nullptr);
+        return nullptr;
+    }
+    Il2CppArray* arr = LinqNewArray(cell, count);
+    for (int32_t i = 0; i < count; ++i)
+    {
+        char* dst = LinqCellPtr(arr, i);
+        if (cell == IL2CPP_LINQ_CELL_F)
+        {
+            const float fv = static_cast<float>(element);
+            std::memcpy(dst, &fv, sizeof(float));
+        }
+        else
+        {
+            std::memcpy(dst, &element, sizeof(double));
+        }
+    }
+    return arr;
+}
+
+Il2CppArray* il2cpp_linq_repeat_ref(Il2CppObject* element, int32_t count)
+{
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", nullptr);
+        return nullptr;
+    }
+    Il2CppArray* arr = LinqNewArray(IL2CPP_LINQ_CELL_REF, count);
+    for (int32_t i = 0; i < count; ++i)
+    {
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(LinqCellPtr(arr, i));
+        *slot = element;
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), element);
+    }
+    return arr;
+}
+
 Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
                                      int32_t srcCell, int32_t resCell)
 {

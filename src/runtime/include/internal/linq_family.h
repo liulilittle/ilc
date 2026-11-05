@@ -337,4 +337,18 @@ IL2CPP_LINQ_DECL_ELEM_ENTRIES_NOARG(single_or_default)
 // side effects), and being an int32[] it feeds every existing array source.
 Il2CppArray* il2cpp_linq_range(int32_t start, int32_t count);
 
+// b5-gaps section 69: Enumerable.Empty<T>() -- an empty T[] of the cell.
+Il2CppArray* il2cpp_linq_empty(int32_t cell);
+
+// Enumerable.Repeat(element, count) -- an eager array of `count` copies of
+// `element` at the element cell; count < 0 throws ArgumentOutOfRangeException
+// ("count"), and a REFERENCE element is stored as the SAME pointer in every
+// slot (net48 yields the identical object; the eager array uses write
+// barriers). Element ABI is per-family: int32/narrow/char/bool ride the i4
+// entry, int64 the i8 entry, float/double the d entry, references the ref.
+Il2CppArray* il2cpp_linq_repeat_i4(int32_t element, int32_t count, int32_t cell);
+Il2CppArray* il2cpp_linq_repeat_i8(int64_t element, int32_t count, int32_t cell);
+Il2CppArray* il2cpp_linq_repeat_d(double element, int32_t count, int32_t cell);
+Il2CppArray* il2cpp_linq_repeat_ref(Il2CppObject* element, int32_t count);
+
 } // namespace il2cpp

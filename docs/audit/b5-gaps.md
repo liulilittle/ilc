@@ -5919,3 +5919,41 @@ C++ failed to compile.
 * Enumerable.Repeat / RepeatOfType / Empty and the other deferred LINQ
   factories are still unmapped (Range was the one hit by the section-67
   surface).
+## 69. Enumerable.Repeat / Enumerable.Empty (IMPLEMENTED)
+
+Repeat and Empty followed Range as the second block of unmapped LINQ
+factories (the section-67 probe surface hit Range first; section-68
+registered these as the next deferred factories).
+
+### Implementation
+
+* `linq_family.cpp` / `linq_family.h`:
+  * `il2cpp_linq_empty(cell)`: an empty cell-typed array.
+  * `il2cpp_linq_repeat_i4(element, count, cell)`: `count < 0` throws
+    AOORE("count"); stores `count` copies at the cell width (narrow kinds
+    truncate the int32 slot, bool stores 0/1). Serves int32/uint/narrow/
+    char/bool.
+  * `repeat_i8` / `repeat_d`: the int64 / float / double carriers.
+  * `repeat_ref(element, count)`: a reference-cell array holding the SAME
+    pointer in every slot via write barriers (net48 yields the same object).
+* `MethodMap.Linq.cs`: "Repeat"/"Empty" arms dispatch the element cell
+  literal (reference entry omits it) and answer the element-typed array.
+
+### Contract evidence
+
+* new case `tests/cases/probe-repeatempty`: oracle = runtime = **215B sha
+  e5629119**, 9 records -- int/string Repeat, count=0, Empty<int> and
+  Empty<string>, count<0 AOORE naming "count", SelectMany over an inner
+  Range (section-67 inner), Repeat over an int[] element flattened by
+  SelectMany (reference sharing), and a GC pact.
+* mutations (silent-wrong, restored green):
+  * M32 the i4 count guard never fires -> [negcount] no-throw;
+  * M33 the i4 element write becomes element+i -> [int]/[gc]/[sm] wrong.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 errors 0 warnings;
+  probe-range / probe-selectmanyseq / probe-joincmpval unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* decimal / DateTime / TimeSpan / Guid / DateTimeOffset element-repeat
+  cells (16-byte cells have no single-slot element carrier);
+* Enumerable.RepeatOfType is an internal net48 helper, not a public surface.

@@ -124,6 +124,51 @@ public static partial class MethodRefResolver
                 new[] { "", "" }, returnTypeName: "System.Int32[]");
         }
 
+        // b5-gaps section 69: Enumerable.Repeat(element, count) and
+        // Enumerable.Empty<T>(). The element cell picks the runtime entry
+        // (references as the shared-pointer array, int32-family via the i4
+        // entry writing at the cell width, int64 / float / double at their
+        // own); decimal/DateTime/TimeSpan/Guid/DateTimeOffset cells stay LOUD.
+        if (name == "Repeat" || name == "Empty")
+        {
+            if (genArgs is not { Length: >= 1 }) return null;
+            int expect = name == "Repeat" ? 2 : 0;
+            if (count != expect) return null;
+            string? repCell = LinqCellCodeOfElemByte(genArgs[0])
+                ?? (IsRefFamilyByte(genArgs[0]) ? "15" : null);
+            if (repCell == null)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.{name}<{GenericArgTypeName(genArgs[0])}> is not " +
+                    "wired: no element cell (b5-gaps section 69, docs/audit/b5-gaps.md).");
+            }
+            if (name == "Empty")
+            {
+                return I("il2cpp::il2cpp_linq_empty", 0, true, true, false, null,
+                    returnTypeName: LinqArrayTypeNameExact(genArgs[0], genArgNames, 0),
+                    appendLiterals: new[] { repCell });
+            }
+            string? repCpp = repCell switch
+            {
+                "15" => "il2cpp::il2cpp_linq_repeat_ref",
+                "8" => "il2cpp::il2cpp_linq_repeat_i8",
+                "9" or "10" => "il2cpp::il2cpp_linq_repeat_d",
+                "0" or "1" or "2" or "3" or "4" or "5" or "6" or "7" =>
+                    "il2cpp::il2cpp_linq_repeat_i4",
+                _ => null,
+            };
+            if (repCpp == null)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.Repeat<{GenericArgTypeName(genArgs[0])}> is not " +
+                    "wired: decimal/DateTime/TimeSpan/Guid/DateTimeOffset element " +
+                    "cells stay LOUD (b5-gaps section 69, docs/audit/b5-gaps.md).");
+            }
+            return I(repCpp, 2, true, true, false, new[] { "", "" },
+                returnTypeName: LinqArrayTypeNameExact(genArgs[0], genArgNames, 0),
+                appendLiterals: repCell == "15" ? null : new[] { repCell });
+        }
+
         // b5-gaps section 58: Enumerable.ToHashSet(source[, comparer]). The
         // element byte picks the HashSet instantiation tag (the tracked
         // receiver for the downstream HashSet members) and the CELL literal
