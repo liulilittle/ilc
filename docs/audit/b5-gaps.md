@@ -5633,3 +5633,51 @@ decimal/vt keys stay registered.
   into the join table.
 * List/IEnumerable sources of the 5-arg form stay LOUD (the D-2 guard rejects
   them loudly); decimal/vt key cells have no line-2 selector ABI yet.
+## 63. Enumerable.GroupJoin (LEFT-JOIN) over array sources (IMPLEMENTED)
+
+GroupJoin was in the "generic instantiation ... has no BCL mapping" band. The
+5-argument form over ARRAY sources is now real alongside section 62's Join.
+
+### Implementation
+
+* `linq_family.cpp` / `linq_family.h`: `il2cpp_linq_group_join(outer, inner,
+  outerKeySel, innerKeySel, resSel, outerCell, innerCell, keyCell, resCell)`:
+  the pass-1 TKey index, the carrier/hash helpers and the two-argument
+  result-selector table are the section-62 ones. The result array is EXACTLY
+  outer-length (every outer element yields one group, even an empty one), so
+  pass 2 walks the outer sequence and writes each result straight into the
+  preallocated array: for each outer element it materializes a fresh
+  innerCell-typed GROUP array (matches in inner insertion order,
+  reverse-emitted from the bucket chain), roots it for the selector call,
+  invokes the two-argument selector (outer element, group array) and
+  materializes the TResult cell. The TKey/reference tables never outlive the
+  call. A D-2 guard rejects non-array sources.
+* `MethodMap.Linq.cs`: a GroupJoin arm binds count==5 with
+  [TOuter, TInner, TKey, TResult] -- cell literals mirror the Join arm.
+
+### Contract evidence
+
+* new case `tests/cases/probe-groupjoin`: oracle = runtime = **108B
+  sha 9184670d**, 7 records -- int-key groups with duplicate inner keys and a
+  `GC.Collect(); WaitForPendingFinalizers(); GC.Collect();` inside the SECOND
+  result selector (the group array survives and re-reads exactly), string-key
+  group counts, an int result, empty inner, empty outer, and a group-ORDER
+  record (11/12/13 keyed val/10).
+* mutations:
+  * M20 emit the group in head order -> 108B `e7a25882`, 1 record SILENT
+    wrong (`[o]` 1:11.12.13 -> 1:13.12.11);
+  * M19 remove the kernel's per-group root -> STAYS GREEN (recorded, not a
+    fake test): the generated delegate frame roots its own argument slots, so
+    the group array is reachable for the whole result-selector call and a
+    redundant kernel root changes nothing observable.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 warnings 0 errors;
+  probe-join / probe-selectmany3 / probe-selectmanylist / probe-castoftype /
+  linqgroup / probe-tohashset unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* the comparer / IEqualityComparer overloads of GroupJoin and Join need
+  comparer injection into the join table (the section-56 `LinqRefEqualsCmp`
+  machinery is the reuse path);
+* List/IEnumerable sources of the 5-arg forms stay LOUD; decimal/vt key cells
+  have no line-2 selector ABI yet.

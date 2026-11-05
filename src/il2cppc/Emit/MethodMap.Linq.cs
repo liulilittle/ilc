@@ -271,6 +271,36 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 appendLiterals: new[] { jOuter, jInner, jKey, jRes });
         }
 
+        // b5-gaps section 63: Enumerable.GroupJoin -- the LEFT-JOIN shape
+        // over ARRAY sources; every outer element yields exactly one result
+        // (its matching inner elements materialized as a fresh TInner[]). The
+        // cell literal layout mirrors Join.
+        if (name == "GroupJoin")
+        {
+            if (genArgs is not { Length: >= 4 } || count != 5) return null;
+            string? gjOuter = LinqCellCodeOfElemByte(genArgs[0])
+                ?? (IsRefFamilyByte(genArgs[0]) ? "15" : null);
+            string? gjInner = LinqCellCodeOfElemByte(genArgs[1])
+                ?? (IsRefFamilyByte(genArgs[1]) ? "15" : null);
+            string? gjKey = LinqCellCodeOfElemByte(genArgs[2])
+                ?? (IsRefFamilyByte(genArgs[2]) ? "15" : null);
+            string? gjRes = LinqCellCodeOfElemByte(genArgs[3])
+                ?? (IsRefFamilyByte(genArgs[3]) ? "15" : null);
+            if (gjOuter == null || gjInner == null || gjKey == null || gjRes == null)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.GroupJoin<{GenericArgTypeName(genArgs[0])}," +
+                    $"{GenericArgTypeName(genArgs[1])},{GenericArgTypeName(genArgs[2])}," +
+                    $"{GenericArgTypeName(genArgs[3])}> is not wired: no cell code " +
+                    "for a source / key / result element (b5-gaps section 63, " +
+                    "docs/audit/b5-gaps.md).");
+            }
+            return I("il2cpp::il2cpp_linq_group_join", 5, true, true, false,
+                new[] { "a", "a", "", "", "" },
+                returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),
+                appendLiterals: new[] { gjOuter, gjInner, gjKey, gjRes });
+        }
+
         // nb9 FIX: the SOURCE receiver hint. For an extension call the source
         // is the FIRST IL argument -- the stack's SECOND value for arity >= 2
         // (arg1Type) and the ONLY value for arity 1 (arg0Type); an instance

@@ -242,6 +242,20 @@ Il2CppArray* il2cpp_linq_join(Il2CppArray* outer, Il2CppArray* inner,
                               Il2CppObject* outerKeySel, Il2CppObject* innerKeySel,
                               Il2CppObject* resSel, int32_t outerCell,
                               int32_t innerCell, int32_t keyCell, int32_t resCell);
+
+// b5-gaps section 63: Enumerable.GroupJoin(outer, inner, outerKeySelector,
+// innerKeySelector, resultSelector) over ARRAY sources -- the LEFT-JOIN
+// shape. The pass-1 TKey index is identical to section 62; pass 2 walks the
+// outer sequence and for EVERY outer element materializes a fresh
+// innerCell-typed GROUP array (the matches in inner insertion order, rooted
+// for the result-selector call), invokes the two-argument result selector
+// (outer element, group array) and writes the result straight into the
+// preallocated exact-size TResult array. List/IEnumerable sources are
+// rejected loudly by the D-2 guard.
+Il2CppArray* il2cpp_linq_group_join(Il2CppArray* outer, Il2CppArray* inner,
+                                    Il2CppObject* outerKeySel, Il2CppObject* innerKeySel,
+                                    Il2CppObject* resSel, int32_t outerCell,
+                                    int32_t innerCell, int32_t keyCell, int32_t resCell);
 bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
 bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
 bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);
