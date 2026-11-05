@@ -112,6 +112,60 @@ public static partial class MethodRefResolver
         string[] TwoArg = { "a", "" };
         string[] OneArg = { "a" };
 
+        // b5-gaps section 58: Enumerable.ToHashSet(source[, comparer]). The
+        // element byte picks the HashSet instantiation tag (the tracked
+        // receiver for the downstream HashSet members) and the CELL literal
+        // that seeds the shared set object through the element family's
+        // IEnumerable<T> ctor (il2cpp_linq_to_hash_set[_cmp]).
+        if (name == "ToHashSet")
+        {
+            if (genArgs is not { Length: >= 1 }) return null;
+            string? tag = genArgs[0] switch
+            {
+                0x08 => "int",
+                0x09 => "uint",
+                0x0A => "long",
+                0x0D => "double",
+                0x11 => "System.Decimal",
+                0x0E => "string",
+                0x15 => "object",
+                0x12 => "class",
+                _ => null,
+            };
+            if (tag == null)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToHashSet<{GenericArgTypeName(genArgs[0])}> is not wired: " +
+                    "the HashSet seeding surface covers int32/uint32/int64/double/decimal/" +
+                    "string/object/class elements only (b5-gaps section 58, docs/audit/b5-gaps.md).");
+            }
+            string? cell = genArgs[0] switch
+            {
+                0x08 => "7",
+                0x09 => "6",
+                0x0A => "8",
+                0x0D => "10",
+                0x11 => "11",
+                0x0E or 0x12 or 0x15 => "15",
+                _ => null,
+            };
+            bool hasCmp = LinqHasComparerParam(md, sigHandle);
+            if (hasCmp ? count != 2 : count != 1) return null;
+            // At the call site the LAST IL operand is on the stack top, so
+            // arg0Type names the comparer for the 2-argument form and the
+            // array's type lives in arg1Type (verified by probe).
+            string srcTypeName = count >= 2 ? arg1Type : arg0Type;
+            bool arraySrc = srcTypeName != null
+                && srcTypeName.EndsWith("[]", StringComparison.Ordinal);
+            string srcCast = arraySrc ? "a" : "";
+            return I(hasCmp ? "il2cpp::il2cpp_linq_to_hash_set_cmp"
+                            : "il2cpp::il2cpp_linq_to_hash_set",
+                count, true, true, false,
+                hasCmp ? new[] { srcCast, "" } : new[] { srcCast },
+                returnTypeName: $"System.Collections.Generic.HashSet`1_{tag}",
+                appendLiterals: new[] { cell! });
+        }
+
         // nb9 FIX: the SOURCE receiver hint. For an extension call the source
         // is the FIRST IL argument -- the stack's SECOND value for arity >= 2
         // (arg1Type) and the ONLY value for arity 1 (arg0Type); an instance

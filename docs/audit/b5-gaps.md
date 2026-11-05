@@ -5367,3 +5367,48 @@ families for the six set/sequence operators so the gate no longer rejects them.
   value types needs measuring before the slots can be found (continuation);
 * OrderBy / ThenBy over a VALUE source with a user IComparer for the KEY;
 * List<T> comparer overloads and the GroupBy-bucket comparer overloads.
+## 58. Enumerable.ToHashSet across the supported element families (IMPLEMENTED)
+
+`ToHashSet` was one of the "generic instantiation ... has no BCL mapping in M5"
+band (no TryMapLinq arm). The HashSet<T> INSTANCE surfaces were already wired
+per family (ctor/Add/Contains/get_Count use the family icalls), so the LINQ
+operator became a thin two-entry bridge over the family seeding ctors.
+
+### Implementation
+
+* `hashset.cpp` / `hashset.h`:
+  * `il2cpp_linq_to_hash_set(src, cell)` -- allocate the shared set object
+    (rooted), then seed through the element family's IEnumerable<T> ctor
+    (`icall_hashset_{int,uint,long,double,dec,ref}_ctor_enum`, keyed by the
+    `IL2CPP_LINQ_CELL_*` code; the narrow cells ride the int ctor, uint its
+    own, int64/double(+float)/decimal/ref their own).
+  * `il2cpp_linq_to_hash_set_cmp(src, cmp, cell)` -- the comparer overload,
+    seeding through the `*_ctor_enum_comparer` ctors (StringComparer
+    Ordinal/OrdinalIgnoreCase and user IEqualityComparer ride the family
+    comparer dispatch established in the hashset domain).
+* `MethodMap.Linq.cs`: an EARLY `ToHashSet` arm in TryMapLinq (before every
+  family block, so a decimal[] source is not intercepted): the element byte
+  picks the HashSet instantiation tag -- the TRACKED receiver for the
+  downstream HashSet members -- and the cell literal for the runtime seed.
+  The SOURCE cast resolves empirically: at the call site the LAST IL operand is
+  on the stack top, so `arg0Type` names the comparer for the 2-argument form
+  and the array's type is `arg1Type`.
+
+### Contract evidence
+
+* new case `tests/cases/probe-tohashset`: oracle = runtime = **58B
+  sha 278e4d50**, 8 records -- int/long dedup + Contains, string default +
+  `StringComparer.OrdinalIgnoreCase` case-folded Count/Contains.
+* mutations (RED, restored GREEN to the same 58B sha):
+  * M7 skip the seeding switch -> 60B `9abfe952` ([c:] Count 3->0 silent);
+  * M8 the cmp entry ignores the comparer (seeds with the plain ctors) ->
+    59B `3c95e446` (silent wrong case-fold).
+* unit tests 4159/0/0; C0 0 warnings 0 errors; probe-cmpref/probe-cmpval/
+  probe-strcatint/probe-grpselect/linqgroup/probe-vtops/thenby3ref unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* ToHashSet over DateTime / TimeSpan / Guid / DateTimeOffset and over the
+  narrow / float elements stays LOUD -- the set domain ships no seeding ctor
+  for those families (they need new HashSet<T> families before the LINQ arm
+  can open).

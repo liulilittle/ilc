@@ -325,4 +325,14 @@ Il2CppObject* il2cpp_hashset_dec_get_enumerator(Il2CppObject* self);
 // Dispose icalls serve the result without a family-specific icall.
 Il2CppObject* il2cpp_hashset_generic_get_enumerator(Il2CppObject* self);
 
+// b5-gaps section 58: Enumerable.ToHashSet over a LINQ source array/List
+// (cell code = IL2CPP_LINQ_CELL_*). Allocates the shared set object, then
+// seeds it through the family's IEnumerable<T> enumerator-ctor (the `.ctor
+// (IEnumerable<T>)` contract). The `_cmp` twin carries a user IEqualityComparer
+// (the enum-comparer ctors exist for I4/U4/I8/D/Dec/Ref; everything else is
+// rejected loudly instead of appending raw-slot semantics).
+Il2CppObject* il2cpp_linq_to_hash_set(Il2CppArray* src, int32_t cell);
+Il2CppObject* il2cpp_linq_to_hash_set_cmp(Il2CppArray* src, Il2CppObject* cmp,
+                                          int32_t cell);
+
 } // namespace il2cpp

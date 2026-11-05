@@ -22,6 +22,7 @@
 
 #include "hashset.h"
 
+#include "linq_family.h"        // IL2CPP_LINQ_CELL_* (Enumerable.ToHashSet seed)
 #include "arraysort.h"          // il2cpp_ienum_* + FindVirtualSlotByNameAndSignature
 #include "sortedlist.h"         // il2cpp_sortedlist_snapshot_get_enumerator (generic dispatch)
 #include "decimal.h"            // Il2CppDecimal
@@ -2139,6 +2140,97 @@ Il2CppObject* il2cpp_hashset_generic_get_enumerator(Il2CppObject* self)
     Il2CppObject* snapObj = reinterpret_cast<Il2CppObject*>(snap);
     GcRoot<Il2CppObject*> sr(snapObj, "hashset_generic_enum_snapshot");
     return il2cpp::runtime::il2cpp_sortedlist_snapshot_get_enumerator(sr.Get());
+}
+
+//------------------------------------------------------------------------------
+// b5-gaps section 58: Enumerable.ToHashSet (see hashset.h). The element cell
+// code picks the family's IEnumerable<T> seeding ctor; the shared set object
+// is allocated and rooted before the seeding call (which runs the enumerator
+// and may allocate/compact).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_to_hash_set(Il2CppArray* src, int32_t cell)
+{
+    if (src == nullptr) il2cpp_throw_argument_null_exception("source");
+    Il2CppObject* set = il2cpp_object_new(il2cpp_hashset_class());
+    GcRoot<Il2CppObject*> r(set, "linq_to_hash_set");
+    switch (cell)
+    {
+        case IL2CPP_LINQ_CELL_SBYTE:
+        case IL2CPP_LINQ_CELL_BYTE:
+        case IL2CPP_LINQ_CELL_BOOL:
+        case IL2CPP_LINQ_CELL_SHORT:
+        case IL2CPP_LINQ_CELL_USHORT:
+        case IL2CPP_LINQ_CELL_CHAR:
+        case IL2CPP_LINQ_CELL_I4:
+            runtime::icall_hashset_int_ctor_enum(set, reinterpret_cast<Il2CppObject*>(src));
+            break;
+        case IL2CPP_LINQ_CELL_UINT:
+            runtime::icall_hashset_uint_ctor_enum(set, reinterpret_cast<Il2CppObject*>(src));
+            break;
+        case IL2CPP_LINQ_CELL_I8:
+            runtime::icall_hashset_long_ctor_enum(set, reinterpret_cast<Il2CppObject*>(src));
+            break;
+        case IL2CPP_LINQ_CELL_F:
+        case IL2CPP_LINQ_CELL_D:
+            runtime::icall_hashset_double_ctor_enum(set, reinterpret_cast<Il2CppObject*>(src));
+            break;
+        case IL2CPP_LINQ_CELL_DECIMAL:
+            runtime::icall_hashset_dec_ctor_enum(set, reinterpret_cast<Il2CppObject*>(src));
+            break;
+        case IL2CPP_LINQ_CELL_REF:
+            runtime::icall_hashset_ref_ctor_enum(set, reinterpret_cast<Il2CppObject*>(src));
+            break;
+        default:
+            il2cpp_throw_not_supported_exception(
+                "ToHashSet: this element family has no HashSet seeding ctor "
+                "(b5-gaps section 58: DateTime/TimeSpan/Guid/DateTimeOffset stay "
+                "LOUD; see docs/audit/b5-gaps.md).");
+            return nullptr; // unreachable (the factory throws)
+    }
+    return r.Get();
+}
+
+Il2CppObject* il2cpp_linq_to_hash_set_cmp(Il2CppArray* src, Il2CppObject* cmp,
+                                          int32_t cell)
+{
+    if (src == nullptr) il2cpp_throw_argument_null_exception("source");
+    if (cmp == nullptr) il2cpp_throw_argument_null_exception("comparer");
+    Il2CppObject* set = il2cpp_object_new(il2cpp_hashset_class());
+    GcRoot<Il2CppObject*> r(set, "linq_to_hash_set_cmp");
+    switch (cell)
+    {
+        case IL2CPP_LINQ_CELL_SBYTE:
+        case IL2CPP_LINQ_CELL_BYTE:
+        case IL2CPP_LINQ_CELL_BOOL:
+        case IL2CPP_LINQ_CELL_SHORT:
+        case IL2CPP_LINQ_CELL_USHORT:
+        case IL2CPP_LINQ_CELL_CHAR:
+        case IL2CPP_LINQ_CELL_I4:
+            runtime::icall_hashset_int_ctor_enum_comparer(set, reinterpret_cast<Il2CppObject*>(src), cmp);
+            break;
+        case IL2CPP_LINQ_CELL_UINT:
+            runtime::icall_hashset_uint_ctor_enum_comparer(set, reinterpret_cast<Il2CppObject*>(src), cmp);
+            break;
+        case IL2CPP_LINQ_CELL_I8:
+            runtime::icall_hashset_long_ctor_enum_comparer(set, reinterpret_cast<Il2CppObject*>(src), cmp);
+            break;
+        case IL2CPP_LINQ_CELL_F:
+        case IL2CPP_LINQ_CELL_D:
+            runtime::icall_hashset_double_ctor_enum_comparer(set, reinterpret_cast<Il2CppObject*>(src), cmp);
+            break;
+        case IL2CPP_LINQ_CELL_DECIMAL:
+            runtime::icall_hashset_dec_ctor_enum_comparer(set, reinterpret_cast<Il2CppObject*>(src), cmp);
+            break;
+        case IL2CPP_LINQ_CELL_REF:
+            runtime::icall_hashset_ref_ctor_enum_comparer(set, reinterpret_cast<Il2CppObject*>(src), cmp);
+            break;
+        default:
+            il2cpp_throw_not_supported_exception(
+                "ToHashSet: this element family has no comparer seeding ctor "
+                "(b5-gaps section 58).");
+            return nullptr; // unreachable (the factory throws)
+    }
+    return r.Get();
 }
 
 } // namespace il2cpp
