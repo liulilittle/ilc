@@ -5957,3 +5957,47 @@ registered these as the next deferred factories).
 * decimal / DateTime / TimeSpan / Guid / DateTimeOffset element-repeat
   cells (16-byte cells have no single-slot element carrier);
 * Enumerable.RepeatOfType is an internal net48 helper, not a public surface.
+## 70. SelectMany over bool/char/narrow non-array IEnumerable INNERS (IMPLEMENTED)
+
+Section 67 snapshot every inner except the narrow cells: bool/char/sbyte/
+byte/short/ushort `IEnumerable` inners were still a loud NotSupported block.
+With this change every element cell EXCEPT the 16-byte families
+(decimal/DateTime/TimeSpan/Guid/DateTimeOffset -- no ienum carrier)
+enumerates and snapshots.
+
+### Implementation
+
+* `SnapshotManyInner` (linq_family.cpp): the loud gate narrows to the
+  16-byte cells; a narrow inner snapshots through `get_current_i4` and is
+  written back at its own cell width (a 4-byte write corrupted the next
+  cell).
+* element kinds: `kElemKindS1/S2/U2/Bool` stamped by `LinqNewArray` so the
+  generic `string.Join<T>` formats Boolean[] elements as True/False and
+  Int16/UInt16 as decimal text (byte/char kept kind 0 -- elemSize already
+  formats them). `ReadAnyCompareKind` treats the narrow kinds exactly like
+  None so Array.Sort stays loud for 1/2-byte cells (it never reads them as
+  int64).
+* `ArrayEnumI4` unboxes a boxed narrow element (List<bool> is the boxed-list
+  domain) by its own klass name before falling back to
+  `icall_unbox_int32`.
+
+### Contract evidence
+
+* new case `tests/cases/probe-repeatnarrow`: oracle = runtime = **176B sha
+  65bb3c44**, 9 records -- bool/sbyte/char/short yield inners, byte inner
+  with GC.Collect inside the selector, empty inner, `List<bool>` inner, and
+  the 3-argument SelectMany over a `List<char>` inner.
+* mutations (silent-wrong, restored green):
+  * M34 the Boolean narrow write becomes always 0 -> [b.sm]/[b.gc]/
+    [list.bool] all False (silent);
+  * M35 the loud gate rejects SBYTE -> the sbyte inner aborts after the
+    first record (8 missing).
+* regression: probe-selectmany / probe-selectmany3 / probe-joincmpval /
+  probe-range / probe-repeatnarrow byte-identical.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 errors 0 warnings.
+
+### Registered-remaining (kept LOUD, measured)
+
+* 16-byte cells (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) as non-array
+  `IEnumerable` inners -- no ienum carrier;
+* source sequences of the 3-argument form stay array-only (D-2 guard).

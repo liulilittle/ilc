@@ -73,8 +73,12 @@ enum ArrayElemKind : int32_t
     // not a primitive scan shape) -- the recorded kind exists so the grouping
     // enumerator and the get_Current carriers can tell a 16-byte System.Decimal
     // cell from a 16-byte System.Guid cell (the widths are IDENTICAL).
-    kElemKindDecimal = 8,  // System.Decimal (16-byte cell)
-    kElemKindGuid = 9      // System.Guid (16-byte cell)
+kElemKindDecimal = 8,  // System.Decimal (16-byte cell)
+kElemKindGuid = 9,     // System.Guid (16-byte cell)
+kElemKindS1 = 10,      // System.SByte -- b5-gaps section 70: narrow Join<T>
+kElemKindS2 = 11,      // System.Int16 -- b5-gaps section 70: narrow Join<T>
+kElemKindU2 = 12,      // System.UInt16 -- b5-gaps section 70: narrow Join<T>
+kElemKindBool = 13     // System.Boolean -- b5-gaps section 70: narrow Join<T>
 };
 
 // Managed array: object header + length + element metadata + payload.

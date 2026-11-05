@@ -32,6 +32,7 @@
 #include "listi4.h"                    // il2cpp_list_i4_class (List<int> inners)
 
 #include "arraysort.h"                 // FindVirtualSlotByNameAndSignature
+#include "il2cpp_array.h"              // kElemKind* (b5-gaps section 70 narrow Join)
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
@@ -165,6 +166,14 @@ Il2CppArray* LinqNewArray(int32_t cell, int32_t length)
         case IL2CPP_LINQ_CELL_UINT: kind = 5; break;
         case IL2CPP_LINQ_CELL_DATETIME: kind = 6; break;
         case IL2CPP_LINQ_CELL_TIMESPAN: kind = 7; break;
+        // b5-gaps section 70: narrow families need distinct elemKinds so the
+        // generic string.Join<T> formats bool as True/False and Int16/UInt16
+        // as DECIMAL text rather than byte/char guesses (char keeps kind 0 --
+        // elemSize 2 already formats it as a code unit).
+        case IL2CPP_LINQ_CELL_BOOL:  kind = kElemKindBool; break;
+        case IL2CPP_LINQ_CELL_SBYTE: kind = kElemKindS1; break;
+        case IL2CPP_LINQ_CELL_SHORT: kind = kElemKindS2; break;
+        case IL2CPP_LINQ_CELL_USHORT: kind = kElemKindU2; break;
         default: kind = 0; break; // 1/2-byte + decimal + guid: elemSize decides
     }
     return il2cpp_array_new_typed(LinqCellSize(cell), kind, length);
@@ -1583,16 +1592,21 @@ Il2CppArray* SnapshotManyInner(Il2CppObject* inner, int32_t cell)
         }
         return il2cpp_linq_list_snapshot(inner, IL2CPP_LIST_KIND_I4);
     }
-    if (cell != IL2CPP_LINQ_CELL_REF && cell != IL2CPP_LINQ_CELL_I4 &&
-        cell != IL2CPP_LINQ_CELL_UINT && cell != IL2CPP_LINQ_CELL_I8 &&
-        cell != IL2CPP_LINQ_CELL_F && cell != IL2CPP_LINQ_CELL_D)
+    // b5-gaps section 70: the 16-byte cells (decimal / DateTime / TimeSpan /
+    // Guid / DateTimeOffset) and the DateTimeOffset cell have no ienum carrier;
+    // every other element family (narrow 0..5, uint/i4/i8, float/double and
+    // ref) enumerates below.
+    if (cell == IL2CPP_LINQ_CELL_DECIMAL || cell == IL2CPP_LINQ_CELL_DATETIME ||
+        cell == IL2CPP_LINQ_CELL_TIMESPAN || cell == IL2CPP_LINQ_CELL_GUID ||
+        cell == IL2CPP_LINQ_CELL_DTOFFSET)
     {
         il2cpp_throw_not_supported_exception(
-            "SelectMany: a non-array IEnumerable inner of this element family "
-            "is not wired (bool/char/narrow/decimal/DateTime/TimeSpan/Guid/"
-            "DateTimeOffset IEnumerable inners stay LOUD, b5-gaps section 67).");
+            "SelectMany: a non-array IEnumerable inner of the 16-byte element "
+            "family is not wired (decimal/DateTime/TimeSpan/Guid/DateTimeOffset "
+            "IEnumerable inners stay LOUD, b5-gaps section 70).");
         return nullptr;
     }
+
     Il2CppObject* en = il2cpp_ienum_get_enumerator(inner);
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&inner));
@@ -1648,6 +1662,38 @@ Il2CppArray* SnapshotManyInner(Il2CppObject* inner, int32_t cell)
             std::memcpy(&dv, &carriers[i], sizeof(dv));
             const float fv = static_cast<float>(dv);
             std::memcpy(LinqCellPtr(out, static_cast<int32_t>(i)), &fv, sizeof(float));
+        }
+    }
+    else if (cell == IL2CPP_LINQ_CELL_SBYTE || cell == IL2CPP_LINQ_CELL_BYTE ||
+             cell == IL2CPP_LINQ_CELL_BOOL || cell == IL2CPP_LINQ_CELL_SHORT ||
+             cell == IL2CPP_LINQ_CELL_USHORT || cell == IL2CPP_LINQ_CELL_CHAR)
+    {
+        // b5-gaps section 70: a narrow/char/bool enumerable inner snapshots
+        // into its own cell width (a 4-byte write would corrupt the next
+        // cell); net48's IEnumerator<T>.Current returns the narrowed value in
+        // an int32 register slot, so the narrowed bits round-trip exactly.
+        for (size_t i = 0; i < carriers.size(); ++i)
+        {
+            const int32_t iv = static_cast<int32_t>(carriers[i]);
+            char* dst = LinqCellPtr(out, static_cast<int32_t>(i));
+            switch (cell)
+            {
+            case IL2CPP_LINQ_CELL_SBYTE:
+                *reinterpret_cast<int8_t*>(dst) = static_cast<int8_t>(iv);
+                break;
+            case IL2CPP_LINQ_CELL_BYTE:
+                *reinterpret_cast<uint8_t*>(dst) = static_cast<uint8_t>(iv);
+                break;
+            case IL2CPP_LINQ_CELL_BOOL:
+                *reinterpret_cast<uint8_t*>(dst) = iv != 0 ? static_cast<uint8_t>(1) : static_cast<uint8_t>(0);
+                break;
+            case IL2CPP_LINQ_CELL_SHORT:
+                *reinterpret_cast<int16_t*>(dst) = static_cast<int16_t>(iv);
+                break;
+            default: // USHORT / CHAR
+                *reinterpret_cast<uint16_t*>(dst) = static_cast<uint16_t>(iv);
+                break;
+            }
         }
     }
     else

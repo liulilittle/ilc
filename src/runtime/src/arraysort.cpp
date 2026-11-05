@@ -4098,7 +4098,14 @@ namespace {
 int32_t ReadAnyCompareKind(const Il2CppArray* a)
 {
     if (a->isRefElem) return 0;
-    if (a->elemKind != kElemKindNone) return a->elemKind;
+    // b5-gaps section 70: the narrow families now carry distinct elemKinds
+    // (for generic Join<T> formatting), but they are NOT sortable kinds --
+    // feeding them through would dereference 1/2-byte cells as int64 below.
+    // Let them fall through to the stride check, which stays loud for 1/2-byte.
+    if (a->elemKind != kElemKindNone &&
+        a->elemKind != kElemKindS1 && a->elemKind != kElemKindS2 &&
+        a->elemKind != kElemKindU2 && a->elemKind != kElemKindBool)
+        return a->elemKind;
     // LOUD P0-01 follow-up (audit B, bool + IComparer probe): the old
     // fallback guessed "int32 for anything that is not 8 bytes", so a 1-byte
     // Boolean[] cell (also a 2-byte char[] or a 16-byte Decimal[]/Guid[]) was
@@ -4911,6 +4918,33 @@ int32_t ArrayEnumI4(Il2CppObject* self)
     if (arr->isRefElem)
     {
         Il2CppObject* boxed = reinterpret_cast<Il2CppObject* const*>(arr->data)[idx];
+        if (boxed == nullptr)
+        {
+            il2cpp_throw_null_reference_exception("Object reference not set to an instance of an object.");
+        }
+        // b5-gaps section 70: a boxed NARROW element (List<bool> etc.) unboxes
+        // by its own klass instead of forcing icall_unbox_int32 (which would
+        // raise InvalidCastException on a System.Boolean/SByte/Int16 box).
+        if (boxed->klass != nullptr)
+        {
+            const char* n = boxed->klass->name;
+            if (n != nullptr)
+            {
+                if (std::strcmp(n, "System.Boolean") == 0)
+                {
+                    const uint8_t bv = *reinterpret_cast<uint8_t*>(reinterpret_cast<char*>(boxed) + 8);
+                    return bv != 0 ? 1 : 0;
+                }
+                if (std::strcmp(n, "System.SByte") == 0)
+                    return static_cast<int32_t>(*reinterpret_cast<int8_t*>(reinterpret_cast<char*>(boxed) + 8));
+                if (std::strcmp(n, "System.Byte") == 0)
+                    return static_cast<int32_t>(*reinterpret_cast<uint8_t*>(reinterpret_cast<char*>(boxed) + 8));
+                if (std::strcmp(n, "System.Int16") == 0)
+                    return static_cast<int32_t>(*reinterpret_cast<int16_t*>(reinterpret_cast<char*>(boxed) + 8));
+                if (std::strcmp(n, "System.UInt16") == 0 || std::strcmp(n, "System.Char") == 0)
+                    return static_cast<int32_t>(*reinterpret_cast<uint16_t*>(reinterpret_cast<char*>(boxed) + 8));
+            }
+        }
         return runtime::icall_unbox_int32(boxed);
     }
     int32_t size = 0;

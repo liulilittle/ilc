@@ -128,6 +128,15 @@ Il2CppString* ValueArrayElement(Il2CppArray* array, int32_t index)
     case 7:
         return reinterpret_cast<Il2CppString*>(icall_timespan_to_string(
             Il2CppTimeSpan(*reinterpret_cast<const int64_t*>(base))));
+    case kElemKindS1:
+        return icall_int32_to_string(*reinterpret_cast<const int8_t*>(base));
+    case kElemKindS2:
+        return icall_int32_to_string(*reinterpret_cast<const int16_t*>(base));
+    case kElemKindU2:
+        return icall_uint32_to_string(static_cast<uint32_t>(
+            *reinterpret_cast<const uint16_t*>(base)));
+    case kElemKindBool:
+        return icall_bool_to_string(*reinterpret_cast<const uint8_t*>(base) != 0);
     default:
         break;
     }
