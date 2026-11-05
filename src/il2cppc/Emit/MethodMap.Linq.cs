@@ -273,18 +273,11 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),
                     appendLiterals: new[] { jOuter, jInner, jKey, jRes });
             }
-            // b5-gaps section 64: the IEqualityComparer<TKey> 6-argument form.
-            // Only REFERENCE TKey cells are wired (the comparer constraint);
-            // value-key comparer overloads stay LOUD.
-            if (jKey != "15")
-            {
-                throw new NotSupportedException(
-                    $"Enumerable.Join<{GenericArgTypeName(genArgs[0])}," +
-                    $"{GenericArgTypeName(genArgs[1])},{GenericArgTypeName(genArgs[2])}," +
-                    $"{GenericArgTypeName(genArgs[3])},comparer> is not wired: only " +
-                    "a reference TKey comparer overload binds (value-key comparer " +
-                    "overloads stay LOUD, b5-gaps section 64, docs/audit/b5-gaps.md).");
-            }
+            // b5-gaps section 64/66: the IEqualityComparer<TKey> 6-argument
+            // form binds REFERENCE TKeys (section 64) AND the value-key
+            // families with a comparer GetHashCode/Equals wiring (section 66:
+            // int32 / narrow / int64 / float / double). The runtime dispatches
+            // per-key-keycell.
             return I("il2cpp::il2cpp_linq_join_cmp", 6, true, true, false,
                 new[] { "a", "a", "", "", "", "" },
                 returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),
@@ -323,17 +316,10 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),
                     appendLiterals: new[] { gjOuter, gjInner, gjKey, gjRes });
             }
-            // b5-gaps section 65: the IEqualityComparer<TKey> 6-argument form
-            // over REFERENCE TKey cells only.
-            if (gjKey != "15")
-            {
-                throw new NotSupportedException(
-                    $"Enumerable.GroupJoin<{GenericArgTypeName(genArgs[0])}," +
-                    $"{GenericArgTypeName(genArgs[1])},{GenericArgTypeName(genArgs[2])}," +
-                    $"{GenericArgTypeName(genArgs[3])},comparer> is not wired: only a " +
-                    "reference TKey comparer overload binds (value-key comparer " +
-                    "overloads stay LOUD, b5-gaps section 65, docs/audit/b5-gaps.md).");
-            }
+            // b5-gaps section 65/66: the IEqualityComparer<TKey> 6-argument form
+            // binds REFERENCE TKeys (section 65) and the value-key families
+            // with a comparer GetHashCode/Equals wiring (section 66; see the
+            // Join comparer arm).
             return I("il2cpp::il2cpp_linq_group_join_cmp", 6, true, true, false,
                 new[] { "a", "a", "", "", "", "" },
                 returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),

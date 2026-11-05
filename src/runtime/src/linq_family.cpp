@@ -2755,6 +2755,75 @@ int32_t JoinCmpHashSlot(Il2CppObject* cmp, Il2CppObject* key)
     return JoinRefHash(key);
 }
 
+// The single-argument GetHashCode(T) slot fragment for a VALUE key cell
+// (mirrors LinqEqualsFragment in the section-57 value comparer dispatcher;
+// the key equality and the key hash MUST be same-source paired, section 64).
+const char* JoinValueHashFragment(int32_t keyCell)
+{
+    switch (keyCell)
+    {
+        case IL2CPP_LINQ_CELL_SBYTE:   return "(i1)";
+        case IL2CPP_LINQ_CELL_BYTE:    return "(u1)";
+        case IL2CPP_LINQ_CELL_BOOL:    return "(b)";
+        case IL2CPP_LINQ_CELL_SHORT:   return "(i2)";
+        case IL2CPP_LINQ_CELL_USHORT:  return "(u2)";
+        case IL2CPP_LINQ_CELL_CHAR:    return "(c)";
+        case IL2CPP_LINQ_CELL_UINT:
+        case IL2CPP_LINQ_CELL_I4:      return "(i)";
+        case IL2CPP_LINQ_CELL_I8:      return "(l)";
+        case IL2CPP_LINQ_CELL_F:       return "(f)";
+        case IL2CPP_LINQ_CELL_D:       return "(d)";
+        default:                       return nullptr;
+    }
+}
+
+// The comparer-mediated hash of a VALUE key carrier: calls the reflected
+// GetHashCode(T) slot with the per-family ABI (int64 for i8, double for
+// float/double, int32 everywhere else), so equal-under-the-comparer keys are
+// ALWAYS bucketed together. A comparer with no such slot is a loud error
+// (b5-gaps section 66: a silent bucket fallback could still be paired only
+// if the equality also fell back -- the section-64 rule).
+int32_t JoinCmpValueHashSlot(Il2CppObject* cmp, int32_t keyCell, int64_t carrier)
+{
+    const char* frag = JoinValueHashFragment(keyCell);
+    if (frag == nullptr)
+    {
+        char message[160];
+        std::snprintf(message, sizeof(message),
+                      "a user IEqualityComparer GetHashCode over this value key "
+                      "cell family is not wired (b5-gaps section 66).");
+        il2cpp_throw_not_supported_exception(message);
+        return 0;
+    }
+    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "GetHashCode", frag);
+    if (slot < 0 || cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
+        slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
+    {
+        char message[160];
+        std::snprintf(message, sizeof(message),
+                      "IEqualityComparer.GetHashCode dispatch: the comparer type "
+                      "has no reflected virtual GetHashCode(%s) slot (b5-gaps "
+                      "section 66).", frag);
+        il2cpp_throw_not_supported_exception(message);
+        return 0;
+    }
+    if (keyCell == IL2CPP_LINQ_CELL_I8)
+    {
+        typedef int32_t (*HFn8)(Il2CppObject*, int64_t);
+        return reinterpret_cast<HFn8>(cmp->klass->vtable[slot])(cmp, carrier);
+    }
+    if (keyCell == IL2CPP_LINQ_CELL_F || keyCell == IL2CPP_LINQ_CELL_D)
+    {
+        typedef int32_t (*HFnD)(Il2CppObject*, double);
+        double dv = 0.0;
+        std::memcpy(&dv, &carrier, sizeof(dv));
+        return reinterpret_cast<HFnD>(cmp->klass->vtable[slot])(cmp, dv);
+    }
+    typedef int32_t (*HFn4)(Il2CppObject*, int32_t);
+    return reinterpret_cast<HFn4>(cmp->klass->vtable[slot])(
+        cmp, static_cast<int32_t>(carrier));
+}
+
 bool JoinCmpEqDefault(Il2CppObject*, Il2CppObject* a, Il2CppObject* b)
 {
     return JoinRefEquals(a, b);
@@ -2847,11 +2916,26 @@ Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
     const int32_t k1o = Sel2ArgSlotOf(outerCell);
     const int32_t k2i = Sel2ArgSlotOf(innerCell);
     const int32_t rres = Sel2ArgSlotOf(resCell);
-    if (k1o < 0 || k2i < 0 || rres < 0 || keyCell != IL2CPP_LINQ_CELL_REF)
+    if (k1o < 0 || k2i < 0 || rres < 0)
     {
         il2cpp_throw_not_supported_exception(
-            "Enumerable.Join(comparer): only a REFERENCE TKey cell is wired "
-            "(value-key comparer overloads stay LOUD, b5-gaps section 64).");
+            "Enumerable.Join(comparer): a source / result cell has no line-2 "
+            "selector ABI (b5-gaps section 66).");
+        return nullptr;
+    }
+    // b5-gaps section 66: the comparer overload now also binds VALUE TKey
+    // cells (int32 / narrow / int64 / float / double). The key selectors
+    // return their value through the key-cell ABI slot, the comparer's
+    // reflected GetHashCode(T) bucket every equal-under-the-comparer key
+    // together, and the section-64 carrier/equality defaults serve a null
+    // comparer exactly like the section-62 plain kernels.
+    const int32_t kkey = Sel2ArgSlotOf(keyCell);
+    if (kkey < 0 || (keyCell != IL2CPP_LINQ_CELL_REF && JoinValueHashFragment(keyCell) == nullptr))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.Join(comparer): this TKey cell has no comparer "
+            "GetHashCode wiring (decimal/DateTime/TimeSpan/Guid/DateTimeOffset "
+            "comparer overloads stay LOUD, b5-gaps section 66).");
         return nullptr;
     }
     Il2CppDelegate* ok = reinterpret_cast<Il2CppDelegate*>(outerKeySel);
@@ -2864,6 +2948,7 @@ Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
         return nullptr;
     }
     const JoinCmpOps ops = JoinCmpOpsOf(cmp);
+    const bool refKey = keyCell == IL2CPP_LINQ_CELL_REF;
     const int32_t on = outer->length;
     const int32_t inn = inner->length;
 
@@ -2874,6 +2959,14 @@ Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
     roots.Add(reinterpret_cast<void**>(&ik));
     roots.Add(reinterpret_cast<void**>(&rs));
     roots.Add(reinterpret_cast<void**>(&cmp));
+
+    // b5-gaps section 66: a VALUE-key comparer buckets through the comparer's
+    // own GetHashCode(T) slot; equal-under-the-comparer keys are then
+    // guaranteed to share a bucket (the section-64 same-source-pair rule), and
+    // the equality check calls the comparer's Equals(T,T) slot. A null
+    // comparer keeps the section-62 carrier semantics untouched.
+    const Sel1Fn ike1 = kSel1[(kkey * 4 + k2i)];
+    const Sel1Fn oke1 = kSel1[(kkey * 4 + k1o)];
 
     size_t bucketCount = 0;
     std::vector<int32_t> buckets;
@@ -2899,7 +2992,6 @@ Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
                 "Insufficient memory to continue the execution of the program.");
             return nullptr;
         }
-        const Sel1Fn ike1 = kSel1[(3 * 4 + k2i)];
         for (int32_t j = 0; j < inn; ++j)
         {
             Sel2Arg a2;
@@ -2910,19 +3002,27 @@ Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
                 case 2: a2.d = LinqCellReadD(inner, j, innerCell); break;
                 default: a2.o = LinqCellReadRef(inner, j, innerCell); break;
             }
-            Il2CppObject* keyRef =
-                reinterpret_cast<Il2CppObject*>(ike1(ik, a2));
-            const int32_t h = ops.hash(ops.cmp, keyRef) & (static_cast<int32_t>(bucketCount) - 1);
+            const int64_t keyCarrier = ike1(ik, a2);
+            Il2CppObject* keyRef = refKey ? reinterpret_cast<Il2CppObject*>(keyCarrier) : nullptr;
+            const int32_t h = (refKey
+                    ? ops.hash(ops.cmp, keyRef)
+                    : (ops.cmp != nullptr
+                           ? JoinCmpValueHashSlot(ops.cmp, keyCell, keyCarrier)
+                           : JoinKeyHash(keyCarrier, nullptr, keyCell)))
+                & (static_cast<int32_t>(bucketCount) - 1);
             const size_t slotIdx = slots.size();
             JoinSlot slot;
             slot.next = buckets[h];
-            slot.key = 0;
+            slot.key = keyCarrier;
             slot.keyRef = keyRef;
             slot.innerIndex = j;
             try
             {
                 slots.push_back(slot);
-                keyRoots.push_back(keyRef);
+                if (refKey)
+                {
+                    keyRoots.push_back(keyRef);
+                }
             }
             catch (const std::bad_alloc&)
             {
@@ -2931,7 +3031,10 @@ Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
                     "Insufficient memory to continue the execution of the program.");
                 return nullptr;
             }
-            roots.Add(reinterpret_cast<void**>(&keyRoots[keyRoots.size() - 1]));
+            if (refKey)
+            {
+                roots.Add(reinterpret_cast<void**>(&keyRoots[keyRoots.size() - 1]));
+            }
             buckets[h] = static_cast<int32_t>(slotIdx);
         }
     }
@@ -2939,7 +3042,6 @@ Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
     std::vector<int32_t> pairs;
     if (inn > 0)
     {
-        const Sel1Fn oke1 = kSel1[(3 * 4 + k1o)];
         std::vector<int32_t> chain;
         for (int32_t i = 0; i < on; ++i)
         {
@@ -2951,13 +3053,26 @@ Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
                 case 2: a1.d = LinqCellReadD(outer, i, outerCell); break;
                 default: a1.o = LinqCellReadRef(outer, i, outerCell); break;
             }
-            Il2CppObject* keyRef =
-                reinterpret_cast<Il2CppObject*>(oke1(ok, a1));
-            const int32_t h = ops.hash(ops.cmp, keyRef) & (static_cast<int32_t>(bucketCount) - 1);
+            const int64_t keyCarrier = oke1(ok, a1);
+            Il2CppObject* keyRef = refKey ? reinterpret_cast<Il2CppObject*>(keyCarrier) : nullptr;
+            // The pairing guarantee mirrors pass 1 exactly: same hash source,
+            // same equality source, so the outer key finds exactly the inner
+            // keys the comparer says are equal.
+            const int32_t h = (refKey
+                    ? ops.hash(ops.cmp, keyRef)
+                    : (ops.cmp != nullptr
+                           ? JoinCmpValueHashSlot(ops.cmp, keyCell, keyCarrier)
+                           : JoinKeyHash(keyCarrier, nullptr, keyCell)))
+                & (static_cast<int32_t>(bucketCount) - 1);
             chain.clear();
             for (int32_t s = buckets[h]; s >= 0; s = slots[s].next)
             {
-                if (ops.eq(ops.cmp, keyRef, slots[s].keyRef))
+                bool eq = refKey
+                    ? ops.eq(ops.cmp, keyRef, slots[s].keyRef)
+                    : (ops.cmp != nullptr
+                           ? LinqValueEqualsCmpCell(ops.cmp, keyCell, keyCarrier, slots[s].key)
+                           : JoinKeyEquals(keyCarrier, nullptr, slots[s].key, nullptr, keyCell));
+                if (eq)
                 {
                     chain.push_back(slots[s].innerIndex);
                 }
@@ -3074,11 +3189,16 @@ Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
     const int32_t k1o = Sel2ArgSlotOf(outerCell);
     const int32_t k2i = Sel2ArgSlotOf(innerCell);
     const int32_t rres = Sel2ArgSlotOf(resCell);
-    if (k1o < 0 || k2i < 0 || rres < 0 || keyCell != IL2CPP_LINQ_CELL_REF)
+    // b5-gaps section 66: the comparer overload now also binds VALUE TKey
+    // cells (see the section-66 Join(comparer) notes -- same pairing rule).
+    const int32_t gjKey = Sel2ArgSlotOf(keyCell);
+    if (k1o < 0 || k2i < 0 || rres < 0 || gjKey < 0 ||
+        (keyCell != IL2CPP_LINQ_CELL_REF && JoinValueHashFragment(keyCell) == nullptr))
     {
         il2cpp_throw_not_supported_exception(
-            "Enumerable.GroupJoin(comparer): only a REFERENCE TKey cell is "
-            "wired (value-key comparer overloads stay LOUD, b5-gaps section 65).");
+            "Enumerable.GroupJoin(comparer): this TKey cell has no comparer "
+            "GetHashCode wiring (decimal/DateTime/TimeSpan/Guid/DateTimeOffset "
+            "comparer overloads stay LOUD, b5-gaps section 66).");
         return nullptr;
     }
     Il2CppDelegate* ok = reinterpret_cast<Il2CppDelegate*>(outerKeySel);
@@ -3091,6 +3211,7 @@ Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
         return nullptr;
     }
     const JoinCmpOps ops = JoinCmpOpsOf(cmp);
+    const bool refKey = keyCell == IL2CPP_LINQ_CELL_REF;
     const int32_t on = outer->length;
     const int32_t inn = inner->length;
 
@@ -3126,7 +3247,7 @@ Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
                 "Insufficient memory to continue the execution of the program.");
             return nullptr;
         }
-        const Sel1Fn ike1 = kSel1[(3 * 4 + k2i)];
+        const Sel1Fn ike1 = kSel1[(gjKey * 4 + k2i)];
         for (int32_t j = 0; j < inn; ++j)
         {
             Sel2Arg a2;
@@ -3137,19 +3258,27 @@ Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
                 case 2: a2.d = LinqCellReadD(inner, j, innerCell); break;
                 default: a2.o = LinqCellReadRef(inner, j, innerCell); break;
             }
-            Il2CppObject* keyRef =
-                reinterpret_cast<Il2CppObject*>(ike1(ik, a2));
-            const int32_t h = ops.hash(ops.cmp, keyRef) & (static_cast<int32_t>(bucketCount) - 1);
+            const int64_t keyCarrier = ike1(ik, a2);
+            Il2CppObject* keyRef = refKey ? reinterpret_cast<Il2CppObject*>(keyCarrier) : nullptr;
+            const int32_t h = (refKey
+                    ? ops.hash(ops.cmp, keyRef)
+                    : (ops.cmp != nullptr
+                           ? JoinCmpValueHashSlot(ops.cmp, keyCell, keyCarrier)
+                           : JoinKeyHash(keyCarrier, nullptr, keyCell)))
+                & (static_cast<int32_t>(bucketCount) - 1);
             const size_t slotIdx = slots.size();
             JoinSlot slot;
             slot.next = buckets[h];
-            slot.key = 0;
+            slot.key = keyCarrier;
             slot.keyRef = keyRef;
             slot.innerIndex = j;
             try
             {
                 slots.push_back(slot);
-                keyRoots.push_back(keyRef);
+                if (refKey)
+                {
+                    keyRoots.push_back(keyRef);
+                }
             }
             catch (const std::bad_alloc&)
             {
@@ -3158,7 +3287,10 @@ Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
                     "Insufficient memory to continue the execution of the program.");
                 return nullptr;
             }
-            roots.Add(reinterpret_cast<void**>(&keyRoots[keyRoots.size() - 1]));
+            if (refKey)
+            {
+                roots.Add(reinterpret_cast<void**>(&keyRoots[keyRoots.size() - 1]));
+            }
             buckets[h] = static_cast<int32_t>(slotIdx);
         }
     }
@@ -3166,7 +3298,7 @@ Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
     Il2CppArray* out = LinqNewArray(resCell, on);
     roots.Add(reinterpret_cast<void**>(&out));
     const Sel2Fn pick = kSel2[(rres * 4 + k1o) * 4 + 3];
-    const Sel1Fn oke1 = inn > 0 ? kSel1[(3 * 4 + k1o)] : nullptr;
+    const Sel1Fn oke1 = inn > 0 ? kSel1[(gjKey * 4 + k1o)] : nullptr;
     std::vector<int32_t> chain;
     for (int32_t i = 0; i < on; ++i)
     {
@@ -3181,13 +3313,23 @@ Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
                 case 2: a1.d = LinqCellReadD(outer, i, outerCell); break;
                 default: a1.o = LinqCellReadRef(outer, i, outerCell); break;
             }
-            Il2CppObject* keyRef =
-                reinterpret_cast<Il2CppObject*>(oke1(ok, a1));
-            const int32_t h = ops.hash(ops.cmp, keyRef) & (static_cast<int32_t>(bucketCount) - 1);
+            const int64_t keyCarrier = oke1(ok, a1);
+            Il2CppObject* keyRef = refKey ? reinterpret_cast<Il2CppObject*>(keyCarrier) : nullptr;
+            const int32_t h = (refKey
+                    ? ops.hash(ops.cmp, keyRef)
+                    : (ops.cmp != nullptr
+                           ? JoinCmpValueHashSlot(ops.cmp, keyCell, keyCarrier)
+                           : JoinKeyHash(keyCarrier, nullptr, keyCell)))
+                & (static_cast<int32_t>(bucketCount) - 1);
             chain.clear();
             for (int32_t s = buckets[h]; s >= 0; s = slots[s].next)
             {
-                if (ops.eq(ops.cmp, keyRef, slots[s].keyRef))
+                bool eq = refKey
+                    ? ops.eq(ops.cmp, keyRef, slots[s].keyRef)
+                    : (ops.cmp != nullptr
+                           ? LinqValueEqualsCmpCell(ops.cmp, keyCell, keyCarrier, slots[s].key)
+                           : JoinKeyEquals(keyCarrier, nullptr, slots[s].key, nullptr, keyCell));
+                if (eq)
                 {
                     chain.push_back(slots[s].innerIndex);
                 }

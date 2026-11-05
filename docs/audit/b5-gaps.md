@@ -5777,3 +5777,53 @@ closed: Join and GroupJoin each bind their 5-argument and (reference-key)
   family's GetHashCode/Equals slot wiring);
 * List/IEnumerable sources of any join form stay LOUD (D-2 guard);
   decimal/vt key cells have no line-2 selector ABI yet.
+## 66. VALUE-key IEqualityComparer Join/GroupJoin over array sources (IMPLEMENTED)
+
+The 6-argument Join/GroupJoin comparer overloads previously bound only
+REFERENCE TKey cells (sections 64/65). With this change the comparer forms
+also bind every value-key family that has a comparer GetHashCode slot:
+int32/uint, all narrow kinds, int64, float and double.
+
+### Implementation
+
+* `linq_family.cpp`:
+  * `JoinValueHashFragment`: the single-argument `GetHashCode(T)` slot
+    fragment per value cell, mirroring the section-57 `LinqEqualsFragment`
+    table (`(i1)`/`(u1)`/`(b)`/`(i2)`/`(u2)`/`(c)`/`(i)`/`(l)`/`(f)`/`(d)`).
+  * `JoinCmpValueHashSlot`: calls the comparer's reflected `GetHashCode(T)`
+    with the per-family ABI (int64 for i8, double for float/double, int32
+    otherwise); a comparer with no such slot fails loudly.
+  * `il2cpp_linq_join_cmp` / `il2cpp_linq_group_join_cmp` dispatch per
+    keyCell -- reference keys keep the section-64/65 ops pair, VALUE keys
+    bucket through the comparer's `GetHashCode(T)` and compare via the
+    section-57 `LinqValueEqualsCmpCell` (always same-source paired); a null
+    comparer keeps the section-62 carrier hash/equality.
+* `MethodMap.Linq.cs`: Join/GroupJoin comparer arms no longer throw for
+  value TKeys; they route with the keyCell literal and let the runtime
+  dispatch.
+
+### Contract evidence
+
+* new case `tests/cases/probe-joincmpval`: oracle = runtime = **270B sha
+  c2d15d66**, 7 records -- parity `IEqualityComparer<int>` (equal classes
+  span 1/3/5), a long comparer folding HIGH bits (would collapse under an
+  int32 ABI), a double floor comparer, GroupJoin parity ordering, a NULL
+  comparer (section-62 default), and a GC.Collect pact inside a result
+  selector.
+* mutations (all silent-wrong red, restored green):
+  * M25 join value comparer buckets through the DEFAULT value hash -> 5
+    records wrong (equal-under-comparer keys in different buckets miss);
+  * M26 group-join value comparer buckets through DEFAULT -> [gj] parity
+    groups empty/collapsed;
+  * M27 i8 GetHashCode slot invoked via int32 ABI -> [long] drops 2 of 5
+    matches.
+* shared `LinqValueEqualsCmpCell` stays guarded by section-57 M5/M6.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 warnings 0 errors;
+  probe-joincmp / probe-groupjoincmp / probe-join / probe-groupjoin /
+  probe-cmpval / probe-selectmany3 / probe-selectmany unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* decimal / DateTime / TimeSpan / Guid / DateTimeOffset VALUE-key comparer
+  overloads (no comparer `GetHashCode` slot wiring for 16-byte cells yet);
+* List/IEnumerable sources of any join form stay LOUD (D-2 guard).
