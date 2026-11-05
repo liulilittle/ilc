@@ -214,6 +214,20 @@ bool         il2cpp_linq_contains_value_cmp_d(Il2CppArray* src, double value,
 // section). The source / inner-element cells ride trailing literals.
 Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
                                      int32_t srcCell, int32_t resCell);
+
+// b5-gaps section 61: Enumerable.SelectMany(source, collectionSelector,
+// resultSelector) over ARRAY sources whose collectionSelector returns ARRAYS.
+// Pass 1 caches each inner (reserved vector + per-slot root, the section-59
+// shape); pass 2 invokes the TWO-argument resultSelector per (outer, inner)
+// pair through a pooled 64-entry ABI table (arg1 per srcCell, arg2 per
+// collCell -- i4/i8/double/reference slots; return width per resCell --
+// i4-family/i8/float/double/reference); pass 3 copies the collected carriers
+// into a fresh resCell array. Using a single erased int64 signature, the
+// table's callees sign-extend int32 results, keep int64 raw, and memcpy
+// double bit patterns, so the dispatch stays a clean indexed call.
+Il2CppArray* il2cpp_linq_select_many3(Il2CppArray* src, Il2CppObject* collSel,
+                                      Il2CppObject* resSel, int32_t srcCell,
+                                      int32_t collCell, int32_t resCell);
 bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
 bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
 bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);

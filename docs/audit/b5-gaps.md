@@ -5515,3 +5515,62 @@ single-`collectionSelector` form over List<T> sources now flattens.
   object before ToDictionary can seed faithfully. Next-round item.
 * SelectMany with IEnumerable inner collections / a 3-arg resultSelector
   still need the generic inner-enumeration infrastructure.
+## 61. Enumerable.SelectMany 3-arg (source, collectionSelector, resultSelector) over array sources (IMPLEMENTED)
+
+Section 59 registered "IEnumerable inner collections / a 3-arg resultSelector
+still need the generic inner-enumeration infrastructure". The ARRAY-inner
+3-arg case is now real; IEnumerable inners stay registered.
+
+### Implementation
+
+* `linq_family.cpp` / `linq_family.h`: `il2cpp_linq_select_many3(src, collSel,
+  resSel, srcCell, collCell, resCell)`:
+  1. a D-2 guard rejects a non-array source from the object descriptor
+     (`klass->name[0] == '['`) BEFORE any array-shaped read -- the 3-arg form
+     has no arg2Type hint, so the emitter casts the source unconditionally
+     and a mis-cast List would read its `_items` pointer as a length;
+  2. pass 1 caches the inner arrays in a RESERVED std::vector with PER-SLOT
+     static roots (the section-59/60 shape);
+  3. pass 2 invokes the TWO-ARGUMENT result selector through a pooled 64-entry
+     ABI table -- ONE erased signature `int64_t(Il2CppDelegate*, Sel2Arg,
+     Sel2Arg)` covers every (arg1 slot x arg2 slot x return width) combination
+     (int32 / int64 / double / reference slots; a double return rides its raw
+     bit pattern and an int32 return sign-extends, so the value write is
+     width-exact). Reference results collect in a rooted vector, bit-pattern
+     carriers in a plain vector;
+  4. pass 3 materializes the exact-size resCell array (reference slots through
+     the write barrier).
+* `MethodMap.Linq.cs`: the SelectMany arm adds the count==3 route -- source /
+  inner / result cell literals from genArgs[0..2], source rides the "a" cast,
+  result tracked as the TResult array. Unwired cells (decimal/vt have no
+  line-2 selector ABI) throw a self-identifying NotSupported.
+
+### Contract evidence
+
+* new case `tests/cases/probe-selectmany3`: oracle = runtime = **142B
+  sha 2f44ef49**, 7 records -- int-source/string-result, int/int,
+  int/string-inner, string/string pair shapes, empty source, empty inner
+  arrays, and exact-once collection/result selector counters with a
+  `GC.Collect(); WaitForPendingFinalizers(); GC.Collect();` inside the second
+  collection selector (proves the per-slot inner rooting survives compaction).
+* mutations RED -> restored GREEN:
+  * M14 swap the result-selector argument order -> runtime
+    ACCESS_VIOLATION (0B `e3b0c442`, 7/7 records missing) -- a cross-family
+    ABI mismatch dies loudly;
+  * M14b add 1 to the int32 materialization -> 142B `c9652506`, 1 record
+    SILENT wrong (`[ii]` 1111..1213 -> 1112..1214);
+  * M15 flip the source-array D-2 guard -> runtime exit=1, 0B, 7/7 records
+    missing.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 warnings 0 errors;
+  probe-selectmany / probe-selectmanylist / probe-castoftype /
+  probe-tohashset / probe-vtops / linqgroup / thenby3list unchanged.
+
+### Notes
+
+* net48 also ships an INDEXED 3-arg SelectMany (`collectionSelector` gains an
+  index parameter); probes must pin the overloads with explicit type
+  arguments or overload resolution is ambiguous.
+* registered-remaining (kept LOUD, measured): non-ARRAY inner collections
+  (IEnumerable) still need the generic enumeration; List/IEnumerable SOURCES
+  of the 3-arg form stay LOUD (rejected by the D-2 guard); decimal/vt cells
+  have no line-2 selector ABI yet.

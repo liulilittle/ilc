@@ -166,12 +166,40 @@ public static partial class MethodRefResolver
                 appendLiterals: new[] { cell! });
         }
 
-        // b5-gaps section 59: Enumerable.SelectMany(source, collectionSelector)
-        // over an ARRAY source. The source element cell (selector ABI) and the
-        // TResult cell ride trailing literals; the result array is tracked as
-        // the TResult array. List/other sources stay M5 (TryMapLinqList).
+        // b5-gaps sections 59/60/61: Enumerable.SelectMany.
+        //  - 2-arg (source, collectionSelector) over ARRAY sources
+        //    (il2cpp_linq_select_many) and List<T> sources
+        //    (il2cpp_linq_list_select_many, list-kind literal appended).
+        //  - 3-arg (source, collectionSelector, resultSelector) over ARRAY
+        //    sources (il2cpp_linq_select_many3; the source element cell, the
+        //    inner element cell and the TResult cell ride trailing literals).
+        //    There is no arg2Type hint for the source, so the runtime guards
+        //    array-ness from the object descriptor (klass name '[') BEFORE any
+        //    array-shaped read -- the D-2 guard for a mis-cast List receiver.
         if (name == "SelectMany")
         {
+            if (count == 3)
+            {
+                if (genArgs is not { Length: >= 3 }) return null;
+                string? smxSrc = LinqCellCodeOfElemByte(genArgs[0])
+                    ?? (IsRefFamilyByte(genArgs[0]) ? "15" : null);
+                string? smxColl = LinqCellCodeOfElemByte(genArgs[1])
+                    ?? (IsRefFamilyByte(genArgs[1]) ? "15" : null);
+                string? smxRes = LinqCellCodeOfElemByte(genArgs[2])
+                    ?? (IsRefFamilyByte(genArgs[2]) ? "15" : null);
+                if (smxSrc == null || smxColl == null || smxRes == null)
+                {
+                    throw new NotSupportedException(
+                        $"Enumerable.SelectMany<{GenericArgTypeName(genArgs[0])}," +
+                        $"{GenericArgTypeName(genArgs[1])},{GenericArgTypeName(genArgs[2])}> " +
+                        "is not wired: no selector ABI for a source / inner / result cell " +
+                        "(b5-gaps section 61, docs/audit/b5-gaps.md).");
+                }
+                return I("il2cpp::il2cpp_linq_select_many3", 3, true, true, false,
+                    new[] { "a", "", "" },
+                    returnTypeName: LinqArrayTypeNameExact(genArgs[2], genArgNames, 2),
+                    appendLiterals: new[] { smxSrc, smxColl, smxRes });
+            }
             if (genArgs is not { Length: >= 2 } || count != 2) return null;
             string? srcCell = LinqCellCodeOfElemByte(genArgs[0])
                 ?? (IsRefFamilyByte(genArgs[0]) ? "15" : null);

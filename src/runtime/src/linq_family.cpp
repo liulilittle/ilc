@@ -1652,4 +1652,386 @@ Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
     return out;
 }
 
+//------------------------------------------------------------------------------
+// b5-gaps section 61: Enumerable.SelectMany(source, collectionSelector,
+// resultSelector). The TWO-ARGUMENT result selector crosses the SOURCE cell
+// family (arg1) with the INNER element family (arg2) and returns into the
+// TResult slot width (int32 for the narrow/i4 cells, int64, double for
+// float/double, object for a reference). Every combination shares ONE erased
+// signature int64_t(Il2CppDelegate*, Sel2Arg, Sel2Arg); a double result rides
+// its raw bit pattern so the width-exact value write is lossless.
+//------------------------------------------------------------------------------
+namespace {
+
+union Sel2Arg
+{
+    int32_t       i4;
+    int64_t       i8;
+    double        d;
+    Il2CppObject* o;
+};
+
+typedef int64_t (*Sel2Fn)(Il2CppDelegate*, Sel2Arg, Sel2Arg);
+
+template<typename T>
+inline T Sel2Get(const Sel2Arg& a);
+template<> inline int32_t       Sel2Get<int32_t>(const Sel2Arg& a) { return a.i4; }
+template<> inline int64_t       Sel2Get<int64_t>(const Sel2Arg& a) { return a.i8; }
+template<> inline double        Sel2Get<double>(const Sel2Arg& a) { return a.d; }
+template<> inline Il2CppObject* Sel2Get<Il2CppObject*>(const Sel2Arg& a) { return a.o; }
+
+template<typename T>
+inline int64_t Sel2Erase(T v);
+template<> inline int64_t Sel2Erase<int32_t>(int32_t v) { return v; }
+template<> inline int64_t Sel2Erase<int64_t>(int64_t v) { return v; }
+template<> inline int64_t Sel2Erase<double>(double v)
+{
+    int64_t b = 0;
+    std::memcpy(&b, &v, sizeof(v));
+    return b;
+}
+template<> inline int64_t Sel2Erase<Il2CppObject*>(Il2CppObject* v)
+{
+    return reinterpret_cast<int64_t>(v);
+}
+
+#define S2_ARG_T_i4 int32_t
+#define S2_ARG_T_i8 int64_t
+#define S2_ARG_T_d double
+#define S2_ARG_T_o Il2CppObject*
+#define S2_RT_T_i4 int32_t
+#define S2_RT_T_i8 int64_t
+#define S2_RT_T_d double
+#define S2_RT_T_o Il2CppObject*
+
+#define IL2CPP_SEL2_IMPL(RT, A1, A2)                                                \
+    int64_t Sel2_##RT##_##A1##_##A2(Il2CppDelegate* d, Sel2Arg a1, Sel2Arg a2)      \
+    {                                                                                \
+        S2_RT_T_##RT r = d->target != nullptr                                 \
+            ? (reinterpret_cast<S2_RT_T_##RT (*)(Il2CppObject*, S2_ARG_T_##A1,       \
+                                                 S2_ARG_T_##A2)>(d->methodPtr))     \
+                  (d->target, Sel2Get<S2_ARG_T_##A1>(a1),                           \
+                              Sel2Get<S2_ARG_T_##A2>(a2))                          \
+            : (reinterpret_cast<S2_RT_T_##RT (*)(S2_ARG_T_##A1, S2_ARG_T_##A2)>(     \
+                  d->methodPtr))                                                    \
+                  (Sel2Get<S2_ARG_T_##A1>(a1), Sel2Get<S2_ARG_T_##A2>(a2));         \
+        return Sel2Erase(r);                                                         \
+    }
+
+#define IL2CPP_SEL2_16(RT)                                                            \
+    IL2CPP_SEL2_IMPL(RT, i4, i4) IL2CPP_SEL2_IMPL(RT, i4, i8)                         \
+    IL2CPP_SEL2_IMPL(RT, i4, d)  IL2CPP_SEL2_IMPL(RT, i4, o)                         \
+    IL2CPP_SEL2_IMPL(RT, i8, i4) IL2CPP_SEL2_IMPL(RT, i8, i8)                         \
+    IL2CPP_SEL2_IMPL(RT, i8, d)  IL2CPP_SEL2_IMPL(RT, i8, o)                         \
+    IL2CPP_SEL2_IMPL(RT, d, i4)  IL2CPP_SEL2_IMPL(RT, d, i8)                         \
+    IL2CPP_SEL2_IMPL(RT, d, d)   IL2CPP_SEL2_IMPL(RT, d, o)                          \
+    IL2CPP_SEL2_IMPL(RT, o, i4)  IL2CPP_SEL2_IMPL(RT, o, i8)                         \
+    IL2CPP_SEL2_IMPL(RT, o, d)   IL2CPP_SEL2_IMPL(RT, o, o)
+
+IL2CPP_SEL2_16(i4)
+IL2CPP_SEL2_16(i8)
+IL2CPP_SEL2_16(d)
+IL2CPP_SEL2_16(o)
+
+#undef IL2CPP_SEL2_IMPL
+#undef IL2CPP_SEL2_16
+
+#define S2K(RT, A1, A2) Sel2_##RT##_##A1##_##A2,
+#define S2R(RT)                                    \
+    S2K(RT, i4, i4) S2K(RT, i4, i8) S2K(RT, i4, d)  \
+    S2K(RT, i4, o)  S2K(RT, i8, i4) S2K(RT, i8, i8) \
+    S2K(RT, i8, d)  S2K(RT, i8, o)  S2K(RT, d, i4)  \
+    S2K(RT, d, i8)  S2K(RT, d, d)   S2K(RT, d, o)   \
+    S2K(RT, o, i4)  S2K(RT, o, i8)  S2K(RT, o, d)   \
+    S2K(RT, o, o)
+
+static const Sel2Fn kSel2[64] = {
+    S2R(i4)
+    S2R(i8)
+    S2R(d)
+    S2R(o)
+};
+
+#undef S2K
+#undef S2R
+#undef S2_ARG_T_i4
+#undef S2_ARG_T_i8
+#undef S2_ARG_T_d
+#undef S2_ARG_T_o
+#undef S2_RT_T_i4
+#undef S2_RT_T_i8
+#undef S2_RT_T_d
+#undef S2_RT_T_o
+
+// Slot codes: 0 int32, 1 int64, 2 double, 3 reference.
+int32_t Sel2ArgSlotOf(int32_t cell)
+{
+    switch (cell)
+    {
+        case IL2CPP_LINQ_CELL_SBYTE:
+        case IL2CPP_LINQ_CELL_BYTE:
+        case IL2CPP_LINQ_CELL_BOOL:
+        case IL2CPP_LINQ_CELL_SHORT:
+        case IL2CPP_LINQ_CELL_USHORT:
+        case IL2CPP_LINQ_CELL_CHAR:
+        case IL2CPP_LINQ_CELL_UINT:
+        case IL2CPP_LINQ_CELL_I4:
+            return 0;
+        case IL2CPP_LINQ_CELL_I8:
+            return 1;
+        case IL2CPP_LINQ_CELL_F:
+        case IL2CPP_LINQ_CELL_D:
+            return 2;
+        case IL2CPP_LINQ_CELL_REF:
+            return 3;
+        default:
+            return -1;
+    }
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_select_many3(Il2CppArray* src, Il2CppObject* collSel,
+                                      Il2CppObject* resSel, int32_t srcCell,
+                                      int32_t collCell, int32_t resCell)
+{
+    // D-2 guard: no arg2Type hint reaches the transpiler for the 3-argument
+    // form, so the emitter casts the source unconditionally -- a List here
+    // would read its _items pointer as a length. Reject non-array descriptors
+    // BEFORE any array-shaped read.
+    if (src == nullptr)
+    {
+        il2cpp_throw_not_supported_exception(
+            "SelectMany(source, collectionSelector, resultSelector): the source "
+            "is not a one-dimensional array (List/IEnumerable sources stay LOUD, "
+            "b5-gaps section 61).");
+        return nullptr;
+    }
+    Il2CppClass* srcClass = reinterpret_cast<Il2CppObject*>(src)->klass;
+    if (srcClass == nullptr || srcClass->name == nullptr || srcClass->name[0] != '[')
+    {
+        il2cpp_throw_not_supported_exception(
+            "SelectMany(source, collectionSelector, resultSelector): the source "
+            "is not a one-dimensional array (List/IEnumerable sources stay LOUD, "
+            "b5-gaps section 61).");
+        return nullptr;
+    }
+    LinqRequireCell(src, srcCell);
+    const int32_t k1 = Sel2ArgSlotOf(srcCell);
+    const int32_t k2 = Sel2ArgSlotOf(collCell);
+    const int32_t ret = Sel2ArgSlotOf(resCell);
+    if (k1 < 0 || k2 < 0 || ret < 0)
+    {
+        il2cpp_throw_not_supported_exception(
+            "SelectMany(source, collectionSelector, resultSelector): a "
+            "source / inner / result cell has no line-2 selector ABI "
+            "(b5-gaps section 61).");
+        return nullptr;
+    }
+    const Sel2Fn pick = kSel2[(ret * 4 + k1) * 4 + k2];
+    Il2CppDelegate* cd = reinterpret_cast<Il2CppDelegate*>(collSel);
+    Il2CppDelegate* rd = reinterpret_cast<Il2CppDelegate*>(resSel);
+    if (cd == nullptr || cd->methodPtr == nullptr || rd == nullptr ||
+        rd->methodPtr == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("selector");
+        return nullptr;
+    }
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&cd));
+    roots.Add(reinterpret_cast<void**>(&rd));
+
+    if (n == 0)
+    {
+        return LinqNewArray(resCell, 0);
+    }
+
+    // Pass 1: cache the inner arrays (reserved vector + per-slot root).
+    std::vector<Il2CppObject*> inners;
+    try
+    {
+        inners.reserve(static_cast<size_t>(n));
+    }
+    catch (const std::bad_alloc&)
+    {
+        il2cpp_throw_new(
+            "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+            "Insufficient memory to continue the execution of the program.");
+        return nullptr;
+    }
+    std::vector<int32_t> lens(static_cast<size_t>(n));
+    int64_t pairs = 0;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject* inner = nullptr;
+        switch (srcCell)
+        {
+            case IL2CPP_LINQ_CELL_SBYTE:
+            case IL2CPP_LINQ_CELL_BYTE:
+            case IL2CPP_LINQ_CELL_BOOL:
+            case IL2CPP_LINQ_CELL_SHORT:
+            case IL2CPP_LINQ_CELL_USHORT:
+            case IL2CPP_LINQ_CELL_CHAR:
+            case IL2CPP_LINQ_CELL_UINT:
+            case IL2CPP_LINQ_CELL_I4:
+                inner = InvokeSelManyI4(cd, LinqCellReadI4(src, i, srcCell));
+                break;
+            case IL2CPP_LINQ_CELL_I8:
+                inner = InvokeSelManyI8(cd, LinqCellReadI8(src, i, srcCell));
+                break;
+            case IL2CPP_LINQ_CELL_F:
+            case IL2CPP_LINQ_CELL_D:
+                inner = InvokeSelManyD(cd, LinqCellReadD(src, i, srcCell));
+                break;
+            case IL2CPP_LINQ_CELL_REF:
+                inner = InvokeSelManyRef(cd, LinqCellReadRef(src, i, srcCell));
+                break;
+            default:
+                il2cpp_throw_not_supported_exception(
+                    "SelectMany(source, collectionSelector, resultSelector): "
+                    "the source element family has no collection-selector ABI "
+                    "(b5-gaps section 61).");
+                return nullptr;
+        }
+        if (inner == nullptr)
+        {
+            il2cpp_throw_argument_null_exception(
+                "The collectionSelector returned a null sequence (b5-gaps section 61).");
+            return nullptr;
+        }
+        if (inner->klass == nullptr || inner->klass->name == nullptr ||
+            inner->klass->name[0] != '[')
+        {
+            il2cpp_throw_not_supported_exception(
+                "SelectMany(source, collectionSelector, resultSelector): the "
+                "collectionSelector returned a non-ARRAY inner (b5-gaps section 61).");
+            return nullptr;
+        }
+        Il2CppArray* ia = reinterpret_cast<Il2CppArray*>(inner);
+        inners.push_back(inner);
+        roots.Add(reinterpret_cast<void**>(&inners[inners.size() - 1]));
+        lens[i] = ia->length;
+        pairs += ia->length;
+    }
+    (void)pairs;
+
+    // Pass 2: collect the per-pair results (rooted vector for a reference
+    // result; int64 bit-pattern carriers otherwise).
+    std::vector<int64_t> carriers;
+    std::vector<Il2CppObject*> refs;
+    if (ret == 3)
+    {
+        try { refs.reserve(static_cast<size_t>(pairs)); }
+        catch (const std::bad_alloc&)
+        {
+            il2cpp_throw_new(
+                "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                "Insufficient memory to continue the execution of the program.");
+            return nullptr;
+        }
+    }
+    else
+    {
+        try { carriers.reserve(static_cast<size_t>(pairs)); }
+        catch (const std::bad_alloc&)
+        {
+            il2cpp_throw_new(
+                "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                "Insufficient memory to continue the execution of the program.");
+            return nullptr;
+        }
+    }
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Sel2Arg o1;
+        switch (k1)
+        {
+            case 0: o1.i4 = LinqCellReadI4(src, i, srcCell); break;
+            case 1: o1.i8 = LinqCellReadI8(src, i, srcCell); break;
+            case 2: o1.d = LinqCellReadD(src, i, srcCell); break;
+            default: o1.o = LinqCellReadRef(src, i, srcCell); break;
+        }
+        Il2CppArray* ia = reinterpret_cast<Il2CppArray*>(inners[i]);
+        for (int32_t j = 0; j < lens[i]; ++j)
+        {
+            Sel2Arg o2;
+            switch (k2)
+            {
+                case 0: o2.i4 = LinqCellReadI4(ia, j, collCell); break;
+                case 1: o2.i8 = LinqCellReadI8(ia, j, collCell); break;
+                case 2: o2.d = LinqCellReadD(ia, j, collCell); break;
+                default: o2.o = LinqCellReadRef(ia, j, collCell); break;
+            }
+            const int64_t r = pick(rd, o1, o2);
+            if (ret == 3)
+            {
+                Il2CppObject* result = reinterpret_cast<Il2CppObject*>(r);
+                refs.push_back(result);
+                roots.Add(reinterpret_cast<void**>(&refs[refs.size() - 1]));
+            }
+            else
+            {
+                carriers.push_back(r);
+            }
+        }
+    }
+
+    // Pass 3: materialize the exact-size result array.
+    const size_t count = ret == 3 ? refs.size() : carriers.size();
+    Il2CppArray* out = LinqNewArray(resCell, static_cast<int32_t>(count));
+    roots.Add(reinterpret_cast<void**>(&out));
+    if (ret == 3)
+    {
+        for (size_t w = 0; w < refs.size(); ++w)
+        {
+            char* dst = LinqCellPtr(out, static_cast<int32_t>(w));
+            Il2CppObject* v = refs[w];
+            *reinterpret_cast<Il2CppObject**>(dst) = v;
+            il2cpp_write_barrier(reinterpret_cast<void**>(dst), v);
+        }
+        return out;
+    }
+    for (size_t w = 0; w < carriers.size(); ++w)
+    {
+        char* dst = LinqCellPtr(out, static_cast<int32_t>(w));
+        const int64_t v = carriers[w];
+        switch (resCell)
+        {
+            case IL2CPP_LINQ_CELL_SBYTE:
+            case IL2CPP_LINQ_CELL_BYTE:
+            case IL2CPP_LINQ_CELL_BOOL:
+            case IL2CPP_LINQ_CELL_SHORT:
+            case IL2CPP_LINQ_CELL_USHORT:
+            case IL2CPP_LINQ_CELL_CHAR:
+            case IL2CPP_LINQ_CELL_UINT:
+            case IL2CPP_LINQ_CELL_I4:
+            {
+                const int32_t i4 = static_cast<int32_t>(v);
+                std::memcpy(dst, &i4, sizeof(i4));
+                break;
+            }
+            case IL2CPP_LINQ_CELL_I8:
+                std::memcpy(dst, &v, sizeof(int64_t));
+                break;
+            case IL2CPP_LINQ_CELL_F:
+            {
+                double dv = 0.0;
+                std::memcpy(&dv, &v, sizeof(dv));
+                const float fv = static_cast<float>(dv);
+                std::memcpy(dst, &fv, sizeof(fv));
+                break;
+            }
+            case IL2CPP_LINQ_CELL_D:
+                std::memcpy(dst, &v, sizeof(double));
+                break;
+            default:
+                break;
+        }
+    }
+    return out;
+}
+
 } // namespace il2cpp
