@@ -5827,3 +5827,56 @@ int32/uint, all narrow kinds, int64, float and double.
 * decimal / DateTime / TimeSpan / Guid / DateTimeOffset VALUE-key comparer
   overloads (no comparer `GetHashCode` slot wiring for 16-byte cells yet);
 * List/IEnumerable sources of any join form stay LOUD (D-2 guard).
+## 67. SelectMany with non-array IEnumerable INNERS over array sources (IMPLEMENTED)
+
+The 2-argument and 3-argument `Enumerable.SelectMany` previously required the
+collectionSelector to return an ARRAY inner; a `yield` iterator, a `List<T>`
+or any other `IEnumerable` element sequence was rejected with a loud
+NotSupported. With this change the inner is normalized into its element
+array so every enumerable inner binds.
+
+### Implementation
+
+* `linq_family.cpp` `SnapshotManyInner(inner, cell)`:
+  * an array inner passes through unchanged;
+  * the int32 List domain (the ONLY non-boxed list storage) snapshots via
+    `il2cpp_linq_list_snapshot(inner, IL2CPP_LIST_KIND_I4)` after a klass
+    match through `il2cpp_list_i4_class()`;
+  * any other `IEnumerable` is enumerated through the shared
+    `il2cpp_ienum_*` surface (`get_enumerator` -> `move_next` -> per-cell
+    `get_current` -> `dispose`) and materialized into a fresh LINQ cell
+    array; the enumerator is the GC root of every Current value during the
+    loop, and refs are written into the out array only AFTER the loop.
+  * cells without an ienum carrier (bool / char / narrow, decimal,
+    DateTime/TimeSpan/Guid/DateTimeOffset) stay loud and self-identifying.
+* both SelectMany forms normalize their inner through it -- the 2-arg form
+  with the result cell (TResult IS the inner element), the 3-arg form with
+  the collection cell; `list_select_many` delegates the array kernel and
+  inherits the same inner support.
+
+### Contract evidence
+
+* new case `tests/cases/probe-selectmanyseq`: oracle = runtime = **232B sha
+  321d3b21**, 11 records -- a `yield` string iterator, an int `yield` helper,
+  a `List<int>` inner, a double `yield` helper, a char[] inner, int[]/long[]
+  array inners, the 3-argument form over a yield inner AND a `List<int>`
+  inner, and a GC.Collect pact inside the second collection selector.
+* mutations:
+  * M28 enumeration loop collapses to false -> every enumerable inner
+    materializes EMPTY (silent-wrong; array inners unaffected);
+  * M29 the `List<int>` klass branch is dropped -> `List<int>` falls into
+    `get_enumerator`, which has no int-list snapshot route: runtime abort
+    after 2 records (form-2 red).
+* section-59/60/61 anchors probe-selectmany (61B `38b882bab`) /
+  probe-selectmanylist (121B `ddd6a93e`) / probe-selectmany3 (142B
+  `2f44ef49`) byte-identical.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 warnings 0 errors.
+
+### Registered-remaining (kept LOUD, measured)
+
+* bool / char / narrow + decimal / DateTime / TimeSpan / Guid /
+  DateTimeOffset `IEnumerable` inners (no ienum carrier for those cells);
+* source sequences of the 3-arg form stay array-only (D-2 guard);
+* List-of-bool/char/narrow inners could be added with a cell->list-kind table
+  (they map to the boxed list domain today, so the ref snapshot route keeps
+  them LOUD).

@@ -28,6 +28,8 @@
 //------------------------------------------------------------------------------
 
 #include "linq_family.h"
+#include "linq_list.h"                 // il2cpp_linq_list_snapshot (List<int> inners)
+#include "listi4.h"                    // il2cpp_list_i4_class (List<int> inners)
 
 #include "arraysort.h"                 // FindVirtualSlotByNameAndSignature
 #include "il2cpp_delegate.h"
@@ -1545,6 +1547,120 @@ Il2CppObject* InvokeSelManyRef(Il2CppDelegate* d, Il2CppObject* o)
 
 } // namespace
 
+//------------------------------------------------------------------------------
+// b5-gaps section 67: SnapshotManyInner -- normalize a SelectMany INNER
+// sequence into its element array. An array inner returns itself; any other
+// IEnumerable (a List<T>, a `yield` iterator, a LINQ pipeline result, ...)
+// is enumerated through the shared il2cpp_ienum_* surface and materialized
+// into a fresh LINQ cell array. The element cell selects the get_Current
+// carrier; the enumerator object is the GC root of every current value during
+// the loop (the state machine holds its Current field), and the ref carriers
+// are only written into the out array AFTER the loop ends, so no allocation
+// can move them while held. Grid cells without a ienum carrier stay LOUD.
+//------------------------------------------------------------------------------
+Il2CppArray* SnapshotManyInner(Il2CppObject* inner, int32_t cell)
+{
+    if (inner == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("inner");
+        return nullptr;
+    }
+    if (inner->klass != nullptr && inner->klass->name != nullptr &&
+        inner->klass->name[0] == '[')
+    {
+        return reinterpret_cast<Il2CppArray*>(inner);
+    }
+    // b5-gaps section 67: the int32 List domain has its own unboxed storage, so
+    // snapshot it directly (a shared to-array accessor for that class).
+    if (inner->klass == il2cpp_list_i4_class())
+    {
+        if (cell != IL2CPP_LINQ_CELL_I4 && cell != IL2CPP_LINQ_CELL_UINT)
+        {
+            il2cpp_throw_not_supported_exception(
+                "SelectMany: an int List inner was bound to a non-int element "
+                "cell (b5-gaps section 67).");
+            return nullptr;
+        }
+        return il2cpp_linq_list_snapshot(inner, IL2CPP_LIST_KIND_I4);
+    }
+    if (cell != IL2CPP_LINQ_CELL_REF && cell != IL2CPP_LINQ_CELL_I4 &&
+        cell != IL2CPP_LINQ_CELL_UINT && cell != IL2CPP_LINQ_CELL_I8 &&
+        cell != IL2CPP_LINQ_CELL_F && cell != IL2CPP_LINQ_CELL_D)
+    {
+        il2cpp_throw_not_supported_exception(
+            "SelectMany: a non-array IEnumerable inner of this element family "
+            "is not wired (bool/char/narrow/decimal/DateTime/TimeSpan/Guid/"
+            "DateTimeOffset IEnumerable inners stay LOUD, b5-gaps section 67).");
+        return nullptr;
+    }
+    Il2CppObject* en = il2cpp_ienum_get_enumerator(inner);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&inner));
+    roots.Add(reinterpret_cast<void**>(&en));
+    std::vector<int64_t> carriers;
+    std::vector<Il2CppObject*> refs;
+    while (il2cpp_ienum_move_next(en))
+    {
+        if (cell == IL2CPP_LINQ_CELL_REF)
+        {
+            refs.push_back(il2cpp_ienum_get_current_ref(en));
+        }
+        else if (cell == IL2CPP_LINQ_CELL_I8 || cell == IL2CPP_LINQ_CELL_D ||
+                 cell == IL2CPP_LINQ_CELL_F)
+        {
+            const double dv = il2cpp_ienum_get_current_d(en);
+            int64_t c = 0;
+            std::memcpy(&c, &dv, sizeof(c));
+            carriers.push_back(c);
+        }
+        else
+        {
+            carriers.push_back(static_cast<int64_t>(il2cpp_ienum_get_current_i4(en)));
+        }
+    }
+    il2cpp_ienum_dispose(en);
+
+    Il2CppArray* out = LinqNewArray(
+        cell, static_cast<int32_t>(carriers.size() + refs.size()));
+    if (cell == IL2CPP_LINQ_CELL_REF)
+    {
+        for (size_t i = 0; i < refs.size(); ++i)
+        {
+            char* dst = LinqCellPtr(out, static_cast<int32_t>(i));
+            Il2CppObject* v = refs[i];
+            *reinterpret_cast<Il2CppObject**>(dst) = v;
+            il2cpp_write_barrier(reinterpret_cast<void**>(dst), v);
+        }
+    }
+    else if (cell == IL2CPP_LINQ_CELL_I8 || cell == IL2CPP_LINQ_CELL_D)
+    {
+        for (size_t i = 0; i < carriers.size(); ++i)
+        {
+            std::memcpy(LinqCellPtr(out, static_cast<int32_t>(i)),
+                        &carriers[i], 8);
+        }
+    }
+    else if (cell == IL2CPP_LINQ_CELL_F)
+    {
+        for (size_t i = 0; i < carriers.size(); ++i)
+        {
+            double dv = 0.0;
+            std::memcpy(&dv, &carriers[i], sizeof(dv));
+            const float fv = static_cast<float>(dv);
+            std::memcpy(LinqCellPtr(out, static_cast<int32_t>(i)), &fv, sizeof(float));
+        }
+    }
+    else
+    {
+        for (size_t i = 0; i < carriers.size(); ++i)
+        {
+            const int32_t iv = static_cast<int32_t>(carriers[i]);
+            std::memcpy(LinqCellPtr(out, static_cast<int32_t>(i)), &iv, sizeof(int32_t));
+        }
+    }
+    return out;
+}
+
 Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
                                      int32_t srcCell, int32_t resCell)
 {
@@ -1621,16 +1737,17 @@ Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
                 "The collectionSelector returned a null sequence (b5-gaps section 59).");
             return nullptr;
         }
-        if (inner->klass == nullptr || inner->klass->name == nullptr ||
-            inner->klass->name[0] != '[')
+        // b5-gaps section 67: normalize the inner into its element array -- an
+        // array inner passes through, any other IEnumerable is enumerated and
+        // materialized by SnapshotManyInner (the element cell is resCell: the
+        // 2-argument TResult is the inner element).
+        const int32_t innerCell = resCell;
+        Il2CppArray* ia = SnapshotManyInner(inner, innerCell);
+        if (ia == nullptr)
         {
-            il2cpp_throw_not_supported_exception(
-                "SelectMany: the collectionSelector returned a non-ARRAY inner "
-                "(b5-gaps section 59: List/IEnumerable inners stay LOUD).");
             return nullptr;
         }
-        Il2CppArray* ia = reinterpret_cast<Il2CppArray*>(inner);
-        inners.push_back(inner);
+        inners.push_back(reinterpret_cast<Il2CppObject*>(ia));
         roots.Add(reinterpret_cast<void**>(&inners[inners.size() - 1]));
         lens[i] = ia->length;
         total += ia->length;
@@ -1902,16 +2019,15 @@ Il2CppArray* il2cpp_linq_select_many3(Il2CppArray* src, Il2CppObject* collSel,
                 "The collectionSelector returned a null sequence (b5-gaps section 61).");
             return nullptr;
         }
-        if (inner->klass == nullptr || inner->klass->name == nullptr ||
-            inner->klass->name[0] != '[')
+        // b5-gaps section 67: normalize the inner into its element array via
+        // the collection element cell (the 3-argument form separates the inner
+        // element cell from the TResult cell).
+        Il2CppArray* ia = SnapshotManyInner(inner, collCell);
+        if (ia == nullptr)
         {
-            il2cpp_throw_not_supported_exception(
-                "SelectMany(source, collectionSelector, resultSelector): the "
-                "collectionSelector returned a non-ARRAY inner (b5-gaps section 61).");
             return nullptr;
         }
-        Il2CppArray* ia = reinterpret_cast<Il2CppArray*>(inner);
-        inners.push_back(inner);
+        inners.push_back(reinterpret_cast<Il2CppObject*>(ia));
         roots.Add(reinterpret_cast<void**>(&inners[inners.size() - 1]));
         lens[i] = ia->length;
         pairs += ia->length;
