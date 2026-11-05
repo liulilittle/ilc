@@ -297,7 +297,8 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         // cell literal layout mirrors Join.
         if (name == "GroupJoin")
         {
-            if (genArgs is not { Length: >= 4 } || count != 5) return null;
+            if (genArgs is not { Length: >= 4 }) return null;
+            if (count != 5 && count != 6) return null;
             string? gjOuter = LinqCellCodeOfElemByte(genArgs[0])
                 ?? (IsRefFamilyByte(genArgs[0]) ? "15" : null);
             string? gjInner = LinqCellCodeOfElemByte(genArgs[1])
@@ -315,8 +316,26 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     "for a source / key / result element (b5-gaps section 63, " +
                     "docs/audit/b5-gaps.md).");
             }
-            return I("il2cpp::il2cpp_linq_group_join", 5, true, true, false,
-                new[] { "a", "a", "", "", "" },
+            if (count == 5)
+            {
+                return I("il2cpp::il2cpp_linq_group_join", 5, true, true, false,
+                    new[] { "a", "a", "", "", "" },
+                    returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),
+                    appendLiterals: new[] { gjOuter, gjInner, gjKey, gjRes });
+            }
+            // b5-gaps section 65: the IEqualityComparer<TKey> 6-argument form
+            // over REFERENCE TKey cells only.
+            if (gjKey != "15")
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.GroupJoin<{GenericArgTypeName(genArgs[0])}," +
+                    $"{GenericArgTypeName(genArgs[1])},{GenericArgTypeName(genArgs[2])}," +
+                    $"{GenericArgTypeName(genArgs[3])},comparer> is not wired: only a " +
+                    "reference TKey comparer overload binds (value-key comparer " +
+                    "overloads stay LOUD, b5-gaps section 65, docs/audit/b5-gaps.md).");
+            }
+            return I("il2cpp::il2cpp_linq_group_join_cmp", 6, true, true, false,
+                new[] { "a", "a", "", "", "", "" },
                 returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),
                 appendLiterals: new[] { gjOuter, gjInner, gjKey, gjRes });
         }

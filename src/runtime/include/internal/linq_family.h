@@ -269,6 +269,16 @@ Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
                                   Il2CppObject* resSel, Il2CppObject* cmp,
                                   int32_t outerCell, int32_t innerCell,
                                   int32_t keyCell, int32_t resCell);
+
+// b5-gaps section 65: Enumerable.GroupJoin(..., IEqualityComparer<TKey>)
+// over ARRAY sources with REFERENCE TKeys -- the comparer-supported twin of
+// section 63, using the section-64 comparer ops pair and the section-63
+// group materialization.
+Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
+                                        Il2CppObject* outerKeySel, Il2CppObject* innerKeySel,
+                                        Il2CppObject* resSel, Il2CppObject* cmp,
+                                        int32_t outerCell, int32_t innerCell,
+                                        int32_t keyCell, int32_t resCell);
 bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
 bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
 bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);

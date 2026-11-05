@@ -5734,3 +5734,46 @@ GroupJoin comparer twins stay registered.
   GetHashCode/Equals slot wiring) and the GroupJoin comparer twins;
 * List/IEnumerable sources of the comparer form stay LOUD (D-2 guard);
   decimal/vt key cells have no line-2 selector ABI yet.
+## 65. Enumerable.GroupJoin(IEqualityComparer<TKey>) over array sources, reference TKeys (IMPLEMENTED)
+
+The 6-argument GroupJoin with an `IEqualityComparer<TKey>` was the remaining
+comparer twin registered at section 64. With this the join family is fully
+closed: Join and GroupJoin each bind their 5-argument and (reference-key)
+6-argument forms over array sources.
+
+### Implementation
+
+* `linq_family.cpp` / `linq_family.h`:
+  `il2cpp_linq_group_join_cmp(..., cmp, ...)`: the section-64 comparer ops
+  pair (`JoinCmpOpsOf`) drives the TKey hashing and equality; the section-63
+  group materialization (fresh innerCell group array per outer element in
+  inner insertion order, exact outer-length result array, result selector
+  once per outer) is reused unchanged. Requires a REFERENCE TKey cell;
+  anything else throws a self-identifying NotSupported.
+* `MethodMap.Linq.cs`: the GroupJoin arm accepts count==6 (with comparer)
+  beside count==5; the comparer form requires `gjKey == "15"` and routes to
+  `il2cpp_linq_group_join_cmp` with the comparer on the sixth `""` cast.
+
+### Contract evidence
+
+* new case `tests/cases/probe-groupjoincmp`: oracle = runtime = **82B
+  sha 087ce093**, 5 records -- StringComparer.OrdinalIgnoreCase groups with a
+  `GC.Collect(); WaitForPendingFinalizers(); GC.Collect();` inside the second
+  result selector, a CUSTOM `IEqualityComparer<string>` group count, a
+  duplicate-key GROUP ORDER record (a/A both match "A" in inner order), and an
+  empty group.
+* mutations:
+  * M24 emit the group in head order -> 82B `7b5f6bd8`, 1 record SILENT wrong
+    (`[dup]` A.a.A -> A.A.a);
+  * the shared `JoinCmpOpsOf` classification decisions stay guarded by the
+    section-64 M21/M23 silent mutations (same function serves both paths).
+* unit tests 4159/0/0; C0 `--no-incremental` 0 warnings 0 errors;
+  probe-groupjoin / probe-join / probe-joincmp / probe-selectmany3 /
+  probe-selectmanylist / probe-tohashset / linqgroup unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* the Join/GroupJoin comparer overloads over VALUE TKeys (needs the value
+  family's GetHashCode/Equals slot wiring);
+* List/IEnumerable sources of any join form stay LOUD (D-2 guard);
+  decimal/vt key cells have no line-2 selector ABI yet.
