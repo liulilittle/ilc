@@ -5076,6 +5076,26 @@ Il2CppArray* il2cpp_linq_list_then_by_key_vt(Il2CppObject* list, Il2CppObject* k
     return il2cpp_linq_then_by_key_vt(snap, k1, k2, k1Desc, k2Desc, kind, k1Fam, k2Fam);
 }
 
+// b5-gaps section 51: the value-struct LIST chain (List<DateTime> /
+// List<TimeSpan> / List<Guid> / List<DateTimeOffset> Chained ThenBy). The list
+// is snapped ONCE at the value-struct element kind (13..16 -- the same code the
+// array chain takes as srcKind) and the ARRAY vt chain kernel does the
+// level-by-level key phase.
+Il2CppArray* il2cpp_linq_list_then_by_chain_vt(Il2CppObject* list,
+                                               Il2CppObject* k1, Il2CppObject* k2,
+                                               Il2CppObject* k3, Il2CppObject* k4,
+                                               int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                               int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                               int32_t kind)
+{
+    RequireList(list);
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_then_by_chain_vt(snap, k1, k2, k3, k4,
+                                        d1, d2, d3, d4, f1, f2, f3, f4, kind);
+}
+
 // impl-vtsel: GroupBy over a value-struct list. The old entry snapshotted
 // through IL2CPP_LIST_KIND_I4 unconditionally (a 4-byte read of every 8/16-byte
 // cell), so the family must come from the caller.

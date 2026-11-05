@@ -481,4 +481,17 @@ Il2CppArray* il2cpp_linq_then_by_chain_dec(Il2CppArray* src,
                                           int32_t d1, int32_t d2, int32_t d3, int32_t d4,
                                           int32_t f1, int32_t f2, int32_t f3, int32_t f4);
 
+// b5-gaps section 51: the VALUE-STRUCT-source chained ThenBy. Source element
+// family = trailing srcKind literal (13 DateTime / 14 TimeSpan / 15 Guid /
+// 16 DateTimeOffset); per-level key families are LinqVtKeyFamilyCode 0..7
+// (int32/int64/double/float/DateTime/Guid/TimeSpan/DateTimeOffset). The result
+// is a fresh array of the SOURCE element family. A family outside 0..7 is a
+// LOUD rejection.
+Il2CppArray* il2cpp_linq_then_by_chain_vt(Il2CppArray* src,
+                                         Il2CppObject* k1, Il2CppObject* k2,
+                                         Il2CppObject* k3, Il2CppObject* k4,
+                                         int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                         int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                         int32_t srcKind);
+
 } // namespace il2cpp

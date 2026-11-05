@@ -3540,6 +3540,162 @@ Il2CppArray* SortVtElemDispatch(Il2CppArray* src, Il2CppDelegate* d, bool desc,
     return SortVtElemKeyFam<Src>(src, d, desc, elemSize, elemKind, keyFam);
 }
 
+// b5-gaps section 51: the VALUE-STRUCT-source chained ThenBy. Like the decimal
+// chain, a per-level key cell must hold every key family the source can
+// produce -- the vt families are 0=int32, 1=int64, 2=double, 3=float,
+// 4=DateTime, 5=Guid, 6=TimeSpan, 7=DateTimeOffset. The element is crossed BY
+// VALUE (VtElemAccess<Src>) and the result is a fresh array of the SAME
+// element family (a DateTime[]/TimeSpan[]/Guid[]/DateTimeOffset[]).
+struct LkVtChainKey
+{
+    int64_t i;                            // families 0 / 1 (int32 / int64)
+    double d;                             // family 2 (double)
+    float f;                              // family 3 (float)
+    runtime::Il2CppDateTime dt;           // family 4 (DateTime)
+    Il2CppGuid guid;                      // family 5 (Guid)
+    runtime::Il2CppTimeSpan ts;           // family 6 (TimeSpan)
+    runtime::Il2CppDateTimeOffset dto;    // family 7 (DateTimeOffset)
+};
+
+template <typename Src>
+void ReadLkVtChainKey(Src elem, int32_t fam, Il2CppDelegate* d, LkVtChainKey& out)
+{
+    switch (fam)
+    {
+    case 0: out.i = static_cast<int64_t>(InvokeKeyVtI4<Src>(d, elem)); break;
+    case 1: out.i = InvokeKeyVtI8<Src>(d, elem); break;
+    case 2: out.d = InvokeKeyVtD<Src>(d, elem); break;
+    case 3: out.f = InvokeKeyVtF<Src>(d, elem); break;
+    case 4: out.dt = InvokeKeyVtDt<Src>(d, elem); break;
+    case 5: out.guid = InvokeKeyVtGuid<Src>(d, elem); break;
+    case 6: out.ts = InvokeKeyVtTs<Src>(d, elem); break;
+    case 7: out.dto = InvokeKeyVtDto<Src>(d, elem); break;
+    default:
+        il2cpp_throw_not_supported_exception(
+            "Chained ThenBy: unknown value-struct-source key family.");
+        break;
+    }
+}
+
+int32_t CmpLkVtChainKey(const LkVtChainKey& a, const LkVtChainKey& b, int32_t fam)
+{
+    switch (fam)
+    {
+    case 0: return CmpKeyValue<int32_t>(static_cast<int32_t>(a.i), static_cast<int32_t>(b.i));
+    case 1: return CmpKeyValue<int64_t>(a.i, b.i);
+    case 2: return CmpKeyValue<double>(a.d, b.d);
+    case 3: return CmpKeyValue<float>(a.f, b.f);
+    case 4: return CmpDateTimeKey(a.dt, b.dt);
+    case 5: return CmpGuidKey(a.guid, b.guid);
+    case 6: return CmpTimeSpanKey(a.ts, b.ts);
+    case 7: return CmpDtoKey(a.dto, b.dto);
+    default: return 0;
+    }
+}
+
+// The value-struct-source chain level-count validator: families 0..7.
+int32_t LkVtChainLevelCount(const int32_t* fams, int32_t maxLevels)
+{
+    int32_t used = 0;
+    for (int32_t l = 0; l < maxLevels; ++l)
+    {
+        if (fams[l] < 0)
+        {
+            break;
+        }
+        if (fams[l] > 7)
+        {
+            il2cpp_throw_not_supported_exception(
+                "Chained ThenBy: only the value-struct-source key families (int32/int64/"
+                "double/float/DateTime/Guid/TimeSpan/DateTimeOffset) are wired.");
+        }
+        ++used;
+    }
+    return used;
+}
+
+template <typename Src>
+Il2CppArray* SortVtChainCopyT(Il2CppArray* src, int32_t nkeys, Il2CppDelegate** sels,
+                              const int32_t* descs, const int32_t* fams,
+                              int32_t elemSize, int32_t elemKind)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        roots.Add(reinterpret_cast<void**>(&sels[l]));
+    }
+
+    if (n <= 0)
+    {
+        return il2cpp_array_new_typed(elemSize, elemKind, 0);
+    }
+
+    std::vector<Src> elems(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i) elems[i] = VtElemAccess<Src>::Read(src, i);
+
+    std::vector<LkVtChainKey> keys(static_cast<size_t>(n) * static_cast<size_t>(nkeys));
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        LkVtChainKey* level = keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            ReadLkVtChainKey(elems[i], fams[l], sels[l], level[i]);
+        }
+    }
+
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i) order[i] = i;
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        for (int32_t l = 0; l < nkeys; ++l)
+                        {
+                            const LkVtChainKey* level =
+                                keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+                            const int32_t c = CmpLkVtChainKey(level[a], level[b], fams[l]);
+                            if (c != 0)
+                            {
+                                return descs[l] != 0 ? -c : c;
+                            }
+                        }
+                        return 0;
+                    });
+
+    Il2CppArray* result = il2cpp_array_new_typed(elemSize, elemKind, n);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        VtElemAccess<Src>::Write(result, i, elems[order[i]]);
+    }
+    return result;
+}
+
+Il2CppArray* SortVtChainDispatch(Il2CppArray* src, int32_t nkeys, Il2CppDelegate** sels,
+                                 const int32_t* descs, const int32_t* fams,
+                                 int32_t srcKind)
+{
+    int32_t elemSize = 0;
+    int32_t elemKind = kElemKindNone;
+    VtElemCellOf(srcKind, elemSize, elemKind);
+    switch (srcKind)
+    {
+        case 13: return SortVtChainCopyT<runtime::Il2CppDateTime>(
+            src, nkeys, sels, descs, fams, elemSize, elemKind);
+        case 14: return SortVtChainCopyT<runtime::Il2CppTimeSpan>(
+            src, nkeys, sels, descs, fams, elemSize, elemKind);
+        case 15: return SortVtChainCopyT<Il2CppGuid>(
+            src, nkeys, sels, descs, fams, elemSize, elemKind);
+        case 16: return SortVtChainCopyT<runtime::Il2CppDateTimeOffset>(
+            src, nkeys, sels, descs, fams, elemSize, elemKind);
+        default:
+            il2cpp_throw_not_supported_exception(
+                "Chained ThenBy over a value-struct source: unknown element family.");
+            return nullptr;
+    }
+}
+
 } // namespace
 
 Il2CppArray* il2cpp_linq_order_by_key_vt(Il2CppArray* src, Il2CppObject* keySel,
@@ -3700,6 +3856,30 @@ Il2CppArray* SortVtElemTwoKeysFam(Il2CppArray* src, Il2CppDelegate* d1,
 }
 
 } // namespace
+
+// b5-gaps section 51: the VALUE-STRUCT-source chained ThenBy. The source
+// element family is the appended srcKind literal (13 DateTime / 14 TimeSpan /
+// 15 Guid / 16 DateTimeOffset); the per-level key families are 0..7
+// (LinqVtKeyFamilyCode). Result is a fresh array of the SOURCE element family.
+Il2CppArray* il2cpp_linq_then_by_chain_vt(Il2CppArray* src,
+                                         Il2CppObject* k1, Il2CppObject* k2,
+                                         Il2CppObject* k3, Il2CppObject* k4,
+                                         int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                         int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                         int32_t srcKind)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    int32_t fams[4] = { f1, f2, f3, f4 };
+    const int32_t nkeys = LkVtChainLevelCount(fams, 4);
+    Il2CppObject* raw[4] = { k1, k2, k3, k4 };
+    Il2CppDelegate* sels[4] = { nullptr, nullptr, nullptr, nullptr };
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        sels[l] = RequireKeySelector(raw[l]);
+    }
+    const int32_t descs[4] = { d1, d2, d3, d4 };
+    return SortVtChainDispatch(s, nkeys, sels, descs, fams, srcKind);
+}
 
 Il2CppArray* il2cpp_linq_then_by_key_vt(Il2CppArray* src, Il2CppObject* k1Sel,
                                         Il2CppObject* k2Sel, int32_t k1Desc,

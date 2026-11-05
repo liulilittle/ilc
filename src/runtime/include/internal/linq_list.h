@@ -835,6 +835,16 @@ Il2CppArray* il2cpp_linq_list_then_by_key_vt(Il2CppObject* list, Il2CppObject* k
                                              Il2CppObject* k2, int32_t k1Desc,
                                              int32_t k2Desc, int32_t kind,
                                              int32_t k1Fam, int32_t k2Fam);
+// b5-gaps section 51: the value-struct LIST chain (List<DateTime> /
+// List<TimeSpan> / List<Guid> / List<DateTimeOffset> Chained ThenBy). The list
+// is snapped ONCE at the value-struct element kind (13..16 -- the same code the
+// array chain takes as srcKind); per-level key families are 0..7.
+Il2CppArray* il2cpp_linq_list_then_by_chain_vt(Il2CppObject* list,
+                                               Il2CppObject* k1, Il2CppObject* k2,
+                                               Il2CppObject* k3, Il2CppObject* k4,
+                                               int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                               int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                               int32_t kind);
 // impl-vtsel: GroupBy over a List with an EXPLICIT snapshot family (the
 // pre-existing entry always snapshotted through the int32 kind).
 Il2CppObject* il2cpp_linq_list_group_by_full_kind(Il2CppObject* list,

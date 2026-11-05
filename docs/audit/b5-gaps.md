@@ -4819,8 +4819,98 @@ decimal[] result, source list never written.
 
 ### Still not covered
 
-* a chain over `List<value-struct>` besides decimal (DateTime/TimeSpan/Guid
-  sources have the 2-key `_vt` composite but no chain entry);
 * a decimal chain deeper than four levels (unchanged from §44);
 * a decimal-source GroupBy-bucket chain (the `grp_dec` composite exists but the
   chase loop only seeds from the plain decimal OrderBy entries).
+
+## 51. Chained `ThenBy` over value-struct sources (DateTime/TimeSpan/Guid/DateTimeOffset) (IMPLEMENTED)
+
+§44/§45/§46/§47/§49/§50 chained the numeric, reference and decimal element
+sources; the VALUE-STRUCT element sources (System.DateTime / System.TimeSpan /
+System.Guid / System.DateTimeOffset arrays and Lists) had only the 2-key fused
+composite (`then_by_key_vt` / `list_then_by_key_vt`). A THREE-level chain
+(`ds.OrderBy(k1).ThenBy(k2).ThenBy(k3)` over a DateTime[] source) died in the
+fold with the same "receiver does not name an OrderBy(keySelector) assignment"
+-- `ChainLevelsOf` did not recognise the `_vt` composite as a chainable prior,
+so the third level had no extend path.
+
+The vt source is its own domain: the element crosses BY VALUE to every
+selector (`VtElemAccess<Src>::Read/Write`), the four element families are
+srcKind 13..16 (DateTime/TimeSpan/Guid/DateTimeOffset), and the key families
+are `LinqVtKeyFamilyCode` 0..7 (int32/int64/double/float/DateTime/Guid/
+TimeSpan/DateTimeOffset).
+
+### Measured net48 contract (oracle: the case's own oracle run, `thenbyvtchain`)
+
+`DateTime[].OrderBy(k1).ThenBy(k2).ThenBy(k3)`,
+`List<DateTime>.OrderBy(k1).ThenBy(k2)...` and the TimeSpan-source analogues
+behave like every other EnumerableSorter chain: level-by-level exactly-once
+selector invocation, tuple-ordered comparison with per-level direction, stable
+merge, fresh array of the SOURCE element family, source never written.
+
+### Implementation
+
+* `linq_sort.cpp` / `.h`:
+  * `LkVtChainKey` cell (i/d/f/dt/guid/ts/dto) + `ReadLkVtChainKey<Src>`
+    (dispatch the eight vt families through the `InvokeKeyVt*<Src>` ABI) +
+    `CmpLkVtChainKey` (the eight comparators incl. `CmpDateTimeKey` /
+    `CmpGuidKey` / `CmpTimeSpanKey` / `CmpDtoKey`) + `LkVtChainLevelCount`
+    (families 0..7).
+  * `SortVtChainCopyT<Src>` mirrors the decimal chain kernel (element snapshot
+    via `VtElemAccess`, level-by-level exactly-once key phase, stable index
+    merge, fresh typed array of the SOURCE family) + `SortVtChainDispatch`
+    (srcKind 13..16). The helpers live in the vt-domain anonymous namespace
+    AFTER the element accessors (the decimal chain helpers worked in the first
+    anonymous namespace because the decimal ABI is self-contained -- the vt
+    ABI needs `InvokeKeyVt*`/`VtElemAccess` defined below it).
+  * `il2cpp_linq_then_by_chain_vt` -- the array vt chain entry (srcKind as
+    the trailing literal).
+* `linq_list.cpp` / `.h`: `il2cpp_linq_list_then_by_chain_vt` -- snap the List
+  ONCE at the vt element kind (13..16), delegate to the array vt chain kernel.
+* `StackFold.cs`:
+  * `VtArrayPrimarySeed` / `VtListPrimarySeed` parse the single
+    `il2cpp_linq_order_by_key_vt` / `list_order_by_key_vt` entry by its
+    literal table [desc, srcKind, keyFam] (these are the FIRST vt seeds that
+    are name-independent -- the entry name holds no family).
+  * `ChainLevelsOf` / `ChainSourceSuffix` recognise `then_by_chain_vt` /
+    `list_then_by_chain_vt`; the chain build picks them, validates family 0..7
+    (`vtChain` gate), carries the srcKind as the ninth literal on both the
+    array and list forms (on extend, re-read from the prior chain's ninth
+    literal), and returns the SOURCE element family type name (from the seed's
+    return type).
+  * `MethodMap`'s existing vt OrderBy/ThenBy arms already emit the
+    `order_by_key_vt` entry and the ThenBy combine marker with the secondary
+    key family literal -- only the fold needed the new seed + suffix support.
+
+### Contract evidence
+
+* new case `tests/cases/thenbyvtchain`: oracle = runtime = **939B
+  `f5c9391b...`**, 8 records (vt3.ymd / vt3.desc / vt3.dt2 / vt3.tskey --
+  DateTime[] 3-level mixed directions + a TimeSpan secondary key; vt3.list /
+  vt2.list -- List<DateTime> chains; vt3.ts / vt3.tsdesc -- a TimeSpan[]
+  source, srcKind 14), bytes identical.
+* mutations (all RED, restored GREEN to the same sha):
+  * M1 `ReadLkVtChainKey` family 0 storing the int32 key into `.d` instead of
+    `.i` -> 939B `2628778b` (all five DateTime records flipped -- the int
+    primary reader is exercised on both array and list paths), restored;
+  * M2 `VtArrayPrimarySeed` ignoring the primary direction -> 939B `f28e92a8`
+    (vt3.desc flipped -- the descendants primary propagates), restored;
+  * M3 `CmpLkVtChainKey` family 6 comparing negated TimeSpan ticks -> 939B
+    `bf9aa5fd` (vt3.tskey flipped -- the TimeSpan secondary key comparator is
+    observable), restored.
+* unchanged: `probe-vtsel` 605B `3f83afa1`, `thenbydecchain` 376B `b2edbdbe`,
+  `thenby-decfkey` 537B `afc01112`, `thenby3` 585B `2ead0372`, `thenby3list`
+  262B `bda750a6`, `thenbywide-list` 380B `bcdf6722`, `thenbywide-elem` 560B
+  `f0676c0c`, `orderwide-elem` 648B `94eb7f3e`, `linqorder2` 779B `6a72ece6`,
+  `p0linq4` `14b4b964`, `collation1` 1356B `90013e33`, `thenbyfamprobe`,
+  `thenbydescprobe`, `thenby-refkey` `1f21013d`, `thenby-floatprobe`; unit
+  tests 4155/0/0; C0 0 warnings 0 errors.
+
+### Still not covered
+
+* a Guid source / DateTimeOffset source chain, and DateTime/Guid/DateTimeOffset
+  KEY families in a chain (the `CmpLkVtChainKey`/`ReadLkVtChainKey` arms 4/5/7
+  are structurally identical to the armed 0/6 columns, but no case exercises
+  them yet);
+* a chain over a value-struct source deeper than four levels (unchanged from
+  §44).

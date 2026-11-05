@@ -5837,6 +5837,68 @@ public static class StackFold
                 sel = call.Args[1];
                 return true;
             }
+            // b5-gaps section 51: a VALUE-STRUCT-element array OrderBy primary (single
+            // runtime entry il2cpp_linq_order_by_key_vt distinguished by its
+            // literal table [desc, srcKind, keyFam]). The chain seed's primary
+            // key family is the keyFam literal (0..7); srcKind (13..16) is
+            // carried through to the array vt chain entry. A user struct (no
+            // by-value cell ABI) never reaches here -- MethodMap's
+            // IsLinqValueTypeSource gate.
+            static bool VtArrayPrimarySeed(CallExpr call, out Expr src,
+                out Expr sel, out string desc, out string priFam, out string srcKind)
+            {
+                src = null!;
+                sel = null!;
+                desc = "0";
+                priFam = "";
+                srcKind = "";
+                var name = call.Resolved?.CppName;
+                if (name != "il2cpp::il2cpp_linq_order_by_key_vt") return false;
+                if (call.Args.Count != 2) return false;
+                var lit = call.Resolved!.AppendLiterals;
+                if (lit is not { Length: >= 3 }) return false;
+                if (lit[0] is not ("0" or "1")) return false;
+                if (lit[1] is not ("13" or "14" or "15" or "16")) return false;
+                priFam = lit[2];
+                if (int.TryParse(priFam, out var pf) == false || pf < 0 || pf > 7)
+                    return false;
+                desc = lit[0];
+                srcKind = lit[1];
+                src = call.Args[0];
+                sel = call.Args[1];
+                return true;
+            }
+            // b5-gaps section 51: the VALUE-STRUCT-element List<T> OrderBy
+            // primary (il2cpp_linq_list_order_by_key_vt with literals
+            // [desc, kind, keyFam] -- the kind literal is the value-struct
+            // element kind 13..16).
+            static bool VtListPrimarySeed(CallExpr call, out Expr src,
+                out Expr sel, out string desc, out string priFam, out string srcKind,
+                out string listKind)
+            {
+                src = null!;
+                sel = null!;
+                desc = "0";
+                priFam = "";
+                srcKind = "";
+                listKind = "";
+                var name = call.Resolved?.CppName;
+                if (name != "il2cpp::il2cpp_linq_list_order_by_key_vt") return false;
+                if (call.Args.Count != 2) return false;
+                var lit = call.Resolved!.AppendLiterals;
+                if (lit is not { Length: >= 3 }) return false;
+                if (lit[0] is not ("0" or "1")) return false;
+                if (lit[1] is not ("13" or "14" or "15" or "16")) return false;
+                priFam = lit[2];
+                if (int.TryParse(priFam, out var pf) == false || pf < 0 || pf > 7)
+                    return false;
+                desc = lit[0];
+                srcKind = lit[1];
+                listKind = lit[1];
+                src = call.Args[0];
+                sel = call.Args[1];
+                return true;
+            }
             static bool ChainLevelsOf(CallExpr call, out List<string> descs,
                 out List<string> fams, out List<Expr> selectors, out string? listKind)
             {
@@ -5851,12 +5913,14 @@ public static class StackFold
                     or "il2cpp::il2cpp_linq_then_by_chain_f"
                     or "il2cpp::il2cpp_linq_then_by_chain_d"
                     or "il2cpp::il2cpp_linq_then_by_chain_dec"
+                    or "il2cpp::il2cpp_linq_then_by_chain_vt"
                     or "il2cpp::il2cpp_linq_then_by_chain_ref"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_i4"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_ref"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_d"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_f"
-                    or "il2cpp::il2cpp_linq_list_then_by_chain_dec")
+                    or "il2cpp::il2cpp_linq_list_then_by_chain_dec"
+                    or "il2cpp::il2cpp_linq_list_then_by_chain_vt")
                 {
                     var lits = call.Resolved!.AppendLiterals;
                     if (lits is not { Length: 8 or 9 }) return false;
@@ -5930,6 +5994,7 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 if (name.EndsWith("list_then_by_chain_d", StringComparison.Ordinal)) return "list_d";
                 if (name.EndsWith("list_then_by_chain_f", StringComparison.Ordinal)) return "list_f";
                 if (name.EndsWith("list_then_by_chain_dec", StringComparison.Ordinal)) return "list_dec";
+                if (name.EndsWith("list_then_by_chain_vt", StringComparison.Ordinal)) return "list_vt";
                 if (name.EndsWith("list_then_by_key_i4", StringComparison.Ordinal)) return "list_i4";
                 if (name.EndsWith("list_then_by_key_ref", StringComparison.Ordinal)) return "list_ref";
                 if (name.EndsWith("then_by_chain_ref", StringComparison.Ordinal)) return "ref";
@@ -5937,6 +6002,7 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 if (name.EndsWith("then_by_chain_f", StringComparison.Ordinal)) return "f";
                 if (name.EndsWith("then_by_chain_d", StringComparison.Ordinal)) return "d";
                 if (name.EndsWith("then_by_chain_dec", StringComparison.Ordinal)) return "dec";
+                if (name.EndsWith("then_by_chain_vt", StringComparison.Ordinal)) return "vt";
                 if (name.EndsWith("then_by_chain_i4", StringComparison.Ordinal)) return "i4";
                 if (name.EndsWith("then_by_key_val_i8", StringComparison.Ordinal)) return "i8";
                 if (name.EndsWith("then_by_key_val_i4", StringComparison.Ordinal)) return "i4";
@@ -5978,6 +6044,12 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 // List<decimal> source). The entry name carries the decimal key
                 // family and the suffix becomes "dec" (array) / "list_dec".
                 string? decSrcFam = null;
+                // b5-gaps section 51: a VALUE-STRUCT-element seed (a
+                // DateTime/TimeSpan/Guid/DateTimeOffset array or List source).
+                // The single vt OrderBy entry is distinguished by its literal
+                // table; the suffix becomes "vt" (array) / "list_vt" and the
+                // source element kind literal carries through to the chain.
+                string vtSrcKind = "";
                 for (var si = stmts.Count - 1; si >= 0; --si)
                 {
                     if (stmts[si] is not AssignStmt cand || cand.Target != chase) continue;
@@ -6042,6 +6114,33 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                         listWideSeed = true;
                         break;
                     }
+                    if (cand.Value is CallExpr candVt
+                        && VtArrayPrimarySeed(candVt, out var vs, out var vk, out var vd, out var vp, out var vsk))
+                    {
+                        chainIndex = si;
+                        seedSrc = vs;
+                        seedSel = vk;
+                        seedDesc = vd;
+                        decSrcFam = "vt";
+                        widePriFam = vp;
+                        vtSrcKind = vsk;
+                        break;
+                    }
+                    if (cand.Value is CallExpr candVtList
+                        && VtListPrimarySeed(candVtList, out var vls, out var vlk,
+                            out var vld, out var vlp, out var vlsk, out var vlkind))
+                    {
+                        chainIndex = si;
+                        seedSrc = vls;
+                        seedSel = vlk;
+                        seedDesc = vld;
+                        decSrcFam = "list_vt";
+                        widePriFam = vlp;
+                        vtSrcKind = vlsk;
+                        seedKind = vlkind;
+                        listWideSeed = true;
+                        break;
+                    }
                     if (cand.Value is CallExpr candChain && ChainLevelsOf(candChain, out _, out _, out _, out _)
                         && ChainSourceSuffix(candChain) != null)
                     {
@@ -6070,6 +6169,18 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                         : wideSrcFam != null ? wideSrcFam
                         : "list_i4"
                         : ChainSourceSuffix(prevChain)!;
+                    // b5-gaps section 51: extending an existing VALUE-STRUCT
+                    // chain (a 4th level over a vt source): the 9th trailing
+                    // literal of the prior chain call is the source element
+                    // kind (13..16), which the rebuilt chain must carry again.
+                    if (!seedShape && (suffix == "vt" || suffix == "list_vt"))
+                    {
+                        var priorLits = prevChain.Resolved?.AppendLiterals;
+                        if (priorLits is { Length: >= 9 } && priorLits[8] is "13" or "14" or "15" or "16")
+                        {
+                            vtSrcKind = priorLits[8];
+                        }
+                    }
                     var priorDescs = new List<string>();
                     var priorFams = new List<string>();
                     var priorSels = new List<Expr>();
@@ -6112,7 +6223,7 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                     // LOUD.
                     // impl-listchain: a LIST source keeps its own chain entries,
                     // which snap the ORIGINAL list once.
-                    bool isListChain = suffix is "list_ref" or "list_i4" or "list_d" or "list_f" or "list_dec";
+                    bool isListChain = suffix is "list_ref" or "list_i4" or "list_d" or "list_f" or "list_dec" or "list_vt";
                     bool refChain = suffix is "ref" or "list_ref";
                     // b5-gaps section 50: a DECIMAL chain carries the decimal
                     // dispatch key families 0..6 (int32/int64/double/decimal/
@@ -6120,16 +6231,22 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                     // chain's 0..3 (decimal/DateTime/Guid need the 16/8/16-byte
                     // decimal cells, so only the decimal kernel reads them).
                     bool decChain = suffix is "dec" or "list_dec";
+                    // b5-gaps section 51: a VALUE-STRUCT chain carries the vt
+                    // dispatch key families 0..7 (int32/int64/double/float/
+                    // DateTime/Guid/TimeSpan/DateTimeOffset -- LinqVtKeyFamilyCode).
+                    bool vtChain = suffix is "vt" or "list_vt";
                     bool familyOk = refChain
                         ? newFamily is "0" or "1" or "2" or "3" or "4" or "5"
                         : decChain
                         ? newFamily is "0" or "1" or "2" or "3" or "4" or "5" or "6"
+                        : vtChain
+                        ? newFamily is "0" or "1" or "2" or "3" or "4" or "5" or "6" or "7"
                         : newFamily is "0" or "1" or "2" or "3";
                     if (!familyOk)
                     {
                         throw new NotSupportedException(
                             $"Enumerable.ThenBy receiver '{chainRecv.Name}' marker carries key family " +
-                            $"'{newFamily}', which the {(refChain ? "reference" : decChain ? "decimal" : "numeric")} chained " +
+                            $"'{newFamily}', which the {(refChain ? "reference" : decChain ? "decimal" : vtChain ? "value-struct" : "numeric")} chained " +
                             "composite cannot read (b5-gaps §44)");
                     }
                     var newDesc = resolved.CppName == ResolvedMethod.ThenByDescCombineMarker ? "1" : "0";
@@ -6162,6 +6279,8 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                                     ? "il2cpp::il2cpp_linq_list_then_by_chain_f"
                                     : suffix == "list_dec"
                                     ? "il2cpp::il2cpp_linq_list_then_by_chain_dec"
+                                    : suffix == "list_vt"
+                                    ? "il2cpp::il2cpp_linq_list_then_by_chain_vt"
                                     : "il2cpp::il2cpp_linq_list_then_by_chain_i4"
                                 : suffix == "ref"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_ref"
@@ -6173,6 +6292,8 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                                 ? "il2cpp::il2cpp_linq_then_by_chain_d"
                                 : suffix == "dec"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_dec"
+                                : suffix == "vt"
+                                ? "il2cpp::il2cpp_linq_then_by_chain_vt"
                                 : "il2cpp::il2cpp_linq_then_by_chain_i4",
                             // A list chain takes the element kind as the NINTH
                             // trailing literal (AppendLiterals always follow the
@@ -6196,12 +6317,21 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                                     priorListKind ?? throw new NotSupportedException(
                                         "Enumerable.ThenBy over a List source carries no element kind"),
                                 }
+                                : suffix == "vt"
+                                ? new[]
+                                {
+                                    priorDescs[0], priorDescs[1], priorDescs[2], priorDescs[3],
+                                    priorFams[0], priorFams[1], priorFams[2], priorFams[3],
+                                    vtSrcKind.Length != 0 ? vtSrcKind : throw new NotSupportedException(
+                                        "Enumerable.ThenBy over a value-struct array source carries no element kind"),
+                                }
                                 : new[]
                                 {
                                     priorDescs[0], priorDescs[1], priorDescs[2], priorDescs[3],
                                     priorFams[0], priorFams[1], priorFams[2], priorFams[3],
                                 },
                             ReturnTypeName: suffix == "list_ref" || suffix == "ref"
+                                || suffix == "list_vt" || suffix == "vt"
                                 ? prevChain.Resolved!.ReturnTypeName
                                 : suffix == "list_dec" || suffix == "dec" ? "System.Decimal[]"
                                 : suffix == "list_d" ? "System.Double[]"
