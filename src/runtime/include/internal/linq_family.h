@@ -256,6 +256,19 @@ Il2CppArray* il2cpp_linq_group_join(Il2CppArray* outer, Il2CppArray* inner,
                                     Il2CppObject* outerKeySel, Il2CppObject* innerKeySel,
                                     Il2CppObject* resSel, int32_t outerCell,
                                     int32_t innerCell, int32_t keyCell, int32_t resCell);
+
+// b5-gaps section 64: Enumerable.Join(..., IEqualityComparer<TKey>) over
+// ARRAY sources with REFERENCE TKeys. The comparer hashes and compares the
+// keys through a per-comparer ops pair (StringComparer singletons take a
+// direct weighted fold; everything else rides the reflected virtual
+// GetHashCode/Equals(T,T) slots), and a null comparer falls back to the
+// section-62 default carrier/hash/equality. The indexing/collection skeleton
+// is the section-62 one; reference TKeys only live for the call.
+Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
+                                  Il2CppObject* outerKeySel, Il2CppObject* innerKeySel,
+                                  Il2CppObject* resSel, Il2CppObject* cmp,
+                                  int32_t outerCell, int32_t innerCell,
+                                  int32_t keyCell, int32_t resCell);
 bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
 bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
 bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);

@@ -2706,4 +2706,339 @@ Il2CppArray* il2cpp_linq_group_join(Il2CppArray* outer, Il2CppArray* inner,
     return out;
 }
 
+//------------------------------------------------------------------------------
+// b5-gaps section 64: Enumerable.Join(..., IEqualityComparer<TKey>) over
+// ARRAY sources with REFERENCE TKeys. The comparer hashes and compares keys
+// through a per-comparer ops pair: the StringComparer singletons take a
+// direct weighted fold (ordinal / ordinal-ignore-case), every other comparer
+// rides the reflected virtual GetHashCode/Equals slots (the section-56
+// machinery), and a NULL comparer falls back to the section-62 default
+// carrier/hash/equality. The indexing/collection skeleton mirrors section 62.
+//------------------------------------------------------------------------------
+namespace {
+
+int32_t JoinCmpHashDefault(Il2CppObject*, Il2CppObject* key)
+{
+    return JoinRefHash(key);
+}
+
+int32_t JoinCmpHashIgnoreCase(Il2CppObject*, Il2CppObject* key)
+{
+    if (key == nullptr || key->klass == nullptr || key->klass->name == nullptr ||
+        std::strcmp(key->klass->name, "System.String") != 0)
+    {
+        return JoinRefHash(key);
+    }
+    const Il2CppString* s = reinterpret_cast<const Il2CppString*>(key);
+    uint32_t h = 17u;
+    for (int32_t i = 0; i < s->length; ++i)
+    {
+        uint16_t c = static_cast<uint16_t>(s->chars[i]);
+        if (c >= 'a' && c <= 'z')
+        {
+            c = static_cast<uint16_t>(c - ('a' - 'A'));
+        }
+        h = h * 33u + c;
+    }
+    return static_cast<int32_t>(h & 0x7FFFFFFFu);
+}
+
+int32_t JoinCmpHashSlot(Il2CppObject* cmp, Il2CppObject* key)
+{
+    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "GetHashCode", "(r:");
+    if (slot >= 0 && cmp->klass != nullptr && cmp->klass->vtable != nullptr &&
+        slot < cmp->klass->vtableSize && cmp->klass->vtable[slot] != nullptr)
+    {
+        typedef int32_t (*HFn)(Il2CppObject*, Il2CppObject*);
+        return reinterpret_cast<HFn>(cmp->klass->vtable[slot])(cmp, key) & 0x7FFFFFFF;
+    }
+    return JoinRefHash(key);
+}
+
+bool JoinCmpEqDefault(Il2CppObject*, Il2CppObject* a, Il2CppObject* b)
+{
+    return JoinRefEquals(a, b);
+}
+
+bool JoinCmpEqIgnoreCase(Il2CppObject*, Il2CppObject* a, Il2CppObject* b)
+{
+    if (a == nullptr || b == nullptr)
+    {
+        return a == b;
+    }
+    if (a->klass == nullptr || a->klass->name == nullptr ||
+        b->klass == nullptr || b->klass->name == nullptr)
+    {
+        return a == b;
+    }
+    if (std::strcmp(a->klass->name, "System.String") == 0 &&
+        std::strcmp(b->klass->name, "System.String") == 0)
+    {
+        return il2cpp_string_equals_ordinal_ignore_case(
+            reinterpret_cast<const Il2CppString*>(a),
+            reinterpret_cast<const Il2CppString*>(b));
+    }
+    return a == b;
+}
+
+struct JoinCmpOps
+{
+    Il2CppObject* cmp;
+    int32_t (*hash)(Il2CppObject*, Il2CppObject*);
+    bool (*eq)(Il2CppObject*, Il2CppObject*, Il2CppObject*);
+};
+
+JoinCmpOps JoinCmpOpsOf(Il2CppObject* cmp)
+{
+    JoinCmpOps ops;
+    ops.cmp = cmp;
+    if (cmp == nullptr)
+    {
+        ops.hash = JoinCmpHashDefault;
+        ops.eq = JoinCmpEqDefault;
+        return ops;
+    }
+    if (cmp->klass != nullptr && cmp->klass->name != nullptr &&
+        std::strncmp(cmp->klass->name, "System.StringComparer.", 22) == 0)
+    {
+        if (std::strcmp(cmp->klass->name,
+                        "System.StringComparer.OrdinalIgnoreCase") == 0)
+        {
+            ops.hash = JoinCmpHashIgnoreCase;
+            ops.eq = JoinCmpEqIgnoreCase;
+        }
+        else
+        {
+            ops.hash = JoinCmpHashDefault;
+            ops.eq = JoinCmpEqDefault;
+        }
+        return ops;
+    }
+    ops.hash = JoinCmpHashSlot;
+    ops.eq = LinqRefEqualsCmp;
+    return ops;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
+                                  Il2CppObject* outerKeySel, Il2CppObject* innerKeySel,
+                                  Il2CppObject* resSel, Il2CppObject* cmp,
+                                  int32_t outerCell, int32_t innerCell,
+                                  int32_t keyCell, int32_t resCell)
+{
+    if (outer == nullptr || inner == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("outer");
+        return nullptr;
+    }
+    Il2CppClass* oCls = reinterpret_cast<Il2CppObject*>(outer)->klass;
+    Il2CppClass* iCls = reinterpret_cast<Il2CppObject*>(inner)->klass;
+    if (oCls == nullptr || oCls->name == nullptr || oCls->name[0] != '[' ||
+        iCls == nullptr || iCls->name == nullptr || iCls->name[0] != '[')
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.Join(comparer): a source is not a one-dimensional "
+            "array (List/IEnumerable sources stay LOUD, b5-gaps section 64).");
+        return nullptr;
+    }
+    LinqRequireCell(outer, outerCell);
+    LinqRequireCell(inner, innerCell);
+    const int32_t k1o = Sel2ArgSlotOf(outerCell);
+    const int32_t k2i = Sel2ArgSlotOf(innerCell);
+    const int32_t rres = Sel2ArgSlotOf(resCell);
+    if (k1o < 0 || k2i < 0 || rres < 0 || keyCell != IL2CPP_LINQ_CELL_REF)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.Join(comparer): only a REFERENCE TKey cell is wired "
+            "(value-key comparer overloads stay LOUD, b5-gaps section 64).");
+        return nullptr;
+    }
+    Il2CppDelegate* ok = reinterpret_cast<Il2CppDelegate*>(outerKeySel);
+    Il2CppDelegate* ik = reinterpret_cast<Il2CppDelegate*>(innerKeySel);
+    Il2CppDelegate* rs = reinterpret_cast<Il2CppDelegate*>(resSel);
+    if (ok == nullptr || ok->methodPtr == nullptr || ik == nullptr ||
+        ik->methodPtr == nullptr || rs == nullptr || rs->methodPtr == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    const JoinCmpOps ops = JoinCmpOpsOf(cmp);
+    const int32_t on = outer->length;
+    const int32_t inn = inner->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&outer));
+    roots.Add(reinterpret_cast<void**>(&inner));
+    roots.Add(reinterpret_cast<void**>(&ok));
+    roots.Add(reinterpret_cast<void**>(&ik));
+    roots.Add(reinterpret_cast<void**>(&rs));
+    roots.Add(reinterpret_cast<void**>(&cmp));
+
+    size_t bucketCount = 0;
+    std::vector<int32_t> buckets;
+    std::vector<JoinSlot> slots;
+    std::vector<Il2CppObject*> keyRoots;
+    if (inn > 0)
+    {
+        bucketCount = static_cast<size_t>(RoundUpPow2(inn * 2));
+        if (bucketCount < 8)
+        {
+            bucketCount = 8;
+        }
+        try
+        {
+            buckets.assign(bucketCount, -1);
+            slots.reserve(static_cast<size_t>(inn));
+            keyRoots.reserve(static_cast<size_t>(inn));
+        }
+        catch (const std::bad_alloc&)
+        {
+            il2cpp_throw_new(
+                "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                "Insufficient memory to continue the execution of the program.");
+            return nullptr;
+        }
+        const Sel1Fn ike1 = kSel1[(3 * 4 + k2i)];
+        for (int32_t j = 0; j < inn; ++j)
+        {
+            Sel2Arg a2;
+            switch (k2i)
+            {
+                case 0: a2.i4 = LinqCellReadI4(inner, j, innerCell); break;
+                case 1: a2.i8 = LinqCellReadI8(inner, j, innerCell); break;
+                case 2: a2.d = LinqCellReadD(inner, j, innerCell); break;
+                default: a2.o = LinqCellReadRef(inner, j, innerCell); break;
+            }
+            Il2CppObject* keyRef =
+                reinterpret_cast<Il2CppObject*>(ike1(ik, a2));
+            const int32_t h = ops.hash(ops.cmp, keyRef) & (static_cast<int32_t>(bucketCount) - 1);
+            const size_t slotIdx = slots.size();
+            JoinSlot slot;
+            slot.next = buckets[h];
+            slot.key = 0;
+            slot.keyRef = keyRef;
+            slot.innerIndex = j;
+            try
+            {
+                slots.push_back(slot);
+                keyRoots.push_back(keyRef);
+            }
+            catch (const std::bad_alloc&)
+            {
+                il2cpp_throw_new(
+                    "System.OutOfMemoryException,System.OutOfMemoryException,System.SystemException,System.Exception",
+                    "Insufficient memory to continue the execution of the program.");
+                return nullptr;
+            }
+            roots.Add(reinterpret_cast<void**>(&keyRoots[keyRoots.size() - 1]));
+            buckets[h] = static_cast<int32_t>(slotIdx);
+        }
+    }
+
+    std::vector<int32_t> pairs;
+    if (inn > 0)
+    {
+        const Sel1Fn oke1 = kSel1[(3 * 4 + k1o)];
+        std::vector<int32_t> chain;
+        for (int32_t i = 0; i < on; ++i)
+        {
+            Sel2Arg a1;
+            switch (k1o)
+            {
+                case 0: a1.i4 = LinqCellReadI4(outer, i, outerCell); break;
+                case 1: a1.i8 = LinqCellReadI8(outer, i, outerCell); break;
+                case 2: a1.d = LinqCellReadD(outer, i, outerCell); break;
+                default: a1.o = LinqCellReadRef(outer, i, outerCell); break;
+            }
+            Il2CppObject* keyRef =
+                reinterpret_cast<Il2CppObject*>(oke1(ok, a1));
+            const int32_t h = ops.hash(ops.cmp, keyRef) & (static_cast<int32_t>(bucketCount) - 1);
+            chain.clear();
+            for (int32_t s = buckets[h]; s >= 0; s = slots[s].next)
+            {
+                if (ops.eq(ops.cmp, keyRef, slots[s].keyRef))
+                {
+                    chain.push_back(slots[s].innerIndex);
+                }
+            }
+            for (size_t c = chain.size(); c > 0; --c)
+            {
+                pairs.push_back(i);
+                pairs.push_back(chain[c - 1]);
+            }
+        }
+    }
+
+    const size_t pairCount = pairs.size() / 2;
+    Il2CppArray* out = LinqNewArray(resCell, static_cast<int32_t>(pairCount));
+    roots.Add(reinterpret_cast<void**>(&out));
+    const Sel2Fn pick = kSel2[(rres * 4 + k1o) * 4 + k2i];
+    for (size_t p = 0; p < pairCount; ++p)
+    {
+        const int32_t o = pairs[p * 2];
+        const int32_t i = pairs[p * 2 + 1];
+        Sel2Arg a1;
+        switch (k1o)
+        {
+            case 0: a1.i4 = LinqCellReadI4(outer, o, outerCell); break;
+            case 1: a1.i8 = LinqCellReadI8(outer, o, outerCell); break;
+            case 2: a1.d = LinqCellReadD(outer, o, outerCell); break;
+            default: a1.o = LinqCellReadRef(outer, o, outerCell); break;
+        }
+        Sel2Arg a2;
+        switch (k2i)
+        {
+            case 0: a2.i4 = LinqCellReadI4(inner, i, innerCell); break;
+            case 1: a2.i8 = LinqCellReadI8(inner, i, innerCell); break;
+            case 2: a2.d = LinqCellReadD(inner, i, innerCell); break;
+            default: a2.o = LinqCellReadRef(inner, i, innerCell); break;
+        }
+        const int64_t r = pick(rs, a1, a2);
+        char* dst = LinqCellPtr(out, static_cast<int32_t>(p));
+        if (rres == 3)
+        {
+            Il2CppObject* v = reinterpret_cast<Il2CppObject*>(r);
+            *reinterpret_cast<Il2CppObject**>(dst) = v;
+            il2cpp_write_barrier(reinterpret_cast<void**>(dst), v);
+        }
+        else
+        {
+            switch (resCell)
+            {
+                case IL2CPP_LINQ_CELL_SBYTE:
+                case IL2CPP_LINQ_CELL_BYTE:
+                case IL2CPP_LINQ_CELL_BOOL:
+                case IL2CPP_LINQ_CELL_SHORT:
+                case IL2CPP_LINQ_CELL_USHORT:
+                case IL2CPP_LINQ_CELL_CHAR:
+                case IL2CPP_LINQ_CELL_UINT:
+                case IL2CPP_LINQ_CELL_I4:
+                {
+                    const int32_t i4 = static_cast<int32_t>(r);
+                    std::memcpy(dst, &i4, sizeof(i4));
+                    break;
+                }
+                case IL2CPP_LINQ_CELL_I8:
+                    std::memcpy(dst, &r, sizeof(int64_t));
+                    break;
+                case IL2CPP_LINQ_CELL_F:
+                {
+                    double dv = 0.0;
+                    std::memcpy(&dv, &r, sizeof(dv));
+                    const float fv = static_cast<float>(dv);
+                    std::memcpy(dst, &fv, sizeof(fv));
+                    break;
+                }
+                case IL2CPP_LINQ_CELL_D:
+                    std::memcpy(dst, &r, sizeof(double));
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+    return out;
+}
+
 } // namespace il2cpp

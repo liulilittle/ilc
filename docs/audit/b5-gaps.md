@@ -5681,3 +5681,56 @@ GroupJoin was in the "generic instantiation ... has no BCL mapping" band. The
   machinery is the reuse path);
 * List/IEnumerable sources of the 5-arg forms stay LOUD; decimal/vt key cells
   have no line-2 selector ABI yet.
+## 64. Enumerable.Join(IEqualityComparer<TKey>) over array sources, reference TKeys (IMPLEMENTED)
+
+The 6-argument Join with an `IEqualityComparer<TKey>` was part of the
+"comparer overloads need injection into the join table" note at section 62.
+The REFERENCE-key shape is now real; value-key comparer overloads and the
+GroupJoin comparer twins stay registered.
+
+### Implementation
+
+* `linq_family.cpp` / `linq_family.h`: `il2cpp_linq_join_cmp(..., cmp, ...)`:
+  the section-62 index/collection skeleton is reused; the TKey carries are
+  comparer-mediated through a per-comparer ops pair chosen once by
+  `JoinCmpOpsOf`:
+  * NULL comparer -> section-62 default carrier/hash/equality;
+  * StringComparer singletons -> direct weighted fold (ordinal, or an
+    ASCII-fold ordinal-ignore-case hash consistent with the ignore-case
+    ordinal equality);
+  * any other comparer -> the reflected virtual GetHashCode / Equals(T,T)
+    slots through the section-56 `FindVirtualSlotByNameAndSignature`
+    machinery; a MISSING hash slot falls back to the address fold, which is
+    CONSISTENT with the reference-equality fallback (no silent mismatch).
+  Reference TKeys only live for the call (per-slot rooted key vector).
+* `MethodMap.Linq.cs`: the Join arm accepts count==6 (with comparer) beside
+  count==5; the comparer form requires `jKey == "15"` (reference key) and
+  routes to `il2cpp_linq_join_cmp` with the comparer on the sixth `""` cast.
+
+### Contract evidence
+
+* new case `tests/cases/probe-joincmp`: oracle = runtime = **77B
+  sha 35596754**, 5 records -- StringComparer.OrdinalIgnoreCase joins with a
+  `GC.Collect(); WaitForPendingFinalizers(); GC.Collect();` inside the second
+  selector, a CUSTOM `IEqualityComparer<string>` (the reflected slot path), a
+  no-match record, a duplicate-key record, and the record counts.
+* mutations RED -> restored GREEN:
+  * M21 treat OrdinalIgnoreCase as ORDINAL -> 56B `a0274d17`, 3 records
+    SILENT wrong ([ic]/[n]/[dup] all become empty);
+  * M23 degrade a custom comparer's equality to the default -> 66B
+    `1a22190f`, 1 record SILENT wrong ([cust] empty);
+  * M22 degrade a custom comparer's HASH to the address fold -> STAYS GREEN
+    (recorded, not a fake test): with this binary's string layout the address
+    fold lands every corpus pair in the same bucket, so the equality slot
+    still decides; no fixed corpus guarantees a different fold, so the hash
+    branch is kept and the case flagged corpus-dependent.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 warnings 0 errors;
+  probe-join / probe-groupjoin / probe-selectmany3 / probe-selectmanylist /
+  probe-cmpval / probe-tohashset / linqgroup unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* the Join comparer overloads over VALUE TKeys (needs the value family's
+  GetHashCode/Equals slot wiring) and the GroupJoin comparer twins;
+* List/IEnumerable sources of the comparer form stay LOUD (D-2 guard);
+  decimal/vt key cells have no line-2 selector ABI yet.

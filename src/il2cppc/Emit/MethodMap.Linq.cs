@@ -247,7 +247,8 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         // argument-hint for the sources).
         if (name == "Join")
         {
-            if (genArgs is not { Length: >= 4 } || count != 5) return null;
+            if (genArgs is not { Length: >= 4 }) return null;
+            if (count != 5 && count != 6) return null;
             string? jOuter = LinqCellCodeOfElemByte(genArgs[0])
                 ?? (IsRefFamilyByte(genArgs[0]) ? "15" : null);
             string? jInner = LinqCellCodeOfElemByte(genArgs[1])
@@ -265,8 +266,27 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     "for a source / key / result element (b5-gaps section 62, " +
                     "docs/audit/b5-gaps.md).");
             }
-            return I("il2cpp::il2cpp_linq_join", 5, true, true, false,
-                new[] { "a", "a", "", "", "" },
+            if (count == 5)
+            {
+                return I("il2cpp::il2cpp_linq_join", 5, true, true, false,
+                    new[] { "a", "a", "", "", "" },
+                    returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),
+                    appendLiterals: new[] { jOuter, jInner, jKey, jRes });
+            }
+            // b5-gaps section 64: the IEqualityComparer<TKey> 6-argument form.
+            // Only REFERENCE TKey cells are wired (the comparer constraint);
+            // value-key comparer overloads stay LOUD.
+            if (jKey != "15")
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.Join<{GenericArgTypeName(genArgs[0])}," +
+                    $"{GenericArgTypeName(genArgs[1])},{GenericArgTypeName(genArgs[2])}," +
+                    $"{GenericArgTypeName(genArgs[3])},comparer> is not wired: only " +
+                    "a reference TKey comparer overload binds (value-key comparer " +
+                    "overloads stay LOUD, b5-gaps section 64, docs/audit/b5-gaps.md).");
+            }
+            return I("il2cpp::il2cpp_linq_join_cmp", 6, true, true, false,
+                new[] { "a", "a", "", "", "", "" },
                 returnTypeName: LinqArrayTypeNameExact(genArgs[3], genArgNames, 3),
                 appendLiterals: new[] { jOuter, jInner, jKey, jRes });
         }
