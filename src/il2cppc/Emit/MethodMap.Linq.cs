@@ -2520,12 +2520,19 @@ public static partial class MethodRefResolver
             }
         }
 
-        // b5-gaps section 56: a user-comparer call that reached PAST the arms
-        // above (Reference-element siblings / GroupBy, which consume their
-        // comparer) has no wired kernel here. The plain kernels would silently
-        // DROP the comparer, so it must go LOUD (value/List comparer kernels
-        // are the pending surface, see docs/audit/b5-gaps.md).
-        if (name != "GroupBy" && LinqHasComparerParam(md, sigHandle))
+        // b5-gaps section 56/57: a user-comparer call that reached PAST the arms
+        // above (Reference-element siblings / GroupBy consume their comparer)
+        // has no wired kernel here UNLESS it is a section-57 VALUE array
+        // operator (i4/i8/f/d/narrow Distinct/Except/Union/Intersect/
+        // Contains/SequenceEqual -- those fall through to the numeric family
+        // blocks, which run their comparer-twinned arms). Everything else
+        // would silently DROP the comparer, so it must go LOUD (see
+        // docs/audit/b5-gaps.md).
+        bool isValueArrayCmpOp = listKind == null
+            && (linqSrcFam is "i4" or "i8" or "f" or "d" or "narrow")
+            && name is "Distinct" or "Except" or "Union" or "Intersect"
+                or "Contains" or "SequenceEqual";
+        if (name != "GroupBy" && LinqHasComparerParam(md, sigHandle) && !isValueArrayCmpOp)
         {
             throw new NotSupportedException(
                 $"Enumerable.{name} over this source with a user comparer is not wired yet: " +
@@ -3312,21 +3319,41 @@ public static partial class MethodRefResolver
                 // array slots ride the "a" cast.
                 return I("il2cpp::il2cpp_linq_concat_i4", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: "System.Int32[]");
-            case "Distinct":
+            case "Distinct" when count < 2:
                 // Distinct(source) -> il2cpp_linq_distinct_i4 (D-LINQZ-1):
                 // remove duplicates keeping FIRST-APPEARANCE order (net48
                 // default ordinal int32 equality); the result is a fresh
                 // int32[] tracked for downstream operators.
                 return I("il2cpp::il2cpp_linq_distinct_i4", 1, true, true, false,
                     OneArg, returnTypeName: "System.Int32[]");
-            case "Except":
+            case "Distinct":
+                // b5-gaps section 57: Distinct(source, comparer) over int32.
+                return I("il2cpp::il2cpp_linq_distinct_value_cmp", 2, true, true, false,
+                    new[] { "a", "" }, returnTypeName: "System.Int32[]",
+                    appendLiterals: new[] { "7" });
+            case "Except" when count < 3:
                 // Except(source, second) -> il2cpp_linq_except_i4 (D-LINQZ-1):
                 // the elements of source NOT present in second (set
                 // membership -- duplicates in second are irrelevant),
                 // first-appearance order, DEDUPLICATED output (net48).
                 return I("il2cpp::il2cpp_linq_except_i4", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: "System.Int32[]");
-            case "Union":
+            case "Except":
+                return I("il2cpp::il2cpp_linq_except_value_cmp", 3, true, true, false,
+                    new[] { "a", "a", "" }, returnTypeName: "System.Int32[]",
+                    appendLiterals: new[] { "7" });
+            case "Intersect" when count < 3:
+                // Intersect(source, second) -> il2cpp_linq_intersect_family
+                // (cell 7): the elements of source also in second,
+                // first-appearance order, DEDUPLICATED output (net48).
+                return I("il2cpp::il2cpp_linq_intersect_family", 2, true, true, false,
+                    new[] { "a", "a" }, returnTypeName: "System.Int32[]",
+                    appendLiterals: new[] { "7" });
+            case "Intersect":
+                return I("il2cpp::il2cpp_linq_intersect_value_cmp", 3, true, true, false,
+                    new[] { "a", "a", "" }, returnTypeName: "System.Int32[]",
+                    appendLiterals: new[] { "7" });
+            case "Union" when count < 3:
                 // Union(source, second) -> il2cpp_linq_union_family (D-LINQZ-2):
                 // first's elements then second's, deduplicated by
                 // first-appearance (net48 Union = distinct concat). The int32
@@ -3334,6 +3361,10 @@ public static partial class MethodRefResolver
                 // both array slots ride the "a" cast.
                 return I("il2cpp::il2cpp_linq_union_family", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: "System.Int32[]",
+                    appendLiterals: new[] { "7" });
+            case "Union":
+                return I("il2cpp::il2cpp_linq_union_value_cmp", 3, true, true, false,
+                    new[] { "a", "a", "" }, returnTypeName: "System.Int32[]",
                     appendLiterals: new[] { "7" });
             case "Zip":
             {
@@ -3401,11 +3432,15 @@ public static partial class MethodRefResolver
                 // index < 0 or >= length -> ArgumentOutOfRangeException.
                 return I("il2cpp::il2cpp_linq_element_at_i4", 2, true, false, false,
                     new[] { "a", "i" });
-            case "Contains":
+            case "Contains" when count < 3:
                 // Contains(source, value) -> il2cpp_linq_contains_i4: ordinal
                 // int32 equality (EqualityComparer<int>.Default).
                 return I("il2cpp::il2cpp_linq_contains_i4", 2, true, false, false,
                     new[] { "a", "i" });
+            case "Contains":
+                // b5-gaps section 57: Contains(source, value, comparer).
+                return I("il2cpp::il2cpp_linq_contains_value_cmp_i4", 3, true, false, false,
+                    new[] { "a", "i", "" }, appendLiterals: new[] { "7" });
             case "Aggregate":
                 // Aggregate(source, func) -> il2cpp_linq_aggregate_i4: fold
                 // left-to-right seeded from the first element (net48 Aggregate
@@ -3957,11 +3992,14 @@ public static partial class MethodRefResolver
                 // LongCount(source) -> il2cpp_linq_long_count: the number of
                 // elements as int64 (net48 Enumerable.LongCount returns long).
                 return I("il2cpp::il2cpp_linq_long_count", 1, true, false, false, OneArg, resultKind: "l");
-            case "SequenceEqual":
+            case "SequenceEqual" when count < 3:
                 // SequenceEqual(source, second) -> il2cpp_linq_sequence_equal_i4:
                 // true iff same length and every pair equal (net48 ordinal).
                 return I("il2cpp::il2cpp_linq_sequence_equal_i4", 2, true, false, false,
                     new[] { "a", "a" });
+            case "SequenceEqual":
+                return I("il2cpp::il2cpp_linq_sequence_equal_value_cmp", 3, true, false, false,
+                    new[] { "a", "a", "" }, appendLiterals: new[] { "7" });
             case "DefaultIfEmpty" when count < 2:
                 // DefaultIfEmpty(source) -> il2cpp_linq_default_if_empty_i4:
                 // non-empty -> source as-is; empty -> new int32[]{0}.
@@ -6711,21 +6749,33 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_concat_family", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: elemTracked,
                     appendLiterals: new[] { cellCode });
-            case "Distinct":
+            case "Distinct" when count < 2:
                 // Distinct() -> duplicates removed keeping FIRST-APPEARANCE
                 // order (net48 default equality).
                 if (cellCode == null) return null;
                 return I("il2cpp::il2cpp_linq_distinct_family", 1, true, true, false,
                     OneArg, returnTypeName: elemTracked,
                     appendLiterals: new[] { cellCode });
-            case "Except":
+            case "Distinct":
+                // b5-gaps section 57: Distinct(source, comparer) over a value
+                // cell -- first-appearance under the user comparer.
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_distinct_value_cmp", 2, true, true, false,
+                    new[] { "a", "" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Except" when count < 3:
                 // Except(source, second) -> the elements of source NOT in
                 // second, first-appearance order, DEDUPLICATED output (net48).
                 if (cellCode == null) return null;
                 return I("il2cpp::il2cpp_linq_except_family", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: elemTracked,
                     appendLiterals: new[] { cellCode });
-            case "Union":
+            case "Except":
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_except_value_cmp", 3, true, true, false,
+                    new[] { "a", "a", "" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Union" when count < 3:
                 // Union(source, second) -> first's elements then second's,
                 // deduplicated by first-appearance (net48 Union = distinct
                 // concat).
@@ -6733,13 +6783,23 @@ public static partial class MethodRefResolver
                 return I("il2cpp::il2cpp_linq_union_family", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: elemTracked,
                     appendLiterals: new[] { cellCode });
-            case "Intersect":
+            case "Union":
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_union_value_cmp", 3, true, true, false,
+                    new[] { "a", "a", "" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Intersect" when count < 3:
                 // Intersect(source, second) -> the elements of source that
                 // are also in second, first-appearance order, DEDUPLICATED
                 // (net48).
                 if (cellCode == null) return null;
                 return I("il2cpp::il2cpp_linq_intersect_family", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Intersect":
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_intersect_value_cmp", 3, true, true, false,
+                    new[] { "a", "a", "" }, returnTypeName: elemTracked,
                     appendLiterals: new[] { cellCode });
             case "DefaultIfEmpty" when count < 2:
                 // DefaultIfEmpty() -> non-empty source as-is; an empty source
@@ -6772,13 +6832,17 @@ public static partial class MethodRefResolver
                 if (cellCode == null) return null;
                 return I("il2cpp::il2cpp_linq_long_count_family", 1, true, false, false,
                     OneArg, resultKind: "l", appendLiterals: new[] { cellCode });
-            case "SequenceEqual":
+            case "SequenceEqual" when count < 3:
                 // SequenceEqual(source, second) -> true iff same length and
                 // every pair equal (net48 default equality).
                 if (cellCode == null) return null;
                 return I("il2cpp::il2cpp_linq_sequence_equal_family", 2, true, false, false,
                     new[] { "a", "a" }, appendLiterals: new[] { cellCode });
-            case "Contains":
+            case "SequenceEqual":
+                if (cellCode == null) return null;
+                return I("il2cpp::il2cpp_linq_sequence_equal_value_cmp", 3, true, false, false,
+                    new[] { "a", "a", "" }, appendLiterals: new[] { cellCode });
+            case "Contains" when count < 3:
                 // Contains(value) -> ordinal/default equality. The value
                 // rides the family's OWN parameter slot: the int32 slot for
                 // the narrow/int32 cells, the int64 slot for int64, the
@@ -6792,6 +6856,19 @@ public static partial class MethodRefResolver
                         new[] { "a", "d" }, appendLiterals: new[] { cellCode }),
                     _ => I("il2cpp::il2cpp_linq_contains_family_i4", 2, true, false, false,
                         new[] { "a", "i" }, appendLiterals: new[] { cellCode }),
+                };
+            case "Contains":
+                // b5-gaps section 57: Contains(value, comparer) -- the comparer
+                // rides the LAST slot, the value its family slot.
+                if (cellCode == null) return null;
+                return srcFam switch
+                {
+                    "i8" => I("il2cpp::il2cpp_linq_contains_value_cmp_i8", 3, true, false, false,
+                        new[] { "a", "l", "" }, appendLiterals: new[] { cellCode }),
+                    "f" or "d" => I("il2cpp::il2cpp_linq_contains_value_cmp_d", 3, true, false, false,
+                        new[] { "a", "d", "" }, appendLiterals: new[] { cellCode }),
+                    _ => I("il2cpp::il2cpp_linq_contains_value_cmp_i4", 3, true, false, false,
+                        new[] { "a", "i", "" }, appendLiterals: new[] { cellCode }),
                 };
             case "ElementAt":
                 // ElementAt(index) -> the element at `index`; index < 0 or

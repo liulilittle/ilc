@@ -182,6 +182,30 @@ bool         il2cpp_linq_sequence_equal_family_cmp(Il2CppArray* first, Il2CppArr
                                                    Il2CppObject* cmp, int32_t cell);
 bool         il2cpp_linq_contains_family_ref_cmp(Il2CppArray* src, Il2CppObject* value,
                                                  Il2CppObject* cmp, int32_t cell);
+
+// b5-gaps section 57: user-comparer twins over the VALUE cell families
+// (int32/uint/narrow/char/bool, int64, double/float). Each entry dispatches a
+// user IEqualityComparer<T>.Equals through the reflected slot of the element
+// family (byte -> "(u1,u1)", ..., long "(l,l)", double "(d,d)", float "(f,f)"
+// riding the double ABI like the sort comparers). `cmp` is nullable (null ==
+// the default cell equality); the ref cell is serviced by section 56.
+// bool-lit cells are equals; the set/sequence kernels keep first-appearance /
+// per-position semantics.
+Il2CppArray* il2cpp_linq_distinct_value_cmp(Il2CppArray* src, Il2CppObject* cmp, int32_t cell);
+Il2CppArray* il2cpp_linq_except_value_cmp(Il2CppArray* first, Il2CppArray* second,
+                                          Il2CppObject* cmp, int32_t cell);
+Il2CppArray* il2cpp_linq_union_value_cmp(Il2CppArray* first, Il2CppArray* second,
+                                         Il2CppObject* cmp, int32_t cell);
+Il2CppArray* il2cpp_linq_intersect_value_cmp(Il2CppArray* first, Il2CppArray* second,
+                                             Il2CppObject* cmp, int32_t cell);
+bool         il2cpp_linq_sequence_equal_value_cmp(Il2CppArray* first, Il2CppArray* second,
+                                                  Il2CppObject* cmp, int32_t cell);
+bool         il2cpp_linq_contains_value_cmp_i4(Il2CppArray* src, int32_t value,
+                                               Il2CppObject* cmp, int32_t cell);
+bool         il2cpp_linq_contains_value_cmp_i8(Il2CppArray* src, int64_t value,
+                                               Il2CppObject* cmp, int32_t cell);
+bool         il2cpp_linq_contains_value_cmp_d(Il2CppArray* src, double value,
+                                              Il2CppObject* cmp, int32_t cell);
 bool il2cpp_linq_contains_family_dec(Il2CppArray* src, runtime::Il2CppDecimal value);
 bool il2cpp_linq_contains_family_dt(Il2CppArray* src, runtime::Il2CppDateTime value);
 bool il2cpp_linq_contains_family_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value);

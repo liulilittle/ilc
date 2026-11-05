@@ -5305,3 +5305,65 @@ wired"). The same silent-drop shape existed on EVERY source family.
   comparer overloads, bucket-surface comparer overloads) stay pending -- the
   global gate turned them LOUD so no silent wrong survives; the value-key
   machinery to build on already exists in hashset.cpp/arraysort.cpp.
+## 57. User comparers over the VALUE array families (int32/uint/narrow/char/bool/int64/double/float) (IMPLEMENTED)
+
+Section 56 implemented the reference-family comparer overloads and gated every
+other comparer-carrying call to LOUD. Section 57 implements the VALUE array
+families for the six set/sequence operators so the gate no longer rejects them.
+
+### Implementation
+
+* `linq_family.cpp` / `linq_family.h`:
+  * `LinqValueEqualsCmpCell(cmp, cell, a, b)` -- the per-ELEMENT-family
+    reflected `IEqualityComparer<T>.Equals(T,T)` dispatch: byte "(u1,u1)",
+    sbyte "(i1,i1)", short "(i2,i2)", ushort "(u2,u2)", char "(c,c)",
+    bool "(b,b)", int/uint "(i,i)", long "(l,l)", double "(d,d)", float
+    "(f,f)" (the float slot rides the double ABI exactly like the arraysort
+    comparers). Unsupported cells (decimal/DateTime/TimeSpan/Guid/
+    DateTimeOffset) stay defensively LOUD -- their Equals slot has no measured
+    by-value ABI map yet.
+  * `LinqReadCarrier` -- the element value as a 64-bit carrier per family
+    (int64 for int64, the double BIT image for float/double, the sign/zero-
+    extended int32 for the narrow cells).
+  * `LinqCellEqualsCmp` -- element-pair equality under a NULLABLE comparer for
+    ANY cell (null keeps the default cell equality; the ref cell rides section
+    56 LinqRefEqualsCmp).
+  * the six `*_value_cmp` twins: distinct/except/union/intersect/
+    sequence_equal (cell-generic first-appearance / per-position loops) and
+    contains (`_i4`/`_i8`/`_d` per the family's REAL value slot ABI).
+* `MethodMap.Linq.cs`:
+  * the section-56 comparer gate ROUTES a value-array comparer call for the
+    six ops (i4/i8/f/d/narrow array source) into the numeric family blocks
+    instead of throwing; everything else (decimal/... arrays, List, buckets,
+    OrderBy-keys) stays LOUD with the section-56 message.
+  * the WIDE block (int64/float/double/narrow) and the int32 block split each
+    operator by arity and bind the `*_value_cmp` entry with the comparer on
+    the LAST slot.
+  * BONUS: int[] `Intersect(second)` / `Union(second)` / `Distinct(cmp)` --
+    the int32 block previously had NO Intersect/Union arms, so those calls
+    stubbed the whole method; the new arms bind intersect_family/union_family
+    (cell 7) for the plain forms and the value_cmp entries for the comparer
+    forms.
+
+### Contract evidence
+
+* new case `tests/cases/probe-cmpval`: oracle = runtime = **109B sha
+  d0d1d3e9**, 14 records -- custom parity comparers over int/long/double/byte
+  arrays, exercising every operator through the reflected per-family Equals
+  slots (Distinct/Except/Union/Intersect/Contains/SequenceEqual).
+* mutations (RED, restored GREEN to the same 109B sha):
+  * M5 `LinqValueEqualsCmpCell` returns the RAW equality (ignores the user
+    comparer) -> 138B `6eeca138`, record 5 ([i1] Distinct parity) silent wrong;
+  * M6 the i4 Distinct cmp arm drops the comparer on the plain kernel ->
+    runtime abort (code=1, 0B out).
+* unit tests 4159/0/0; C0 0 warnings 0 errors; probe-cmpref 158B `647b0bb6`
+  (§56) unchanged; probe-vtops / probe-vtlistagg / thenbywide-elem /
+  thenby3list unchanged.
+
+### Registered-remaining (kept LOUD, measured)
+
+* value-family comparers over decimal / DateTime / TimeSpan / Guid /
+  DateTimeOffset ARRAYS -- the Equals slot signature encoding for the 16-byte
+  value types needs measuring before the slots can be found (continuation);
+* OrderBy / ThenBy over a VALUE source with a user IComparer for the KEY;
+* List<T> comparer overloads and the GroupBy-bucket comparer overloads.

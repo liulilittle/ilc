@@ -37,6 +37,7 @@
 #include "string_compare.h"            // il2cpp_string_compare_ordinal
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <new>
 #include <vector>
@@ -1177,6 +1178,322 @@ bool il2cpp_linq_contains_family_ref_cmp(Il2CppArray* src, Il2CppObject* value,
     for (int32_t i = 0; i < src->length; ++i)
     {
         if (LinqRefEqualsCmp(cmp, LinqCellReadRef(src, i, cell), value)) return true;
+    }
+    return false;
+}
+
+//------------------------------------------------------------------------------
+// b5-gaps section 57: user-comparer equality over a VALUE cell (int32/uint /
+// narrow / char / bool / int64 / double / float). The reflected
+// IEqualityComparer<T>.Equals(T,T) slot is keyed by the element family
+// fragment; the narrow kinds all ride the int32 slot ABI (the M1 contract),
+// float rides the double ABI exactly like the arraysort comparers.
+//------------------------------------------------------------------------------
+namespace {
+
+const char* LinqEqualsFragment(int32_t cell)
+{
+    switch (cell)
+    {
+        case IL2CPP_LINQ_CELL_SBYTE: return "(i1,i1)";
+        case IL2CPP_LINQ_CELL_BYTE:  return "(u1,u1)";
+        case IL2CPP_LINQ_CELL_BOOL:  return "(b,b)";
+        case IL2CPP_LINQ_CELL_SHORT: return "(i2,i2)";
+        case IL2CPP_LINQ_CELL_USHORT: return "(u2,u2)";
+        case IL2CPP_LINQ_CELL_CHAR:  return "(c,c)";
+        case IL2CPP_LINQ_CELL_UINT:
+        case IL2CPP_LINQ_CELL_I4:    return "(i,i)";
+        case IL2CPP_LINQ_CELL_I8:    return "(l,l)";
+        case IL2CPP_LINQ_CELL_F:     return "(f,f)";
+        case IL2CPP_LINQ_CELL_D:     return "(d,d)";
+        default:                     return nullptr;
+    }
+}
+
+bool LinqValueEqualsCmpCell(Il2CppObject* cmp, int32_t cell,
+                            int64_t a, int64_t b)
+{
+    const char* frag = LinqEqualsFragment(cell);
+    if (frag == nullptr)
+    {
+        il2cpp_throw_not_supported_exception(
+            "a user IEqualityComparer over this value cell family is not wired "
+            "(b5-gaps section 57: decimal/DateTime/TimeSpan/Guid/DateTimeOffset "
+            "comparers stay LOUD).");
+        return false;
+    }
+    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", frag);
+    if (slot < 0 || cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
+        slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
+    {
+        char message[192];
+        std::snprintf(message, sizeof(message),
+                      "IEqualityComparer.Equals dispatch: the comparer type has no "
+                      "reflected virtual Equals(%s) slot (b5-gaps section 57).",
+                      frag);
+        il2cpp_throw_not_supported_exception(message);
+        return false;
+    }
+    if (cell == IL2CPP_LINQ_CELL_I8)
+    {
+        typedef bool (*EqI8Fn)(Il2CppObject*, int64_t, int64_t);
+        return reinterpret_cast<EqI8Fn>(cmp->klass->vtable[slot])(cmp, a, b);
+    }
+    if (cell == IL2CPP_LINQ_CELL_F || cell == IL2CPP_LINQ_CELL_D)
+    {
+        typedef bool (*EqDFn)(Il2CppObject*, double, double);
+        double da, db;
+        std::memcpy(&da, &a, sizeof(double));
+        std::memcpy(&db, &b, sizeof(double));
+        return reinterpret_cast<EqDFn>(cmp->klass->vtable[slot])(cmp, da, db);
+    }
+    typedef bool (*EqI4Fn)(Il2CppObject*, int32_t, int32_t);
+    return reinterpret_cast<EqI4Fn>(cmp->klass->vtable[slot])(
+        cmp, static_cast<int32_t>(a), static_cast<int32_t>(b));
+}
+
+// The element's VALUE as the 64-bit carrier the comparer dispatch reads back
+// per family (int64 for the i8 cell, the double BIT image for float/double,
+// the sign/zero-extended int32 for the narrow cells).
+int64_t LinqReadCarrier(Il2CppArray* arr, int32_t index, int32_t cell)
+{
+    if (cell == IL2CPP_LINQ_CELL_I8)
+    {
+        return LinqCellReadI8(arr, index, cell);
+    }
+    if (cell == IL2CPP_LINQ_CELL_F || cell == IL2CPP_LINQ_CELL_D)
+    {
+        const double d = LinqCellReadD(arr, index, cell);
+        int64_t carrier = 0;
+        std::memcpy(&carrier, &d, sizeof(d));
+        return carrier;
+    }
+    return static_cast<int64_t>(LinqCellReadI4(arr, index, cell));
+}
+
+// Element-pair equality under a nullable comparer for ANY cell (reference
+// cells ride section 56, value cells the section-57 dispatch).
+bool LinqCellEqualsCmp(Il2CppObject* cmp, Il2CppArray* a, int32_t ia,
+                       Il2CppArray* b, int32_t ib, int32_t cell)
+{
+    if (cmp == nullptr) return LinqCellEquals(a, ia, b, ib, cell);
+    if (cell == IL2CPP_LINQ_CELL_REF)
+    {
+        return LinqRefEqualsCmp(cmp, LinqCellReadRef(a, ia, cell),
+                                LinqCellReadRef(b, ib, cell));
+    }
+    return LinqValueEqualsCmpCell(cmp, cell, LinqReadCarrier(a, ia, cell),
+                                  LinqReadCarrier(b, ib, cell));
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_distinct_value_cmp(Il2CppArray* src, Il2CppObject* cmp,
+                                            int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    std::vector<int32_t> order;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        bool seen = false;
+        for (size_t k = 0; k < order.size() && !seen; ++k)
+        {
+            seen = LinqCellEqualsCmp(cmp, src, static_cast<int32_t>(order[k]), src, i, cell);
+        }
+        if (!seen) order.push_back(i);
+    }
+    return MaterializeIndices(src, order, cell);
+}
+
+Il2CppArray* il2cpp_linq_except_value_cmp(Il2CppArray* first, Il2CppArray* second,
+                                          Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(first, cell);
+    LinqRequireCell(second, cell);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&first));
+    roots.Add(reinterpret_cast<void**>(&second));
+    std::vector<int32_t> order;
+    for (int32_t i = 0; i < first->length; ++i)
+    {
+        bool inSecond = false;
+        for (int32_t j = 0; j < second->length && !inSecond; ++j)
+        {
+            inSecond = LinqCellEqualsCmp(cmp, first, i, second, j, cell);
+        }
+        if (inSecond) continue;
+        bool seen = false;
+        for (size_t k = 0; k < order.size() && !seen; ++k)
+        {
+            seen = LinqCellEqualsCmp(cmp, first, static_cast<int32_t>(order[k]), first, i, cell);
+        }
+        if (!seen) order.push_back(i);
+    }
+    return MaterializeIndices(first, order, cell);
+}
+
+Il2CppArray* il2cpp_linq_union_value_cmp(Il2CppArray* first, Il2CppArray* second,
+                                         Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(first, cell);
+    LinqRequireCell(second, cell);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&first));
+    roots.Add(reinterpret_cast<void**>(&second));
+    std::vector<int32_t> fromFirst;
+    std::vector<int32_t> fromSecond;
+    for (int32_t i = 0; i < first->length; ++i)
+    {
+        bool dup = false;
+        for (size_t k = 0; k < fromFirst.size() && !dup; ++k)
+        {
+            dup = LinqCellEqualsCmp(cmp, first, static_cast<int32_t>(fromFirst[k]), first, i, cell);
+        }
+        for (size_t k = 0; k < fromSecond.size() && !dup; ++k)
+        {
+            dup = LinqCellEqualsCmp(cmp, second, static_cast<int32_t>(fromSecond[k]), first, i, cell);
+        }
+        if (!dup) fromFirst.push_back(i);
+    }
+    for (int32_t i = 0; i < second->length; ++i)
+    {
+        bool dup = false;
+        for (size_t k = 0; k < fromFirst.size() && !dup; ++k)
+        {
+            dup = LinqCellEqualsCmp(cmp, first, static_cast<int32_t>(fromFirst[k]), second, i, cell);
+        }
+        for (size_t k = 0; k < fromSecond.size() && !dup; ++k)
+        {
+            dup = LinqCellEqualsCmp(cmp, second, static_cast<int32_t>(fromSecond[k]), second, i, cell);
+        }
+        if (!dup) fromSecond.push_back(i);
+    }
+    Il2CppArray* out = LinqNewArray(
+        cell, static_cast<int32_t>(fromFirst.size() + fromSecond.size()));
+    roots.Add(reinterpret_cast<void**>(&out));
+    int32_t w = 0;
+    for (size_t k = 0; k < fromFirst.size(); ++k, ++w)
+    {
+        char* dst = LinqCellPtr(out, w);
+        LinqCellCopy(dst, reinterpret_cast<Il2CppObject**>(dst), first,
+                     static_cast<int32_t>(fromFirst[k]), cell);
+    }
+    for (size_t k = 0; k < fromSecond.size(); ++k, ++w)
+    {
+        char* dst = LinqCellPtr(out, w);
+        LinqCellCopy(dst, reinterpret_cast<Il2CppObject**>(dst), second,
+                     static_cast<int32_t>(fromSecond[k]), cell);
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_intersect_value_cmp(Il2CppArray* first, Il2CppArray* second,
+                                             Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(first, cell);
+    LinqRequireCell(second, cell);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&first));
+    roots.Add(reinterpret_cast<void**>(&second));
+    std::vector<int32_t> order;
+    for (int32_t i = 0; i < first->length; ++i)
+    {
+        bool inSecond = false;
+        for (int32_t j = 0; j < second->length && !inSecond; ++j)
+        {
+            inSecond = LinqCellEqualsCmp(cmp, first, i, second, j, cell);
+        }
+        if (!inSecond) continue;
+        bool seen = false;
+        for (size_t k = 0; k < order.size() && !seen; ++k)
+        {
+            seen = LinqCellEqualsCmp(cmp, first, static_cast<int32_t>(order[k]), first, i, cell);
+        }
+        if (!seen) order.push_back(i);
+    }
+    return MaterializeIndices(first, order, cell);
+}
+
+bool il2cpp_linq_sequence_equal_value_cmp(Il2CppArray* first, Il2CppArray* second,
+                                          Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(first, cell);
+    LinqRequireCell(second, cell);
+    if (first->length != second->length) return false;
+    for (int32_t i = 0; i < first->length; ++i)
+    {
+        if (!LinqCellEqualsCmp(cmp, first, i, second, i, cell)) return false;
+    }
+    return true;
+}
+
+bool il2cpp_linq_contains_value_cmp_i4(Il2CppArray* src, int32_t value,
+                                       Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (cmp == nullptr)
+    {
+        for (int32_t i = 0; i < src->length; ++i)
+        {
+            if (LinqCellEqualsI4(src, i, value, cell)) return true;
+        }
+        return false;
+    }
+    const int64_t carrier = value;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (LinqValueEqualsCmpCell(cmp, cell, LinqReadCarrier(src, i, cell), carrier))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool il2cpp_linq_contains_value_cmp_i8(Il2CppArray* src, int64_t value,
+                                       Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    if (cmp == nullptr)
+    {
+        for (int32_t i = 0; i < src->length; ++i)
+        {
+            if (LinqCellEqualsI8(src, i, value, cell)) return true;
+        }
+        return false;
+    }
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (LinqValueEqualsCmpCell(cmp, cell, LinqReadCarrier(src, i, cell), value))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool il2cpp_linq_contains_value_cmp_d(Il2CppArray* src, double value,
+                                      Il2CppObject* cmp, int32_t cell)
+{
+    LinqRequireCell(src, cell);
+    int64_t carrier = 0;
+    std::memcpy(&carrier, &value, sizeof(value));
+    if (cmp == nullptr)
+    {
+        for (int32_t i = 0; i < src->length; ++i)
+        {
+            if (LinqCellEqualsD(src, i, value, cell)) return true;
+        }
+        return false;
+    }
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (LinqValueEqualsCmpCell(cmp, cell, LinqReadCarrier(src, i, cell), carrier))
+        {
+            return true;
+        }
     }
     return false;
 }
