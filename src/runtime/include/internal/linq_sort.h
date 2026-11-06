@@ -275,6 +275,26 @@ Il2CppArray* il2cpp_linq_order_by_key_d_ref_cmp(Il2CppArray* src, Il2CppObject* 
 Il2CppArray* il2cpp_linq_order_by_key_f_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
                                                 Il2CppObject* cmp, int32_t desc);
 
+// b5-gaps section 72: OrderBy / OrderByDescending over a NARROW-array source
+// (sbyte[]/byte[]/bool[]/short[]/ushort[]/char[]). The element crosses the key
+// selector in the INT32 slot (the M1 widening: the 1/2-byte cell reads as
+// sign/zero-extended int32, the same widening a byte[] predicate/selector
+// already uses); the result is a FRESH array of the SOURCE's narrow cell with
+// the section-70 elemKind stamp. `srcCell` (0..5) and `keyCell` (the
+// IL2CPP_LINQ_CELL_* of the KEY) ride trailing literals; desc (0/1) is the
+// last literal. The plain _narrow entry uses the default CmpKeyValue comparator
+// per key family; the _narrow_cmp and _narrow_ref_cmp entries apply a USER
+// key comparer exactly like the section-71 value-source comparator kernels.
+Il2CppArray* il2cpp_linq_order_by_key_narrow(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t keyCell, int32_t srcCell,
+                                             int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_narrow_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                 Il2CppObject* cmp, int32_t keyCell,
+                                                 int32_t srcCell, int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_narrow_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                     Il2CppObject* cmp, int32_t srcCell,
+                                                     int32_t desc);
+
 // impl-collation: the reference-element ThenBy / ThenByDescending FUSED
 // COMPOSITE, i.e. the net48 EnumerableSorter chain for
 // OrderBy(k1).ThenBy(k2). The primary key's comparison wins and the secondary

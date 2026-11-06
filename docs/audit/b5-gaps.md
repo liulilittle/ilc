@@ -6070,9 +6070,94 @@ enumerates and snapshots.
 
 * 16-byte value keys (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) under a
   user comparer (section 57 slot encoding);
-* ORDER BY over a NARROW-array source (byte[]/short[]/...) is not wired even
-  without a comparer (the int32-only gate) -- pre-existing, needs a narrow
-  source-key sort surface first;
+* ORDER BY over a NARROW-array source (byte[]/short[]/...) is now IMPLEMENTED
+  (section 72); plain (no comparer) and user-key-comparer forms both wired;
 * the FUSED ThenBy/ThenByDescending composite over a value source with a
   comparer (both comparers must ride the fused kernel) -- the two-arg fused
   composites are unchanged and the comparer form stays LOUD.
+
+## 72. OrderBy / OrderByDescending over a NARROW-array source (IMPLEMENTED)
+
+`Enumerable.OrderBy<TKey>` over a NARROW-element array (`sbyte[]`/`byte[]`/
+`bool[]`/`short[]`/`ushort[]`/`char[]`, the uint[] source riding the same int32
+slot): the element is read at its REAL cell width and WIDENED into the INT32
+selector slot (the M1 rule), and the result is a FRESH array of the SOURCE's own
+narrow cell -- never a widened int32[]. Before this section every narrow
+`OrderBy` fell into the int32-only gate (LOUD), including the two-argument
+form.
+
+### Implementation
+
+* Runtime `linq_sort.cpp` gained three narrow-source entries
+  (`il2cpp_linq_order_by_key_narrow[_cmp|_ref_cmp]`, the header already
+  declared by the section-72 kickoff):
+  * `SortNarrowKeyCopyT<TKey, InvokeKey, Cmp>` -- the plain/comparer value-key
+    kernel. The elements are widened via `LinqCellReadI4(src, i, srcCell)`
+    (the section-70/linq_family read -- sign/zero extension, never a 4-byte
+    over-read) into a native int32 snapshot taken BEFORE any selector call;
+    each key is cached EXACTLY ONCE; the INDICES are merged stably by the
+    cached keys; the result is `LinqNewArray(srcCell, n)` (which stamps the
+    section-70 element kind -- Bool/S1/S2/U2; byte and char decide by cell
+    width) and `LinqNarrowWriteBack` re-materializes the widened value at the
+    cell's REAL width (bool normalizes 0/1, the signed families narrow the low
+    bits). The key crosses the selector's own family slot via the existing
+    `InvokeKeyI4` / `InvokeKeyI4I8` / `InvokeKeyI4F` / `InvokeKeyI4D` readers.
+  * the `_cmp` twinning mirrors section 71 exactly: value keys compared through
+    the rooted `LinqValueCompareCmpCell` dispatch (keyCell 0..7 int32-carrier /
+    8 int64 / 9 float / 10 double; 16-byte keys and anything out of range stay
+    LOUD); a NULL comparer falls back to `Comparer<TKey>.Default`.
+  * `SortNarrowRefKeyCmpCopyT<InvokeRefKey>` -- a REFERENCE key over a narrow
+    source (`short[].OrderBy(x => x.ToString(), comparer)`): the widened
+    element rides `InvokeKeyI4SrcRef`, the keys are cached in a ROOTED
+    reference array and compared through the shared `LinqRefCompareCmp`, the
+    result is again the source's own narrow cell. The comparison phase re-reads
+    the keys through the rooted array on every comparison (a comparer may
+    allocate -> compaction moves the key array).
+* Transpiler `MethodMap.Linq.cs`:
+  * a NARROW `OrderBy` / `OrderByDescending` arm in `TryMapLinqWide` (after the
+    i8/d/f arms, so only narrow sources reach it): the KEY CELL literal, the
+    SOURCE cell literal (`kindCode` -- "0".."6") and the desc literal are the
+    three trailing literals on the single `il2cpp_linq_order_by_key_narrow`
+    entry; the result is tracked as the source's own narrow element type
+    (`elemTracked`).
+  * `LinqOrderByKeyEntryCmp` gained an optional `srcCell` narrow-only literal
+    (`{keyCell, srcCell, desc}` for `_cmp`, `{srcCell, desc}` for `_ref_cmp`)
+    and the narrow `returnTypeName` re-materializes `genArgs[0]`.
+
+### Contract evidence
+
+* new case `tests/cases/probe-ordbynarrow`: oracle = runtime = **239B sha
+  b60e842c**, 15 records -- byte/sbyte/short/ushort/char/bool sources; default
+  numeric ascent/descent; PARITY user comparers on every narrow family
+  (byte/sbyte/short/ushort/char -- the `(u1,u1)`/`(b,b)`/`(i2,i2)`/`(u2,u2)`/
+  `(c,c)` slot fragments); the `(element,index)` LOUD guard; a byte-by-int32
+  projection; empty / single-element; GC.Collect inside the key selector
+  (narrow root survival); a null-comparer fallback (`OrderByDescending(x, null)`);
+  and a REFERENCE (string) key with `StringComparer.Ordinal`.
+* RED baseline (probe before the fix): with the OLD transpiler the narrow
+  OrderBy falls into the int32-only gate -> runtime 0B, code=1, oracle sha
+  unchanged (the LOUD rejection this section removes).
+* mutations (all restored green to the same 239B sha):
+  * M1 the desc flag is ignored in `SortNarrowKeyCopyT` -> runtime 239B
+    `38237cd8` (firstDiff@17, the discrete desc records reorder);
+  * M2 the `_cmp` default arm replaces the user comparer with `CmpKeyValue`
+    -> runtime 239B `e6f6d4e2` (firstDiff@31, parity order lost -- silent);
+  * M3 the `_ref_cmp` key operands are swapped -> runtime 239B `efefafec`
+    (firstDiff@221, the b15 reference-key record reverses);
+  * M4 the result is widened to `LinqNewArray(IL2CPP_LINQ_CELL_I4, n)` -> runtime
+    243B `72ba5197` (firstDiff@45, later cells corrupt -- silent over-read).
+* regression byte-identical: probe-ordbyvalcmp 221B `b757a793` /
+  probe-cmpref 158B `647b0bb6` / probe-joincmpval 270B `c2d15d66` /
+  probe-repeatnarrow 176B `65bb3c44` / probe-selectmanyseq 232B `321d3b21` /
+  probe-range 291B `7f2e8727` / linqorder2 779B `6a72ece6` / thenby3 585B
+  `2ead0372`.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 errors 0 warnings (both
+  transpiler and runtime; no `-W` output from `linq_sort.cpp`).
+
+### Registered-remaining (kept LOUD, measured)
+
+* 16-byte value keys (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) under a
+  narrow source (section 71/57 slot encoding);
+* the NARROW-source ThenBy / ThenByDescending fused composite (no fused narrow
+  sort surface yet) and the value-source fused ThenBy-comparator composite;
+* List<T> comparer overloads and the GroupBy-bucket comparer overloads.

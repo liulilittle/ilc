@@ -5205,7 +5205,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
     //--------------------------------------------------------------------------
     private static ResolvedMethod LinqOrderByKeyEntryCmp(
         MetadataReader md, BlobHandle sigHandle, byte[]? genArgs, string[]? genArgNames,
-        bool desc, string srcSuffix)
+        bool desc, string srcSuffix, string? srcCell = null)
     {
         if (genArgs is not { Length: >= 2 })
             throw new NotSupportedException(
@@ -5218,6 +5218,11 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             "i8" => "System.Int64[]",
             "d" => "System.Double[]",
             "f" => "System.Single[]",
+            // b5-gaps section 72: the narrow-source entries re-materialize the
+            // SOURCE's own narrow element type (never a widened int32[]).
+            "narrow" => genArgs is { Length: >= 1 }
+                ? LinqArrayTypeNameExact(genArgs[0])
+                : "System.Byte[]",
             _ => "System.Int32[]",
         };
         if (IsRefFamilyByte(keyByte))
@@ -5225,7 +5230,9 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             return I($"il2cpp::il2cpp_linq_order_by_key_{srcSuffix}_ref_cmp",
                 3, true, true, false, new[] { "a", "", "" },
                 returnTypeName: returnTypeName,
-                appendLiterals: new[] { desc ? "1" : "0" });
+                appendLiterals: srcCell == null
+                    ? new[] { desc ? "1" : "0" }
+                    : new[] { srcCell, desc ? "1" : "0" });
         }
         string? keyCell = LinqCellCodeOfElemByte(keyByte);
         if (keyCell == null)
@@ -5233,12 +5240,14 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 $"Enumerable.{member}<{GenericArgTypeName(genArgs[0])}," +
                 $"{GenericArgTypeName(keyByte)}> not wired: the value-source comparer " +
                 "surface covers int32/uint32/narrow/int64/double/float keys and reference " +
-                "keys only (b5-gaps section 71: decimal/DateTime/TimeSpan/Guid/" +
+                "keys only (b5-gaps section 71): decimal/DateTime/TimeSpan/Guid/" +
                 "DateTimeOffset comparers stay LOUD).");
         return I($"il2cpp::il2cpp_linq_order_by_key_{srcSuffix}_cmp",
             3, true, true, false, new[] { "a", "", "" },
             returnTypeName: returnTypeName,
-            appendLiterals: new[] { keyCell, desc ? "1" : "0" });
+            appendLiterals: srcCell == null
+                ? new[] { keyCell, desc ? "1" : "0" }
+                : new[] { keyCell, srcCell, desc ? "1" : "0" });
     }
 
     private static string? LinqNarrowCode(byte b) => b switch
@@ -7351,6 +7360,52 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     : $"il2cpp::il2cpp_linq_order_by_key{(name == "OrderBy" ? "" : "_desc")}_{srcFam}_{keyFam}";
                 return I(wideEntry, 2, true, true, false, TwoArg,
                     returnTypeName: srcFam == "d" ? "System.Double[]" : "System.Single[]");
+            }
+            // b5-gaps section 72: OrderBy / OrderByDescending over a NARROW
+            // array source (sbyte[]/byte[]/bool[]/short[]/ushort[]/char[]).
+            // The int32-source entries read 4-byte cells and materialize an
+            // int32[] result, so a narrow source needs its own entry: each
+            // element is read at its REAL cell width and WIDENED into the
+            // int32 selector slot (the M1 rule), and the result is a fresh
+            // array of the SOURCE's narrow cell -- kindCode (the source cell
+            // literal, "0".."6") rides a trailing literal so LinqNewArray
+            // stamps the section-70 elemKind (Bool/S1/S2/U2; byte/char decide
+            // by cell width). The key cell literal precedes it; desc trails.
+            case "OrderBy" when narrow && kindCode is { } && count >= 2:
+            case "OrderByDescending" when narrow && kindCode is { } && count >= 2:
+            {
+                if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a narrow-element source with an (element, index) key selector " +
+                        "is not wired: LOUD whitelist -- net48 has no (element, index) key selector overload. " +
+                        "MS Learn Enumerable.OrderBy (view=netframework-4.8.1) and the net48 Reference Source " +
+                        "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
+                        "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
+                        "shape is a .NET 9 Index() family form (see docs/audit/b5-gaps.md)");
+                bool desc = name == "OrderByDescending";
+                // The comparer overload -> the narrow comparator kernel (_cmp
+                // value key / _ref_cmp reference key); the source cell literal
+                // rides between the key cell and the desc literal.
+                if (LinqHasComparerParam(md, sigHandle))
+                {
+                    return LinqOrderByKeyEntryCmp(md, sigHandle, genArgs, genArgNames,
+                        desc: desc, srcSuffix: "narrow", srcCell: kindCode);
+                }
+                byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                string? keyCell = LinqCellCodeOfElemByte(keyByte);
+                if (keyCell == null)
+                {
+                    string elemName = genArgs is { Length: >= 1 } ? GenericArgTypeName(genArgs[0]) : "?";
+                    throw new NotSupportedException(
+                        $"Enumerable.{name}<{elemName},{GenericArgTypeName(keyByte)}> " +
+                        "not wired: the narrow-source key-selector surface covers int32/uint32/narrow, " +
+                        "int64, double and float keys only (a reference / struct key needs the " +
+                        "comparer kernel, b5-gaps section 72)");
+                }
+                return I("il2cpp::il2cpp_linq_order_by_key_narrow",
+                    2, true, true, false, TwoArg,
+                    returnTypeName: elemTracked,
+                    appendLiterals: new[] { keyCell, kindCode, desc ? "1" : "0" });
             }
             case "Any" when count < 2:
                 // Family-agnostic: reads only the array header.

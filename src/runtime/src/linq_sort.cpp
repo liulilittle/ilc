@@ -38,6 +38,8 @@
 
 #include "linq_sort.h"
 
+#include "linq_family.h"     // b5-gaps section 72: LinqNewArray / LinqCellReadI4
+
 #include "il2cpp_exception.h"
 #include "arraysort.h"
 #include "il2cpp_exception_ext.h"
@@ -3440,6 +3442,295 @@ Il2CppArray* il2cpp_linq_order_by_key_f_ref_cmp(Il2CppArray* src, Il2CppObject* 
     Il2CppDelegate* d = RequireKeySelector(keySel);
     return SortValueSrcRefKeyCmpCopyT<float, kElemKindF>(
         s, d, cmp, desc != 0, InvokeKeyDSrcRef);
+}
+
+//------------------------------------------------------------------------------
+// b5-gaps section 72: OrderBy / OrderByDescending over a NARROW-element ARRAY
+// source (sbyte[] / byte[] / bool[] / short[] / ushort[] / char[], plus the
+// uint[] source whose cells widen into the int32 slot). The source is one of
+// the six narrow cell families (IL2CPP_LINQ_CELL_SBYTE..CHAR, the srcCell
+// trailing literal); each element is read at its REAL width and widened into
+// the INT32 selector slot (the M1 rule -- the same widening a byte[]
+// predicate/selector already uses, linq_family.cpp LinqCellReadI4). The result
+// is a FRESH array of the SOURCE's own narrow cell (LinqNewArray stamps the
+// section-70 element kind -- Bool/S1/S2/U2, byte and char decide by cell
+// width), never a widened int32[].
+//
+// The KEY is whatever the selector returns in its own family slot:
+//   * the PLAIN entry uses the per-family CmpKeyValue default comparator;
+//   * the _cmp entry replaces it with a USER IComparer<TKey> -- the key cell
+//     rides the SAME cell dispatch as il2cpp_linq_order_by_key_i4_cmp
+//     (0..7 int32-carrier, 8 int64, 9 float, 10 double; the narrow/uint key
+//     cells and the 16-byte value keys otherwise follow section 71 exactly);
+//   * the _ref_cmp entry handles a REFERENCE key (Func<TSource,string> etc.):
+//     keys cached in a ROOTED reference array and compared through
+//     LinqRefCompareCmp -- the shared ref_cmp authority.
+// GC SAFETY follows the sibling kernels: the elements are snapshotted into a
+// native vector BEFORE any selector call, the selectors / comparer / key array
+// are rooted across the key/sort phase (a compaction rewrites the locals), and
+// the result is allocated only after the last selector/comparer call.
+//------------------------------------------------------------------------------
+namespace {
+
+// Write a widened int32 carrier back into a narrow cell at its REAL width (the
+// section-70 write-back: bool normalizes 0/1, the signed families narrow the
+// low bits -- the widened value round-trips the original cell exactly).
+void LinqNarrowWriteBack(Il2CppArray* out, int32_t index, int32_t srcCell,
+                         int32_t value)
+{
+    char* dst = LinqCellPtr(out, index);
+    switch (srcCell)
+    {
+    case IL2CPP_LINQ_CELL_SBYTE:
+        *reinterpret_cast<int8_t*>(dst) = static_cast<int8_t>(value);
+        break;
+    case IL2CPP_LINQ_CELL_BYTE:
+        *reinterpret_cast<uint8_t*>(dst) = static_cast<uint8_t>(value);
+        break;
+    case IL2CPP_LINQ_CELL_BOOL:
+        *reinterpret_cast<uint8_t*>(dst) =
+            value != 0 ? static_cast<uint8_t>(1) : static_cast<uint8_t>(0);
+        break;
+    case IL2CPP_LINQ_CELL_SHORT:
+        *reinterpret_cast<int16_t*>(dst) = static_cast<int16_t>(value);
+        break;
+    case IL2CPP_LINQ_CELL_USHORT:
+        *reinterpret_cast<uint16_t*>(dst) = static_cast<uint16_t>(value);
+        break;
+    case IL2CPP_LINQ_CELL_CHAR:
+        *reinterpret_cast<char16_t*>(dst) = static_cast<char16_t>(value);
+        break;
+    default:
+        std::memcpy(dst, &value, static_cast<size_t>(LinqCellSize(srcCell)));
+        break;
+    }
+}
+
+// The narrow-source keyed sort: the elements are widened into an int32 native
+// snapshot (the M1 slider), every key is cached EXACTLY ONCE (net48
+// EnumerableSorter), the INDICES are merged stably by the cached keys, and the
+// result is a fresh array of the SOURCE narrow cell re-materialized by index.
+template <typename TKey, typename InvokeKey, typename Cmp>
+Il2CppArray* SortNarrowKeyCopyT(Il2CppArray* src, Il2CppDelegate* keySel,
+                                bool desc, int32_t srcCell, InvokeKey invokeKey,
+                                Cmp cmp)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+
+    if (n == 0)
+    {
+        return LinqNewArray(srcCell, 0);
+    }
+
+    // Element snapshot taken before ANY selector call: no managed allocation
+    // preceded the reads, so 'src' cannot have been moved.
+    std::vector<int32_t> elems(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        elems[i] = LinqCellReadI4(src, i, srcCell);
+    }
+    std::vector<TKey> keys(static_cast<size_t>(n));
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        order[i] = i;
+    }
+    for (int32_t i = 0; i < n; ++i)
+    {
+        keys[i] = invokeKey(keySel, elems[i]);
+    }
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        const int32_t c = cmp(keys[a], keys[b]);
+                        return desc ? -c : c;
+                    });
+
+    Il2CppArray* result = LinqNewArray(srcCell, n);
+    roots.Add(reinterpret_cast<void**>(&result));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        LinqNarrowWriteBack(result, i, srcCell, elems[order[i]]);
+    }
+    return result;
+}
+
+// The narrow-source REFERENCE-key comparator sort (Func<TSource,string> etc.):
+// the keys cross the REF slot, cached in a ROOTED reference array and compared
+// through the shared LinqRefCompareCmp (StringComparer singletons + the
+// reflected Compare(T,T) slot). The elements are widened into the int32
+// snapshot exactly like the value-key kernel above.
+template <typename InvokeRefKey>
+Il2CppArray* SortNarrowRefKeyCmpCopyT(Il2CppArray* src, Il2CppDelegate* keySel,
+                                      Il2CppObject* cmp, bool desc, int32_t srcCell,
+                                      InvokeRefKey invokeRefKey)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+
+    if (n == 0)
+    {
+        return LinqNewArray(srcCell, 0);
+    }
+
+    std::vector<int32_t> elems(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        elems[i] = LinqCellReadI4(src, i, srcCell);
+    }
+
+    Il2CppArray* keyArr = il2cpp_array_new(src->elemClass, sizeof(void*), true, n);
+    roots.Add(reinterpret_cast<void**>(&keyArr));
+    Il2CppObject** keySlot = reinterpret_cast<Il2CppObject**>(keyArr->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        keySlot[i] = invokeRefKey(keySel, elems[i]);
+    }
+    for (int32_t i = 0; i < n; ++i)
+    {
+        il2cpp_write_barrier(reinterpret_cast<void**>(&keySlot[i]), keySlot[i]);
+    }
+
+    Il2CppObject* c = cmp;
+    roots.Add(reinterpret_cast<void**>(&c));
+
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i) order[i] = i;
+
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        Il2CppObject* const* ks =
+                            reinterpret_cast<Il2CppObject* const*>(keyArr->data);
+                        const int32_t c1 = LinqRefCompareCmp(c, ks[a], ks[b]);
+                        return desc ? -c1 : c1;
+                    });
+
+    Il2CppArray* result = LinqNewArray(srcCell, n);
+    roots.Add(reinterpret_cast<void**>(&result));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        LinqNarrowWriteBack(result, i, srcCell, elems[order[i]]);
+    }
+    return result;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_order_by_key_narrow(Il2CppArray* src, Il2CppObject* keySel,
+                                             int32_t keyCell, int32_t srcCell,
+                                             int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    LinqRequireCell(s, srcCell);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    switch (keyCell)
+    {
+    case IL2CPP_LINQ_CELL_I8:
+        return SortNarrowKeyCopyT<int64_t>(s, d, desc != 0, srcCell,
+                                           InvokeKeyI4I8, CmpKeyValue<int64_t>);
+    case IL2CPP_LINQ_CELL_F:
+        return SortNarrowKeyCopyT<float>(s, d, desc != 0, srcCell,
+                                         InvokeKeyI4F, CmpKeyValue<float>);
+    case IL2CPP_LINQ_CELL_D:
+        return SortNarrowKeyCopyT<double>(s, d, desc != 0, srcCell,
+                                          InvokeKeyI4D, CmpKeyValue<double>);
+    default:
+        if (keyCell < 0 || keyCell > IL2CPP_LINQ_CELL_I4)
+        {
+            il2cpp_throw_not_supported_exception(
+                "OrderBy over a narrow source: the key cell has no plain sort "
+                "kernel (b5-gaps section 71/72: 16-byte and reference keys over "
+                "a value source need the comparer entry).");
+            return nullptr;
+        }
+        return SortNarrowKeyCopyT<int32_t>(s, d, desc != 0, srcCell,
+                                           InvokeKeyI4, CmpKeyValue<int32_t>);
+    }
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_narrow_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                 Il2CppObject* cmp, int32_t keyCell,
+                                                 int32_t srcCell, int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    LinqRequireCell(s, srcCell);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    Il2CppObject* c = cmp;
+    if (c == nullptr)
+    {
+        // net48 OrderBy(source, keySelector, null) -> Comparer<TKey>.Default,
+        // exactly the non-comparator entry.
+        switch (keyCell)
+        {
+        case IL2CPP_LINQ_CELL_I8:
+            return SortNarrowKeyCopyT<int64_t>(s, d, desc != 0, srcCell,
+                                               InvokeKeyI4I8, CmpKeyValue<int64_t>);
+        case IL2CPP_LINQ_CELL_F:
+            return SortNarrowKeyCopyT<float>(s, d, desc != 0, srcCell,
+                                             InvokeKeyI4F, CmpKeyValue<float>);
+        case IL2CPP_LINQ_CELL_D:
+            return SortNarrowKeyCopyT<double>(s, d, desc != 0, srcCell,
+                                              InvokeKeyI4D, CmpKeyValue<double>);
+        default:
+            return SortNarrowKeyCopyT<int32_t>(s, d, desc != 0, srcCell,
+                                               InvokeKeyI4, CmpKeyValue<int32_t>);
+        }
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&c));
+    switch (keyCell)
+    {
+    case IL2CPP_LINQ_CELL_I8:
+        return SortNarrowKeyCopyT<int64_t>(
+            s, d, desc != 0, srcCell, InvokeKeyI4I8,
+            [c](int64_t a, int64_t b) { return LinqValueCompareCmpCell(c, 8, a, b); });
+    case IL2CPP_LINQ_CELL_F:
+        return SortNarrowKeyCopyT<float>(
+            s, d, desc != 0, srcCell, InvokeKeyI4F,
+            [c](float a, float b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 9,
+                    LinqCarrierOfFloat(a), LinqCarrierOfFloat(b));
+            });
+    case IL2CPP_LINQ_CELL_D:
+        return SortNarrowKeyCopyT<double>(
+            s, d, desc != 0, srcCell, InvokeKeyI4D,
+            [c](double a, double b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 10,
+                    LinqCarrierOfDouble(a), LinqCarrierOfDouble(b));
+            });
+    default:
+        if (keyCell < 0 || keyCell > IL2CPP_LINQ_CELL_I4)
+        {
+            il2cpp_throw_not_supported_exception(
+                "a user IComparer over this key cell is not wired "
+                "(b5-gaps section 71).");
+            return nullptr;
+        }
+        return SortNarrowKeyCopyT<int32_t>(
+            s, d, desc != 0, srcCell, InvokeKeyI4,
+            [c, keyCell](int32_t a, int32_t b) -> int32_t {
+                return LinqValueCompareCmpCell(c, keyCell, a, (int64_t)b);
+            });
+    }
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_narrow_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                     Il2CppObject* cmp, int32_t srcCell,
+                                                     int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    LinqRequireCell(s, srcCell);
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortNarrowRefKeyCmpCopyT(s, d, cmp, desc != 0, srcCell,
+                                    InvokeKeyI4SrcRef);
 }
 
 //------------------------------------------------------------------------------
