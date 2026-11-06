@@ -5365,7 +5365,10 @@ families for the six set/sequence operators so the gate no longer rejects them.
 * value-family comparers over decimal / DateTime / TimeSpan / Guid /
   DateTimeOffset ARRAYS -- the Equals slot signature encoding for the 16-byte
   value types needs measuring before the slots can be found (continuation);
-* OrderBy / ThenBy over a VALUE source with a user IComparer for the KEY;
+* OrderBy / OrderByDescending over a VALUE source with a user IComparer for the
+  KEY is now IMPLEMENTED (section 71); the fused ThenBy-comparator composite
+  over a value source is not (a ThenBy with a comparer re-sorts the primary by
+  the SECONDARY key through BOTH comparers -- no fused kernel yet);
 * List<T> comparer overloads and the GroupBy-bucket comparer overloads.
 ## 58. Enumerable.ToHashSet across the supported element families (IMPLEMENTED)
 
@@ -6001,3 +6004,75 @@ enumerates and snapshots.
 * 16-byte cells (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) as non-array
   `IEnumerable` inners -- no ienum carrier;
 * source sequences of the 3-argument form stay array-only (D-2 guard).
+## 71. OrderBy / OrderByDescending over a VALUE SOURCE with a user key IComparer (IMPLEMENTED)
+
+`Enumerable.OrderBy<TKey>` 3-arg overload (`OrderBy(source, keySelector, comparer)`) over a CONCRETE VALUE-element array: net48 applies the USER `IComparer<TKey>` to the cached keys regardless of the key's family, replacing the per-family default comparator. Before this section the value-source orders were the two-argument entries only; a comparer operand (count >= 3) fell into the section-56 "would silently drop the comparer" LOUD guard.
+
+### Implementation
+
+* Runtime `linq_sort.cpp` gained four value-source comparator kernels
+  (`il2cpp_linq_order_by_key_<src>_cmp` with src = i4/i8/d/f) plus four
+  reference-key variants (`_<src>_ref_cmp`). The KEY CELL is a trailing
+  literal (the `IL2CPP_LINQ_CELL_*` code the transpiler appends); the desc
+  flag is the second trailing literal (0 asc / 1 desc), exactly the
+  ref_source comparator-entry convention.
+* VALUE keys: cached exactly once per element in their OWN return-typed slot
+  (int32-carrier for narrow/uint/int32 -- the M1 widening --, int64, float,
+  double) and compared through `LinqValueCompareCmpCell` -- the value-comparer
+  `FindVirtualSlotByNameAndSignature(cmp, "Compare", frag)` dispatch with the
+  section-57 fragment set `(i1,i1)/(u1,u1)/(b,b)/(i2,i2)/(u2,u2)/(c,c)/
+  (i,i)/(l,l)/(f,f)/(d,d)`. float keys ride the double ABI exactly like the
+  equality dispatch; the comparer object is ROOTED for the whole sort.
+* NULL comparer: net48 `OrderBy(source, keySelector, null)` -> the DEFAULT
+  family comparator (`Comparer<TKey>.Default`), routed to the existing
+  `CmpKeyValue` kernels -- never a null deref.
+* REFERENCE keys over a value source (e.g. `long[].OrderBy(x => x.ToString(),
+  comparer)`): the key selector returns a boxed/class object in the REF slot.
+  The keys are cached in a ROOTED reference array and compared through
+  `LinqRefCompareCmp` (the ref_cmp authority), re-read through the rooted
+  array on every comparison (a comparer may allocate -> compaction moves the
+  key array). The source elements are snapshotted into a native vector BEFORE
+  any selector call; the result array is allocated only after the last
+  comparer call. This closes the "any reference key over a value source has
+  no sort kernel" comparator face (the per-family two-arg surface still keys
+  through the named entries).
+* 16-byte value keys (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) have no
+  measured user-comparer slot ABI and stay LOUD (section 57).
+* Transpiler `MethodMap.Linq.cs`: the section-56 value comparer LOUD guard now
+  exempts OrderBy / OrderByDescending; the int32-source arm (LinqOrderByKeyEntry)
+  and the wide arms (i8/d/f in TryMapLinqWide) detect the comparer param and emit
+  `_cmp` / `_ref_cmp` with the KEY CELL literal (ref -> the ref-key entry).
+
+### Contract evidence
+
+* new case `tests/cases/probe-ordbyvalcmp`: oracle = runtime = **221B sha
+  b757a793**, 15 records -- int/long/double/float sources; abs-descending
+  custom comparers; OrderBy + OrderByDescending; null-comparer fallback (id -
+  ascending + descending); a side-effecting key selector (GC.Collect inside,
+  proving cached-once); a NARROW byte key over an int source; a REFERENCE
+  (string) key over a long source; empty / single-element; GC.Collect inside
+  the comparer (rooting proof); dup-key stability; Reference-SOURCE desc
+  regression (already wired).
+* mutations (all silent-wrong except M37, restored green):
+  * M36 the i4 default-case comparer is replaced by CmpKeyValue (the user
+    comparer ignored) -> [i1]/[i5]/[i9]/[i13] all reordered ascending (silent);
+  * M37 the int64 fragment is mistyped as `(i,i)` -> i6 aborts with a managed
+    exception after i5 (the `(l,l)` slot is not found);
+  * M38 the i8 reference-key desc flag is flipped -> [i10] 9,6,3,3,1 (silent).
+* regression byte-identical: probe-cmpref 158B `647b0bb6` / probe-joincmpval
+  270B `c2d15d66` / probe-selectmanyseq 232B `321d3b21` / probe-range 291B
+  `7f2e8727` / probe-repeatempty 215B `e5629119` / probe-repeatnarrow 176B
+  `65bb3c44` / probe-selectmany 61B `38b882bab`.
+* unit tests 4159/0/0; C0 `--no-incremental` 0 errors 0 warnings (both
+  transpiler and runtime).
+
+### Registered-remaining (kept LOUD, measured)
+
+* 16-byte value keys (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) under a
+  user comparer (section 57 slot encoding);
+* ORDER BY over a NARROW-array source (byte[]/short[]/...) is not wired even
+  without a comparer (the int32-only gate) -- pre-existing, needs a narrow
+  source-key sort surface first;
+* the FUSED ThenBy/ThenByDescending composite over a value source with a
+  comparer (both comparers must ride the fused kernel) -- the two-arg fused
+  composites are unchanged and the comparer form stays LOUD.

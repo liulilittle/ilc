@@ -2802,7 +2802,12 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         bool isValueArrayCmpOp = listKind == null
             && (linqSrcFam is "i4" or "i8" or "f" or "d" or "narrow")
             && name is "Distinct" or "Except" or "Union" or "Intersect"
-                or "Contains" or "SequenceEqual";
+                or "Contains" or "SequenceEqual"
+                // b5-gaps section 71: OrderBy / OrderByDescending over a VALUE
+                // source accepts the user key comparer -- the value-source
+                // arms below (LinqOrderByKeyEntry and TryMapLinqWide) emit the
+                // *_cmp / *_ref_cmp comparator kernels.
+                or "OrderBy" or "OrderByDescending";
         if (name != "GroupBy" && LinqHasComparerParam(md, sigHandle) && !isValueArrayCmpOp)
         {
             throw new NotSupportedException(
@@ -3320,12 +3325,30 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 // downstream operators. The KEY family is int32 (the 0x08-slot
                 // primitives), int64 (long/ulong) or double/float (the F-stack
                 // carrier); anything else has no int32-source key icall.
+                //
+                // b5-gaps section 71: OrderBy(source, keySelector, comparer)
+                // over an int32-source applies the USER key comparer -- the
+                // same cached-once / stable sort, but the comparer's own
+                // Compare decides, dispatching through the reflected value slot
+                // (il2cpp_linq_order_by_key_i4_cmp) or the ref-key kernel
+                // (il2cpp_linq_order_by_key_i4_ref_cmp for a string/object
+                // TKey). The KEY cell is appended as a literal.
+                if (LinqHasComparerParam(md, sigHandle))
+                {
+                    return LinqOrderByKeyEntryCmp(md, sigHandle, genArgs, genArgNames,
+                        desc: false, srcSuffix: "i4");
+                }
                 return LinqOrderByKeyEntry(genArgs, genArgNames, desc: false);
             case "OrderByDescending":
                 // OrderByDescending(source, keySelector) ->
                 // il2cpp_linq_order_by_key[_desc]_* (the DESCENDING bridge):
                 // identical to OrderBy but with DESCENDING key order. The same
                 // key families as OrderBy.
+                if (LinqHasComparerParam(md, sigHandle))
+                {
+                    return LinqOrderByKeyEntryCmp(md, sigHandle, genArgs, genArgNames,
+                        desc: true, srcSuffix: "i4");
+                }
                 return LinqOrderByKeyEntry(genArgs, genArgNames, desc: true);
             case "ThenBy":
             case "ThenByDescending":
@@ -5165,6 +5188,57 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 "double/float keys only (il2cpp_linq_order_by_key[_desc]_i4 / _i4_i8 / _i4_f / _i4_d)");
         }
         return I(entry, 2, true, true, false, new[] { "a", "" }, returnTypeName: "System.Int32[]");
+    }
+
+    //--------------------------------------------------------------------------
+    // LinqOrderByKeyEntryCmp -- the comparer-twin entry of the VALUE-source
+    // OrderBy / OrderByDescending (b5-gaps section 71). Every net48
+    // OrderBy<TSource,TKey>(source, keySelector, comparer) over a concrete
+    // VALUE element array rides one of the runtime comparator kernels:
+    //   * il2cpp_linq_order_by_key_<src>_cmp      -- VALUE TKey; the KEY cell
+    //     rides trailing literals {keyCell, desc} (3 IL args: a/a/"").
+    //   * il2cpp_linq_order_by_key_<src>_ref_cmp  -- REFERENCE TKey (string/
+    //     object -- the selector returns a boxed/class object); keys cached in
+    //     a rooted ref array, {desc} literal only.
+    // The desc literal mirrors the non-comparator entries (0=ascending,
+    // 1=descending); it is never a consumed IL argument.
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod LinqOrderByKeyEntryCmp(
+        MetadataReader md, BlobHandle sigHandle, byte[]? genArgs, string[]? genArgNames,
+        bool desc, string srcSuffix)
+    {
+        if (genArgs is not { Length: >= 2 })
+            throw new NotSupportedException(
+                $"Enumerable.OrderBy<...,?> comparison entry: missing key generic argument.");
+        string member = desc ? "OrderByDescending" : "OrderBy";
+        byte keyByte = genArgs[1];
+        string returnTypeName = srcSuffix switch
+        {
+            "i4" => "System.Int32[]",
+            "i8" => "System.Int64[]",
+            "d" => "System.Double[]",
+            "f" => "System.Single[]",
+            _ => "System.Int32[]",
+        };
+        if (IsRefFamilyByte(keyByte))
+        {
+            return I($"il2cpp::il2cpp_linq_order_by_key_{srcSuffix}_ref_cmp",
+                3, true, true, false, new[] { "a", "", "" },
+                returnTypeName: returnTypeName,
+                appendLiterals: new[] { desc ? "1" : "0" });
+        }
+        string? keyCell = LinqCellCodeOfElemByte(keyByte);
+        if (keyCell == null)
+            throw new NotSupportedException(
+                $"Enumerable.{member}<{GenericArgTypeName(genArgs[0])}," +
+                $"{GenericArgTypeName(keyByte)}> not wired: the value-source comparer " +
+                "surface covers int32/uint32/narrow/int64/double/float keys and reference " +
+                "keys only (b5-gaps section 71: decimal/DateTime/TimeSpan/Guid/" +
+                "DateTimeOffset comparers stay LOUD).");
+        return I($"il2cpp::il2cpp_linq_order_by_key_{srcSuffix}_cmp",
+            3, true, true, false, new[] { "a", "", "" },
+            returnTypeName: returnTypeName,
+            appendLiterals: new[] { keyCell, desc ? "1" : "0" });
     }
 
     private static string? LinqNarrowCode(byte b) => b switch
@@ -7177,6 +7251,16 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
                         "shape is a .NET 9 Index() family form (see docs/audit/b5-gaps.md)");
+                // b5-gaps section 71: OrderBy(source, keySelector, comparer)
+                // over an int64 source -> the comparator kernel (value key via
+                // the cell-carrier dispatch, reference key via the rooted ref
+                // kernel). The (element,index) guard above already rejected the
+                // .NET 9 index form; a comparer param means count >= 3.
+                if (LinqHasComparerParam(md, sigHandle))
+                {
+                    return LinqOrderByKeyEntryCmp(md, sigHandle, genArgs, genArgNames,
+                        desc: name == "OrderByDescending", srcSuffix: "i8");
+                }
                 byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
                 // impl-linq3 (B): a DateTime / Guid key rides the struct
                 // carrier sort over the int64 source.
@@ -7232,6 +7316,14 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                         "System.Core/System/Linq/Enumerable.cs list only OrderBy<TSource,TKey>(IEnumerable<TSource>, " +
                         "Func<TSource,TKey>) and OrderBy<TSource,TKey>(..., IComparer<TKey>); the (element, index) " +
                         "shape is a .NET 9 Index() family form (see docs/audit/b5-gaps.md)");
+                // b5-gaps section 71: the comparer overload over a double/float
+                // source -> the comparator kernel (_cmp value key / _ref_cmp
+                // reference key), one per source family.
+                if (LinqHasComparerParam(md, sigHandle))
+                {
+                    return LinqOrderByKeyEntryCmp(md, sigHandle, genArgs, genArgNames,
+                        desc: name == "OrderByDescending", srcSuffix: srcFam);
+                }
                 byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
                 string? keyFam = keyByte switch
                 {

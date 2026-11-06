@@ -53,6 +53,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 #include <new>
 #include <vector>
 
@@ -2910,6 +2911,535 @@ Il2CppArray* il2cpp_linq_order_by_key_desc_f_f(Il2CppArray* src, Il2CppObject* k
     Il2CppDelegate* d = RequireKeySelector(keySel);
     return SortWideElemKeyCopyT<float, kElemKindF, float>(
         s, d, true, InvokeKeyDSrcF, CmpKeyValue<float>);
+}
+
+//------------------------------------------------------------------------------
+// b5-gaps section 71: OrderBy / OrderByDescending over a VALUE-element source
+// with a USER IComparer<TKey> for the KEY (net48
+// OrderBy<TSource,TKey>(source, keySelector, comparer)). The KEY is whatever
+// the selector returns in its own family slot; the user comparer's Compare is
+// the authority -- the per-family CmpKeyValue default is REPLACED, not kept.
+//
+// The reflected IComparer<T>.Compare(T,T) slot dispatch:
+//   * a VALUE key rides the same cell-carrier ABI as LinqValueEqualsCmpCell
+//     (linq_family.cpp: narrow/uint/int32 -> the int32 parameter slot, int64 ->
+//     the int64 slot, float/double -> the double ABI); the slot fragment is
+//     (i1/i1)/(u1,u1)/(b,b)/(i2,i2)/(u2,u2)/(c,c)/(i,i)/(l,l)/(f,f)/(d,d).
+//     The comparer object is ROOTED for the whole sort (it may allocate while
+//     comparing, and a compaction can move it), exactly the ref_cmp contract.
+//
+// The cached key type stays the selector's family:
+//   * int32/narrow keys cache an int32_t, cached exactly once per element;
+//   * keys that are 16-byte values (decimal/DateTime/TimeSpan/Guid) have NO
+//     user comparer slot ABI measured yet and stay LOUD (b5-gaps section 57),
+//     exactly as the value-comparer equality surface.
+//   * a REFERENCE key over a value source (Func<TSource,string> -- the key
+//     selector returns a boxed/class object) rides the rooted ref-key kernel
+//     below (il2cpp_linq_order_by_key_<src>_ref_cmp): keys cached in a
+//     ROOTED reference array and compared through LinqRefCompareCmp (the same
+//     dispatch the reference-source comparator entry uses). This closes the
+//     "any reference key over a value source had no sort kernel" gap for the
+//     comparator surface (the non-comparator int32-source OrderBy still keys
+//     through the per-family named entries).
+//
+// GC safety: the source is snapshotted into a native vector before ANY
+// selector call (no allocation precedes the memcpy), the selector and the
+// comparer are rooted across the key/sort phase, and the result array is
+// allocated only after the last comparer call. The comparer dispatch re-reads
+// the ROOTED comparer slot on every comparison (RootScope rewrites it after a
+// compaction), exactly the SortRefsKeysCmpCopy discipline.
+//------------------------------------------------------------------------------
+namespace {
+
+const char* LinqValueCompareFragment(int32_t cell)
+{
+    switch (cell)
+    {
+        case 0: return "(i1,i1)";  // sbyte
+        case 1: return "(u1,u1)";  // byte
+        case 2: return "(b,b)";    // bool
+        case 3: return "(i2,i2)";  // short
+        case 4: return "(u2,u2)";  // ushort
+        case 5: return "(c,c)";    // char
+        case 6: return "(i,i)";    // uint32
+        case 7: return "(i,i)";    // int32
+        case 8: return "(l,l)";    // int64
+        case 9: return "(f,f)";    // float
+        case 10: return "(d,d)";   // double
+        default: return nullptr;
+    }
+}
+
+// The user-comparer three-way dispatch over a VALUE key cell. `cmp` is the
+// rooted comparer; the two keys arrive in their 64-bit carriers (int32
+// widened, int64 direct, float/double as the DOUBLE bit image).
+int32_t LinqValueCompareCmpCell(Il2CppObject* cmp, int32_t cell, int64_t a, int64_t b)
+{
+    const char* frag = LinqValueCompareFragment(cell);
+    if (frag == nullptr)
+    {
+        il2cpp_throw_not_supported_exception(
+            "a user IComparer over this value key cell family is not wired "
+            "(b5-gaps section 71: decimal/DateTime/TimeSpan/Guid/DateTimeOffset "
+            "comparers stay LOUD).");
+        return 0;
+    }
+    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Compare", frag);
+    if (slot < 0 || cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
+        slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
+    {
+        char message[192];
+        std::snprintf(message, sizeof(message),
+                      "IComparer.Compare dispatch: the comparer type has no "
+                      "reflected virtual Compare(%s) slot (b5-gaps section 71).",
+                      frag);
+        il2cpp_throw_not_supported_exception(message);
+        return 0;
+    }
+    if (cell == 8) // int64
+    {
+        typedef int32_t (*CmpI8Fn)(Il2CppObject*, int64_t, int64_t);
+        return reinterpret_cast<CmpI8Fn>(cmp->klass->vtable[slot])(cmp, a, b);
+    }
+    if (cell == 9 || cell == 10) // float / double -> double ABI
+    {
+        typedef int32_t (*CmpDFn)(Il2CppObject*, double, double);
+        double da, db;
+        std::memcpy(&da, &a, sizeof(double));
+        std::memcpy(&db, &b, sizeof(double));
+        return reinterpret_cast<CmpDFn>(cmp->klass->vtable[slot])(cmp, da, db);
+    }
+    typedef int32_t (*CmpI4Fn)(Il2CppObject*, int32_t, int32_t);
+    return reinterpret_cast<CmpI4Fn>(cmp->klass->vtable[slot])(
+        cmp, static_cast<int32_t>(a), static_cast<int32_t>(b));
+}
+
+} // namespace
+
+// The int32-SOURCE user-comparer keyed sort. `cell` is the KEY cell:
+//   * 0..7 -> int32-carrier key (InvokeKeyI4 / KeyI4* the selector ABI)
+//   * 8    -> int64 key (InvokeKeyI4I8)
+//   * 9    -> float key (InvokeKeyI4F)
+//   * 10   -> double key (InvokeKeyI4D)
+// Each key is cached EXACTLY ONCE in its OWN return-typed slot (the template's
+// TKey) and compared via LinqValueCompareCmpCell on the 64-bit carrier.
+namespace {
+
+int64_t LinqCarrierOfDouble(double d)
+{
+    int64_t x = 0;
+    std::memcpy(&x, &d, sizeof(double));
+    return x;
+}
+
+inline int64_t LinqCarrierOfFloat(float f)
+{
+    return LinqCarrierOfDouble(static_cast<double>(f));
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_order_by_key_i4_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                             Il2CppObject* cmp, int32_t keyCell,
+                                             int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    Il2CppObject* c = cmp;
+    if (c == nullptr)
+    {
+        // net48 OrderBy(source, keySelector, null) -> Comparer<TKey>.Default,
+        // exactly the non-comparator named entries.
+        switch (keyCell)
+        {
+        case 8:
+            return SortInt32KeyCopyT<int64_t>(s, d, desc != 0, InvokeKeyI4I8,
+                                              CmpKeyValue<int64_t>);
+        case 9:
+            return SortInt32KeyCopyT<float>(s, d, desc != 0, InvokeKeyI4F,
+                                            CmpKeyValue<float>);
+        case 10:
+            return SortInt32KeyCopyT<double>(s, d, desc != 0, InvokeKeyI4D,
+                                             CmpKeyValue<double>);
+        default:
+            return SortInt32KeyCopyT<int32_t>(s, d, desc != 0, InvokeKeyI4,
+                                              CmpKeyValue<int32_t>);
+        }
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&c));
+    switch (keyCell)
+    {
+    case 8: // int64 key
+        return SortInt32KeyCopyT<int64_t>(
+            s, d, desc != 0, InvokeKeyI4I8,
+            [c](int64_t a, int64_t b) { return LinqValueCompareCmpCell(c, 8, a, b); });
+    case 9: // float key (own 4-byte slot; the compare reads the double image)
+        return SortInt32KeyCopyT<float>(
+            s, d, desc != 0, InvokeKeyI4F,
+            [c](float a, float b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 9,
+                    LinqCarrierOfFloat(a), LinqCarrierOfFloat(b));
+            });
+    case 10: // double key
+        return SortInt32KeyCopyT<double>(
+            s, d, desc != 0, InvokeKeyI4D,
+            [c](double a, double b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 10,
+                    LinqCarrierOfDouble(a), LinqCarrierOfDouble(b));
+            });
+    default: // 0..7 -> int32-carrier (narrow kinds all ride the int32 slot ABI)
+        if (keyCell < 0 || keyCell > 7)
+        {
+            il2cpp_throw_not_supported_exception(
+                "a user IComparer over this key cell is not wired "
+                "(b5-gaps section 71).");
+            return nullptr;
+        }
+        return SortInt32KeyCopyT<int32_t>(
+            s, d, desc != 0, InvokeKeyI4,
+            [c, keyCell](int32_t a, int32_t b) -> int32_t {
+                return LinqValueCompareCmpCell(c, keyCell, a, (int64_t)b);
+            });
+    }
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_d_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                            Il2CppObject* cmp, int32_t keyCell,
+                                            int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    Il2CppObject* c = cmp;
+    if (c == nullptr)
+    {
+        switch (keyCell)
+        {
+        case 8:
+            return SortWideElemKeyCopyT<double, kElemKindD, int64_t>(
+                s, d, desc != 0, InvokeKeyDSrcI8, CmpKeyValue<int64_t>);
+        case 9:
+            return SortWideElemKeyCopyT<double, kElemKindD, float>(
+                s, d, desc != 0, InvokeKeyDSrcF, CmpKeyValue<float>);
+        case 10:
+            return SortWideElemKeyCopyT<double, kElemKindD, double>(
+                s, d, desc != 0, InvokeKeyDSrcD, CmpKeyValue<double>);
+        default:
+            return SortWideElemKeyCopyT<double, kElemKindD, int32_t>(
+                s, d, desc != 0, InvokeKeyDSrcI4, CmpKeyValue<int32_t>);
+        }
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&c));
+    switch (keyCell)
+    {
+    case 8:
+        return SortWideElemKeyCopyT<double, kElemKindD, int64_t>(
+            s, d, desc != 0, InvokeKeyDSrcI8,
+            [c](int64_t a, int64_t b) { return LinqValueCompareCmpCell(c, 8, a, b); });
+    case 9:
+        return SortWideElemKeyCopyT<double, kElemKindD, float>(
+            s, d, desc != 0, InvokeKeyDSrcF,
+            [c](float a, float b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 9,
+                    LinqCarrierOfFloat(a), LinqCarrierOfFloat(b));
+            });
+    case 10:
+        return SortWideElemKeyCopyT<double, kElemKindD, double>(
+            s, d, desc != 0, InvokeKeyDSrcD,
+            [c](double a, double b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 10,
+                    LinqCarrierOfDouble(a), LinqCarrierOfDouble(b));
+            });
+    default:
+        if (keyCell < 0 || keyCell > 7)
+        {
+            il2cpp_throw_not_supported_exception(
+                "a user IComparer over this key cell is not wired "
+                "(b5-gaps section 71).");
+            return nullptr;
+        }
+        return SortWideElemKeyCopyT<double, kElemKindD, int32_t>(
+            s, d, desc != 0, InvokeKeyDSrcI4,
+            [c, keyCell](int32_t a, int32_t b) -> int32_t {
+                return LinqValueCompareCmpCell(c, keyCell, a, (int64_t)b);
+            });
+    }
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_f_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                            Il2CppObject* cmp, int32_t keyCell,
+                                            int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    Il2CppObject* c = cmp;
+    if (c == nullptr)
+    {
+        switch (keyCell)
+        {
+        case 8:
+            return SortWideElemKeyCopyT<float, kElemKindF, int64_t>(
+                s, d, desc != 0, InvokeKeyDSrcI8, CmpKeyValue<int64_t>);
+        case 9:
+            return SortWideElemKeyCopyT<float, kElemKindF, float>(
+                s, d, desc != 0, InvokeKeyDSrcF, CmpKeyValue<float>);
+        case 10:
+            return SortWideElemKeyCopyT<float, kElemKindF, double>(
+                s, d, desc != 0, InvokeKeyDSrcD, CmpKeyValue<double>);
+        default:
+            return SortWideElemKeyCopyT<float, kElemKindF, int32_t>(
+                s, d, desc != 0, InvokeKeyDSrcI4, CmpKeyValue<int32_t>);
+        }
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&c));
+    switch (keyCell)
+    {
+    case 8:
+        return SortWideElemKeyCopyT<float, kElemKindF, int64_t>(
+            s, d, desc != 0, InvokeKeyDSrcI8,
+            [c](int64_t a, int64_t b) { return LinqValueCompareCmpCell(c, 8, a, b); });
+    case 9:
+        return SortWideElemKeyCopyT<float, kElemKindF, float>(
+            s, d, desc != 0, InvokeKeyDSrcF,
+            [c](float a, float b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 9,
+                    LinqCarrierOfFloat(a), LinqCarrierOfFloat(b));
+            });
+    case 10:
+        return SortWideElemKeyCopyT<float, kElemKindF, double>(
+            s, d, desc != 0, InvokeKeyDSrcD,
+            [c](double a, double b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 10,
+                    LinqCarrierOfDouble(a), LinqCarrierOfDouble(b));
+            });
+    default:
+        if (keyCell < 0 || keyCell > 7)
+        {
+            il2cpp_throw_not_supported_exception(
+                "a user IComparer over this key cell is not wired "
+                "(b5-gaps section 71).");
+            return nullptr;
+        }
+        return SortWideElemKeyCopyT<float, kElemKindF, int32_t>(
+            s, d, desc != 0, InvokeKeyDSrcI4,
+            [c, keyCell](int32_t a, int32_t b) -> int32_t {
+                return LinqValueCompareCmpCell(c, keyCell, a, (int64_t)b);
+            });
+    }
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_i8_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                             Il2CppObject* cmp, int32_t keyCell,
+                                             int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    Il2CppObject* c = cmp;
+    if (c == nullptr)
+    {
+        switch (keyCell)
+        {
+        case 8:
+            return SortWideElemKeyCopyT<int64_t, kElemKindI8, int64_t>(
+                s, d, desc != 0, InvokeKeyI8SrcI8, CmpKeyValue<int64_t>);
+        case 9:
+            return SortWideElemKeyCopyT<int64_t, kElemKindI8, float>(
+                s, d, desc != 0, InvokeKeyI8SrcF, CmpKeyValue<float>);
+        case 10:
+            return SortWideElemKeyCopyT<int64_t, kElemKindI8, double>(
+                s, d, desc != 0, InvokeKeyI8SrcD, CmpKeyValue<double>);
+        default:
+            return SortWideElemKeyCopyT<int64_t, kElemKindI8, int32_t>(
+                s, d, desc != 0, InvokeKeyI8SrcI4, CmpKeyValue<int32_t>);
+        }
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&c));
+    switch (keyCell)
+    {
+    case 8:
+        return SortWideElemKeyCopyT<int64_t, kElemKindI8, int64_t>(
+            s, d, desc != 0, InvokeKeyI8SrcI8,
+            [c](int64_t a, int64_t b) { return LinqValueCompareCmpCell(c, 8, a, b); });
+    case 9:
+        return SortWideElemKeyCopyT<int64_t, kElemKindI8, float>(
+            s, d, desc != 0, InvokeKeyI8SrcF,
+            [c](float a, float b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 9,
+                    LinqCarrierOfFloat(a), LinqCarrierOfFloat(b));
+            });
+    case 10:
+        return SortWideElemKeyCopyT<int64_t, kElemKindI8, double>(
+            s, d, desc != 0, InvokeKeyI8SrcD,
+            [c](double a, double b) -> int32_t {
+                return LinqValueCompareCmpCell(c, 10,
+                    LinqCarrierOfDouble(a), LinqCarrierOfDouble(b));
+            });
+    default:
+        if (keyCell < 0 || keyCell > 7)
+        {
+            il2cpp_throw_not_supported_exception(
+                "a user IComparer over this key cell is not wired "
+                "(b5-gaps section 71).");
+            return nullptr;
+        }
+        return SortWideElemKeyCopyT<int64_t, kElemKindI8, int32_t>(
+            s, d, desc != 0, InvokeKeyI8SrcI4,
+            [c, keyCell](int32_t a, int32_t b) -> int32_t {
+                return LinqValueCompareCmpCell(c, keyCell, a, (int64_t)b);
+            });
+    }
+}
+
+// The value-source REFERENCE-key comparator sort (Func<TSource,string> etc.):
+// each key crosses the REF slot (a boxed object), cached in a ROOTED reference
+// array and compared through LinqRefCompareCmp -- the same dispatched
+// authority the reference-source comparator entry uses. `elemSize`/`ElemKind`
+// re-materialize the SOURCE family.
+template <typename TElem, int32_t ElemKind, typename InvokeRefKey>
+Il2CppArray* SortValueSrcRefKeyCmpCopyT(Il2CppArray* src, Il2CppDelegate* keySel,
+                                        Il2CppObject* cmp, bool desc,
+                                        InvokeRefKey invokeRefKey)
+{
+    const int32_t n = src->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+
+    if (n == 0)
+    {
+        return il2cpp_array_new_typed(static_cast<int32_t>(sizeof(TElem)),
+                                      ElemKind, 0);
+    }
+
+    std::vector<TElem> elems(static_cast<size_t>(n));
+    std::memcpy(elems.data(), src->data,
+                static_cast<size_t>(n) * sizeof(TElem));
+
+    Il2CppArray* keyArr = il2cpp_array_new(src->elemClass, sizeof(void*), true, n);
+    roots.Add(reinterpret_cast<void**>(&keyArr));
+    Il2CppObject** keySlot = reinterpret_cast<Il2CppObject**>(keyArr->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        keySlot[i] = invokeRefKey(keySel, elems[i]);
+    }
+    for (int32_t i = 0; i < n; ++i)
+    {
+        il2cpp_write_barrier(reinterpret_cast<void**>(&keySlot[i]), keySlot[i]);
+    }
+
+    Il2CppObject* c = cmp;
+    roots.Add(reinterpret_cast<void**>(&c));
+
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i) order[i] = i;
+
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        Il2CppObject* const* ks =
+                            reinterpret_cast<Il2CppObject* const*>(keyArr->data);
+                        const int32_t c1 = LinqRefCompareCmp(c, ks[a], ks[b]);
+                        return desc ? -c1 : c1;
+                    });
+
+    Il2CppArray* result = il2cpp_array_new_typed(
+        static_cast<int32_t>(sizeof(TElem)), ElemKind, n);
+    roots.Add(reinterpret_cast<void**>(&result));
+    TElem* out = reinterpret_cast<TElem*>(result->data);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        out[i] = elems[order[i]];
+    }
+    return result;
+}
+
+// The value-source REFERENCE-key selector invokes (Func<TSource,string> /
+// Func<TSource,object> -- the element crosses BY VALUE in its own family slot
+// and the key returns in the REF slot). The float source widens the element to
+// the F-stack double slot exactly like the value-key readers.
+namespace {
+
+typedef Il2CppObject* (*KeyRefI4SrcFn)(int32_t value);
+typedef Il2CppObject* (*KeyRefI4SrcThisFn)(Il2CppObject* self, int32_t value);
+typedef Il2CppObject* (*KeyRefI8SrcFn)(int64_t value);
+typedef Il2CppObject* (*KeyRefI8SrcThisFn)(Il2CppObject* self, int64_t value);
+typedef Il2CppObject* (*KeyRefDSrcFn)(double value);
+typedef Il2CppObject* (*KeyRefDSrcThisFn)(Il2CppObject* self, double value);
+
+Il2CppObject* InvokeKeyI4SrcRef(Il2CppDelegate* d, int32_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyRefI4SrcThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<KeyRefI4SrcFn>(d->methodPtr)(v);
+}
+
+Il2CppObject* InvokeKeyI8SrcRef(Il2CppDelegate* d, int64_t v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyRefI8SrcThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<KeyRefI8SrcFn>(d->methodPtr)(v);
+}
+
+Il2CppObject* InvokeKeyDSrcRef(Il2CppDelegate* d, double v)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<KeyRefDSrcThisFn>(d->methodPtr)(d->target, v)
+        : reinterpret_cast<KeyRefDSrcFn>(d->methodPtr)(v);
+}
+
+} // namespace
+
+// The four value-source REFERENCE-key comparator entries: the key selector is
+// Func<TSource,TKeyRef> (the element crosses by value, the key returns in the
+// REF slot), caching the keys in a ROOTED array and sorting through the user
+// comparer (LinqRefCompareCmp -- the ref_cmp authority). The result is a fresh
+// array of the SOURCE family.
+Il2CppArray* il2cpp_linq_order_by_key_i4_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                 Il2CppObject* cmp, int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortValueSrcRefKeyCmpCopyT<int32_t, kElemKindNone>(
+        s, d, cmp, desc != 0, InvokeKeyI4SrcRef);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_i8_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                 Il2CppObject* cmp, int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortValueSrcRefKeyCmpCopyT<int64_t, kElemKindI8>(
+        s, d, cmp, desc != 0, InvokeKeyI8SrcRef);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_d_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                Il2CppObject* cmp, int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(double));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortValueSrcRefKeyCmpCopyT<double, kElemKindD>(
+        s, d, cmp, desc != 0, InvokeKeyDSrcRef);
+}
+
+Il2CppArray* il2cpp_linq_order_by_key_f_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                Il2CppObject* cmp, int32_t desc)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(float));
+    Il2CppDelegate* d = RequireKeySelector(keySel);
+    return SortValueSrcRefKeyCmpCopyT<float, kElemKindF>(
+        s, d, cmp, desc != 0, InvokeKeyDSrcRef);
 }
 
 //------------------------------------------------------------------------------

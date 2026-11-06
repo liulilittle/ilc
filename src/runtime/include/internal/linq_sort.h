@@ -239,6 +239,42 @@ Il2CppArray* il2cpp_linq_order_by_key_ref_string(Il2CppArray* src, Il2CppObject*
 Il2CppArray* il2cpp_linq_order_by_key_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
                                               Il2CppObject* cmp, int32_t desc);
 
+// b5-gaps section 71: OrderBy / OrderByDescending over a VALUE-element SOURCE
+// with a USER IComparer<TKey> for the KEY. net48 OrderBy<TSource,TKey>
+// (source, keySelector, comparer) applies the user comparer to the cached keys
+// regardless of the key's family; a VALUED key rides its own cell-carrier slot
+// and the comparer is dispatched through the reflected value-comparer Compare
+// slot (the LinqValueEqualsCmpCell fragment set, linq_family.h). The source is
+// an int32/int64/double/float/narrow LINQ array; the result is a fresh array
+// of the SOURCE's family. desc and keyCell ride trailing literals exactly like
+// the ref_source comparator entry; the key-return ABI is fixed by the repeated
+// registration time of the entry suffix (_i4/_i8/_d/_f source families).
+Il2CppArray* il2cpp_linq_order_by_key_i4_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                             Il2CppObject* cmp, int32_t keyCell,
+                                             int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_i8_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                             Il2CppObject* cmp, int32_t keyCell,
+                                             int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_d_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                            Il2CppObject* cmp, int32_t keyCell,
+                                            int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_f_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                            Il2CppObject* cmp, int32_t keyCell,
+                                            int32_t desc);
+
+// b5-gaps section 71 bis: the same value-source OrderBy / OrderByDescending
+// with a user key comparer over a REFERENCE key (string/object -- the key
+// selector returns a BOXED/class object). The cached keys live in a ROOTED
+// array (the ref_cmp precedent); equality/order through the user comparer.
+Il2CppArray* il2cpp_linq_order_by_key_i4_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                 Il2CppObject* cmp, int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_i8_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                 Il2CppObject* cmp, int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_d_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                Il2CppObject* cmp, int32_t desc);
+Il2CppArray* il2cpp_linq_order_by_key_f_ref_cmp(Il2CppArray* src, Il2CppObject* keySel,
+                                                Il2CppObject* cmp, int32_t desc);
+
 // impl-collation: the reference-element ThenBy / ThenByDescending FUSED
 // COMPOSITE, i.e. the net48 EnumerableSorter chain for
 // OrderBy(k1).ThenBy(k2). The primary key's comparison wins and the secondary
