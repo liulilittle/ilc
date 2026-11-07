@@ -5640,6 +5640,42 @@ public static class StackFold
                 sel = call.Args[1];
                 return true;
             }
+            // b5-gaps section 73: a NARROW-ELEMENT array OrderBy primary is a
+            // chain seed. The single narrow OrderBy entry
+            // (il2cpp_linq_order_by_key_narrow) keeps its DROPCOVERS in
+            // AppendLiterals = {keyCell, srcCell, desc}: the KEY CELL code
+            // (0..10), the SOURCE cell code (0..6) and the direction flag.
+            // The chain key-family code is derived from the KEY cell exactly
+            // like the numeric chain families: 0..7 -> 0 (int32 carrier incl.
+            // narrow/uint/int32 keys), 8 -> 1 (int64), 10 -> 2 (double),
+            // 9 -> 3 (float).
+            static bool NarrowArrayPrimarySeed(CallExpr call, out Expr src,
+                out Expr sel, out string desc, out string priFam, out string srcCell)
+            {
+                src = null!;
+                sel = null!;
+                desc = "0";
+                priFam = "";
+                srcCell = "";
+                var name = call.Resolved?.CppName;
+                if (name != "il2cpp::il2cpp_linq_order_by_key_narrow") return false;
+                if (call.Args.Count != 2 || call.Resolved!.AppendLiterals is not { Length: 3 })
+                    return false;
+                var lits = call.Resolved.AppendLiterals;
+                src = call.Args[0];
+                sel = call.Args[1];
+                desc = lits[2] == "1" ? "1" : "0";
+                srcCell = lits[1];
+                priFam = lits[0] switch
+                {
+                    "0" or "1" or "2" or "3" or "4" or "5" or "6" or "7" => "0",
+                    "8" => "1",
+                    "10" => "2",
+                    "9" => "3",
+                    _ => "",
+                };
+                return priFam.Length != 0 && srcCell.Length != 0;
+            }
             // b5-gaps section 49: a WIDE-ELEMENT List<T> OrderBy primary is also
             // a legal chain seed. The list primaries are
             //   il2cpp_linq_list_order_by_key[_desc]_d    -- List<double>, double key
@@ -5914,6 +5950,7 @@ public static class StackFold
                     or "il2cpp::il2cpp_linq_then_by_chain_d"
                     or "il2cpp::il2cpp_linq_then_by_chain_dec"
                     or "il2cpp::il2cpp_linq_then_by_chain_vt"
+                    or "il2cpp::il2cpp_linq_then_by_chain_narrow"
                     or "il2cpp::il2cpp_linq_then_by_chain_ref"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_i4"
                     or "il2cpp::il2cpp_linq_list_then_by_chain_ref"
@@ -6003,6 +6040,7 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 if (name.EndsWith("then_by_chain_d", StringComparison.Ordinal)) return "d";
                 if (name.EndsWith("then_by_chain_dec", StringComparison.Ordinal)) return "dec";
                 if (name.EndsWith("then_by_chain_vt", StringComparison.Ordinal)) return "vt";
+                if (name.EndsWith("then_by_chain_narrow", StringComparison.Ordinal)) return "narrow";
                 if (name.EndsWith("then_by_chain_i4", StringComparison.Ordinal)) return "i4";
                 if (name.EndsWith("then_by_key_val_i8", StringComparison.Ordinal)) return "i8";
                 if (name.EndsWith("then_by_key_val_i4", StringComparison.Ordinal)) return "i4";
@@ -6050,6 +6088,13 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 // table; the suffix becomes "vt" (array) / "list_vt" and the
                 // source element kind literal carries through to the chain.
                 string vtSrcKind = "";
+                // b5-gaps section 73: a NARROW-element array seed (sbyte[]/
+                // byte[]/bool[]/short[]/ushort[]/char[]). The single narrow
+                // OrderBy entry keeps its source cell in AppendLiterals[1];
+                // the suffix becomes "narrow" and the source cell literal
+                // carries through to the chain (the chain re-materializes the
+                // source's own narrow cell).
+                string narrowSrcCell = "";
                 for (var si = stmts.Count - 1; si >= 0; --si)
                 {
                     if (stmts[si] is not AssignStmt cand || cand.Target != chase) continue;
@@ -6073,6 +6118,19 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                         seedDesc = wd;
                         wideSrcFam = wf;
                         widePriFam = wp;
+                        break;
+                    }
+                    if (cand.Value is CallExpr candNarrow
+                        && NarrowArrayPrimarySeed(candNarrow, out var ns, out var nk,
+                            out var nd, out var np, out var nsc))
+                    {
+                        chainIndex = si;
+                        seedSrc = ns;
+                        seedSel = nk;
+                        seedDesc = nd;
+                        widePriFam = np;
+                        decSrcFam = "narrow";
+                        narrowSrcCell = nsc;
                         break;
                     }
                     if (cand.Value is CallExpr candWideList
@@ -6179,6 +6237,19 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                         if (priorLits is { Length: >= 9 } && priorLits[8] is "13" or "14" or "15" or "16")
                         {
                             vtSrcKind = priorLits[8];
+                        }
+                    }
+                    // b5-gaps section 73: extending an existing NARROW chain (a
+                    // 4th level over an sbyte/byte/bool/short/ushort/char
+                    // source): the 9th trailing literal of the prior chain call
+                    // is the SOURCE cell (0..6), which the rebuilt chain must
+                    // carry again.
+                    if (!seedShape && (suffix == "narrow"))
+                    {
+                        var priorLits = prevChain.Resolved?.AppendLiterals;
+                        if (priorLits is { Length: >= 9 } && priorLits[8].Length != 0)
+                        {
+                            narrowSrcCell = priorLits[8];
                         }
                     }
                     var priorDescs = new List<string>();
@@ -6294,6 +6365,8 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                                 ? "il2cpp::il2cpp_linq_then_by_chain_dec"
                                 : suffix == "vt"
                                 ? "il2cpp::il2cpp_linq_then_by_chain_vt"
+                                : suffix == "narrow"
+                                ? "il2cpp::il2cpp_linq_then_by_chain_narrow"
                                 : "il2cpp::il2cpp_linq_then_by_chain_i4",
                             // A list chain takes the element kind as the NINTH
                             // trailing literal (AppendLiterals always follow the
@@ -6325,6 +6398,14 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                                     vtSrcKind.Length != 0 ? vtSrcKind : throw new NotSupportedException(
                                         "Enumerable.ThenBy over a value-struct array source carries no element kind"),
                                 }
+                                : suffix == "narrow"
+                                ? new[]
+                                {
+                                    priorDescs[0], priorDescs[1], priorDescs[2], priorDescs[3],
+                                    priorFams[0], priorFams[1], priorFams[2], priorFams[3],
+                                    narrowSrcCell.Length != 0 ? narrowSrcCell : throw new NotSupportedException(
+                                        "Enumerable.ThenBy over a narrow-element array source carries no source cell"),
+                                }
                                 : new[]
                                 {
                                     priorDescs[0], priorDescs[1], priorDescs[2], priorDescs[3],
@@ -6332,6 +6413,7 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                                 },
                             ReturnTypeName: suffix == "list_ref" || suffix == "ref"
                                 || suffix == "list_vt" || suffix == "vt"
+                                || suffix == "narrow"
                                 ? prevChain.Resolved!.ReturnTypeName
                                 : suffix == "list_dec" || suffix == "dec" ? "System.Decimal[]"
                                 : suffix == "list_d" ? "System.Double[]"

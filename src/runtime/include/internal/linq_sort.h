@@ -560,4 +560,21 @@ Il2CppArray* il2cpp_linq_then_by_chain_vt(Il2CppArray* src,
                                          int32_t f1, int32_t f2, int32_t f3, int32_t f4,
                                          int32_t srcKind);
 
+// b5-gaps section 73: the NARROW-ELEMENT-source chained ThenBy. Source element
+// family = trailing srcCell literal (IL2CPP_LINQ_CELL_* 0..5, the sbyte/byte/
+// bool/short/ushort/char cells and the uint cell 6); each element is read at
+// its REAL cell width and WIDENED into the INT32 selector slot (the M1 rule,
+// exactly the section-72 narrow OrderBy entries). The per-level key families
+// are the NUMERIC dispatch space 0..3 (int32/int64/double/float) over the
+// widened int32 element -- the same keys the then_by_chain_i4 reader can
+// produce. The result is a FRESH array of the SOURCE's narrow cell
+// (LinqNewArray stamps the section-70 element kind). A family outside 0..3 is
+// a LOUD rejection (reference/decimal/vt keys need their own kernels).
+Il2CppArray* il2cpp_linq_then_by_chain_narrow(Il2CppArray* src,
+                                              Il2CppObject* k1, Il2CppObject* k2,
+                                              Il2CppObject* k3, Il2CppObject* k4,
+                                              int32_t d1, int32_t d2, int32_t d3, int32_t d4,
+                                              int32_t f1, int32_t f2, int32_t f3, int32_t f4,
+                                              int32_t srcCell);
+
 } // namespace il2cpp

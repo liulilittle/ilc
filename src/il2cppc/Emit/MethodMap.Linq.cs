@@ -3409,6 +3409,27 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                         returnTypeName: linqSrcFam == "d" ? "System.Double[]" : "System.Single[]",
                         appendLiterals: new[] { wideSecondary });
                 }
+                // b5-gaps section 73: a NARROW-ELEMENT array source
+                // (byte[]/sbyte[]/bool[]/short[]/ushort[]/char[]) folds its
+                // ThenBy into the chain surface (then_by_chain_narrow): the
+                // element is read at its real cell width and widened into the
+                // int32 selector slot (M1), the secondary KEY family rides the
+                // 0..3 numeric codes (int32-carrier incl. narrow/uint/int32,
+                // int64, double, float), and the result is the SOURCE's own
+                // narrow cell. The primary (source cell + key cell + desc)
+                // literals are read off the narrow OrderBy entry in StackFold.
+                if (genArgs is { Length: >= 2 } && linqSrcFam == "narrow"
+                    && LinqValKeyFamilyCode(genArgs[1]) is { } narrowSecondary)
+                {
+                    return I(name == "ThenBy"
+                            ? ResolvedMethod.ThenByCombineMarker
+                            : ResolvedMethod.ThenByDescCombineMarker,
+                        2, false, false, false, new[] { "", "" },
+                        returnTypeName: genArgs is { Length: >= 1 }
+                            ? LinqArrayTypeNameExact(genArgs[0])
+                            : "System.Byte[]",
+                        appendLiterals: new[] { narrowSecondary });
+                }
                 if (genArgs is { Length: >= 2 } && genArgs[0] == 0x11
                     && IsDecimalGenArg(genArgNames, 0)
                     && LinqKeyFamilyCode(genArgs[1], genArgNames, 1) is { } decSecondary)

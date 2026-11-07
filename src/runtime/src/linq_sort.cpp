@@ -3734,6 +3734,131 @@ Il2CppArray* il2cpp_linq_order_by_key_narrow_ref_cmp(Il2CppArray* src, Il2CppObj
 }
 
 //------------------------------------------------------------------------------
+// b5-gaps section 73: the NARROW-ELEMENT chained ThenBy
+// (OrderBy(k1).ThenBy(k2)[.ThenBy(k3)][.ThenBy(k4)]) over a narrow-element
+// array source (sbyte[]/byte[]/bool[]/short[]/ushort[]/char[]). The folded
+// chain fuses the primary + secondary orders like net48's EnumerableSorter:
+// each element's key at EVERY level is cached EXACTLY ONCE, then the indices
+// are merged stably on the (k1, k2, k3, k4) tuple.
+//
+// The SOURCE element is read at its REAL cell width and WIDENED into the INT32
+// selector slot (the M1 rule, LinqCellReadI4); the per-level key families ride
+// the numeric dispatch space 0..3 (int32/int64/double/float) over that int32
+// element -- the same keys ReadLkChainKeyI4 produces. The result is a FRESH
+// array of the SOURCE's own narrow cell (LinqNewArray + the section-72
+// LinqNarrowWriteBack re-materialization, never a widened int32[]).
+//------------------------------------------------------------------------------
+namespace {
+
+// The narrow-source level validator: the numeric dispatch families 0..3 only
+// (a reference / decimal / value-struct key has no narrow-element reader).
+int32_t NarrowChainLevelCount(const int32_t* fams, int32_t maxLevels)
+{
+    int32_t used = 0;
+    for (int32_t l = 0; l < maxLevels; ++l)
+    {
+        if (fams[l] < 0)
+        {
+            break;
+        }
+        if (fams[l] > 3)
+        {
+            il2cpp_throw_not_supported_exception(
+                "Chained ThenBy over a narrow source: only the numeric key "
+                "families (int32/int64/double/float) are wired "
+                "(b5-gaps section 73).");
+        }
+        ++used;
+    }
+    return used;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_linq_then_by_chain_narrow(Il2CppArray* src,
+                                              Il2CppObject* k1, Il2CppObject* k2,
+                                              Il2CppObject* k3, Il2CppObject* k4,
+                                              int32_t d1, int32_t d2, int32_t d3,
+                                              int32_t d4,
+                                              int32_t f1, int32_t f2, int32_t f3,
+                                              int32_t f4, int32_t srcCell)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    LinqRequireCell(s, srcCell);
+    int32_t fams[4] = { f1, f2, f3, f4 };
+    const int32_t nkeys = NarrowChainLevelCount(fams, 4);
+    Il2CppObject* raw[4] = { k1, k2, k3, k4 };
+    Il2CppDelegate* sels[4] = { nullptr, nullptr, nullptr, nullptr };
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        sels[l] = RequireKeySelector(raw[l]);
+    }
+    const int32_t descs[4] = { d1, d2, d3, d4 };
+
+    const int32_t n = s->length;
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&s));
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        roots.Add(reinterpret_cast<void**>(&sels[l]));
+    }
+
+    if (n <= 0)
+    {
+        return LinqNewArray(srcCell, 0);
+    }
+
+    // Element snapshot taken before ANY selector call: each element is read at
+    // its REAL width and widened into the int32 selector slot (M1); no managed
+    // allocation precedes the reads, so 'src' cannot have been moved.
+    std::vector<int32_t> elems(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        elems[i] = LinqCellReadI4(s, i, srcCell);
+    }
+
+    std::vector<LkChainKey> keys(static_cast<size_t>(n) * static_cast<size_t>(nkeys));
+    for (int32_t l = 0; l < nkeys; ++l)
+    {
+        LkChainKey* level = keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            ReadLkChainKeyI4(elems[i], fams[l], sels[l], level[i]);
+        }
+    }
+
+    std::vector<int32_t> order(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        order[i] = i;
+    }
+    std::vector<int32_t> scratch(static_cast<size_t>(n));
+    MergeSortStable(order.data(), scratch.data(), 0, n,
+                    [&](int32_t a, int32_t b) -> int32_t {
+                        for (int32_t l = 0; l < nkeys; ++l)
+                        {
+                            const LkChainKey* level =
+                                keys.data() + static_cast<size_t>(l) * static_cast<size_t>(n);
+                            const int32_t c = CmpLkChainKey(level[a], level[b], fams[l]);
+                            if (c != 0)
+                            {
+                                return descs[l] != 0 ? -c : c;
+                            }
+                        }
+                        return 0;
+                    });
+
+    Il2CppArray* result = LinqNewArray(srcCell, n);
+    roots.Add(reinterpret_cast<void**>(&result));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        LinqNarrowWriteBack(result, i, srcCell, elems[order[i]]);
+    }
+    return result;
+}
+
+//------------------------------------------------------------------------------
 // p0linq4 (D4): ThenBy / ThenByDescending over an INT64 value SOURCE (see
 // linq_sort.h). The fused (k1, k2) composite sort; the key family is fixed by
 // the entry (int32 or int64 keys, each cached once per element).

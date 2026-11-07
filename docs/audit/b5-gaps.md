@@ -6158,6 +6158,79 @@ form.
 
 * 16-byte value keys (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) under a
   narrow source (section 71/57 slot encoding);
-* the NARROW-source ThenBy / ThenByDescending fused composite (no fused narrow
-  sort surface yet) and the value-source fused ThenBy-comparator composite;
+* the NARROW-source ThenBy / ThenByDescending fused composite is now
+  IMPLEMENTED (section 73); the value-source fused ThenBy-comparator composite
+  and the narrow-source comparer-chain composite stay LOUD;
+* List<T> comparer overloads and the GroupBy-bucket comparer overloads.
+
+## 73. ThenBy / ThenByDescending over a NARROW-array source (IMPLEMENTED)
+
+`Enumerable.ThenBy<TSource,TKey>` / `ThenByDescending` fused onto an
+`OrderBy(..)` / `OrderByDescending(..)` primary over a NARROW-element array
+(`byte[]`/`sbyte[]`/`bool[]`/`short[]`/`ushort[]`/`char[]`): net48 builds one
+EnumerableSorter CHAIN for `OrderBy(k1).ThenBy(k2)` and the runtime fuses it
+exactly like the numeric/wide/dec/vt chains. Before this section every narrow
+OrderBy+ThenBy fell into the int32-only then-by LOUD gate (probe observed
+runtime 0B / code=1).
+
+### Implementation
+
+* Runtime `linq_sort.cpp`: `il2cpp_linq_then_by_chain_narrow` -- the
+  NARROW-source four-level chain kernel. The SOURCE cell rides a trailing
+  `srcCell` literal (IL2CPP_LINQ_CELL_* 0..6); each element is read at its REAL
+  cell width and WIDENED into the INT32 selector slot (the M1 rule,
+  `LinqCellReadI4`); the per-level key families are the NUMERIC dispatch space
+  0..3 (int32-carrier incl. narrow/uint, int64, double, float) read through the
+  existing `ReadLkChainKeyI4` / compared by `CmpLkChainKey` (a family outside
+  0..3 is a LOUD rejection). The result is a FRESH array of the SOURCE's own
+  narrow cell (`LinqNewArray(srcCell)` stamp + the section-72
+  `LinqNarrowWriteBack`), never a widened int32[].
+* Transpiler `MethodMap.Linq.cs`: the narrow ThenBy/ThenByDescending arm emits
+  the combine marker (secondary key family 0..3 via `LinqValKeyFamilyCode`,
+  exact source array ReturnTypeName), bypassing the int32-only gate.
+* Transpiler `StackFold.cs`: `NarrowArrayPrimarySeed` reads the narrow OrderBy
+  primary's `{keyCell, srcCell, desc}` trailing literals, maps the KEY cell to
+  the chain numeric family (0..7->0 int32-carrier, 8->1 i8, 9->3 f, 10->2 d);
+  the seed folds into `il2cpp_linq_then_by_chain_narrow` with the srcCell as
+  the NINTH trailing literal (carried again when an existing narrow chain is
+  extended to a 3rd/4th level).
+
+### Contract evidence
+
+* new case `tests/cases/probe-thenbynarrow`: oracle = runtime = **240B sha
+  626b50be**, 13 records -- byte/sbyte/short/ushort/char/bool sources; 2-level
+  OrderBy(k1).ThenBy(k2); mixed directions (OrderByDescending primary /
+  ThenByDescending secondary); an sbyte negative key; a short parity primary;
+  a ushort 3-level chain (OrderBy+ThenBy+ThenBy); a char mixed-direction
+  pair; a bool stability pair; a side-effect selector COUNTING probe (n9:
+  exactly-once per level per element -- `c1=6,c2=6`); GC.Collect inside both
+  selectors (narrow root survival); empty / single-element; a byte 3-level
+  chain with a descending middle level.
+* RED baseline (probe before the fix): with the OLD transpiler the narrow
+  ThenBy landed on the int32-only gate -> runtime 0B code=1, oracle sha
+  626b50be unchanged (LOUD: "Enumerable.ThenBy<byte,byte> not wired").
+* mutations (all restored green to the same 240B sha):
+  * M1 the per-level desc flag is dropped in the chain merge -> runtime 240B
+    `6eb2b875` (firstDiff@19, the desc records reorder);
+  * M2 the source element is read via the int32 over-read (`LinqCellReadI4(..
+    CELL_I4)`) -> runtime 238B `2cff705d` (firstDiff@3, cells corrupt);
+  * M3 every chain level reuses the PRIMARY selector (sels[0]) instead of its
+    own -> runtime 241B `a9eec304` (firstDiff@9, the n9 exactly-once counts
+    change);
+  * M4 the transpiler seed drops the primary desc read -> runtime 240B
+    `b341bb24` (firstDiff@19, OrderByDescending primaries reorder).
+* regression byte-identical: probe-ordbynarrow 239B `b60e842c` /
+  probe-ordbyvalcmp 221B `b757a793` / thenby3 585B `2ead0372` /
+  thenbyvtchain 939B `f5c9391b` / thenbydecchain 376B `b2edbdbe` /
+  thenbywide-elem 560B `f0676c0c` / thenby3list 262B `bda750a6`.
+* unit tests 4159 -> **4164/0/0** (5 new narrow-ThenBy marker mapping
+  theories); C0 0 errors 0 warnings.
+
+### Registered-remaining (kept LOUD, measured)
+
+* 16-byte value keys (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) under a
+  narrow source, with or without a comparer (section 71/57 slot encoding);
+* the VALUE-source fused ThenBy-COMPARATOR composite (a ThenBy with a user
+  comparer must ride BOTH comparers through the fused kernel) and the
+  NARROW-source comparer-chain composite;
 * List<T> comparer overloads and the GroupBy-bucket comparer overloads.

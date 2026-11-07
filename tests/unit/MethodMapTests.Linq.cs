@@ -3285,6 +3285,34 @@ public class MethodMapTestsLinq
         Assert.Equal("System.Int64[]", resolved.ReturnTypeName);
     }
 
+    // b5-gaps section 73: a NARROW-ELEMENT source (byte/sbyte/short/ushort/
+    // char/bool/uint) folds its ThenBy marker like the wide sources -- every
+    // key family maps to the numeric chain codes (LinqValKeyFamilyCode). The
+    // ReturnTypeName preserves the SOURCE's own narrow array type (never a
+    // widened Int32[]).
+    [Theory]
+    [InlineData("ThenBy", 0x08, "0")]
+    [InlineData("ThenBy", 0x0A, "1")]
+    [InlineData("ThenBy", 0x0C, "3")]
+    [InlineData("ThenBy", 0x0D, "2")]
+    [InlineData("ThenByDescending", 0x05, "0")]
+    public void Resolve_ThenBy_NarrowSource_MapsToCombineMarker(string name, byte keyByte, string famCode)
+    {
+        var resolved = ResolveMethodSpec(SynthesizeGeneric(name,
+            memberRefSignature: new byte[] { 0x10, 0x02, 0x02,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x09, 0x01, 0x13, 0x00,
+                0x15, 0x12, 0x0B, 0x02, 0x13, 0x00, 0x13, 0x01 },
+            genericSignature: new byte[] { 0x0A, 0x02, 0x05, keyByte }));
+
+        Assert.Equal(name == "ThenBy"
+            ? ResolvedMethod.ThenByCombineMarker : ResolvedMethod.ThenByDescCombineMarker,
+            resolved.CppName);
+        Assert.NotNull(resolved.AppendLiterals);
+        Assert.Equal(famCode, resolved.AppendLiterals![0]);
+        Assert.Equal("System.Byte[]", resolved.ReturnTypeName);
+    }
+
     // The int32-source OrderBy with an int64 / double key maps to the wide-key
     // entry (il2cpp_linq_order_by_key[_desc]_i4_i8 / _i4_d).
     [Theory]
