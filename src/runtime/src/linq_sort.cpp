@@ -4058,6 +4058,155 @@ Il2CppArray* SortInt64TwoKeysFamDispatch(Il2CppArray* s, Il2CppDelegate* d1,
         "Enumerable.ThenBy: unknown int64-source key family");
     return nullptr;
 }
+
+//------------------------------------------------------------------------------
+// b5-gaps section 74: the USER-COMPARER twins of the value-source two-key
+// composites (OrderBy(k1).ThenBy(k2, comparer) / ThenByDescending). net48
+// fuses the primary under Comparer<TKey1>.Default and the SECONDARY under the
+// USER IComparer<TKey2> faithfully: each element's k1 and k2 are cached EXACTLY
+// ONCE, then the indices are stable-merged on (k1 asc|desc, k2 asc|desc under
+// the user comparer). The primary comparator stays CmpKeyValue; the secondary
+// comparator is LinqValueCompareCmpCell (the section-71 value-comparer
+// dispatch) on the cached K2 Value in its own carrier.
+//------------------------------------------------------------------------------
+#define I4SRC_K1_CASES_CMP(K1TYPE, K1INV, K1CMP)                                     \
+    case 0: return SortInt32TwoKeysCopyT<K1TYPE, int32_t>(                          \
+        s, d1, d2, k1Desc, k2Desc, K1INV, InvokeKeyI4, K1CMP,                        \
+        [c](int32_t a, int32_t b) -> int32_t {                                        \
+            return LinqValueCompareCmpCell(c, 7, static_cast<int64_t>(a),             \
+                                           static_cast<int64_t>(b));                  \
+        });                                                                           \
+    case 1: return SortInt32TwoKeysCopyT<K1TYPE, int64_t>(                          \
+        s, d1, d2, k1Desc, k2Desc, K1INV, InvokeKeyI4I8, K1CMP,                       \
+        [c](int64_t a, int64_t b) -> int32_t {                                        \
+            return LinqValueCompareCmpCell(c, 8, a, b);                               \
+        });                                                                           \
+    case 2: return SortInt32TwoKeysCopyT<K1TYPE, double>(                           \
+        s, d1, d2, k1Desc, k2Desc, K1INV, InvokeKeyI4D, K1CMP,                        \
+        [c](double a, double b) -> int32_t {                                          \
+            return LinqValueCompareCmpCell(c, 10, LinqCarrierOfDouble(a),             \
+                                           LinqCarrierOfDouble(b));                   \
+        });                                                                           \
+    case 3: return SortInt32TwoKeysCopyT<K1TYPE, float>(                            \
+        s, d1, d2, k1Desc, k2Desc, K1INV, InvokeKeyI4F, K1CMP,                        \
+        [c](float a, float b) -> int32_t {                                            \
+            return LinqValueCompareCmpCell(c, 9, LinqCarrierOfFloat(a),               \
+                                           LinqCarrierOfFloat(b));                    \
+        });
+
+Il2CppArray* SortInt32TwoKeysCmpDispatch(Il2CppArray* s, Il2CppDelegate* d1,
+                                         Il2CppDelegate* d2, bool k1Desc,
+                                         bool k2Desc, int32_t k1fam, int32_t k2fam,
+                                         Il2CppObject* c)
+{
+    switch (k1fam)
+    {
+    case 0:
+        switch (k2fam)
+        {
+            I4SRC_K1_CASES_CMP(int32_t, InvokeKeyI4, CmpKeyValue<int32_t>)
+        default: break;
+        }
+        break;
+    case 1:
+        switch (k2fam)
+        {
+            I4SRC_K1_CASES_CMP(int64_t, InvokeKeyI4I8, CmpKeyValue<int64_t>)
+        default: break;
+        }
+        break;
+    case 2:
+        switch (k2fam)
+        {
+            I4SRC_K1_CASES_CMP(double, InvokeKeyI4D, CmpKeyValue<double>)
+        default: break;
+        }
+        break;
+    case 3:
+        switch (k2fam)
+        {
+            I4SRC_K1_CASES_CMP(float, InvokeKeyI4F, CmpKeyValue<float>)
+        default: break;
+        }
+        break;
+    default: break;
+    }
+    il2cpp_throw_invalid_operation_exception(
+        "Enumerable.ThenBy: unknown int32-source key family for the user comparer");
+    return nullptr;
+}
+#undef I4SRC_K1_CASES_CMP
+
+// The int64-SOURCE twin (SortInt64TwoKeysCopy with the section-74 user
+// comparer on the secondary key).
+#define I8SRC_K1_CASES_CMP(K1TYPE, K1INV, K1CMP)                                     \
+    case 0: return SortInt64TwoKeysCopy<K1TYPE, int32_t>(                           \
+        s, d1, d2, k1Desc, k2Desc, K1INV, InvokeKeyI8SrcI4, K1CMP,                   \
+        [c](int32_t a, int32_t b) -> int32_t {                                        \
+            return LinqValueCompareCmpCell(c, 7, static_cast<int64_t>(a),             \
+                                           static_cast<int64_t>(b));                  \
+        });                                                                           \
+    case 1: return SortInt64TwoKeysCopy<K1TYPE, int64_t>(                           \
+        s, d1, d2, k1Desc, k2Desc, K1INV, InvokeKeyI8SrcI8, K1CMP,                    \
+        [c](int64_t a, int64_t b) -> int32_t {                                        \
+            return LinqValueCompareCmpCell(c, 8, a, b);                               \
+        });                                                                           \
+    case 2: return SortInt64TwoKeysCopy<K1TYPE, double>(                            \
+        s, d1, d2, k1Desc, k2Desc, K1INV, InvokeKeyI8SrcD, K1CMP,                     \
+        [c](double a, double b) -> int32_t {                                          \
+            return LinqValueCompareCmpCell(c, 10, LinqCarrierOfDouble(a),             \
+                                           LinqCarrierOfDouble(b));                   \
+        });                                                                           \
+    case 3: return SortInt64TwoKeysCopy<K1TYPE, float>(                             \
+        s, d1, d2, k1Desc, k2Desc, K1INV, InvokeKeyI8SrcF, K1CMP,                     \
+        [c](float a, float b) -> int32_t {                                            \
+            return LinqValueCompareCmpCell(c, 9, LinqCarrierOfFloat(a),               \
+                                           LinqCarrierOfFloat(b));                    \
+        });
+
+Il2CppArray* SortInt64TwoKeysCmpDispatch(Il2CppArray* s, Il2CppDelegate* d1,
+                                         Il2CppDelegate* d2, bool k1Desc,
+                                         bool k2Desc, int32_t k1fam, int32_t k2fam,
+                                         Il2CppObject* c)
+{
+    switch (k1fam)
+    {
+    case 0:
+        switch (k2fam)
+        {
+            I8SRC_K1_CASES_CMP(int32_t, InvokeKeyI8SrcI4, CmpKeyValue<int32_t>)
+        default: break;
+        }
+        break;
+    case 1:
+        switch (k2fam)
+        {
+            I8SRC_K1_CASES_CMP(int64_t, InvokeKeyI8SrcI8, CmpKeyValue<int64_t>)
+        default: break;
+        }
+        break;
+    case 2:
+        switch (k2fam)
+        {
+            I8SRC_K1_CASES_CMP(double, InvokeKeyI8SrcD, CmpKeyValue<double>)
+        default: break;
+        }
+        break;
+    case 3:
+        switch (k2fam)
+        {
+            I8SRC_K1_CASES_CMP(float, InvokeKeyI8SrcF, CmpKeyValue<float>)
+        default: break;
+        }
+        break;
+    default: break;
+    }
+    il2cpp_throw_invalid_operation_exception(
+        "Enumerable.ThenBy: unknown int64-source key family for the user comparer");
+    return nullptr;
+}
+#undef I8SRC_K1_CASES_CMP
+
 } // namespace
 
 Il2CppArray* il2cpp_linq_then_by_key_val_i4(Il2CppArray* src, Il2CppObject* k1Sel,
@@ -4084,6 +4233,58 @@ Il2CppArray* il2cpp_linq_then_by_key_val_i8(Il2CppArray* src, Il2CppObject* k1Se
     Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
     return SortInt64TwoKeysFamDispatch(s, d1, d2, k1desc != 0, k2desc != 0,
                                        k1fam, k2fam);
+}
+
+//------------------------------------------------------------------------------
+// b5-gaps section 74: OrderBy(k1).ThenBy(k2, userComparer) over an INT32 /
+// INT64 VALUE source -- the two-key composite whose SECONDARY key is compared
+// by the USER IComparer<TKey2>. The primary key keeps CmpKeyValue (net48's
+// OrderBy primary has no user comparer; a null comparer operand falls back to
+// Comparer<TKey2>.Default exactly like the OrderBy comparer twin). The
+// comparer object is ROOTED across the sort (a Compare may allocate -> the GC
+// compacts and moves it); the composite takes (src, k1Sel, k2Sel, cmp) plus the
+// two desc + two key-family literals.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_then_by_key_val_i4_cmp(Il2CppArray* src, Il2CppObject* k1Sel,
+                                                Il2CppObject* k2Sel, Il2CppObject* cmp,
+                                                int32_t k1desc, int32_t k2desc,
+                                                int32_t k1fam, int32_t k2fam)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int32_t));
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    Il2CppObject* c = cmp;
+    if (c == nullptr)
+    {
+        return SortInt32TwoKeysFamDispatch(s, d1, d2, k1desc != 0, k2desc != 0,
+                                           k1fam, k2fam);
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&c));
+    return SortInt32TwoKeysCmpDispatch(s, d1, d2, k1desc != 0, k2desc != 0,
+                                       k1fam, k2fam, c);
+}
+
+Il2CppArray* il2cpp_linq_then_by_key_val_i8_cmp(Il2CppArray* src, Il2CppObject* k1Sel,
+                                                Il2CppObject* k2Sel, Il2CppObject* cmp,
+                                                int32_t k1desc, int32_t k2desc,
+                                                int32_t k1fam, int32_t k2fam)
+{
+    Il2CppArray* s = RequireLinqArray(src);
+    RequireValueLinqArray(s, sizeof(int64_t));
+    Il2CppDelegate* d1 = RequireKeySelector(k1Sel);
+    Il2CppDelegate* d2 = RequireKeySelector(k2Sel);
+    Il2CppObject* c = cmp;
+    if (c == nullptr)
+    {
+        return SortInt64TwoKeysFamDispatch(s, d1, d2, k1desc != 0, k2desc != 0,
+                                           k1fam, k2fam);
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&c));
+    return SortInt64TwoKeysCmpDispatch(s, d1, d2, k1desc != 0, k2desc != 0,
+                                       k1fam, k2fam, c);
 }
 
 //------------------------------------------------------------------------------

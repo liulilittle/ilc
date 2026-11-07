@@ -489,6 +489,21 @@ Il2CppArray* il2cpp_linq_then_by_key_val_i8(Il2CppArray* src, Il2CppObject* k1Se
                                             int32_t k2desc, int32_t k1fam,
                                             int32_t k2fam);
 
+// b5-gaps section 74: OrderBy(k1).ThenBy(k2, userComparer) / ThenByDescending
+// over an INT32 / INT64 VALUE source -- the two-key composite whose SECONDARY
+// key is compared by the USER IComparer<TKey2> (the primary keeps the default
+// CmpKeyValue; a null comparer falls back to Comparer<TKey2>.Default). The
+// signature appends the comparer operand before the two desc / two key-family
+// literals; the primary OrderBy entry picks the family pair.
+Il2CppArray* il2cpp_linq_then_by_key_val_i4_cmp(Il2CppArray* src, Il2CppObject* k1Sel,
+                                                Il2CppObject* k2Sel, Il2CppObject* cmp,
+                                                int32_t k1desc, int32_t k2desc,
+                                                int32_t k1fam, int32_t k2fam);
+Il2CppArray* il2cpp_linq_then_by_key_val_i8_cmp(Il2CppArray* src, Il2CppObject* k1Sel,
+                                                Il2CppObject* k2Sel, Il2CppObject* cmp,
+                                                int32_t k1desc, int32_t k2desc,
+                                                int32_t k1fam, int32_t k2fam);
+
 //------------------------------------------------------------------------------
 // Chained ThenBy, depth >= 3 (b5-gaps §44): OrderBy(k1).ThenBy(k2).ThenBy(k3)
 // [.ThenBy(k4)] over an int32[] / int64[] source. net48 builds an

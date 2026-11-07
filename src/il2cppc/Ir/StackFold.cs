@@ -6470,9 +6470,9 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 (resolved.CppName == ResolvedMethod.ThenByCombineMarker ||
                  resolved.CppName == ResolvedMethod.ThenByDescCombineMarker))
             {
-                if (args.Count != 2)
+                if (args.Count != 2 && args.Count != 3)
                     throw new NotSupportedException(
-                        $"Enumerable.ThenBy needs exactly 2 args (receiver + keySelector), got {args.Count}");
+                        $"Enumerable.ThenBy needs exactly 2 args (receiver + keySelector) or 3 (with a user comparer), got {args.Count}");
                 if (args[0] is not LocExpr recvLoc || recvLoc.Name.Length == 0)
                     throw new NotSupportedException(
                         "Enumerable.ThenBy is supported directly on a single OrderBy(keySelector) result only " +
@@ -6698,6 +6698,22 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                     compositeParamNames = new[] { "a", "", "" };
                     compositeReturnType = familySuffix.StartsWith("_i4", StringComparison.Ordinal)
                         ? "System.Int32[]" : "System.Int64[]";
+                    // b5-gaps section 74: the THEN-BY marker with a user
+                    // comparer carries a second literal "1"; the fused
+                    // composite becomes the comparer twin
+                    // (il2cpp_linq_then_by_key_val_i4_cmp / _i8_cmp), the
+                    // SECONDARY key is compared by the user IComparer<TKey2>
+                    // (the primary keeps the default), and the comparer
+                    // operand (args[2]) is appended after the two selectors.
+                    bool cmpThenBy = resolved.AppendLiterals is { Length: >= 2 }
+                        && resolved.AppendLiterals[1] == "1";
+                    if (cmpThenBy)
+                    {
+                        compositeEntry = familySuffix.StartsWith("_i4", StringComparison.Ordinal)
+                            ? "il2cpp::il2cpp_linq_then_by_key_val_i4_cmp"
+                            : "il2cpp::il2cpp_linq_then_by_key_val_i8_cmp";
+                        compositeParamNames = new[] { "a", "", "", "" };
+                    }
                     compositeLiterals = new[]
                     {
                         primaryDesc ? "1" : "0", thenDesc ? "1" : "0",
@@ -6711,7 +6727,8 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                     ResultKind = null,
                     Resolved = new ResolvedMethod(
                         compositeEntry,
-                        3, false, true, true, new[] { false, false, false }, false,
+                        compositeParamNames.Length, false, true, true,
+                        Enumerable.Repeat(false, compositeParamNames.Length).ToArray(), false,
                         ParamTypeNames: compositeParamNames,
                         ReturnTypeName: compositeReturnType,
                         AppendLiterals: compositeLiterals),
@@ -6721,6 +6738,12 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 composite.Args.Add(obValue.Args[0]); // the ORIGINAL source array
                 composite.Args.Add(obValue.Args[1]); // the PRIMARY key selector
                 composite.Args.Add(args[1]);         // the SECONDARY key selector
+                // b5-gaps section 74: the comparer twin appends the USER
+                // comparer operand (the ThenBy marker's third argument).
+                if (args.Count == 3)
+                {
+                    composite.Args.Add(args[2]);
+                }
                 // Replace the order_by assignment (remove from its old spot --
                 // before the secondary delegate -- and append at the current
                 // end so every referenced delegate is already defined). The

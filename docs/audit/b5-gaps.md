@@ -6230,7 +6230,78 @@ runtime 0B / code=1).
 
 * 16-byte value keys (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) under a
   narrow source, with or without a comparer (section 71/57 slot encoding);
-* the VALUE-source fused ThenBy-COMPARATOR composite (a ThenBy with a user
-  comparer must ride BOTH comparers through the fused kernel) and the
-  NARROW-source comparer-chain composite;
+* the VALUE-source fused ThenBy-COMPARATOR composite for the i4/i8 sources is
+  now IMPLEMENTED (section 74) -- the INT32/INT64 sources only; the d/f/narrow
+  source comparer chains and the NARROW-source comparer-chain composite stay
+  LOUD;
 * List<T> comparer overloads and the GroupBy-bucket comparer overloads.
+
+## 74. ThenBy / ThenByDescending with a user key comparer over an INT32/INT64 source (IMPLEMENTED)
+
+`Enumerable.ThenBy<TSource,TKey>(OrderedSource, keySelector, IComparer<TKey>)` /
+`ThenByDescending(.., comparer)` fused onto an `OrderBy(..)` / `OrderByDescending(..)`
+primary over an INT32 / INT64 VALUE-source array: net48 applies the user
+`IComparer<TKey>` to the SECONDARY key while the primary key keeps
+`Comparer<TKey>.Default`. Before this section every value-source ThenBy with a
+user comparer fell into the section-56 "would silently drop the comparer" LOUD
+guard (probe observed runtime 0B / code=1).
+
+### Implementation
+
+* Runtime `linq_sort.cpp`: `il2cpp_linq_then_by_key_val_i4_cmp` / `_i8_cmp` --
+  the two-key composites whose SECONDARY key is compared by the USER
+  `IComparer<TKey>` via `LinqValueCompareCmpCell` (the section-71 value-comparer
+  dispatch; the fragment/ABI table reused: int32-carrier (cell 7), int64
+  (cell 8), double (cell 10), float (cell 9 -- the F-slot reader + the double
+  bit-image carriers). The primary keeps `CmpKeyValue`; a NULL comparer operand
+  falls back to `Comparer<TKey>.Default` (net48 -- the entire comparer slice is
+  skipped). The comparer is ROOTED across the key/sort phase exactly like the
+  OrderBy comparer twins. `SortInt32/Int64TwoKeysCmpDispatch` mirror the
+  existing 4x4 fam dispatch with the k2 comparator swapped.
+* Transpiler `MethodMap.Linq.cs`: the value-comparer LOUD guard now exempts
+  ThenBy/ThenByDescending for i4/i8; the ThenBy arm emits the combine marker
+  with a SECOND literal "1" (the 3-arg call carries the comparer operand).
+* Transpiler `StackFold.cs`: the numeric two-key composite branch detects the
+  "1" marker literal, builds the `_i4_cmp`/`_i8_cmp` entry, derives the
+  param-count/literals from the marker, and appends the comparer operand
+  (args[2]) after the two selectors.
+
+### Contract evidence
+
+* new case `tests/cases/probe-thenbycmp`: oracle = runtime = **176B sha
+  d8646a52**, 10 records -- int + long sources; a parity user comparer on the
+  secondary key (discriminating corpus: odd/even mix inside a shared k1 group
+  so the comparer order differs from the value order); OrderBy + ThenBy,
+  OrderByDescending + ThenByDescending, a mixed primary/secondary direction
+  pair; a NULL comparer fallback (id order, both directions); a side-effect
+  SELECTOR counting probe (i6: exactly-once per selector per element) with a
+  GC.Collect inside the secondary selector (rooting); empty / single-element;
+  dup-key stability under the comparer. The comparer-CALL COUNT is explicitly
+  NOT pinned -- net48 IntroSort and the runtime's stable merge make different
+  numbers of comparisons, so the ordering is byte-exact but `cc` is not (the
+  selector counts s1/s2 ARE pinned).
+* RED baseline (probe before the fix): the section-56 comparer LOUD guard ->
+  runtime 0B / code=1, oracle sha unchanged.
+* mutations (all restored green to the same 176B sha):
+  * M1 the i4 k2 comparator is replaced by CmpKeyValue (user comparer dropped)
+    -> runtime `bf5dc6fb` (firstDiff@5, the parity order is lost -- silent);
+  * M2 the i8 k2 comparator is replaced by CmpKeyValue -> runtime `ad374fd9`
+    (firstDiff@57, the long parity record reorders) -- a FIRST corpus was
+    parity-homogeneous (all even) and stayed green; make the corpus
+    discriminating before believing the red (section-66 lesson);
+  * M3 the null-comparer branch is removed (null flows into the user dispatch)
+    -> runtime 82B `4fafd975` (abort at the i5 null record);
+  * M4 the transpiler `cmpThenBy` detection is forced false -> C++ compile
+    failure ("too many arguments to _i4") proving the gate selects the
+    comparer twin AND the arg routing.
+* regression byte-identical: probe-ordbyvalcmp 221B `b757a793` /
+  probe-thenbynarrow 240B `626b50be` / thenby3 585B `2ead0372` /
+  thenby3list 262B `bda750a6` / thenbyvtchain 939B `f5c9391b`.
+* unit tests 4164/0/0; C0 0 errors 0 warnings.
+
+### Registered-remaining (kept LOUD, measured)
+
+* the d/f-source and NARROW-source ThenBy-with-comparer composites (the fused
+  comparer chain kernels do not exist yet); the NARROW-source comparer-chain;
+* List<T> comparer overloads and the GroupBy-bucket comparer overloads;
+* 16-byte value keys under any comparer (section 71/57 slot encoding).

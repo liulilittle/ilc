@@ -2801,13 +2801,18 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         // docs/audit/b5-gaps.md).
         bool isValueArrayCmpOp = listKind == null
             && (linqSrcFam is "i4" or "i8" or "f" or "d" or "narrow")
-            && name is "Distinct" or "Except" or "Union" or "Intersect"
+            && (name is "Distinct" or "Except" or "Union" or "Intersect"
                 or "Contains" or "SequenceEqual"
                 // b5-gaps section 71: OrderBy / OrderByDescending over a VALUE
                 // source accepts the user key comparer -- the value-source
                 // arms below (LinqOrderByKeyEntry and TryMapLinqWide) emit the
                 // *_cmp / *_ref_cmp comparator kernels.
-                or "OrderBy" or "OrderByDescending";
+                or "OrderBy" or "OrderByDescending"
+                // b5-gaps section 74: OrderBy(k1).ThenBy(k2, userComparer)
+                // over an INT32/INT64 VALUE source -- the comparer-twin
+                // composite arm below emits the marker StackFold fuses.
+                || ((name == "ThenBy" || name == "ThenByDescending")
+                    && (linqSrcFam == "i4" || linqSrcFam == "i8")));
         if (name != "GroupBy" && LinqHasComparerParam(md, sigHandle) && !isValueArrayCmpOp)
         {
             throw new NotSupportedException(
@@ -3440,6 +3445,28 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                         2, false, false, false, new[] { "", "" },
                         returnTypeName: "System.Decimal[]",
                         appendLiterals: new[] { decSecondary });
+                }
+                // b5-gaps section 74: OrderBy(k1).ThenBy(k2, userComparer) /
+                // ThenByDescending over an INT32/INT64 VALUE source. The
+                // marker carries a SECOND literal "1" so StackFold builds the
+                // comparer-twin composite (il2cpp_linq_then_by_key_val_i4_cmp /
+                // _i8_cmp) and routes the comparer operand (args[2]) into it.
+                // Narrow/double/float/reference sources have no comparer
+                // then-by composite yet and stay LOUD. This arm precedes the
+                // numeric ThenByKernelSuffix arm -- during the count>=3 case
+                // the comparer must not be dropped (a 2-arg marker would
+                // silently lose it).
+                if (genArgs is { Length: >= 2 }
+                    && (linqSrcFam == "i4" || linqSrcFam == "i8")
+                    && LinqValKeyFamilyCode(genArgs[1]) is { } cmpSecondary
+                    && LinqHasComparerParam(md, sigHandle))
+                {
+                    return I(name == "ThenBy"
+                            ? ResolvedMethod.ThenByCombineMarker
+                            : ResolvedMethod.ThenByDescCombineMarker,
+                        3, false, false, false, new[] { "", "", "" },
+                        returnTypeName: linqSrcFam == "i4" ? "System.Int32[]" : "System.Int64[]",
+                        appendLiterals: new[] { cmpSecondary, "1" });
                 }
                 if (genArgs is { Length: >= 2 }
                     && ThenByKernelSuffix(genArgs[0], genArgs[1]) is not null
