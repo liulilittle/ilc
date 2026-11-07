@@ -1516,6 +1516,82 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             if (listDispatch != null) return listDispatch;
         }
 
+        // b5-gaps section 78: Enumerable.ToDictionary over an ARRAY source. The
+        // result is a Managed Dictionary`2 wrapper whose insertion-ordered
+        // table feeds the instance get_Item / get_Count / get_Keys /
+        // ContainsKey icalls; the returnTypeName tracks the Dictionary`2
+        // instantiation so those downstream members dispatch. The overloads
+        // with a user IEqualityComparer stay LOUD (not exercised by the probe;
+        // a silently-dropped comparer would be worse than a rejection).
+        if (name == "ToDictionary")
+        {
+            if (listKind != null)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary over a List<T> source is not wired: " +
+                    "only ARRAY sources are served (b5-gaps section 78).");
+            }
+            if (LinqHasComparerParam(md, sigHandle))
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary with a user IEqualityComparer is not wired: " +
+                    "the default comparer forms only (b5-gaps section 78).");
+            }
+            if (genArgs is not { Length: >= 2 })
+            {
+                return null;
+            }
+            byte tkey = genArgs[1];
+            string dictKeyKind, dictKeySuffix;
+            if (tkey is 0x08 or 0x09) { dictKeyKind = "1"; dictKeySuffix = "int"; }
+            else if (tkey == 0x0E) { dictKeyKind = "0"; dictKeySuffix = "string"; }
+            else if (tkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
+            { dictKeyKind = "0"; dictKeySuffix = "string"; }
+            else
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary<TKey={GenericArgTypeName(tkey)}> is not wired: the " +
+                    "TKey family must be int32 or a System.String (b5-gaps section 78).");
+            }
+            // TValue: the 3-generic-argument form has TElement at index 2; the
+            // 2-argument form's VALUE is the TSource element itself (index 0).
+            byte tval = genArgs.Length >= 3 ? genArgs[2] : genArgs[0];
+            string dictValueKind, dictValueSuffix;
+            if (tval is 0x08 or 0x09) { dictValueKind = "1"; dictValueSuffix = "int"; }
+            else if (tval == 0x0E) { dictValueKind = "0"; dictValueSuffix = "string"; }
+            else if (tval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.String")
+            { dictValueKind = "0"; dictValueSuffix = "string"; }
+            else
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary<TValue={GenericArgTypeName(tval)}> is not wired: the " +
+                    "TValue family must be int32 or a System.String (b5-gaps section 78).");
+            }
+            string? srcCell = genArgs is { Length: >= 1 }
+                ? LinqCellCodeOfElemByte(genArgs[0]) ?? (genArgs[0] == 0x0E ? "15" : null)
+                : null;
+            if (srcCell == null)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary over a {GenericArgTypeName(genArgs[0])} source is not wired: " +
+                    "the source element family has no selector cell ABI (b5-gaps section 78).");
+            }
+            string dictName = "System.Collections.Generic.Dictionary`2_" + dictKeySuffix + "_" + dictValueSuffix;
+            if (genArgs.Length < 3)
+            {
+                // 2-arg form: appendZero injects the null elementSelector into
+                // the kernel's third param.
+                return I("il2cpp::il2cpp_linq_to_dictionary", 2, true, true, false,
+                    new[] { "a", "" }, appendZero: true,
+                    appendLiterals: new[] { dictKeyKind, dictValueKind, srcCell },
+                    returnTypeName: dictName);
+            }
+            return I("il2cpp::il2cpp_linq_to_dictionary", 3, true, true, false,
+                new[] { "a", "", "" },
+                appendLiterals: new[] { dictKeyKind, dictValueKind, srcCell },
+                returnTypeName: dictName);
+        }
+
         // P0LINQ1 (D3): a VALUE-TYPE-element ARRAY source. LinqSourceFamily
         // folds 0x11 into "ref" (every value type shares that byte), so this
         // block must run BEFORE the reference-source block or a decimal[] source

@@ -148,8 +148,19 @@ Il2CppArray* il2cpp_dict_gen_get_values(Il2CppDictGen* d);
 //-----------------------------------------------------------------------------
 struct Il2CppDictGenObject
 {
-    Il2CppObject   obj;  // slot 0: object header
-    Il2CppDictGen* dict; // slot 1: raw pointer (NOT in the refFieldBitmap)
+    Il2CppObject   obj;      // slot 0: object header
+    Il2CppDictGen* dict;     // slot 1: raw pointer (NOT in the refFieldBitmap)
+    // b5-gaps section 78: LINQ ToDictionary REF-KEY ROOTING. The raw dict
+    // entries hold Il2CppObject* carriers the GC cannot see (the table is a
+    // raw allocation, refFieldBitmap bit 1 is OFF). A delegate-produced key /
+    // value (a selector result, NOT an interned literal) would dangle. The
+    // section-78 kernel therefore stores every ref key + value into this
+    // managed `object[]` EXTENSION slot (refFieldBitmap bit 2), so the
+    // dictionary object itself roots them for its whole lifetime. The
+    // instance path (new Dictionary...) leaves it null -- its keys are
+    // literals / caller-rooted carriers (the dictgen GC contract), so no root
+    // pack is needed there.
+    Il2CppArray*   keysRoot; // slot 2: managed root pack (refFieldBitmap bit 2)
 };
 
 struct Il2CppDictGenEnumerator

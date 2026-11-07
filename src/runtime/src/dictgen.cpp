@@ -563,8 +563,8 @@ Il2CppArray* il2cpp_dict_gen_get_values(Il2CppDictGen* d)
 Il2CppClass System_Collections_Generic_Dictionary_2_gen_class = {
     "System.Collections.Generic.Dictionary`2<gen>", // name
     static_cast<int32_t>(sizeof(Il2CppDictGenObject)), // instanceSize
-    0u,                                  // refFieldBitmap: raw pointer only
-    0,                                   // refFieldCount
+    0b100u,                              // refFieldBitmap: slot 2 = the LINQ root pack (section 78); slot 1 stays raw
+    1,                                   // refFieldCount
     nullptr,                             // baseClass
     nullptr,                             // vtable
     0,                                   // vtableSize

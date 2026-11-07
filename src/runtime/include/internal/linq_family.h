@@ -199,6 +199,17 @@ bool il2cpp_linq_contains_family_cmp_dtoffset(Il2CppArray* src,
                                               runtime::Il2CppDateTimeOffset value,
                                               Il2CppObject* cmp);
 
+// b5-gaps section 78: Enumerable.ToDictionary over an ARRAY source. keySel is
+// Func<TSource,TKey>; elemSel is Func<TSource,TElement> or null (value = the
+// element itself). keyKind/valueKind are the dictgen kind codes (Int32=1 /
+// String=0). The result is a Managed Dictionary`2 wrapper whose insertion-
+// order table feeds the instance get_Item/get_Count/get_Keys/ContainsKey
+// icalls; the wrapper roots every reference key and value in a managed pack
+// (the dictgen table is a raw allocation the collector cannot see).
+Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
+                                        Il2CppObject* elemSel, int32_t keyKind,
+                                        int32_t valueKind, int32_t srcCell);
+
 // b5-gaps section 57: user-comparer twins over the VALUE cell families
 // (int32/uint/narrow/char/bool, int64, double/float). Each entry dispatches a
 // user IEqualityComparer<T>.Equals through the reflected slot of the element

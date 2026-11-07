@@ -30,12 +30,14 @@
 #include "linq_family.h"
 #include "linq_list.h"                 // il2cpp_linq_list_snapshot (List<int> inners)
 #include "listi4.h"                    // il2cpp_list_i4_class (List<int> inners)
+#include "dictgen.h"                   // b5-gaps section 78: the Dictionary`2 wrapper + gen table
 
 #include "arraysort.h"                 // FindVirtualSlotByNameAndSignature
 #include "il2cpp_array.h"              // kElemKind* (b5-gaps section 70 narrow Join)
 #include "il2cpp_delegate.h"
 #include "il2cpp_exception_ext.h"
 #include "il2cpp_gc.h"
+#include "il2cpp_runtime.h"            // il2cpp_object_new (the ToDictionary wrapper, section 78)
 #include "il2cpp_value_semantics.h"    // icall_object_equals
 #include "string_compare.h"            // il2cpp_string_compare_ordinal
 
@@ -3917,6 +3919,164 @@ Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
         }
     }
     return out;
+}
+
+// b5-gaps section 78: Enumerable.ToDictionary over an ARRAY source.
+//
+// src         -- the source array (element family in srcCell).
+// keySel      -- Func<TSource,TKey> (never null; a null THROWS ArgumentNullException).
+// elemSel     -- Func<TSource,TElement>, or null (value = the element itself).
+// keyKind     -- kGenKind_Int32 (1) = int32 key (inline in entry.keyInt);
+//                kGenKind_String (0) = reference key (a managed carrier).
+// valueKind   -- kGenKind_Int32 (1) = int32 value (BOXED into a managed object);
+//                kGenKind_String (0) = reference value.
+// srcCell     -- the source element cell code (LinqCell family).
+//
+// NET48 CONTRACT: a duplicate key -> ArgumentException (the dictgen add throws
+// "Item has already been added.", a Dictionary-default ArgumentException -- the
+// probe pins the TYPE, not the message); a null key -> ArgumentNullException
+// ("key"), the dictgen null-carrier guard. The enumeration order follows the
+// INSERTION order (the gen table's insertion-sequence -> the Keys snapshot the
+// instance get_Keys icall serves).
+//
+// REF-KEY ROOTING (the objective's "ref 键 rooting"): the dictgen table stores
+// managed carriers in a RAW allocation the collector cannot see. The selector
+// returns NEW strings (NOT interned literals), so the wrapper owns a managed
+// `object[]` root pack (dictgen.h Il2CppDictGenObject::keysRoot, refFieldBitmap
+// bit 2): every ref key and every value object is written into it with the
+// write barrier as it is inserted, keeping them alive for the dictionary's
+// whole lifecycle. int32 keys ride entry.keyInt (no carrier to root); boxed
+// int32 values go into the pack like any other managed object.
+Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
+                                        Il2CppObject* elemSel, int32_t keyKind,
+                                        int32_t valueKind, int32_t srcCell)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    if (keySel == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    Il2CppClass* cls = reinterpret_cast<Il2CppObject*>(src)->klass;
+    if (cls == nullptr || cls->name == nullptr || cls->name[0] != '[')
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToDictionary: the source is not a one-dimensional array "
+            "(List/IEnumerable sources stay LOUD, b5-gaps section 78).");
+        return nullptr;
+    }
+    LinqRequireCell(src, srcCell);
+    const int32_t srcSlot = Sel2ArgSlotOf(srcCell);
+    if (srcSlot < 0)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToDictionary: the source element family has no selector "
+            "ABI (b5-gaps section 78).");
+        return nullptr;
+    }
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_String)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToDictionary: this TKey family has no dictgen key kind "
+            "(b5-gaps section 78).");
+        return nullptr;
+    }
+    if (valueKind != kGenKind_Int32 && valueKind != kGenKind_String)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToDictionary: this TValue family has no dictgen value "
+            "kind (b5-gaps section 78).");
+        return nullptr;
+    }
+    Il2CppDelegate* kd = reinterpret_cast<Il2CppDelegate*>(keySel);
+    Il2CppDelegate* vd = reinterpret_cast<Il2CppDelegate*>(elemSel);
+    if (kd == nullptr || kd->methodPtr == nullptr ||
+        (vd != nullptr && vd->methodPtr == nullptr))
+    {
+        il2cpp_throw_argument_null_exception(vd == nullptr ? "keySelector"
+                                                           : "elementSelector");
+        return nullptr;
+    }
+    const int32_t keySlot = keyKind == kGenKind_Int32 ? 0 : 3; // i4 / ref (o)
+    const int32_t valSlot = valueKind == kGenKind_Int32 ? 0 : 3;
+    const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
+    const Sel1Fn ival = vd != nullptr ? kSel1[(valSlot * 4 + srcSlot)] : nullptr;
+    const int32_t n = src->length;
+
+    Il2CppObject* wObj = il2cpp_object_new(il2cpp_dict_gen_object_class());
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+    roots.Add(reinterpret_cast<void**>(&elemSel));
+    roots.Add(reinterpret_cast<void**>(&wObj));
+    Il2CppDictGenObject* wrapper =
+        reinterpret_cast<Il2CppDictGenObject*>(wObj);
+    wrapper->dict = il2cpp_dict_gen_create(n > 0 ? n : 4);
+    wrapper->keysRoot = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, n * 2 + 4);
+    int32_t packIdx = 0;
+
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Sel2Arg a;
+        switch (srcSlot)
+        {
+            case 0: a.i4 = LinqCellReadI4(src, i, srcCell); break;
+            case 1: a.i8 = LinqCellReadI8(src, i, srcCell); break;
+            case 2: a.d  = LinqCellReadD(src, i, srcCell); break;
+            default: a.o = LinqCellReadRef(src, i, srcCell); break;
+        }
+        const int64_t kc = ikey(kd, a);
+        int32_t keyInt = 0;
+        Il2CppObject* keyRef = nullptr;
+        if (keyKind == kGenKind_Int32)
+        {
+            keyInt = static_cast<int32_t>(kc);
+        }
+        else
+        {
+            keyRef = reinterpret_cast<Il2CppObject*>(kc);
+        }
+        Il2CppObject* value = nullptr;
+        if (vd != nullptr)
+        {
+            const int64_t vc = ival(vd, a);
+            value = valueKind == kGenKind_Int32
+                ? il2cpp_dict_gen_box_int32(static_cast<int32_t>(vc))
+                : reinterpret_cast<Il2CppObject*>(vc);
+        }
+        else if (valueKind == kGenKind_Int32)
+        {
+            value = il2cpp_dict_gen_box_int32(a.i4);
+        }
+        else
+        {
+            value = a.o;
+        }
+        // The box / delegate allocations above may compact the heap; re-derive
+        // every managed pointer from the roots before the barrier-writes.
+        wrapper = reinterpret_cast<Il2CppDictGenObject*>(wObj);
+        Il2CppObject** pack = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(wrapper->keysRoot, 0));
+        if (keyRef != nullptr)
+        {
+            pack[packIdx] = keyRef;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&pack[packIdx]), keyRef);
+            ++packIdx;
+        }
+        if (value != nullptr)
+        {
+            pack[packIdx] = value;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&pack[packIdx]), value);
+            ++packIdx;
+        }
+        il2cpp_dict_gen_add(wrapper->dict, keyInt, keyRef, value, keyKind, valueKind);
+    }
+    return wObj;
 }
 
 } // namespace il2cpp
