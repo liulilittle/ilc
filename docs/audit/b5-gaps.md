@@ -1,4 +1,4 @@
-﻿# B5 fix -- residual gaps (registered, NOT silent)
+# B5 fix -- residual gaps (registered, NOT silent)
 
 Scope of this batch: D-1 (non-i4 `Any(pred)`/`Count(pred)`/`All`/`Where`/
 `Select`/`First`/`Last` for every element family), D-2 (`List<T>` carrier
@@ -5369,7 +5369,9 @@ families for the six set/sequence operators so the gate no longer rejects them.
   KEY is now IMPLEMENTED (section 71); the fused ThenBy-comparator composite
   over a value source is not (a ThenBy with a comparer re-sorts the primary by
   the SECONDARY key through BOTH comparers -- no fused kernel yet);
-* List<T> comparer overloads and the GroupBy-bucket comparer overloads.
+* List<T> comparer overloads are now IMPLEMENTED (section 74b); the GroupBy
+  bucket comparer overloads are now IMPLEMENTED for the fixed-name value keys
+  (section 76); a USER-ENUM-key comparer stays LOUD.
 ## 58. Enumerable.ToHashSet across the supported element families (IMPLEMENTED)
 
 `ToHashSet` was one of the "generic instantiation ... has no BCL mapping in M5"
@@ -6161,7 +6163,9 @@ form.
 * the NARROW-source ThenBy / ThenByDescending fused composite is now
   IMPLEMENTED (section 73); the value-source fused ThenBy-comparator composite
   and the narrow-source comparer-chain composite stay LOUD;
-* List<T> comparer overloads and the GroupBy-bucket comparer overloads.
+* List<T> comparer overloads are now IMPLEMENTED (section 74b); the
+  GroupBy-bucket comparer overloads are now IMPLEMENTED for the fixed-name
+  value keys (section 76); the USER-ENUM-key comparer stays LOUD.
 
 ## 73. ThenBy / ThenByDescending over a NARROW-array source (IMPLEMENTED)
 
@@ -6386,4 +6390,87 @@ byte-identical to the array surface and to net48.
   comparer twin);
 * the comparer forms of the OTHER List operators (Where/Select/Min/Max/etc.)
   stay LOUD;
-* GroupBy-bucket comparer overloads (next).
+* GroupBy with a user IEqualityComparer over the INT32-like/int64/short buses
+  and the FIXED-NAME value keys (decimal / DateTime / TimeSpan / Guid /
+  DateTimeOffset / double) is now IMPLEMENTED (section 76); a user comparer
+  over a USER-ENUM key stays LOUD (the generated enum C++ type cannot be
+  reconstructed by the runtime comparer kernel -- sam for a plain value-struct
+  key whose Equals slot has no fixed leaf fragment).
+
+## 76. GroupBy with a user IEqualityComparer<TKey> over the fixed-name value keys (IMPLEMENTED)
+
+`Enumerable.GroupBy<TSource,TKey>(source, keySelector, IEqualityComparer<TKey>)`
+(and the element/result-selector overloads carrying the comparer) over an
+array or List source whose KEY family is one of the FIXED-NAME by-value value
+types -- System.Decimal / System.DateTime / System.TimeSpan / System.Guid /
+System.DateTimeOffset -- or System.Double. Before this section every such call
+hit the section-24 GroupKeysEqual LOUD ("... over a System.Double key is not
+wired") or, for the byte/int16/long/short buses, was served by the two existing
+`ComparerKeyEquals` / `ComparerKeyEqualsLong` reflected-slot dispatchers. A
+USER-ENUM key comparer stays LOUD (the enum's generated C++ type is not
+reconstructable by name; the DEFAULT enum comparer is untouched).
+
+### Why a hash is NOT needed
+
+`BuildGroups` (linq_map.cpp) is a LINEAR membership scan over the already-built
+buckets (for j in 0..count: GroupKeysEqual) -- there is NO hash-index bucket
+table to feed. Therefore the comparer's reflected `Equals(TKey,TKey)` slot is
+the COMPLETE membership test, and net48's GetHashCode consistency contract
+(two equal-under-comparer keys MUST hash equal) has no comparator here: every
+candidate key is compared to every existing bucket directly. This is what makes
+the section-76 implementation possible without the Join-comparer hash wiring.
+
+### Wiring
+
+* RUNTIME (`linq_map.cpp` `GroupKeyStructEqualsCmp`): the five fixed-name
+  value keys reconstruct the TKey from the bucket carrier from
+  (keyLo, keyHi / existing->key, existing->keyHi) with the existing
+  get_key-family layout (decimal via KeyCarrierToDecimal, DateTime as
+  Il2CppDateTime(ticks,kind), Guid as the raw 16 bytes, TimeSpan as the ticks,
+  DateTimeOffset as {utcTicks, offsetMinutes}); the DOUBLE key rides the raw
+  64-bit carrier. The comparer's `Equals` slot is found with
+  `FindVirtualSlotByNameAndSignature(cmp, "Equals", "(V:<Family>,V:<Family>)")`
+  (exact leaf fragment per family; the double rides "(d,d)") and invoked
+  through the family's OWN by-value ABI (the generated comparer's
+  `Equals(Il2CppObject*, TKey, TKey)`). A missing slot is a LOUD
+  ("the comparer has no reflected virtual Equals(TKey,TKey) slot").
+* `GroupKeysEqual` (linq_map.cpp): the keyKind 8/9/10/12/13/15 `cmp != nullptr`
+  LOUD throw-branches become `return GroupKeyStructEqualsCmp(cmp, keyKind, ...)`.
+  keyKind 7 (long) and <= 6 (i4/narrow) keep `ComparerKeyEqualsLong` /
+  `ComparerKeyEquals`; keyKind 11 (ref) keeps `LinqRefEqualsCmp`.
+
+### Evidence
+
+* probe-grpcmp `.cs` exercising: g1 int-key parity, g2 byte-key parity, g3
+  long-key parity, g4 double-key floor, g5 string-key OrdinalIgnoreCase, g6
+  decimal-key trunc-parity (1.5/3.5 merge), g7 DateTime-key day-parity, g8
+  TimeSpan-key tick-parity, g9 Guid-key last-byte-parity, g10 DateTimeOffset-key
+  hour-parity, g11 DEFAULT enum comparer (unchanged), g12 result-selector
+  pipeline (parity then Select), g13 null comparer == default, g14 GC.Collect
+  inside the comparer Equals (rooting).
+* difftest GREEN 281B `e52743c0ccd7f1b0b3d89522d67a30283d5e3fd9ce3daa738817dd3125236bd3`
+  byte-identical vs net48.
+* MUTATIONS (each RED, then byte-restored GREEN):
+  * M1 the decimal family fragment points at "System.Double" -> the slot lookup
+    misses -> LOUD (g6 abort);
+  * M2 the DateTimeOffset ABI dispatches through the DOUBLE slot -> silent
+    wrong g10 bucket layout (290B);
+  * M3 the DateTime carrier swaps ticks <-> kind -> every key becomes the epoch
+    DateTime (g7 collapses to one bucket) 273B;
+  * M4 the Guid reconstruction writes the high word at byte offset 4 -> corrupt
+    byte[15] parity -> wrong g9 buckets (289B).
+* regression byte-identical: ALL 15 fixed anchors (probe-ordbynarrow
+  `b60e842c` ... probe-range `7f2e8727`). unit tests 4164/0/0; C0 0 errors 0
+  warnings.
+
+### Scope / Registered-remaining (kept LOUD, measured)
+
+* a USER-ENUM key + user comparer stays LOUD (the generated enum C++ type is
+  not reconstructable by name; see the note at the top of this section);
+* a plain USER value-struct key (a struct with no fixed name leaf fragment)
+  stays LOUD -- the grouping surface has no key carrier for it at all;
+* the GroupBy BUCKET-ELEMENT enumerator (foreach over an IGrouping / string.Join
+  over a grouping) prints EMPTY for the byte/int16/... families reached through
+  a comparer GroupBy -- a SEPARATE wiring gap (the bucket snapshot's cell
+  enumeration), recorded here so a later section can wire it without
+  conflating it with the comparer work.

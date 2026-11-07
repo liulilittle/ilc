@@ -5898,6 +5898,122 @@ bool ComparerKeyEqualsLong(Il2CppObject* cmp, int64_t key, int64_t existing)
 // (Declared here because the key-equality kernel below needs the decimal form.)
 runtime::Il2CppDecimal KeyCarrierToDecimal(int64_t lo, int64_t hi);
 
+//------------------------------------------------------------------------------
+// b5-gaps section 76: a USER IEqualityComparer<TKey> EQUALS dispatch for the
+// WIDE / by-value-struct GroupBy key families. BuildGroups is a LINEAR
+// membership scan (no hash index), so the comparer's reflected Equals(TKey,TKey)
+// slot is the COMPLETE membership test -- no GetHashCode is needed (there is no
+// separate bucket table to feed). The fragment table mirrors the
+// MethodSignatureCoder encoding of the generated comparer's Equals slot (the
+// typeinfo.cpp leaf language): fixed-name struct families use the exact
+// "(V:<FullName>,V:<FullName>)" fragment; the DOUBLE key rides "(d,d)" (float
+// rides the double ABI as everywhere). A user ENUM key stays LOUD: the
+// generated enum's C++ type cannot be reconstructed by name from the comparer
+// alone (the section-76 scope keeps the DEFAULT enum comparer live).
+//------------------------------------------------------------------------------
+bool GroupKeyStructEqualsCmp(Il2CppObject* cmp, int32_t keyKind,
+                             int64_t keyLo, int64_t keyHi,
+                             int64_t existingKey, int64_t existingKeyHi)
+{
+    const char* rname = nullptr;
+    switch (keyKind)
+    {
+        case 8:  rname = "System.Decimal"; break;        // 16-byte value
+        case 9:  rname = "System.DateTime"; break;       // ticks + kind
+        case 10: rname = "System.Guid"; break;           // 16 raw bytes
+        case 12: rname = "System.TimeSpan"; break;       // ticks
+        case 13: rname = "System.DateTimeOffset"; break; // utcTicks + offsetMinutes
+        case 15: break;                                  // double: "(d,d)"
+        default:
+            il2cpp_throw_not_supported_exception(
+                "GroupBy with a user IEqualityComparer over this key family is not "
+                "wired (b5-gaps section 76).");
+            return false;
+    }
+    const char* frag = "(d,d)";
+    char fragBuf[96];
+    if (rname != nullptr)
+    {
+        std::snprintf(fragBuf, sizeof(fragBuf), "(V:%s,V:%s)", rname, rname);
+        frag = fragBuf;
+    }
+    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", frag);
+    if (slot < 0)
+    {
+        il2cpp_throw_not_supported_exception(
+            "GroupBy with a user IEqualityComparer: the comparer has no reflected "
+            "virtual Equals(TKey,TKey) slot for this key family (b5-gaps section 76).");
+        return false;
+    }
+    if (cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
+        slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
+    {
+        il2cpp_throw_not_supported_exception(
+            "GroupBy with a user IEqualityComparer: the comparer's Equals slot is "
+            "not resolvable (b5-gaps section 76).");
+        return false;
+    }
+    void* fn = cmp->klass->vtable[slot];
+    double ka, ea;
+    switch (keyKind)
+    {
+        case 8:
+        {
+            typedef bool (*Fn)(Il2CppObject*, runtime::Il2CppDecimal, runtime::Il2CppDecimal);
+            const runtime::Il2CppDecimal k = KeyCarrierToDecimal(keyLo, keyHi);
+            const runtime::Il2CppDecimal e = KeyCarrierToDecimal(existingKey, existingKeyHi);
+            return reinterpret_cast<Fn>(fn)(cmp, k, e);
+        }
+        case 9:
+        {
+            typedef bool (*Fn)(Il2CppObject*, runtime::Il2CppDateTime, runtime::Il2CppDateTime);
+            const runtime::Il2CppDateTime k(keyLo, static_cast<int32_t>(keyHi));
+            const runtime::Il2CppDateTime e(existingKey, static_cast<int32_t>(existingKeyHi));
+            return reinterpret_cast<Fn>(fn)(cmp, k, e);
+        }
+        case 10:
+        {
+            typedef bool (*Fn)(Il2CppObject*, Il2CppGuid, Il2CppGuid);
+            Il2CppGuid k, e;
+            std::memcpy(&k, &keyLo, sizeof(int64_t));
+            std::memcpy(reinterpret_cast<uint8_t*>(&k) + 8, &keyHi, sizeof(int64_t));
+            std::memcpy(&e, &existingKey, sizeof(int64_t));
+            std::memcpy(reinterpret_cast<uint8_t*>(&e) + 8, &existingKeyHi, sizeof(int64_t));
+            return reinterpret_cast<Fn>(fn)(cmp, k, e);
+        }
+        case 12:
+        {
+            typedef bool (*Fn)(Il2CppObject*, runtime::Il2CppTimeSpan, runtime::Il2CppTimeSpan);
+            const runtime::Il2CppTimeSpan k(keyLo);
+            const runtime::Il2CppTimeSpan e(existingKey);
+            return reinterpret_cast<Fn>(fn)(cmp, k, e);
+        }
+        case 13:
+        {
+            typedef bool (*Fn)(Il2CppObject*, runtime::Il2CppDateTimeOffset, runtime::Il2CppDateTimeOffset);
+            runtime::Il2CppDateTimeOffset k, e;
+            k.utcTicks = keyLo;
+            k.offsetMinutes = static_cast<int32_t>(keyHi);
+            e.utcTicks = existingKey;
+            e.offsetMinutes = static_cast<int32_t>(existingKeyHi);
+            return reinterpret_cast<Fn>(fn)(cmp, k, e);
+        }
+        default:
+        {
+            typedef bool (*Fn)(Il2CppObject*, double, double);
+            std::memcpy(&ka, &keyLo, sizeof(ka));
+            std::memcpy(&ea, &existingKey, sizeof(ea));
+            return reinterpret_cast<Fn>(fn)(cmp, ka, ea);
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// The USER-COMPARER membership test for GroupKeysEqual. keyKind > 7 with a
+// non-null cmp reaches GroupKeyStructEqualsCmp; the narrow/i4/i8 (<= 6 / 7)
+// and reference (11) kinds keep their existing dispatchers above.
+//------------------------------------------------------------------------------
+
 bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
                     int64_t keyLo, int64_t keyHi, Il2CppObject* keyRef,
                     const Il2CppLinqGrouping* existing)
@@ -5926,10 +6042,7 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
         // behavior) SPLIT net48's buckets (probe: 3 buckets instead of 2).
         if (cmp != nullptr)
         {
-            il2cpp_throw_not_supported_exception(
-                "GroupBy with a user IEqualityComparer over a System.Decimal key is "
-                "not wired; the default comparer (null) compares by decimal value.");
-            return false; // unreachable (the factory throws)
+            return GroupKeyStructEqualsCmp(cmp, keyKind, keyLo, keyHi, existing->key, existing->keyHi);
         }
         const runtime::Il2CppDecimal k = KeyCarrierToDecimal(keyLo, keyHi);
         const runtime::Il2CppDecimal e = KeyCarrierToDecimal(existing->key, existing->keyHi);
@@ -5943,10 +6056,7 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
         // still keeps the FIRST key's kind so get_Key reports it.
         if (cmp != nullptr)
         {
-            il2cpp_throw_not_supported_exception(
-                "GroupBy with a user IEqualityComparer over a System.DateTime key is "
-                "not wired; the default comparer (null) compares the ticks.");
-            return false; // unreachable (the factory throws)
+            return GroupKeyStructEqualsCmp(cmp, keyKind, keyLo, keyHi, existing->key, existing->keyHi);
         }
         return keyLo == existing->key;
     }
@@ -5956,10 +6066,7 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
         // (Guid has no padding and no normalization).
         if (cmp != nullptr)
         {
-            il2cpp_throw_not_supported_exception(
-                "GroupBy with a user IEqualityComparer over a System.Guid key is "
-                "not wired; the default comparer (null) compares the raw 16-byte value.");
-            return false; // unreachable (the factory throws)
+            return GroupKeyStructEqualsCmp(cmp, keyKind, keyLo, keyHi, existing->key, existing->keyHi);
         }
         return keyLo == existing->key && keyHi == existing->keyHi;
     }
@@ -5968,10 +6075,7 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
         // System.TimeSpan: value equality == the tick count.
         if (cmp != nullptr)
         {
-            il2cpp_throw_not_supported_exception(
-                "GroupBy with a user IEqualityComparer over a System.TimeSpan key is "
-                "not wired; the default comparer (null) compares the ticks.");
-            return false; // unreachable (the factory throws)
+            return GroupKeyStructEqualsCmp(cmp, keyKind, keyLo, keyHi, existing->key, existing->keyHi);
         }
         return keyLo == existing->key;
     }
@@ -5983,10 +6087,7 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
         // FIRST key's offset so get_Key reports it.
         if (cmp != nullptr)
         {
-            il2cpp_throw_not_supported_exception(
-                "GroupBy with a user IEqualityComparer over a System.DateTimeOffset key "
-                "is not wired; the default comparer (null) compares the UTC instant.");
-            return false; // unreachable (the factory throws)
+            return GroupKeyStructEqualsCmp(cmp, keyKind, keyLo, keyHi, existing->key, existing->keyHi);
         }
         return keyLo == existing->key;
     }
@@ -6011,10 +6112,7 @@ bool GroupKeysEqual(Il2CppObject* cmp, int32_t keyKind,
         // patterns differ), so a memcmp of the carrier is NOT the contract.
         if (cmp != nullptr)
         {
-            il2cpp_throw_not_supported_exception(
-                "GroupBy with a user IEqualityComparer over a System.Double key is not "
-                "wired; the default comparer (null) compares the double value.");
-            return false; // unreachable (the factory throws)
+            return GroupKeyStructEqualsCmp(cmp, keyKind, keyLo, keyHi, existing->key, existing->keyHi);
         }
         double a;
         double b;
