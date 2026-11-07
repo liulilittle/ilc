@@ -187,6 +187,31 @@ bool          il2cpp_linq_list_contains_i8(Il2CppObject* list, int64_t value, in
 bool          il2cpp_linq_list_contains_d(Il2CppObject* list, double value, int32_t kind);
 bool          il2cpp_linq_list_contains_ref(Il2CppObject* list, Il2CppObject* value, int32_t kind);
 
+// b5-gaps section 74: the USER-COMPARER twins of the kind-generic SET member
+// operators over a List<T> receiver (Distinct/Except/Union/Intersect/
+// SequenceEqual/Contains). The list object rides the UNCAST slot, the user
+// comparer the last IL slot, and the element's ARRAY cell code is the FIRST
+// trailing literal followed by the LIST kind tag (the delegate kernels key on
+// the cell; SnapshotOf keys on the list kind).
+Il2CppArray*   il2cpp_linq_list_distinct_cmp(Il2CppObject* list, Il2CppObject* cmp,
+                                             int32_t kind, int32_t cell);
+Il2CppArray*   il2cpp_linq_list_except_cmp(Il2CppObject* list, Il2CppObject* second,
+                                           Il2CppObject* cmp, int32_t kind, int32_t cell);
+Il2CppArray*   il2cpp_linq_list_union_cmp(Il2CppObject* list, Il2CppObject* second,
+                                          Il2CppObject* cmp, int32_t kind, int32_t cell);
+Il2CppArray*   il2cpp_linq_list_intersect_cmp(Il2CppObject* list, Il2CppObject* second,
+                                              Il2CppObject* cmp, int32_t kind, int32_t cell);
+bool           il2cpp_linq_list_sequence_equal_cmp(Il2CppObject* list, Il2CppObject* second,
+                                                   Il2CppObject* cmp, int32_t kind, int32_t cell);
+bool           il2cpp_linq_list_contains_cmp_i4(Il2CppObject* list, int32_t value,
+                                                Il2CppObject* cmp, int32_t kind, int32_t cell);
+bool           il2cpp_linq_list_contains_cmp_i8(Il2CppObject* list, int64_t value,
+                                                Il2CppObject* cmp, int32_t kind, int32_t cell);
+bool           il2cpp_linq_list_contains_cmp_d(Il2CppObject* list, double value,
+                                               Il2CppObject* cmp, int32_t kind, int32_t cell);
+bool           il2cpp_linq_list_contains_cmp_ref(Il2CppObject* list, Il2CppObject* value,
+                                                 Il2CppObject* cmp, int32_t kind, int32_t cell);
+
 // Reverse over the list (a fresh array in reverse source order).
 Il2CppArray* il2cpp_linq_list_reverse(Il2CppObject* list, int32_t kind);
 

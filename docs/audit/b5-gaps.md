@@ -6234,7 +6234,14 @@ runtime 0B / code=1).
   now IMPLEMENTED (section 74) -- the INT32/INT64 sources only; the d/f/narrow
   source comparer chains and the NARROW-source comparer-chain composite stay
   LOUD;
-* List<T> comparer overloads and the GroupBy-bucket comparer overloads.
+* the List<T> user-comparer SET operations (Distinct/Except/Union/Intersect/
+  SequenceEqual/Contains) are now IMPLEMENTED (section 74b) -- the int32-like /
+  int64 / double / float / reference element lists only, via the `_cmp` list
+  wrappers that snapshot and delegate to the family-generic array comparer
+  kernels; a comparer over a 0x11 value-struct element list (decimal /
+  DateTime / TimeSpan / Guid / DateTimeOffset) and over the OTHER operators
+  stays LOUD;
+* GroupBy-bucket comparer overloads.
 
 ## 74. ThenBy / ThenByDescending with a user key comparer over an INT32/INT64 source (IMPLEMENTED)
 
@@ -6303,5 +6310,80 @@ guard (probe observed runtime 0B / code=1).
 
 * the d/f-source and NARROW-source ThenBy-with-comparer composites (the fused
   comparer chain kernels do not exist yet); the NARROW-source comparer-chain;
-* List<T> comparer overloads and the GroupBy-bucket comparer overloads;
+* List<T> comparer SET operations are now IMPLEMENTED (section 74b); the
+  GroupBy-bucket comparer overloads stay LOUD;
 * 16-byte value keys under any comparer (section 71/57 slot encoding).
+
+## 74b. List<T> user-comparer set operations: Distinct / Except / Union / Intersect / SequenceEqual / Contains (IMPLEMENTED)
+
+`Enumerable.Distinct<TSource>(List<TSource>, IEqualityComparer<TSource>)` and the
+comparer forms of `Except` / `Union` / `Intersect` / `SequenceEqual` / `Contains`
+over a `List<T>` receiver. Before this section every user-comparer call over a
+List fell into the section-56 "would silently drop the comparer" LOUD. Now the
+set operators ride `_cmp` LIST twins (`linq_list.cpp`) that snapshot the List
+object at its element family and DELEGATE to the family-generic ARRAY comparer
+kernels (`linq_family.cpp` -- `_value_cmp` for value cells / `_family_cmp` keepers
+for the reference cell), so the parity / case-fold / user equality semantics are
+byte-identical to the array surface and to net48.
+
+### Wiring
+
+* RUNTIME (`linq_list.cpp` / `linq_list.h`): `il2cpp_linq_list_{distinct,except,
+  union,intersect}_cmp`, `il2cpp_linq_list_sequence_equal_cmp` and
+  `il2cpp_linq_list_contains_cmp_{i4,i8,d,ref}`. Each wrapper takes the List
+  object UNCAST (never `Il2CppArray*`), snapshots at the LIST kind tag, and
+  delegates with the element's ARRAY CELL code as the second trailing literal
+  (the reference cell is `IL2CPP_LINQ_CELL_REF` 15, NOT the list kind tag 1).
+  A null comparer falls out as `Object.Equals` in the array kernels.
+* TRANSPILER (`MethodMap.Linq.cs:5799` gate): the comparer gate now admits the
+  six set operators when the element byte has an array cell code, and routes
+  each arm to its `_cmp` twin (Contains keeps the value in the element family's
+  own parameter slot).
+* STACKFOLD (`StackFold.cs` static-call re-resolve): an arity-3 comparer call
+  (`Contains(list, value, cmp)` etc.) is resolved at pre-pop with `arg1Type`
+  = the VALUE slot, so `LinqListKind` answered null and the ARRAY comparer
+  kernel bound with the List object cast to `Il2CppArray*` (the D-2 reading of
+  the items pointer as a length). When the FIRST explicit argument's tracked
+  type is a `List\`1`, the post-pop re-resolve now passes the receiver hint so
+  the list domain dispatches (the same list-receiver re-resolve the aggregate
+  family already relied on).
+
+### Evidence
+
+* probe-listcmp `.cs` exercising: l1 int List Distinct(parity), l2/l2b int
+  Contains(parity), l3 string List Distinct(OrdinalIgnoreCase), l4 Union,
+  l5 Intersect, l6 Except, l7 long Contains(parity), l8 SequenceEqual(parity,
+  element-unequal / parity-equal), l9 empty List, l10 null comparer, l11
+  GC-in-comparer (element rooting under a snapshot).
+* difftest GREEN 125B `ee9c57358b5d77939db2ff37ff4d968f01111f79a857dc9fd4f7f0fbbdea3f74`
+  byte-identical vs net48.
+* MUTATIONS (each RED-inverted / LOUD / crash, then byte-restored GREEN):
+  * M1 the contains `_cmp` i4 result is negated -> 127B firstDiff record 11;
+  * M2 the section-74b gate drops "Contains" -> the Contains comparer call is a
+    transpile-time LOUD (0B code=1);
+  * M3 the i8 contains wrapper passes cell 7 -> the element-family mismatch
+    LOUD at the delegate kernel;
+  * M4 SequenceEqual `_cmp` swaps the REF/value dispatch -> access violation.
+  * NOTE (weak mutant / behavior-preserving): dropping the REF branch of the
+    Distinct `_cmp` wrapper is INVISIBLE -- the `_value_cmp` kernels are
+    family-generic and `LinqCellEqualsCmp` already routes the reference cell
+    through `LinqRefEqualsCmp`, so the `_family_cmp` keepers are an explicit
+    alias, not a semantic fork.
+* regression byte-identical: all 15 fixed anchors (probe-ordbynarrow
+  `b60e842c` / probe-ordbyvalcmp `b757a793` / probe-thenbynarrow `626b50be` /
+  probe-thenbycmp `d8646a52` / thenby3 `2ead0372` / thenby3list `bda750a6` /
+  thenbyvtchain `f5c9391b` / thenbydecchain `b2edbdbe` / thenbywide-elem
+  `f0676c0c` / linqorder2 `6a72ece6` / probe-cmpref `647b0bb6` /
+  probe-joincmpval `c2d15d66` / probe-repeatnarrow `65bb3c44` /
+  probe-selectmanyseq `321d3b21` / probe-range `7f2e8727`).
+* unit tests 4164/0/0; C0 0 errors 0 warnings.
+
+### Scope / Registered-remaining (kept LOUD, measured)
+
+* a comparer over a 0x11 value-struct element LIST (List\<decimal\> /
+  List\<DateTime\> / List\<TimeSpan\> / List\<Guid\> / List\<DateTimeOffset\>)
+  has no array cell code and stays LOUD (the by-value list kinds 13..16 have no
+  comparer twin);
+* the comparer forms of the OTHER List operators (Where/Select/Min/Max/etc.)
+  stay LOUD;
+* GroupBy-bucket comparer overloads (next).

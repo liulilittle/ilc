@@ -5026,8 +5026,28 @@ public static class StackFold
             // the items pointer as a length). After the pop, args[0] IS the
             // first IL argument, so the aggregate icall re-resolves with the
             // real source type and the List gate dispatches the list domain.
+            // b5-gaps section 74: the USER-COMPARER set operators over a List
+            // receiver are arity-3 (source, value/second, comparer), so the
+            // pre-pop resolution sees arg1Type = the VALUE and binds the ARRAY
+            // comparer kernel with the List object cast to Il2CppArray* (the
+            // D-2 defect class). When the FIRST explicit argument's tracked
+            // type is a List`1, re-resolve so the receiver hint reaches the
+            // list domain (the same List-receiver re-resolve the aggregate
+            // family already relies on above).
+            bool a0IsTrackedList = false;
+            if (md != null && args.Count > 0 && resolved is { IsInstance: false })
+            {
+                var a0t = args[0] is LocExpr afl && objTypes.TryGetValue(afl.Name, out var att)
+                    ? att
+                    : args[0] is LocAddrExpr afla && objTypes.TryGetValue(afla.Name, out var atta)
+                        ? atta
+                        : null;
+                a0IsTrackedList = a0t != null
+                    && a0t.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal);
+            }
             if (md != null && args.Count > 0 && resolved is { IsInstance: false }
-                && (!resolved.CppName.StartsWith("il2cpp::", StringComparison.Ordinal)
+                && (a0IsTrackedList
+                    || !resolved.CppName.StartsWith("il2cpp::", StringComparison.Ordinal)
                     || resolved.CppName.StartsWith("il2cpp::il2cpp_linq_aggregate", StringComparison.Ordinal)))
             {
                 var a0Type = args[0] is LocExpr fl2 && objTypes.TryGetValue(fl2.Name, out var tt2) ? tt2 : null;

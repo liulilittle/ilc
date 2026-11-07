@@ -5412,6 +5412,157 @@ IL2CPP_LINQ_DEF_LIST_VT_SEL(dto, IL2CPP_LIST_KIND_DTOFFSET)
 #undef IL2CPP_LINQ_DEF_LIST_VT_SEL
 #undef IL2CPP_LINQ_DEF_LIST_VT_MINMAX
 
+//------------------------------------------------------------------------------
+// b5-gaps section 74: the USER-COMPARER twins of the kind-generic set
+// operators over a List<T> receiver (Distinct/Except/Union/Intersect/
+// SequenceEqual/Contains). Each snapshots the List object at its element
+// family and DELEGATES to the family-generic ARRAY comparer kernels
+// (linq_family.cpp, the value_cmp family; the reference family rides the
+// _family_cmp twins). The `cell` trailing literal is the element's ARRAY
+// cell code (the transpiler derives it from the MethodSpec element byte; the
+// reference cell is IL2CPP_LINQ_CELL_REF 15 -- SnapshotOf answers a native
+// reference array for IL2CPP_LIST_KIND_REF, so the kernel cell they need is
+// 15, NOT the list kind tag 1). A null comparer (Object.Equals) is valid and
+// falls out of the array kernels untouched (LinqCellEqualsCmp handles it).
+//------------------------------------------------------------------------------
+
+Il2CppArray* il2cpp_linq_list_distinct_cmp(Il2CppObject* list, Il2CppObject* cmp,
+                                           int32_t kind, int32_t cell)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    if (cell == IL2CPP_LINQ_CELL_REF) return il2cpp_linq_distinct_family_cmp(a, cmp, cell);
+    return il2cpp_linq_distinct_value_cmp(a, cmp, cell);
+}
+
+Il2CppArray* il2cpp_linq_list_except_cmp(Il2CppObject* list, Il2CppObject* second,
+                                         Il2CppObject* cmp, int32_t kind, int32_t cell)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    Il2CppArray* b = reinterpret_cast<Il2CppArray*>(second);
+    if (b != nullptr && (b->obj.klass == nullptr || b->obj.klass->name == nullptr ||
+                         b->obj.klass->name[0] != '['))
+    {
+        roots.Add(reinterpret_cast<void**>(&b));
+        b = SnapshotOf(second, kind);
+    }
+    roots.Add(reinterpret_cast<void**>(&b));
+    if (cell == IL2CPP_LINQ_CELL_REF) return il2cpp_linq_except_family_cmp(a, b, cmp, cell);
+    return il2cpp_linq_except_value_cmp(a, b, cmp, cell);
+}
+
+Il2CppArray* il2cpp_linq_list_union_cmp(Il2CppObject* list, Il2CppObject* second,
+                                        Il2CppObject* cmp, int32_t kind, int32_t cell)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    Il2CppArray* b = reinterpret_cast<Il2CppArray*>(second);
+    if (b != nullptr && (b->obj.klass == nullptr || b->obj.klass->name == nullptr ||
+                         b->obj.klass->name[0] != '['))
+    {
+        roots.Add(reinterpret_cast<void**>(&b));
+        b = SnapshotOf(second, kind);
+    }
+    roots.Add(reinterpret_cast<void**>(&b));
+    if (cell == IL2CPP_LINQ_CELL_REF) return il2cpp_linq_union_family_cmp(a, b, cmp, cell);
+    return il2cpp_linq_union_value_cmp(a, b, cmp, cell);
+}
+
+Il2CppArray* il2cpp_linq_list_intersect_cmp(Il2CppObject* list, Il2CppObject* second,
+                                            Il2CppObject* cmp, int32_t kind, int32_t cell)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    Il2CppArray* b = reinterpret_cast<Il2CppArray*>(second);
+    if (b != nullptr && (b->obj.klass == nullptr || b->obj.klass->name == nullptr ||
+                         b->obj.klass->name[0] != '['))
+    {
+        roots.Add(reinterpret_cast<void**>(&b));
+        b = SnapshotOf(second, kind);
+    }
+    roots.Add(reinterpret_cast<void**>(&b));
+    if (cell == IL2CPP_LINQ_CELL_REF) return il2cpp_linq_intersect_family_cmp(a, b, cmp, cell);
+    return il2cpp_linq_intersect_value_cmp(a, b, cmp, cell);
+}
+
+bool il2cpp_linq_list_sequence_equal_cmp(Il2CppObject* list, Il2CppObject* second,
+                                         Il2CppObject* cmp, int32_t kind, int32_t cell)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    Il2CppArray* b = reinterpret_cast<Il2CppArray*>(second);
+    if (b != nullptr && (b->obj.klass == nullptr || b->obj.klass->name == nullptr ||
+                         b->obj.klass->name[0] != '['))
+    {
+        roots.Add(reinterpret_cast<void**>(&b));
+        b = SnapshotOf(second, kind);
+    }
+    if (b == nullptr) il2cpp_throw_argument_null_exception("second");
+    roots.Add(reinterpret_cast<void**>(&b));
+    if (cell == IL2CPP_LINQ_CELL_REF) return il2cpp_linq_sequence_equal_family_cmp(a, b, cmp, cell);
+    return il2cpp_linq_sequence_equal_value_cmp(a, b, cmp, cell);
+}
+
+bool il2cpp_linq_list_contains_cmp_i4(Il2CppObject* list, int32_t value, Il2CppObject* cmp,
+                                      int32_t kind, int32_t cell)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    return il2cpp_linq_contains_value_cmp_i4(a, value, cmp, cell);
+}
+
+bool il2cpp_linq_list_contains_cmp_i8(Il2CppObject* list, int64_t value, Il2CppObject* cmp,
+                                      int32_t kind, int32_t cell)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    return il2cpp_linq_contains_value_cmp_i8(a, value, cmp, cell);
+}
+
+bool il2cpp_linq_list_contains_cmp_d(Il2CppObject* list, double value, Il2CppObject* cmp,
+                                     int32_t kind, int32_t cell)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    return il2cpp_linq_contains_value_cmp_d(a, value, cmp, cell);
+}
+
+bool il2cpp_linq_list_contains_cmp_ref(Il2CppObject* list, Il2CppObject* value, Il2CppObject* cmp,
+                                       int32_t kind, int32_t cell)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* a = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&a));
+    return il2cpp_linq_contains_family_ref_cmp(a, value, cmp, cell);
+}
+
 } // namespace il2cpp
 
 

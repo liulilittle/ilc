@@ -5793,14 +5793,28 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             ? LinqArrayTypeNameExact(genArgs[0], genArgNames, 0).TrimEnd('[', ']')
             : (srcFam == "ref" ? "System.Object" : "System.Int32");
 
-        // b5-gaps section 56: a user-comparer call over a List<T> that reached
-        // here (no List arm consumes a comparer yet) must go LOUD rather than
-        // silently drop the comparer on the plain list kernel.
-        if (name != "GroupBy" && LinqHasComparerParam(md, sigHandle))
+        // b5-gaps sections 56/74: a user-comparer call over a List<T>. The
+        // SET operators (Distinct/Except/Union/Intersect/SequenceEqual/
+        // Contains) ride the `_cmp` list twins below, which snapshot the List
+        // and DELEGATE to the family-generic ARRAY comparer kernels -- the
+        // `cell` literal is the element's ARRAY cell code ("15" for a
+        // reference element, else LinqCellCodeOfElemByte). A comparer over any
+        // OTHER operator -- or over a List type with no array cell code at all
+        // (0x11 value-struct elements, the by-value value-struct list kinds
+        // 13..16) -- must go LOUD rather than silently drop the comparer on
+        // the plain list kernel.
+        bool hasComparer = name != "GroupBy" && LinqHasComparerParam(md, sigHandle);
+        string? cmpCell = hasComparer
+            ? (genArgs is { Length: >= 1 } && IsRefFamilyByte(genArgs[0]) ? "15" : genArgs is { Length: >= 1 } ? LinqCellCodeOfElemByte(genArgs[0]) : null)
+            : null;
+        if (hasComparer && (cmpCell == null ||
+            name is not ("Distinct" or "Except" or "Union" or "Intersect" or "SequenceEqual" or "Contains")))
         {
             throw new NotSupportedException(
                 $"Enumerable.{name} over this List<T> with a user comparer is not wired yet: " +
-                "the plain list kernel would silently drop the comparer (b5-gaps section 56).");
+                (cmpCell == null
+                    ? "the element type has no array cell ABI under a comparer (b5-gaps sections 56/74)."
+                    : "the plain list kernel would silently drop the comparer (b5-gaps sections 56/74)."));
         }
 
         // impl-listvtops: the by-value VALUE-STRUCT list element kinds
@@ -6335,6 +6349,13 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     new[] { "", "i" }, resultKind: abi == "i8" ? "l" : abi == "d" ? "d" : null,
                     returnTypeName: abi == "ref" ? elemScalar : null, appendLiterals: new[] { K });
             case "Contains":
+                if (hasComparer)
+                {
+                    // b5-gaps section 74: user-comparer Contains over a List.
+                    return I($"il2cpp::il2cpp_linq_list_contains_cmp_{abi}", 3, true, false, false,
+                        new[] { "", abi == "ref" ? "" : abi == "i8" ? "l" : abi == "d" ? "d" : "i", "" },
+                        appendLiterals: new[] { K, cmpCell! });
+                }
                 return I($"il2cpp::il2cpp_linq_list_contains_{abi}", 2, true, false, false,
                     new[] { "", abi == "ref" ? "" : abi == "i8" ? "l" : abi == "d" ? "d" : "i" },
                     appendLiterals: new[] { K });
@@ -6431,9 +6452,17 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 return I("il2cpp::il2cpp_linq_list_concat", 2, true, true, false,
                     new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "Distinct":
+                if (hasComparer)
+                    return I("il2cpp::il2cpp_linq_list_distinct_cmp", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: elemTracked,
+                        appendLiterals: new[] { K, cmpCell! });
                 return I("il2cpp::il2cpp_linq_list_distinct", 1, true, true, false,
                     L1, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "Except":
+                if (hasComparer)
+                    return I("il2cpp::il2cpp_linq_list_except_cmp", 3, true, true, false,
+                        new[] { "", "", "" }, returnTypeName: elemTracked,
+                        appendLiterals: new[] { K, cmpCell! });
                 return I("il2cpp::il2cpp_linq_list_except", 2, true, true, false,
                     new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "Union":
@@ -6441,9 +6470,17 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 // at all, so it fell through to the ARRAY kernels with a List
                 // object cast (the D-2 defect class). The list kernel is
                 // kind-generic (ElemEquals at the kind's real cell width).
+                if (hasComparer)
+                    return I("il2cpp::il2cpp_linq_list_union_cmp", 3, true, true, false,
+                        new[] { "", "", "" }, returnTypeName: elemTracked,
+                        appendLiterals: new[] { K, cmpCell! });
                 return I("il2cpp::il2cpp_linq_list_union", 2, true, true, false,
                     new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "Intersect":
+                if (hasComparer)
+                    return I("il2cpp::il2cpp_linq_list_intersect_cmp", 3, true, true, false,
+                        new[] { "", "", "" }, returnTypeName: elemTracked,
+                        appendLiterals: new[] { K, cmpCell! });
                 return I("il2cpp::il2cpp_linq_list_intersect", 2, true, true, false,
                     new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
             case "Zip":
@@ -6476,6 +6513,9 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     appendLiterals: new[] { K, secondKind, resKind });
             }
             case "SequenceEqual":
+                if (hasComparer)
+                    return I("il2cpp::il2cpp_linq_list_sequence_equal_cmp", 3, true, false, false,
+                        new[] { "", "", "" }, appendLiterals: new[] { K, cmpCell! });
                 return I("il2cpp::il2cpp_linq_list_sequence_equal", 2, true, false, false,
                     new[] { "", "" }, appendLiterals: new[] { K });
             case "OrderBy":
