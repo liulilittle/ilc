@@ -1618,8 +1618,16 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 return I("il2cpp::il2cpp_linq_element_at_dec", 2, true, false, false,
                     new[] { "a", "i" }, resultKind: "dec");
             if (decSource && name == "Contains")
+            {
+                // b5-gaps section 77: the comparer form binds the section-77
+                // contains_family_cmp_dec twin (the value crosses by-value in
+                // the decimal slot, the comparer governs membership).
+                if (LinqHasComparerParam(md, sigHandle))
+                    return I("il2cpp::il2cpp_linq_contains_family_cmp_dec", 3, true, false, false,
+                        new[] { "a", "", "" });
                 return I("il2cpp::il2cpp_linq_contains_dec", 2, true, false, false,
                     new[] { "a", "" });
+            }
             if (decSource && name == "Reverse")
                 return I("il2cpp::il2cpp_linq_reverse_dec", 1, true, true, false, OneArg,
                     returnTypeName: "System.Decimal[]");
@@ -1687,11 +1695,26 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // p0grp: the DECIMAL-source set / concat / equality operators (net48
             // Distinct / Except / Concat / DefaultIfEmpty / SequenceEqual).
             if (decSource && name == "Distinct")
+            {
+                // b5-gaps section 77: the comparer form rides the family-
+                // generic *_family_cmp twin with the DECIMAL cell literal (11);
+                // the plain form keeps the dedicated decimal kernel.
+                if (LinqHasComparerParam(md, sigHandle))
+                    return I("il2cpp::il2cpp_linq_distinct_family_cmp", 2, true, true, false,
+                        new[] { "a", "" }, returnTypeName: "System.Decimal[]",
+                        appendLiterals: new[] { "11" });
                 return I("il2cpp::il2cpp_linq_distinct_dec", 1, true, true, false, OneArg,
                     returnTypeName: "System.Decimal[]");
+            }
             if (decSource && name == "Except")
-                return I("il2cpp::il2cpp_linq_except_dec", 2, true, true, false, new[] { "a", "a" },
-                    returnTypeName: "System.Decimal[]");
+            {
+                if (count < 3)
+                    return I("il2cpp::il2cpp_linq_except_dec", 2, true, true, false, new[] { "a", "a" },
+                        returnTypeName: "System.Decimal[]");
+                return I("il2cpp::il2cpp_linq_except_family_cmp", 3, true, true, false,
+                    new[] { "a", "a", "" }, returnTypeName: "System.Decimal[]",
+                    appendLiterals: new[] { "11" });
+            }
             if (decSource && name == "Concat")
                 return I("il2cpp::il2cpp_linq_concat_dec", 2, true, true, false, new[] { "a", "a" },
                     returnTypeName: "System.Decimal[]");
@@ -1706,7 +1729,12 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 return I("il2cpp::il2cpp_linq_default_if_empty1_dec", 1, true, true, false,
                     OneArg, returnTypeName: "System.Decimal[]");
             if (decSource && name == "SequenceEqual")
+            {
+                if (LinqHasComparerParam(md, sigHandle))
+                    return I("il2cpp::il2cpp_linq_sequence_equal_family_cmp", 3, true, false, false,
+                        new[] { "a", "a", "" }, appendLiterals: new[] { "11" });
                 return I("il2cpp::il2cpp_linq_sequence_equal_dec", 2, true, false, false, new[] { "a", "a" });
+            }
             // p0grp: OrderBy / OrderByDescending over a DECIMAL source (net48
             // OrderBy<decimal,TKey>). The int32-key family rides the decimal
             // source sort; the result is a fresh decimal[].
@@ -1851,10 +1879,18 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                         OneArg, resultKind: vcResult, appendLiterals: new[] { vc });
                 // Contains: the per-family VALUE entry -- the value rides the
                 // family's own parameter slot, so the cell code is implied and
-                // no literal is appended.
+                // no literal is appended. b5-gaps section 77: the comparer
+                // form binds the section-77 contains_family_cmp twin (the
+                // value still crosses by-value, the comparer governs
+                // membership).
                 if (name == "Contains")
+                {
+                    if (LinqHasComparerParam(md, sigHandle))
+                        return I($"il2cpp::il2cpp_linq_contains_family_cmp_{vcFam}",
+                            3, true, false, false, new[] { "a", "", "" });
                     return I($"il2cpp::il2cpp_linq_contains_family_{vcFam}", 2, true, false, false,
                         new[] { "a", "" });
+                }
                 // The ARRAY-returning entries (a fresh array of the source's
                 // own cell width).
                 if (name == "Take")
@@ -1869,18 +1905,42 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 if (name == "Concat")
                     return I("il2cpp::il2cpp_linq_concat_family", 2, true, true, false,
                         new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                // The ARRAY-returning entries (a fresh array of the source's
+                // own cell width). b5-gaps section 77: the comparer forms bind
+                // the *_family_cmp twins (the comparer rides the last IL slot,
+                // the cell literal rides the appended literal).
                 if (name == "Distinct")
+                {
+                    if (LinqHasComparerParam(md, sigHandle))
+                        return I("il2cpp::il2cpp_linq_distinct_family_cmp", 2, true, true, false,
+                            new[] { "a", "" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
                     return I("il2cpp::il2cpp_linq_distinct_family", 1, true, true, false,
                         OneArg, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                }
                 if (name == "Except")
-                    return I("il2cpp::il2cpp_linq_except_family", 2, true, true, false,
-                        new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                {
+                    if (count < 3)
+                        return I("il2cpp::il2cpp_linq_except_family", 2, true, true, false,
+                            new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                    return I("il2cpp::il2cpp_linq_except_family_cmp", 3, true, true, false,
+                        new[] { "a", "a", "" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                }
                 if (name == "Union")
-                    return I("il2cpp::il2cpp_linq_union_family", 2, true, true, false,
-                        new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                {
+                    if (count < 3)
+                        return I("il2cpp::il2cpp_linq_union_family", 2, true, true, false,
+                            new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                    return I("il2cpp::il2cpp_linq_union_family_cmp", 3, true, true, false,
+                        new[] { "a", "a", "" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                }
                 if (name == "Intersect")
-                    return I("il2cpp::il2cpp_linq_intersect_family", 2, true, true, false,
-                        new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                {
+                    if (count < 3)
+                        return I("il2cpp::il2cpp_linq_intersect_family", 2, true, true, false,
+                            new[] { "a", "a" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                    return I("il2cpp::il2cpp_linq_intersect_family_cmp", 3, true, true, false,
+                        new[] { "a", "a", "" }, returnTypeName: valArrayType, appendLiterals: new[] { vc });
+                }
                 // The source-only form (DefaultIfEmpty(source)) answers the
                 // family default cell; the 2-argument form carries the caller's
                 // value BY VALUE through its own struct ABI (impl-loudvalstruct
@@ -1913,8 +1973,13 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     return I("il2cpp::il2cpp_linq_long_count_family", 1, true, false, false,
                         OneArg, resultKind: "l", appendLiterals: new[] { vc });
                 if (name == "SequenceEqual")
+                {
+                    if (LinqHasComparerParam(md, sigHandle))
+                        return I("il2cpp::il2cpp_linq_sequence_equal_family_cmp", 3, true, false, false,
+                            new[] { "a", "a", "" }, appendLiterals: new[] { vc });
                     return I("il2cpp::il2cpp_linq_sequence_equal_family", 2, true, false, false,
                         new[] { "a", "a" }, appendLiterals: new[] { vc });
+                }
             }
             // p0grp: GroupBy over a DateTime[] SOURCE (net48
             // GroupBy<TSource,TKey> with TSource = System.DateTime). The

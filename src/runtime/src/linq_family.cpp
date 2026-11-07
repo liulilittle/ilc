@@ -1034,17 +1034,21 @@ static inline bool LinqRefCmpEqCell(Il2CppArray* a, int32_t ia,
                             LinqCellReadRef(b, ib, cell));
 }
 
+// b5-gaps section 77: the unified USER-COMPARER cell-pair equality. A
+// reference cell rides the section-56 reflected slot dispatch (LinqRefCmpEqCell);
+// a 16-BYTE value cell (decimal/DateTime/TimeSpan/Guid/DateTimeOffset) is
+// read in FULL via the family reader and compared through the comparer's
+// reflected Equals slot with the family's OWN by-value ABI (LinqEqualsFragment16);
+// every other value cell rides the section-57 LinqValueEqualsCmpCell dispatch.
+// The definition sits below (after LinqValueEqualsCmpCell); the _family_cmp
+// kernels forward-declare it so they can serve ANY cell.
+bool LinqCmpEqCell(Il2CppObject* cmp, Il2CppArray* a, int32_t ia,
+                   Il2CppArray* b, int32_t ib, int32_t cell);
+
 Il2CppArray* il2cpp_linq_distinct_family_cmp(Il2CppArray* src, Il2CppObject* cmp,
                                              int32_t cell)
 {
     LinqRequireCell(src, cell);
-    if (cell != IL2CPP_LINQ_CELL_REF)
-    {
-        il2cpp_throw_not_supported_exception(
-            "il2cpp_linq_distinct_family_cmp: the comparer twin is wired for the "
-            "reference cell family only (see docs/audit/b5-gaps.md).");
-        return nullptr;
-    }
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&src));
     std::vector<int32_t> order;
@@ -1053,7 +1057,7 @@ Il2CppArray* il2cpp_linq_distinct_family_cmp(Il2CppArray* src, Il2CppObject* cmp
         bool seen = false;
         for (size_t k = 0; k < order.size() && !seen; ++k)
         {
-            seen = LinqRefCmpEqCell(src, static_cast<int32_t>(order[k]), src, i, cmp, cell);
+            seen = LinqCmpEqCell(cmp, src, static_cast<int32_t>(order[k]), src, i, cell);
         }
         if (!seen) order.push_back(i);
     }
@@ -1074,13 +1078,13 @@ Il2CppArray* il2cpp_linq_except_family_cmp(Il2CppArray* first, Il2CppArray* seco
         bool inSecond = false;
         for (int32_t j = 0; j < second->length && !inSecond; ++j)
         {
-            inSecond = LinqRefCmpEqCell(first, i, second, j, cmp, cell);
+            inSecond = LinqCmpEqCell(cmp, first, i, second, j, cell);
         }
         if (inSecond) continue;
         bool seen = false;
         for (size_t k = 0; k < order.size() && !seen; ++k)
         {
-            seen = LinqRefCmpEqCell(first, static_cast<int32_t>(order[k]), first, i, cmp, cell);
+            seen = LinqCmpEqCell(cmp, first, static_cast<int32_t>(order[k]), first, i, cell);
         }
         if (!seen) order.push_back(i);
     }
@@ -1102,11 +1106,11 @@ Il2CppArray* il2cpp_linq_union_family_cmp(Il2CppArray* first, Il2CppArray* secon
         bool dup = false;
         for (size_t k = 0; k < fromFirst.size() && !dup; ++k)
         {
-            dup = LinqRefCmpEqCell(first, static_cast<int32_t>(fromFirst[k]), first, i, cmp, cell);
+            dup = LinqCmpEqCell(cmp, first, static_cast<int32_t>(fromFirst[k]), first, i, cell);
         }
         for (size_t k = 0; k < fromSecond.size() && !dup; ++k)
         {
-            dup = LinqRefCmpEqCell(second, static_cast<int32_t>(fromSecond[k]), first, i, cmp, cell);
+            dup = LinqCmpEqCell(cmp, second, static_cast<int32_t>(fromSecond[k]), first, i, cell);
         }
         if (!dup) fromFirst.push_back(i);
     }
@@ -1115,11 +1119,11 @@ Il2CppArray* il2cpp_linq_union_family_cmp(Il2CppArray* first, Il2CppArray* secon
         bool dup = false;
         for (size_t k = 0; k < fromFirst.size() && !dup; ++k)
         {
-            dup = LinqRefCmpEqCell(first, static_cast<int32_t>(fromFirst[k]), second, i, cmp, cell);
+            dup = LinqCmpEqCell(cmp, first, static_cast<int32_t>(fromFirst[k]), second, i, cell);
         }
         for (size_t k = 0; k < fromSecond.size() && !dup; ++k)
         {
-            dup = LinqRefCmpEqCell(second, static_cast<int32_t>(fromSecond[k]), second, i, cmp, cell);
+            dup = LinqCmpEqCell(cmp, second, static_cast<int32_t>(fromSecond[k]), second, i, cell);
         }
         if (!dup) fromSecond.push_back(i);
     }
@@ -1156,13 +1160,13 @@ Il2CppArray* il2cpp_linq_intersect_family_cmp(Il2CppArray* first, Il2CppArray* s
         bool inSecond = false;
         for (int32_t j = 0; j < second->length && !inSecond; ++j)
         {
-            inSecond = LinqRefCmpEqCell(first, i, second, j, cmp, cell);
+            inSecond = LinqCmpEqCell(cmp, first, i, second, j, cell);
         }
         if (!inSecond) continue;
         bool seen = false;
         for (size_t k = 0; k < order.size() && !seen; ++k)
         {
-            seen = LinqRefCmpEqCell(first, static_cast<int32_t>(order[k]), first, i, cmp, cell);
+            seen = LinqCmpEqCell(cmp, first, static_cast<int32_t>(order[k]), first, i, cell);
         }
         if (!seen) order.push_back(i);
     }
@@ -1177,7 +1181,7 @@ bool il2cpp_linq_sequence_equal_family_cmp(Il2CppArray* first, Il2CppArray* seco
     if (first->length != second->length) return false;
     for (int32_t i = 0; i < first->length; ++i)
     {
-        if (!LinqRefCmpEqCell(first, i, second, i, cmp, cell)) return false;
+        if (!LinqCmpEqCell(cmp, first, i, second, i, cell)) return false;
     }
     return true;
 }
@@ -1189,6 +1193,102 @@ bool il2cpp_linq_contains_family_ref_cmp(Il2CppArray* src, Il2CppObject* value,
     for (int32_t i = 0; i < src->length; ++i)
     {
         if (LinqRefEqualsCmp(cmp, LinqCellReadRef(src, i, cell), value)) return true;
+    }
+    return false;
+}
+
+// Forward declaration: the 16-byte cell comparer equality helper is defined
+// below inside the section-57 anonymous namespace; the Contains cmp twins
+// (outside it) call it.
+namespace {
+bool LinqValueEqualsCmpCell16(Il2CppObject* cmp, int32_t cell,
+                              const char* a, const char* b);
+const char* LinqEqualsFragment16(int32_t cell);
+} // namespace
+
+// b5-gaps section 77: Contains(value, comparer) over the 16-BYTE value
+// families. The value crosses by-value in its family's OWN parameter slot
+// (Il2CppDecimal / Il2CppDateTime / Il2CppTimeSpan / Il2CppGuid /
+// Il2CppDateTimeOffset); each element is compared through the user comparer's
+// reflected Equals slot with the section-77 cell dispatcher.
+bool il2cpp_linq_contains_family_cmp_dec(Il2CppArray* src, runtime::Il2CppDecimal value,
+                                         Il2CppObject* cmp)
+{
+    LinqRequireCell(src, IL2CPP_LINQ_CELL_DECIMAL);
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const char* p = LinqCellPtr(src, i);
+        if (LinqValueEqualsCmpCell16(cmp, IL2CPP_LINQ_CELL_DECIMAL, p,
+                                     reinterpret_cast<const char*>(&value)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool il2cpp_linq_contains_family_cmp_dt(Il2CppArray* src, runtime::Il2CppDateTime value,
+                                        Il2CppObject* cmp)
+{
+    LinqRequireCell(src, IL2CPP_LINQ_CELL_DATETIME);
+    const int64_t vb = runtime::il2cpp_datetime_to_array_bits(value);
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const char* p = LinqCellPtr(src, i);
+        if (LinqValueEqualsCmpCell16(cmp, IL2CPP_LINQ_CELL_DATETIME, p,
+                                     reinterpret_cast<const char*>(&vb)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool il2cpp_linq_contains_family_cmp_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value,
+                                        Il2CppObject* cmp)
+{
+    LinqRequireCell(src, IL2CPP_LINQ_CELL_TIMESPAN);
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const char* p = LinqCellPtr(src, i);
+        if (LinqValueEqualsCmpCell16(cmp, IL2CPP_LINQ_CELL_TIMESPAN, p,
+                                     reinterpret_cast<const char*>(&value)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool il2cpp_linq_contains_family_cmp_guid(Il2CppArray* src, Il2CppGuid value,
+                                          Il2CppObject* cmp)
+{
+    LinqRequireCell(src, IL2CPP_LINQ_CELL_GUID);
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const char* p = LinqCellPtr(src, i);
+        if (LinqValueEqualsCmpCell16(cmp, IL2CPP_LINQ_CELL_GUID, p,
+                                     reinterpret_cast<const char*>(&value)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool il2cpp_linq_contains_family_cmp_dtoffset(Il2CppArray* src,
+                                              runtime::Il2CppDateTimeOffset value,
+                                              Il2CppObject* cmp)
+{
+    LinqRequireCell(src, IL2CPP_LINQ_CELL_DTOFFSET);
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const char* p = LinqCellPtr(src, i);
+        if (LinqValueEqualsCmpCell16(cmp, IL2CPP_LINQ_CELL_DTOFFSET, p,
+                                     reinterpret_cast<const char*>(&value)))
+        {
+            return true;
+        }
     }
     return false;
 }
@@ -1263,6 +1363,100 @@ bool LinqValueEqualsCmpCell(Il2CppObject* cmp, int32_t cell,
         cmp, static_cast<int32_t>(a), static_cast<int32_t>(b));
 }
 
+// b5-gaps section 77: the reflected-Equals signature fragment of the 16-BYTE
+// value cell families (decimal / DateTime / TimeSpan / Guid / DateTimeOffset).
+// The comparer's Equals(TKey,TKey) vtable signature is encoded from the FULL
+// type name (section 76 measured "b(V:System.Decimal,V:System.Decimal)" for
+// a decimal IEqualityComparer, etc.). Null for every cell without a fixed
+// name (the section-57 cell families answer their own short fragments).
+const char* LinqEqualsFragment16(int32_t cell)
+{
+    switch (cell)
+    {
+        case IL2CPP_LINQ_CELL_DECIMAL:   return "(V:System.Decimal,V:System.Decimal)";
+        case IL2CPP_LINQ_CELL_DATETIME:  return "(V:System.DateTime,V:System.DateTime)";
+        case IL2CPP_LINQ_CELL_TIMESPAN:  return "(V:System.TimeSpan,V:System.TimeSpan)";
+        case IL2CPP_LINQ_CELL_GUID:      return "(V:System.Guid,V:System.Guid)";
+        case IL2CPP_LINQ_CELL_DTOFFSET:  return "(V:System.DateTimeOffset,V:System.DateTimeOffset)";
+        default:                         return nullptr;
+    }
+}
+
+// b5-gaps section 77: the 16-BYTE value-cell USER-COMPARER equality. The two
+// AZV cells are read in FULL through the family readers, then the comparer's
+// reflected virtual Equals(TKey,TKey) slot is invoked through the family's
+// OWN by-value ABI (Il2CppDecimal / Il2CppDateTime / Il2CppTimeSpan /
+// Il2CppGuid / Il2CppDateTimeOffset) -- exactly the section-76 key-domain
+// engine, generalized to the LINQ cell domain.
+bool LinqValueEqualsCmpCell16(Il2CppObject* cmp, int32_t cell,
+                              const char* a, const char* b)
+{
+    const char* frag = LinqEqualsFragment16(cell);
+    if (frag == nullptr)
+    {
+        il2cpp_throw_not_supported_exception(
+            "a user IEqualityComparer over this 16-byte value cell family is not "
+            "wired (b5-gaps section 77).");
+        return false;
+    }
+    const int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", frag);
+    if (slot < 0 || cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
+        slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
+    {
+        char message[192];
+        std::snprintf(message, sizeof(message),
+                      "IEqualityComparer.Equals dispatch: the comparer type has no "
+                      "reflected virtual Equals(%s) slot (b5-gaps section 77).",
+                      frag);
+        il2cpp_throw_not_supported_exception(message);
+        return false;
+    }
+    void* fn = cmp->klass->vtable[slot];
+    switch (cell)
+    {
+        case IL2CPP_LINQ_CELL_DECIMAL:
+        {
+            typedef bool (*Fn)(Il2CppObject*, runtime::Il2CppDecimal, runtime::Il2CppDecimal);
+            return reinterpret_cast<Fn>(fn)(cmp, *reinterpret_cast<const runtime::Il2CppDecimal*>(a),
+                                            *reinterpret_cast<const runtime::Il2CppDecimal*>(b));
+        }
+        case IL2CPP_LINQ_CELL_DATETIME:
+        {
+            typedef bool (*Fn)(Il2CppObject*, runtime::Il2CppDateTime, runtime::Il2CppDateTime);
+            const runtime::Il2CppDateTime da = runtime::il2cpp_datetime_from_array_bits(
+                *reinterpret_cast<const int64_t*>(a));
+            const runtime::Il2CppDateTime db = runtime::il2cpp_datetime_from_array_bits(
+                *reinterpret_cast<const int64_t*>(b));
+            return reinterpret_cast<Fn>(fn)(cmp, da, db);
+        }
+        case IL2CPP_LINQ_CELL_TIMESPAN:
+        {
+            typedef bool (*Fn)(Il2CppObject*, runtime::Il2CppTimeSpan, runtime::Il2CppTimeSpan);
+            return reinterpret_cast<Fn>(fn)(cmp,
+                runtime::Il2CppTimeSpan(*reinterpret_cast<const int64_t*>(a)),
+                runtime::Il2CppTimeSpan(*reinterpret_cast<const int64_t*>(b)));
+        }
+        case IL2CPP_LINQ_CELL_GUID:
+        {
+            typedef bool (*Fn)(Il2CppObject*, Il2CppGuid, Il2CppGuid);
+            Il2CppGuid ga, gb;
+            std::memcpy(&ga, a, sizeof(ga));
+            std::memcpy(&gb, b, sizeof(gb));
+            return reinterpret_cast<Fn>(fn)(cmp, ga, gb);
+        }
+        case IL2CPP_LINQ_CELL_DTOFFSET:
+        {
+            typedef bool (*Fn)(Il2CppObject*, runtime::Il2CppDateTimeOffset, runtime::Il2CppDateTimeOffset);
+            runtime::Il2CppDateTimeOffset da, db;
+            std::memcpy(&da, a, sizeof(da));
+            std::memcpy(&db, b, sizeof(db));
+            return reinterpret_cast<Fn>(fn)(cmp, da, db);
+        }
+        default:
+            return false;
+    }
+}
+
 // The element's VALUE as the 64-bit carrier the comparer dispatch reads back
 // per family (int64 for the i8 cell, the double BIT image for float/double,
 // the sign/zero-extended int32 for the narrow cells).
@@ -1293,11 +1487,39 @@ bool LinqCellEqualsCmp(Il2CppObject* cmp, Il2CppArray* a, int32_t ia,
         return LinqRefEqualsCmp(cmp, LinqCellReadRef(a, ia, cell),
                                 LinqCellReadRef(b, ib, cell));
     }
+    if (LinqEqualsFragment16(cell) != nullptr)
+    {
+        return LinqValueEqualsCmpCell16(cmp, cell,
+                                        LinqCellPtr(a, ia), LinqCellPtr(b, ib));
+    }
     return LinqValueEqualsCmpCell(cmp, cell, LinqReadCarrier(a, ia, cell),
                                   LinqReadCarrier(b, ib, cell));
 }
 
 } // namespace
+
+// b5-gaps section 77: the unified USER-COMPARER cell-pair equality (see the
+// forward declaration above). The _family_cmp kernels (set/sequence/contains
+// twins) reach ANY cell through this single dispatch. Definition sits OUTSIDE
+// the anonymous namespace so its linkage matches the forward declaration; the
+// anonymous-namespace helpers above resolve through the unnamed-namespace
+// using-directive.
+bool LinqCmpEqCell(Il2CppObject* cmp, Il2CppArray* a, int32_t ia,
+                   Il2CppArray* b, int32_t ib, int32_t cell)
+{
+    if (cmp == nullptr) return LinqCellEquals(a, ia, b, ib, cell);
+    if (cell == IL2CPP_LINQ_CELL_REF)
+    {
+        return LinqRefCmpEqCell(a, ia, b, ib, cmp, cell);
+    }
+    if (LinqEqualsFragment16(cell) != nullptr)
+    {
+        return LinqValueEqualsCmpCell16(cmp, cell,
+                                        LinqCellPtr(a, ia), LinqCellPtr(b, ib));
+    }
+    return LinqValueEqualsCmpCell(cmp, cell, LinqReadCarrier(a, ia, cell),
+                                  LinqReadCarrier(b, ib, cell));
+}
 
 Il2CppArray* il2cpp_linq_distinct_value_cmp(Il2CppArray* src, Il2CppObject* cmp,
                                             int32_t cell)

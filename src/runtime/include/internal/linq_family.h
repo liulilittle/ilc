@@ -183,6 +183,22 @@ bool         il2cpp_linq_sequence_equal_family_cmp(Il2CppArray* first, Il2CppArr
 bool         il2cpp_linq_contains_family_ref_cmp(Il2CppArray* src, Il2CppObject* value,
                                                  Il2CppObject* cmp, int32_t cell);
 
+// b5-gaps section 77: Contains(value, comparer) over the 16-BYTE value
+// families (decimal / DateTime / TimeSpan / Guid / DateTimeOffset). The value
+// crosses by-value in the family's OWN parameter slot; the comparer's
+// reflected Equals(TKey,TKey) slot governs membership.
+bool il2cpp_linq_contains_family_cmp_dec(Il2CppArray* src, runtime::Il2CppDecimal value,
+                                         Il2CppObject* cmp);
+bool il2cpp_linq_contains_family_cmp_dt(Il2CppArray* src, runtime::Il2CppDateTime value,
+                                        Il2CppObject* cmp);
+bool il2cpp_linq_contains_family_cmp_ts(Il2CppArray* src, runtime::Il2CppTimeSpan value,
+                                        Il2CppObject* cmp);
+bool il2cpp_linq_contains_family_cmp_guid(Il2CppArray* src, Il2CppGuid value,
+                                          Il2CppObject* cmp);
+bool il2cpp_linq_contains_family_cmp_dtoffset(Il2CppArray* src,
+                                              runtime::Il2CppDateTimeOffset value,
+                                              Il2CppObject* cmp);
+
 // b5-gaps section 57: user-comparer twins over the VALUE cell families
 // (int32/uint/narrow/char/bool, int64, double/float). Each entry dispatches a
 // user IEqualityComparer<T>.Equals through the reflected slot of the element
