@@ -1542,6 +1542,19 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 case "FirstOrDefault" when count < 2:
                     return I("il2cpp::il2cpp_linq_grouping_result_first_or_default", 1, true, true, false,
                         new[] { "" }, returnTypeName: "System.Linq.IGrouping");
+                case "Where" when count >= 2:
+                    // b5-gaps section 87: Where over the GroupBy RESULT (the
+                    // same IEnumerable<IGrouping> surface as the ILookup
+                    // wrapper). Materialize the bucket objects + filter with
+                    // the standard ref predicate kernel.
+                    if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    {
+                        throw new NotSupportedException(
+                            "Enumerable.Where (index form) over the GroupBy result is not wired: "
+                            + "the grouping-enumerable Where covers the element-only predicate.");
+                    }
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_where", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Object[]");
                 default:
                     break;
             }
@@ -1571,13 +1584,10 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                         returnTypeName: "System.Collections.Generic.List`1_object");
                 case "Select":
                 {
-                    if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                    {
-                        throw new NotSupportedException(
-                            "Enumerable.Select (index form) over an ILookup result is not wired: "
-                            + "the materializing lookup-select takes the element and index-form "
-                            + "selector together -- see docs/audit/b5-gaps.md");
-                    }
+                    // b5-gaps section 87: the (element, index) selector form
+                    // rides the ref index kernels; the element-only form rides
+                    // the materializing lookup-select.
+                    bool lkIdxForm = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
                     byte lkResByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x0E;
                     string? lkResKind = lkResByte switch
                     {
@@ -1600,6 +1610,10 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                         : LinqArrayTypeNameExact(lkResByte, genArgNames, 1);
                     string? lkRk = lkResKind == "2" ? "l"
                         : lkResKind is "3" or "4" ? "d" : null;
+                    if (lkIdxForm)
+                        return I("il2cpp::il2cpp_lookup_gen_select_idx", 2, true, true, false,
+                            new[] { "", "" }, returnTypeName: lkResType, resultKind: lkRk,
+                            appendLiterals: new[] { lkResKind });
                     return I("il2cpp::il2cpp_lookup_gen_select", 2, true, true, false,
                         new[] { "", "" }, returnTypeName: lkResType, resultKind: lkRk,
                         appendLiterals: new[] { lkResKind });
@@ -1611,12 +1625,12 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     return I("il2cpp::il2cpp_lookup_gen_first_or_default", 1, true, true, false,
                         new[] { "" }, returnTypeName: "System.Linq.IGrouping");
                 case "Where" when count >= 2:
+                    // b5-gaps section 87: the (element, index) predicate form
+                    // rides the ref index kernel; the element-only form rides
+                    // the grouping-enumerable where.
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                    {
-                        throw new NotSupportedException(
-                            "Enumerable.Where (index form) over an ILookup result is not wired: "
-                            + "the grouping-enumerable Where covers the element-only predicate.");
-                    }
+                        return I("il2cpp::il2cpp_linq_lookup_gen_where_idx", 2, true, true, false,
+                            new[] { "", "" }, returnTypeName: "System.Object[]");
                     return I("il2cpp::il2cpp_linq_grouping_enumerable_where", 2, true, true, false,
                         new[] { "", "" }, returnTypeName: "System.Object[]");
                 default:

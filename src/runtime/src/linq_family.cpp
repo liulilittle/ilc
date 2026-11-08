@@ -4714,6 +4714,42 @@ Il2CppArray* il2cpp_lookup_gen_select(Il2CppObject* self, Il2CppObject* sel,
     }
 }
 
+// b5-gaps section 87: the (element, index) forms over the ILookup result --
+// materialize the grouping snapshot, then the standard ref index kernels.
+Il2CppArray* il2cpp_lookup_gen_select_idx(Il2CppObject* self, Il2CppObject* sel,
+                                          int32_t resKind)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = il2cpp_lookup_gen_materialize_groupings(self);
+    if (elems == nullptr)
+        return nullptr;
+    switch (resKind)
+    {
+        case 0: return il2cpp_linq_select_idx_ref_ref(elems, sel);
+        case 1: return il2cpp_linq_select_idx_ref_i4(elems, sel);
+        case 2: return il2cpp_linq_select_idx_ref_i8(elems, sel);
+        case 3: return il2cpp_linq_select_idx_ref_f(elems, sel);
+        default: return il2cpp_linq_select_idx_ref_d(elems, sel);
+    }
+}
+
+Il2CppArray* il2cpp_linq_lookup_gen_where_idx(Il2CppObject* self, Il2CppObject* pred)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = il2cpp_lookup_gen_materialize_groupings(self);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_where_idx_ref(elems, pred);
+}
+
 Il2CppObject* il2cpp_lookup_gen_first(Il2CppObject* self)
 {
     if (self == nullptr)
