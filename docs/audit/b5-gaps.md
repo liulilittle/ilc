@@ -6912,3 +6912,34 @@ the tracked Dictionary`2 instantiation.
   fresh groupings, this runtime caches the buckets and yields 2 -> 2 with shared
   references); arbitrary concrete enumerables beyond the array/List/HashSet
   carriers.
+## 92. SelectMany over a grouping-enumerable + a pre-existing List re-resolve regression -- IMPLEMENTED (commit d9cbd7cb)
+
+* gap (measured): SelectMany over an ILookup result AND a GroupBy result was a
+  mapping gap ("generic instantiation ... has no BCL mapping in M5"). Root
+  cause: the generic SelectMany block RETURNED NULL for any non-array/List
+  source, which EXITS TryMapLinq -- the later grouping-enumerable blocks never
+  saw the call.
+* runtime: new il2cpp_linq_grouping_enumerable_select_many / _select_many3 --
+  the outer elements are IGrouping objects (reference cells), so the
+  section-59/61 kernels run UNCHANGED on the materialized object[] with the
+  REFERENCE source cell; SnapshotManyInner normalizes whatever the collection
+  selector returns.
+* transpiler: the generic SelectMany block FALLS THROUGH for a grouping
+  carrier; the ILookup2_* / IGroupingResult blocks gain the 2-arg and 3-arg
+  arms (uncast slots + the inner/result cell literals).
+* PRE-EXISTING REGRESSION FOUND + FIXED (not introduced here):
+  probe-selectmanylist (the section-60 List-source anchor) had been failing
+  since section 74b added a0IsTrackedList to the M5 re-resolve. The re-resolve
+  passes (receiverType = arg0Type = a0Type, arg1Type = null), so for a
+  List-source SelectMany it fails INSIDE Resolve (the MethodSpec path THROWS
+  "not wired in M5" instead of returning null) and the exception took the
+  whole method down -- destroying a first resolution that had correctly bound
+  il2cpp_linq_list_select_many. StackFold now treats the re-resolve as a
+  second chance: a NotSupportedException from it keeps the first mapping.
+  Byte-identical again: 121B ddd6a93e (the section-60 record).
+* probe-grp-selectmany byte-exact 105B sha e943da97 (m1-m6); M1-M4 red->green.
+* still LOUD / remaining: element-only operators over a SINGLE GROUPING object
+  (e.g. g.Where(...)/g.Select(...) inside a SelectMany collection selector --
+  the grouping is bound to the array/ref kernels and dies with "Object is not
+  an array"); ToLookup with an int64/double TKey; ToDictionary with an
+  int32/int64 TValue; the GroupBy LAZINESS (key-selector re-invocation).
