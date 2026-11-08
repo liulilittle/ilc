@@ -4731,15 +4731,20 @@ Il2CppArray* il2cpp_lookup_gen_select(Il2CppObject* self, Il2CppObject* sel,
 
 // b5-gaps section 87: the (element, index) forms over the ILookup result --
 // materialize the grouping snapshot, then the standard ref index kernels.
-Il2CppArray* il2cpp_lookup_gen_select_idx(Il2CppObject* self, Il2CppObject* sel,
-                                          int32_t resKind)
+// b5-gaps section 91: generalized to the grouping-enumerable surface (the
+// ILookup result OR the GroupBy result) via LinqGroupingEnumerableArray, and
+// renamed accordingly -- both receivers share the same ref index kernels.
+static Il2CppArray* LinqGroupingEnumerableArray(Il2CppObject* src);
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_select_idx(Il2CppObject* self, Il2CppObject* sel,
+                                                        int32_t resKind)
 {
     if (self == nullptr)
     {
         il2cpp_throw_argument_null_exception("source");
         return nullptr;
     }
-    Il2CppArray* elems = il2cpp_lookup_gen_materialize_groupings(self);
+    Il2CppArray* elems = LinqGroupingEnumerableArray(self);
     if (elems == nullptr)
         return nullptr;
     switch (resKind)
@@ -4752,14 +4757,14 @@ Il2CppArray* il2cpp_lookup_gen_select_idx(Il2CppObject* self, Il2CppObject* sel,
     }
 }
 
-Il2CppArray* il2cpp_linq_lookup_gen_where_idx(Il2CppObject* self, Il2CppObject* pred)
+Il2CppArray* il2cpp_linq_grouping_enumerable_where_idx(Il2CppObject* self, Il2CppObject* pred)
 {
     if (self == nullptr)
     {
         il2cpp_throw_argument_null_exception("source");
         return nullptr;
     }
-    Il2CppArray* elems = il2cpp_lookup_gen_materialize_groupings(self);
+    Il2CppArray* elems = LinqGroupingEnumerableArray(self);
     if (elems == nullptr)
         return nullptr;
     return il2cpp_linq_where_idx_ref(elems, pred);

@@ -1506,13 +1506,10 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     // bucket object[] first (il2cpp_linq_grouping_result_select);
                     // a direct treat-the-result-as-array cast reads its header
                     // as a length (the D-2 class). resKind: 0 ref/1 i4/2 i8/3 f/4 d.
-                    if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                    {
-                        throw new NotSupportedException(
-                            "Enumerable.Select (index form) over the GroupBy result is not wired: "
-                            + "the materializing result-select takes the element and index-form "
-                            + "selector together -- see docs/audit/b5-gaps.md");
-                    }
+                    // b5-gaps section 91: the (element, index) form rides the
+                    // same materialize-then-ref-index-kernel helper that serves
+                    // the ILookup result.
+                    bool grIdxForm = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
                     byte selResByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x0E;
                     string? grResKind = selResByte switch
                     {
@@ -1535,6 +1532,10 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                         : LinqArrayTypeNameExact(selResByte, genArgNames, 1);
                     string? grRk = grResKind == "2" ? "l"
                         : grResKind is "3" or "4" ? "d" : null;
+                    if (grIdxForm)
+                        return I("il2cpp::il2cpp_linq_grouping_enumerable_select_idx", 2, true, true, false,
+                            new[] { "", "" }, returnTypeName: grResType, resultKind: grRk,
+                            appendLiterals: new[] { grResKind });
                     return I("il2cpp::il2cpp_linq_grouping_result_select", 2, true, true, false,
                         new[] { "", "" }, returnTypeName: grResType, resultKind: grRk,
                         appendLiterals: new[] { grResKind });
@@ -1551,11 +1552,8 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     // wrapper). Materialize the bucket objects + filter with
                     // the standard ref predicate kernel.
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                    {
-                        throw new NotSupportedException(
-                            "Enumerable.Where (index form) over the GroupBy result is not wired: "
-                            + "the grouping-enumerable Where covers the element-only predicate.");
-                    }
+                        return I("il2cpp::il2cpp_linq_grouping_enumerable_where_idx", 2, true, true, false,
+                            new[] { "", "" }, returnTypeName: "System.Object[]");
                     return I("il2cpp::il2cpp_linq_grouping_enumerable_where", 2, true, true, false,
                         new[] { "", "" }, returnTypeName: "System.Object[]");
                 case "Distinct" when count < 2:
@@ -1689,7 +1687,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     string? lkRk = lkResKind == "2" ? "l"
                         : lkResKind is "3" or "4" ? "d" : null;
                     if (lkIdxForm)
-                        return I("il2cpp::il2cpp_lookup_gen_select_idx", 2, true, true, false,
+                        return I("il2cpp::il2cpp_linq_grouping_enumerable_select_idx", 2, true, true, false,
                             new[] { "", "" }, returnTypeName: lkResType, resultKind: lkRk,
                             appendLiterals: new[] { lkResKind });
                     return I("il2cpp::il2cpp_lookup_gen_select", 2, true, true, false,
@@ -1759,7 +1757,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     // rides the ref index kernel; the element-only form rides
                     // the grouping-enumerable where.
                     if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
-                        return I("il2cpp::il2cpp_linq_lookup_gen_where_idx", 2, true, true, false,
+                        return I("il2cpp::il2cpp_linq_grouping_enumerable_where_idx", 2, true, true, false,
                             new[] { "", "" }, returnTypeName: "System.Object[]");
                     return I("il2cpp::il2cpp_linq_grouping_enumerable_where", 2, true, true, false,
                         new[] { "", "" }, returnTypeName: "System.Object[]");

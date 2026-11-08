@@ -310,10 +310,12 @@ Il2CppArray*  il2cpp_lookup_gen_select(Il2CppObject* self, Il2CppObject* sel,
                                        int32_t resKind);
 // b5-gaps section 87: the (element, index) forms over the ILookup result --
 // materialize the grouping snapshot, then the standard ref index kernels.
-Il2CppArray*  il2cpp_lookup_gen_select_idx(Il2CppObject* self, Il2CppObject* sel,
-                                           int32_t resKind);
-Il2CppArray*  il2cpp_linq_lookup_gen_where_idx(Il2CppObject* self,
-                                               Il2CppObject* pred);
+// b5-gaps section 91: generalized to the whole grouping-enumerable surface (the
+// ILookup result OR the GroupBy result) and renamed accordingly.
+Il2CppArray*  il2cpp_linq_grouping_enumerable_select_idx(Il2CppObject* self, Il2CppObject* sel,
+                                                         int32_t resKind);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_where_idx(Il2CppObject* self,
+                                                        Il2CppObject* pred);
 Il2CppObject* il2cpp_lookup_gen_first(Il2CppObject* self);
 Il2CppObject* il2cpp_lookup_gen_first_or_default(Il2CppObject* self);
 // b5-gaps section 86: Enumerable.Where over a grouping-yielding source (the
