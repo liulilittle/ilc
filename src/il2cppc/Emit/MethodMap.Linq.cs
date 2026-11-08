@@ -1555,6 +1555,23 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     }
                     return I("il2cpp::il2cpp_linq_grouping_enumerable_where", 2, true, true, false,
                         new[] { "", "" }, returnTypeName: "System.Object[]");
+                case "Distinct" when count < 2:
+                case "Reverse" when count < 2:
+                case "Take" when count == 2:
+                case "Skip" when count == 2:
+                    // b5-gaps section 88: the same grouping-enumerable family
+                    // operators (materialize + family-generic ref kernels).
+                    return name == "Distinct"
+                        ? I("il2cpp::il2cpp_linq_grouping_enumerable_distinct", 1, true, true, false,
+                            new[] { "" }, returnTypeName: "System.Object[]")
+                        : name == "Reverse"
+                            ? I("il2cpp::il2cpp_linq_grouping_enumerable_reverse", 1, true, true, false,
+                                new[] { "" }, returnTypeName: "System.Object[]")
+                            : name == "Take"
+                                ? I("il2cpp::il2cpp_linq_grouping_enumerable_take", 2, true, true, false,
+                                    new[] { "", "i" }, returnTypeName: "System.Object[]")
+                                : I("il2cpp::il2cpp_linq_grouping_enumerable_skip", 2, true, true, false,
+                                    new[] { "", "i" }, returnTypeName: "System.Object[]");
                 default:
                     break;
             }
@@ -1618,6 +1635,21 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                         new[] { "", "" }, returnTypeName: lkResType, resultKind: lkRk,
                         appendLiterals: new[] { lkResKind });
                 }
+                case "Distinct" when count < 2:
+                    // b5-gaps section 88: the grouping-enumerable family
+                    // operators materialize the grouping objects and apply the
+                    // family-generic reference kernels (cell 15).
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_distinct", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Object[]");
+                case "Reverse" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_reverse", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Object[]");
+                case "Take" when count == 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_take", 2, true, true, false,
+                        new[] { "", "i" }, returnTypeName: "System.Object[]");
+                case "Skip" when count == 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_skip", 2, true, true, false,
+                        new[] { "", "i" }, returnTypeName: "System.Object[]");
                 case "First" when count < 2:
                     return I("il2cpp::il2cpp_lookup_gen_first", 1, true, true, false, new[] { "" },
                         returnTypeName: "System.Linq.IGrouping");

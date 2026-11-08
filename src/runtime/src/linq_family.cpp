@@ -4788,6 +4788,15 @@ Il2CppObject* il2cpp_lookup_gen_first_or_default(Il2CppObject* self)
 // (object[]) and filter with the standard reference-element predicate kernel;
 // the result is the ref Where's array carrier (an object[] of the passing
 // groupings), so downstream ToArray/Select keep their kernels.
+static Il2CppArray* LinqGroupingEnumerableArray(Il2CppObject* src)
+{
+    if (src->klass == il2cpp_lookup_gen_object_class())
+    {
+        return il2cpp_lookup_gen_materialize_groupings(src);
+    }
+    return il2cpp_linq_grouping_result_to_array(src);
+}
+
 Il2CppArray* il2cpp_linq_grouping_enumerable_where(Il2CppObject* src, Il2CppObject* pred)
 {
     if (src == nullptr)
@@ -4795,18 +4804,66 @@ Il2CppArray* il2cpp_linq_grouping_enumerable_where(Il2CppObject* src, Il2CppObje
         il2cpp_throw_argument_null_exception("source");
         return nullptr;
     }
-    Il2CppArray* elems;
-    if (src->klass == il2cpp_lookup_gen_object_class())
-    {
-        elems = il2cpp_lookup_gen_materialize_groupings(src);
-    }
-    else
-    {
-        elems = il2cpp_linq_grouping_result_to_array(src);
-    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
     if (elems == nullptr)
         return nullptr;
     return il2cpp_linq_where_ref(elems, pred);
+}
+
+// b5-gaps section 88: the set/sequence family operators over the
+// grouping-enumerable (the ILookup result OR the GroupBy result). All
+// materialize the grouping objects (object[]) and apply the family-generic
+// reference kernels (cell 15 = IL2CPP_LINQ_CELL_REF).
+Il2CppArray* il2cpp_linq_grouping_enumerable_distinct(Il2CppObject* src)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_distinct_family(elems, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_reverse(Il2CppObject* src)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_reverse_family(elems, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_skip(Il2CppObject* src, int32_t count)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_skip_family(elems, count, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_take(Il2CppObject* src, int32_t count)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_take_family(elems, count, IL2CPP_LINQ_CELL_REF);
 }
 
 // b5-gaps section 82: Enumerable.ToLookup over a List<T> source (int32 or

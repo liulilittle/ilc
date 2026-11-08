@@ -315,6 +315,13 @@ Il2CppObject* il2cpp_lookup_gen_first_or_default(Il2CppObject* self);
 // filter with the ref predicate kernel; an object[] of the passing groupings.
 Il2CppArray*  il2cpp_linq_grouping_enumerable_where(Il2CppObject* src,
                                                     Il2CppObject* pred);
+// b5-gaps section 88: the set/sequence family operators over the
+// grouping-enumerable (both receivers): materialize the grouping objects and
+// apply the family-generic reference kernels (cell 15).
+Il2CppArray*  il2cpp_linq_grouping_enumerable_distinct(Il2CppObject* src);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_reverse(Il2CppObject* src);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_skip(Il2CppObject* src, int32_t count);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_take(Il2CppObject* src, int32_t count);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
                                          int32_t keyKind);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, Il2CppObject* keyRef,
