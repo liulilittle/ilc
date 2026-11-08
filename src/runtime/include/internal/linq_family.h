@@ -251,6 +251,9 @@ struct Il2CppLookupGenObject
     Il2CppArray*     keysRoot;   // slot 2 (refFieldBitmap bit 2): ref keys
     Il2CppArray*     groupsRoot; // slot 3 (refFieldBitmap bit 3): per-key arrays
     Il2CppObject*    comparer;   // slot 4 (refFieldBitmap bit 4): user comparer
+    Il2CppArray*     elemRoot;   // slot 5 (refFieldBitmap bit 5): elementSelector
+                                 //   REF results held between the two materializer
+                                 //   passes (an int-value selection has no refs)
 };
 Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
                                     Il2CppObject* comparer, int32_t keyKind,
@@ -264,6 +267,22 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
 Il2CppObject* il2cpp_linq_list_to_lookup(Il2CppObject* list, Il2CppObject* keySel,
                                          Il2CppObject* comparer, int32_t keyKind,
                                          int32_t srcCell);
+// b5-gaps section 84: Enumerable.ToLookup with an elementSelector (the
+// 3-generic overload). Identical to il2cpp_linq_to_lookup except that each
+// source element is ALSO passed through the element selector and the group
+// snapshot arrays hold the SELECTED values (element family elemCell: "7"
+// int32 cells, "15" reference/string cells) instead of the source values. A
+// REF selection is stored into the wrapper's elemRoot root pack between the
+// two passes (the element selector may allocate/collect). elemSel is null =>
+// ArgumentNullException.
+Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
+                                        Il2CppObject* elemSel, Il2CppObject* comparer,
+                                        int32_t keyKind, int32_t srcCell,
+                                        int32_t elemCell);
+Il2CppObject* il2cpp_linq_list_to_lookup_sel(Il2CppObject* list, Il2CppObject* keySel,
+                                             Il2CppObject* elemSel, Il2CppObject* comparer,
+                                             int32_t keyKind, int32_t srcCell,
+                                             int32_t elemCell);
 Il2CppClass*  il2cpp_lookup_gen_object_class();
 int32_t       il2cpp_lookup_gen_get_count(Il2CppObject* self);
 // b5-gaps section 81: IEnumerable.GetEnumerator over the ILookup result.

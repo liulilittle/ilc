@@ -4114,6 +4114,208 @@ Il2CppObject* il2cpp_linq_list_to_dictionary(Il2CppObject* list, Il2CppObject* k
     return il2cpp_linq_to_dictionary(snap, keySel, elemSel, keyKind, valueKind, srcCell);
 }
 
+// b5-gaps section 84: Enumerable.ToLookup with an elementSelector (the
+// 3-generic / 4-generic overloads). Mirrors il2cpp_linq_to_lookup EXCEPT:
+// each source element is ALSO passed through the element selector, and the
+// group snapshot arrays hold the SELECTED values (family elemCell: "7"
+// int32 cells / "15" reference-string cells) instead of the source values.
+// The selector is called EXACTLY ONCE per source element, so the selected
+// values must survive the two-pass materialization: an int selection is
+// stored in a raw int32 row buffer, a REF selection into the wrapper's
+// elemRoot root pack (slot 5, barrier-written). elemSel may allocate/collect;
+// every managed pointer is re-derived from the rooted handle per iteration.
+Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
+                                        Il2CppObject* elemSel, Il2CppObject* comparer,
+                                        int32_t keyKind, int32_t srcCell,
+                                        int32_t elemCell)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    if (keySel == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    if (elemSel == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("elementSelector");
+        return nullptr;
+    }
+    Il2CppClass* cls = reinterpret_cast<Il2CppObject*>(src)->klass;
+    if (cls == nullptr || cls->name == nullptr || cls->name[0] != '[')
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToLookup(elementSelector): the source is not a "
+            "one-dimensional array (b5-gaps section 84).");
+        return nullptr;
+    }
+    LinqRequireCell(src, srcCell);
+    const int32_t srcSlot = Sel2ArgSlotOf(srcCell);
+    if (srcSlot < 0 || (elemCell != IL2CPP_LINQ_CELL_I4 && elemCell != IL2CPP_LINQ_CELL_REF))
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToLookup(elementSelector): a source/element family has "
+            "no selector cell ABI (only int32/System.String, b5-gaps section 84).");
+        return nullptr;
+    }
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_String)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToLookup(elementSelector): this TKey family has no "
+            "lookup key kind (b5-gaps section 84).");
+        return nullptr;
+    }
+    Il2CppDelegate* kd = reinterpret_cast<Il2CppDelegate*>(keySel);
+    Il2CppDelegate* ed = reinterpret_cast<Il2CppDelegate*>(elemSel);
+    if (kd == nullptr || kd->methodPtr == nullptr || ed->methodPtr == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    const int32_t keySlot = keyKind == kGenKind_Int32 ? 0 : 3; // i4 / ref (o)
+    const int32_t elemSlot = elemCell == IL2CPP_LINQ_CELL_I4 ? 0 : 3;
+    const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
+    const Sel1Fn iele = kSel1[(elemSlot * 4 + srcSlot)];
+    const int32_t n = src->length;
+
+    Il2CppObject* wObj = il2cpp_object_new(il2cpp_lookup_gen_object_class());
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+    roots.Add(reinterpret_cast<void**>(&elemSel));
+    roots.Add(reinterpret_cast<void**>(&comparer));
+    roots.Add(reinterpret_cast<void**>(&wObj));
+    Il2CppLookupGenObject* wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    wrapper->lookup = il2cpp_lookup_gen_create(n > 0 ? n : 4);
+    wrapper->lookup->keyKind = keyKind;
+    wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    wrapper->keysRoot = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, n + 4);
+    wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    wrapper->groupsRoot = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, n + 4);
+    wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    if (elemCell == IL2CPP_LINQ_CELL_REF)
+    {
+        // REF selections held between the passes: n+4 rooted slots.
+        wrapper->elemRoot = il2cpp_array_new(
+            nullptr, static_cast<int32_t>(sizeof(void*)), true, n + 4);
+        wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    }
+    wrapper->comparer = comparer;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&wrapper->comparer), comparer);
+
+    Il2CppLookupGen* lk = wrapper->lookup;
+    int32_t* selRaw = nullptr;
+    if (elemCell == IL2CPP_LINQ_CELL_I4)
+    {
+        selRaw = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * (n > 0 ? n : 1)));
+    }
+    int32_t* srcGroup = static_cast<int32_t*>(
+        std::malloc(sizeof(int32_t) * (n > 0 ? n : 1)));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Sel2Arg a;
+        switch (srcSlot)
+        {
+            case 0: a.i4 = LinqCellReadI4(src, i, srcCell); break;
+            case 1: a.i8 = LinqCellReadI8(src, i, srcCell); break;
+            case 2: a.d  = LinqCellReadD(src, i, srcCell); break;
+            default: a.o = LinqCellReadRef(src, i, srcCell); break;
+        }
+        const int64_t kc = ikey(kd, a);
+        int32_t keyInt = 0;
+        Il2CppObject* keyRef = nullptr;
+        if (keyKind == kGenKind_Int32)
+        {
+            keyInt = static_cast<int32_t>(kc);
+        }
+        else
+        {
+            keyRef = reinterpret_cast<Il2CppObject*>(kc);
+        }
+        const int64_t ec = iele(ed, a);
+        if (elemCell == IL2CPP_LINQ_CELL_I4)
+        {
+            selRaw[i] = static_cast<int32_t>(ec);
+        }
+        else
+        {
+            // re-derive the rooted wrapper before the barrier-write (elemSel
+            // may have collected).
+            wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+            Il2CppObject** elems = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(wrapper->elemRoot, 0));
+            Il2CppObject* v = reinterpret_cast<Il2CppObject*>(ec);
+            elems[i] = v;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&elems[i]), v);
+        }
+        const int32_t group = il2cpp_lookup_gen_find_or_add(
+            wObj, keyInt, keyRef, keyKind, comparer);
+        srcGroup[i] = group;
+        ++lk->groupLen[group];
+    }
+    // Phase 2: prefix-sum the per-group counts into groupOff, then scatter
+    // the collected source indices so each group's block is contiguous and
+    // preserves SOURCE order inside the group.
+    int32_t run = 0;
+    for (int32_t g = 0; g < lk->count; ++g)
+    {
+        lk->groupOff[g] = run;
+        run += lk->groupLen[g];
+    }
+    int32_t* fill = static_cast<int32_t*>(
+        std::malloc(sizeof(int32_t) * (lk->count > 0 ? lk->count : 1)));
+    for (int32_t g = 0; g < lk->count; ++g) fill[g] = 0;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t g = srcGroup[i];
+        lk->srcIdx[lk->groupOff[g] + fill[g]] = i;
+        ++fill[g];
+    }
+    std::free(fill);
+    std::free(srcGroup);
+    // Phase 3: materialize each group's SELECTED-value snapshot array.
+    const int32_t gcount = lk->count;
+    for (int32_t g = 0; g < gcount; ++g)
+    {
+        const int32_t len = lk->groupLen[g];
+        Il2CppArray* arr = LinqNewArray(elemCell, len);
+        char* dst = LinqCellPtr(arr, 0);
+        for (int32_t k = 0; k < len; ++k)
+        {
+            const int32_t si = lk->srcIdx[lk->groupOff[g] + k];
+            char* dslot = dst + k * static_cast<int64_t>(LinqCellSize(elemCell));
+            if (elemCell == IL2CPP_LINQ_CELL_I4)
+            {
+                *reinterpret_cast<int32_t*>(dslot) = selRaw[si];
+            }
+            else
+            {
+                wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+                Il2CppObject** elems = reinterpret_cast<Il2CppObject**>(
+                    il2cpp_array_get_elem_ptr(wrapper->elemRoot, 0));
+                Il2CppObject* v = elems[si];
+                Il2CppObject** sslot = reinterpret_cast<Il2CppObject**>(dslot);
+                *sslot = v;
+                il2cpp_write_barrier(reinterpret_cast<void**>(sslot), v);
+            }
+        }
+        wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+        Il2CppObject** groups = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(wrapper->groupsRoot, 0));
+        Il2CppObject* arrObj = reinterpret_cast<Il2CppObject*>(arr);
+        groups[g] = arrObj;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&groups[g]), arrObj);
+    }
+    std::free(selRaw);
+    return wObj;
+}
+
 // b5-gaps section 79: Enumerable.ToLookup over an ARRAY source.
 //
 // src         -- the source array (element family in srcCell).
@@ -4472,12 +4674,37 @@ Il2CppObject* il2cpp_linq_list_to_lookup(Il2CppObject* list, Il2CppObject* keySe
     return il2cpp_linq_to_lookup(snap, keySel, comparer, keyKind, srcCell);
 }
 
+// b5-gaps section 84: the List<T>-source twin of the elementSelector lookup.
+Il2CppObject* il2cpp_linq_list_to_lookup_sel(Il2CppObject* list, Il2CppObject* keySel,
+                                             Il2CppObject* elemSel, Il2CppObject* comparer,
+                                             int32_t keyKind, int32_t srcCell,
+                                             int32_t elemCell)
+{
+    if (list == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    if (keySel == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    const int32_t snapKind =
+        (srcCell == 15) ? IL2CPP_LIST_KIND_REF : IL2CPP_LIST_KIND_I4;
+    Il2CppArray* snap = il2cpp_linq_list_snapshot(list, snapKind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_to_lookup_sel(snap, keySel, elemSel, comparer, keyKind,
+                                     srcCell, elemCell);
+}
+
 // The ILookup wrapper descriptor (registered lazily, grouping precedent).
 Il2CppClass g_lookupGenClass = {
     "System.Linq.ILookup`2<gen>",          // name (runtime-internal descriptor)
     static_cast<int32_t>(sizeof(Il2CppLookupGenObject)), // instanceSize
-    0b11100u,                              // refFieldBitmap: bit 2 keysRoot, bit 3 groupsRoot, bit 4 comparer
-    3,                                     // refFieldCount
+    0b111100u,                             // refFieldBitmap: bit 2 keysRoot, bit 3 groupsRoot, bit 4 comparer, bit 5 elemRoot
+    4,                                     // refFieldCount
     nullptr,                               // baseClass
     nullptr,                               // vtable
     0,                                     // vtableSize

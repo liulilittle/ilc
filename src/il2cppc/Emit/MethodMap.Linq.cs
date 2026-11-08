@@ -1672,16 +1672,6 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     $"Enumerable.ToLookup over a List<T> source is not wired: " +
                     "only ARRAY sources are served (b5-gaps section 79).");
             }
-            if (genArgs is { Length: >= 3 })
-            {
-                // The elementSelector overloads (ToLookup<T,TKey,TElement>
-                // with a third type arg) STAY LOUD: the section-79 arm
-                // kernels group by the SOURCE element and would silently drop
-                // an elementSelector if routed (never a phantom result).
-                throw new NotSupportedException(
-                    $"Enumerable.ToLookup with an elementSelector is not wired: " +
-                    "the keySelector-only forms only (b5-gaps section 79).");
-            }
             if (genArgs is not { Length: >= 2 })
             {
                 return null;
@@ -1711,7 +1701,25 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     $"Enumerable.ToLookup over a {GenericArgTypeName(genArgs[0])} source is not wired: " +
                     "the source element family must be int32 or a System.String (b5-gaps section 79).");
             }
-            string lelemSuffix = lsrcCell == "15" ? "string" : "int";
+            // b5-gaps section 84: the ELEMENT family. The 3-generic form
+            // (ToLookup<TKey,TElement> with an elementSelector) has the
+            // selected value family at genArgs[2]; the keySelector-only form's
+            // element IS the source element (lsrcCell).
+            string? lelemCell = genArgs.Length >= 3
+                ? (LinqCellCodeOfElemByte(genArgs[2])
+                   ?? (genArgs[2] == 0x0E
+                       ? "15"
+                       : (genArgs[2] == 0x11 && genArgNames is { Length: >= 3 }
+                          && genArgNames[2] == "System.String" ? "15" : null)))
+                : lsrcCell;
+            if (lelemCell == null && genArgs.Length >= 3)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup with a {GenericArgTypeName(genArgs[2])} element selector result is not wired: " +
+                    "the TElement family must be int32 or a System.String (b5-gaps section 84).");
+            }
+            bool hasElemSel = genArgs.Length >= 3;
+            string lelemSuffix = lelemCell == "15" ? "string" : "int";
             string lookupName = "System.Linq.ILookup`2_" + lookupKeySuffix + "_" + lelemSuffix;
             // b5-gaps section 80: the user-IEqualityComparer overloads ride the
             // SAME materializer -- the comparer object becomes the kernel's 3rd
@@ -1720,9 +1728,23 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // exactly like section 79.
             if (LinqHasComparerParam(md, sigHandle))
             {
+                if (hasElemSel)
+                {
+                    return I("il2cpp::il2cpp_linq_to_lookup_sel", 4, true, true, false,
+                        new[] { "a", "", "", "" },
+                        appendLiterals: new[] { lookupKeyKind, lsrcCell!, lelemCell! },
+                        returnTypeName: lookupName);
+                }
                 return I("il2cpp::il2cpp_linq_to_lookup", 3, true, true, false,
                     new[] { "a", "", "" },
                     appendLiterals: new[] { lookupKeyKind, lsrcCell },
+                    returnTypeName: lookupName);
+            }
+            if (hasElemSel)
+            {
+                return I("il2cpp::il2cpp_linq_to_lookup_sel", 3, true, true, false,
+                    new[] { "a", "", "" }, appendZero: true,
+                    appendLiterals: new[] { lookupKeyKind, lsrcCell!, lelemCell! },
                     returnTypeName: lookupName);
             }
             return I("il2cpp::il2cpp_linq_to_lookup", 2, true, true, false,
@@ -6063,6 +6085,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         var L1 = new[] { "" };
         var L2 = new[] { "", "" };
         var L3 = new[] { "", "", "" };
+        var L4 = new[] { "", "", "", "" };
         // impl-loudvalstruct (D): a 0x11 element is EVERY value type, so the
         // tracked result-array name needs the generic-argument NAME table (a
         // DateTime list's snapshot is a System.DateTime[], not an object[]).
@@ -6098,14 +6121,9 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         // legal combination routed through the same kernel).
         if (name == "ToLookup")
         {
-            if (genArgs is { Length: >= 3 })
+            if (genArgs is not { Length: >= 2 })
             {
-                // The elementSelector overloads STAY LOUD: the section-79/82
-                // kernels group by the SOURCE element and would silently drop
-                // an elementSelector if routed.
-                throw new NotSupportedException(
-                    $"Enumerable.ToLookup over a List<T> with an elementSelector is not wired: " +
-                    "the keySelector-only forms only (b5-gaps section 82).");
+                return null;
             }
             if (K != "0" && K != "1")
             {
@@ -6145,9 +6163,39 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // cell code: an int32 list snapshots into int32[] (cell 7) and a
             // reference list into the reference array (cell 15 / string).
             string lsrcCell = K == "1" ? "15" : "7";
+            // b5-gaps section 84: the ELEMENT (TElement) family. The 3-generic
+            // form's elementSelector result family is genArgs[2]; the
+            // keySelector-only form's element IS the source element.
+            string? lelemCell = genArgs.Length >= 3
+                ? (LinqCellCodeOfElemByte(genArgs[2])
+                   ?? (genArgs[2] == 0x0E
+                       ? "15"
+                       : (genArgs[2] == 0x11 && genArgNames is { Length: >= 3 }
+                          && genArgNames[2] == "System.String" ? "15" : null)))
+                : lsrcCell;
+            if (lelemCell == null && genArgs.Length >= 3)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup over a List with a {GenericArgTypeName(genArgs[2])} element selector result is not wired: " +
+                    "the TElement family must be int32 or a System.String (b5-gaps section 84).");
+            }
+            bool hasLElemSel = genArgs.Length >= 3;
             string lkeySuffix = lookupKeyKind == "1" ? "int" : "string";
-            string lelemSuffix = K == "1" ? "string" : "int";
+            string lelemSuffix = lelemCell == "15" ? "string" : "int";
             string lookupName = "System.Linq.ILookup`2_" + lkeySuffix + "_" + lelemSuffix;
+            if (hasLElemSel)
+            {
+                if (hasComparer)
+                {
+                    return I("il2cpp::il2cpp_linq_list_to_lookup_sel", 4, true, true, false,
+                        L4, appendLiterals: new[] { lookupKeyKind, lsrcCell, lelemCell! },
+                        returnTypeName: lookupName);
+                }
+                return I("il2cpp::il2cpp_linq_list_to_lookup_sel", 3, true, true, false,
+                    L3, appendZero: true,
+                    appendLiterals: new[] { lookupKeyKind, lsrcCell, lelemCell! },
+                    returnTypeName: lookupName);
+            }
             if (hasComparer)
             {
                 return I("il2cpp::il2cpp_linq_list_to_lookup", 3, true, true, false,
