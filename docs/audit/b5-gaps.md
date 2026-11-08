@@ -6755,3 +6755,18 @@ the tracked Dictionary`2 instantiation.
 * probe-todict-list byte-exact 249B ee1969fe; mutations M1-M4 red->green.
 * still LOUD: IEnumerable / ICollection sources; the ToLookup elementSelector
   (3-generic); non-(int32|string) key families; ToDictionary int32 values.
+## 84. Enumerable.ToLookup with an elementSelector (3-generic / 4-generic) -- IMPLEMENTED (commit a3ef63ad)
+
+* il2cpp_linq_to_lookup_sel mirrors il2cpp_linq_to_lookup but per source
+  element ALSO calls the element selector; group snapshot arrays hold the
+  SELECTED values (int32/string). The selector runs ONCE per element, so the
+  selections must survive the two passes: int -> raw row buffer; REF -> a NEW
+  wrapper root slot elemRoot (bit 5). List twin + 4-generic comparer ride the
+  same kernels.
+* transpiler: section-79 array + section-82 List arms bind the elementSelector
+  forms (3-arg appendZero / 4-arg comparer); element (TElement) family gate
+  int32/string.
+* probe-tolookup-es byte-exact 278B a6686137 (e1-e7 incl. GC-inside-the-ELEMENT
+  selector over a growing List<int>); mutations M1-M4 red->green.
+* still LOUD: IEnumerable / ICollection sources; non-(int32|string) key or
+  element families; ToDictionary int32 values (section-83).
