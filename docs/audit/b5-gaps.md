@@ -6892,3 +6892,23 @@ the tracked Dictionary`2 instantiation.
 * still LOUD / remaining: the GroupBy LAZINESS (key-selector re-invocation per
   enumeration); arbitrary concrete enumerables; non-(int32|string) key/element
   families; ToDictionary int32 values.
+## 91. The (element, index) Select/Where over a GroupBy result -- IMPLEMENTED (commit 72e73fc9)
+
+* measured first with a candidate scan (one method per shape): the (element,
+  index) forms over the GroupBy result were LOUD (section 87 wired only the
+  ILookup result); the scan also mapped the other registered seats --
+  ToLookup with an int64/double TKey is LOUD, ToDictionary with an int32 TValue
+  is LOUD, and a HashSet receiver ALREADY routes (no LOUD).
+* runtime: the two section-87 helpers (select_idx / where_idx) now materialize
+  via LinqGroupingEnumerableArray -- the shared class dispatch (ILookup wrapper
+  OR IGrouping[] snapshot OR GroupBy result) -- so ONE helper serves both
+  receivers; renamed il2cpp_linq_grouping_enumerable_select_idx / _where_idx.
+* transpiler: the IGroupingResult block binds the idx forms (Select + Where),
+  replacing the two LOUD throws; the ILookup2_* arms updated to the new names.
+* probe-grp-idx byte-exact 80B sha 14638dd4 (g1-g6); mutations M1-M4 red->green.
+* still LOUD / remaining: ToLookup with an int64/double TKey; ToDictionary with
+  an int32 TValue; the GroupBy LAZINESS (key-selector re-invocation per
+  enumeration -- measured: net48 re-runs the selector 2 -> 4 calls and yields
+  fresh groupings, this runtime caches the buckets and yields 2 -> 2 with shared
+  references); arbitrary concrete enumerables beyond the array/List/HashSet
+  carriers.
