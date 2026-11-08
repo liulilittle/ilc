@@ -6705,3 +6705,20 @@ the tracked Dictionary`2 instantiation.
 * still LOUD: ToLookup over List / IEnumerable sources; non-(int32|string)
   key/element families; the ILookup ENUMERATION surface (foreach over the
   lookup / its groups) is not yet wired.
+## 81. The ILookup enumeration surface (foreach over a ToLookup result) -- IMPLEMENTED (commit afaf13cd)
+
+* il2cpp_lookup_gen_get_enumerator materialises ONE Il2CppLinqGrouping per group
+  (first-appearance order; key from keyInt[]/keysRoot, elements = the group's
+  exact snapshot array, count = groupLen) into a rooted snapshot object[]
+  wrapped in the shared managed array enumerator -- MoveNext / get_Current /
+  Reset / Dispose ride the sortedlist-snapshot forwarders; arraysort.cpp
+  dispatch arms (generic + nongeneric) route the ILookup wrapper klass.
+  GetEnumerator on the GROUPING and get_Key reuse the existing GroupBy bucket
+  surface (no new element-enumeration code). The native table records keyKind.
+* probe-lookupenum byte-exact 268B 4dfa4d48 (e1-e5) as recorded in process.md;
+  mutations M1-M4 red -> byte-restored green.
+* still LOUD: ToLookup / ToDictionary over List / IEnumerable sources;
+  non-(int32|string) key/element families; the elementSelector (3-generic)
+  overloads (explicit gate). The count-based LINQ operators over a lookup
+  (Enumerable.Count(lk), Select etc.) were not exercised -- the raw foreach +
+  Key + group enumeration is the pinned surface.
