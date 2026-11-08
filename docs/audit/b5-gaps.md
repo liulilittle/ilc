@@ -6685,3 +6685,23 @@ the tracked Dictionary`2 instantiation.
   sources are served; the user-IEqualityComparer ToLookup overloads stay LOUD;
   List / IEnumerable sources stay LOUD; the elementSelector (3-generic) overloads
   stay LOUD (explicit gate, never a silently dropped selector).
+## 80. Enumerable.ToLookup with a user IEqualityComparer over ARRAY sources -- IMPLEMENTED (commit bb415aed)
+
+* the comparer becomes a managed slot of the wrapper (Il2CppLookupGenObject
+  comparer, refFieldBitmap bit 4, refFieldCount 2->3) and is the authority
+  for the group MERGE and the instance get_Item / Contains scans: int32 keys
+  through LinqValueEqualsCmpCell '(i,i)'; string keys through LinqRefEqualsCmp
+  (StringComparer singletons + reflected '(r:' slot; null-safe). null comparer
+  == section 79 byte-exact.
+* GC discipline: the comparer's Equals can COLLECT (probe c4), so every
+  group-scan re-derives the wrapper/keys/table pointers from a GC-rooted
+  handle after EACH comparer call (new il2cpp_lookup_gen_find; find_or_add
+  roots wObj too).
+* probe-lookupcmp byte-exact 179B d9bb33a7 (c1-c5) as recorded in process.md;
+  mutations M1-M4 red -> byte-restored green.
+* EXPLICIT elementSelector gate: the 3-generic (T,TKey,TElement) overloads are
+  LOUD -- the section-79/80 kernels group by the SOURCE element and would
+  silently drop an elementSelector if routed.
+* still LOUD: ToLookup over List / IEnumerable sources; non-(int32|string)
+  key/element families; the ILookup ENUMERATION surface (foreach over the
+  lookup / its groups) is not yet wired.
