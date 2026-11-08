@@ -1666,11 +1666,15 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     $"Enumerable.ToLookup over a List<T> source is not wired: " +
                     "only ARRAY sources are served (b5-gaps section 79).");
             }
-            if (LinqHasComparerParam(md, sigHandle))
+            if (genArgs is { Length: >= 3 })
             {
+                // The elementSelector overloads (ToLookup<T,TKey,TElement>
+                // with a third type arg) STAY LOUD: the section-79 arm
+                // kernels group by the SOURCE element and would silently drop
+                // an elementSelector if routed (never a phantom result).
                 throw new NotSupportedException(
-                    $"Enumerable.ToLookup with a user IEqualityComparer is not wired: " +
-                    "the default comparer forms only (b5-gaps section 79).");
+                    $"Enumerable.ToLookup with an elementSelector is not wired: " +
+                    "the keySelector-only forms only (b5-gaps section 79).");
             }
             if (genArgs is not { Length: >= 2 })
             {
@@ -1703,8 +1707,20 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             }
             string lelemSuffix = lsrcCell == "15" ? "string" : "int";
             string lookupName = "System.Linq.ILookup`2_" + lookupKeySuffix + "_" + lelemSuffix;
+            // b5-gaps section 80: the user-IEqualityComparer overloads ride the
+            // SAME materializer -- the comparer object becomes the kernel's 3rd
+            // param and the wrapper roots it (refFieldBitmap bit 4). A null
+            // comparer (2-arg form) is injected by appendZero and behaves
+            // exactly like section 79.
+            if (LinqHasComparerParam(md, sigHandle))
+            {
+                return I("il2cpp::il2cpp_linq_to_lookup", 3, true, true, false,
+                    new[] { "a", "", "" },
+                    appendLiterals: new[] { lookupKeyKind, lsrcCell },
+                    returnTypeName: lookupName);
+            }
             return I("il2cpp::il2cpp_linq_to_lookup", 2, true, true, false,
-                new[] { "a", "" },
+                new[] { "a", "" }, appendZero: true,
                 appendLiterals: new[] { lookupKeyKind, lsrcCell },
                 returnTypeName: lookupName);
         }

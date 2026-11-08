@@ -4105,7 +4105,8 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
 // lifetime. Intermediate buffering is row SOURCE INDICES (raw ints, no managed
 // pointers -- the section-62 Join discipline), materialized in a second pass.
 Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
-                                    int32_t keyKind, int32_t srcCell)
+                                    Il2CppObject* comparer, int32_t keyKind,
+                                    int32_t srcCell)
 {
     if (src == nullptr)
     {
@@ -4155,6 +4156,7 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&src));
     roots.Add(reinterpret_cast<void**>(&keySel));
+    roots.Add(reinterpret_cast<void**>(&comparer));
     roots.Add(reinterpret_cast<void**>(&wObj));
     Il2CppLookupGenObject* wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
     wrapper->lookup = il2cpp_lookup_gen_create(n > 0 ? n : 4);
@@ -4166,6 +4168,9 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
     wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
     wrapper->groupsRoot = il2cpp_array_new(
         nullptr, static_cast<int32_t>(sizeof(void*)), true, n + 4);
+    wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    wrapper->comparer = comparer;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&wrapper->comparer), comparer);
 
     Il2CppLookupGen* lk = wrapper->lookup;
     int32_t* srcGroup = static_cast<int32_t*>(
@@ -4192,11 +4197,9 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
             keyRef = reinterpret_cast<Il2CppObject*>(kc);
         }
         // The selector may allocate (t7's GC.Collect), compacting the heap;
-        // re-derive every managed pointer from the roots before any barrier-write
-        // and keep the group search driving off the KEYSTree state it owns.
-        wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+        // re-derive every managed pointer from the roots before any barrier-write.
         const int32_t group = il2cpp_lookup_gen_find_or_add(
-            wrapper, keyInt, keyRef, keyKind);
+            wObj, keyInt, keyRef, keyKind, comparer);
         srcGroup[i] = group;
         ++lk->groupLen[group];
     }
@@ -4263,6 +4266,45 @@ int32_t il2cpp_lookup_gen_get_count(Il2CppObject* self)
     return w->lookup->count;
 }
 
+// section 80: comparer-aware group lookup shared by contains/get_Item. The
+// user comparer's Equals can COLLECT (c4), so the wrapper's raw pointers must
+// be re-derived from a GC-rooted handle after every comparer call.
+int32_t il2cpp_lookup_gen_find(Il2CppObject* selfObj, int32_t keyInt,
+                               Il2CppObject* keyRef, int32_t keyKind)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&selfObj));
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(selfObj);
+    Il2CppLookupGen* lk = w->lookup;
+    Il2CppObject* cmp = w->comparer;
+    Il2CppObject** keys = reinterpret_cast<Il2CppObject**>(
+        il2cpp_array_get_elem_ptr(w->keysRoot, 0));
+    const int32_t c = lk->count;
+    for (int32_t i = 0; i < c; ++i)
+    {
+        const bool eq = keyKind == kGenKind_Int32
+            ? (cmp == nullptr
+                   ? (lk->keyInt[i] == keyInt)
+                   : LinqValueEqualsCmpCell(cmp, IL2CPP_LINQ_CELL_I4,
+                                            lk->keyInt[i], keyInt))
+            : (cmp == nullptr
+                   ? (keys[i] == nullptr
+                          ? keyRef == nullptr
+                          : (keyRef != nullptr
+                             && il2cpp_string_equals_ordinal(
+                                    reinterpret_cast<const Il2CppString*>(keys[i]),
+                                    reinterpret_cast<const Il2CppString*>(keyRef))))
+                   : LinqRefEqualsCmp(cmp, keys[i], keyRef));
+        if (eq) return i;
+        // the comparer call above may have collected: re-derive.
+        w = reinterpret_cast<Il2CppLookupGenObject*>(selfObj);
+        lk = w->lookup;
+        keys = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(w->keysRoot, 0));
+    }
+    return -1;
+}
+
 bool il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
                                 Il2CppObject* keyRef, int32_t keyKind)
 {
@@ -4272,31 +4314,7 @@ bool il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
         il2cpp_throw_null_reference_exception(nullptr);
         return false;
     }
-    const int32_t c = w->lookup->count;
-    if (keyKind == kGenKind_Int32)
-    {
-        for (int32_t i = 0; i < c; ++i)
-            if (w->lookup->keyInt[i] == keyInt) return true;
-        return false;
-    }
-    Il2CppObject** keys = reinterpret_cast<Il2CppObject**>(
-        il2cpp_array_get_elem_ptr(w->keysRoot, 0));
-    for (int32_t i = 0; i < c; ++i)
-    {
-        const Il2CppObject* k = keys[i];
-        if (k == nullptr)
-        {
-            if (keyRef == nullptr) return true;
-        }
-        else if (keyRef != nullptr
-                 && il2cpp_string_equals_ordinal(
-                        reinterpret_cast<const Il2CppString*>(k),
-                        reinterpret_cast<const Il2CppString*>(keyRef)))
-        {
-            return true;
-        }
-    }
-    return false;
+    return il2cpp_lookup_gen_find(self, keyInt, keyRef, keyKind) >= 0;
 }
 
 Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
@@ -4309,37 +4327,13 @@ Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
         il2cpp_throw_null_reference_exception(nullptr);
         return nullptr;
     }
-    const int32_t c = w->lookup->count;
-    int32_t hit = -1;
-    if (keyKind == kGenKind_Int32)
-    {
-        for (int32_t i = 0; i < c; ++i)
-            if (w->lookup->keyInt[i] == keyInt) { hit = i; break; }
-    }
-    else
-    {
-        Il2CppObject** keys = reinterpret_cast<Il2CppObject**>(
-            il2cpp_array_get_elem_ptr(w->keysRoot, 0));
-        for (int32_t i = 0; i < c; ++i)
-        {
-            const Il2CppObject* k = keys[i];
-            if (k == nullptr)
-            {
-                if (keyRef == nullptr) { hit = i; break; }
-            }
-            else if (keyRef != nullptr
-                     && il2cpp_string_equals_ordinal(
-                            reinterpret_cast<const Il2CppString*>(k),
-                            reinterpret_cast<const Il2CppString*>(keyRef)))
-            {
-                hit = i; break;
-            }
-        }
-    }
+    const int32_t hit = il2cpp_lookup_gen_find(self, keyInt, keyRef, keyKind);
     if (hit < 0)
     {
         return LinqNewArray(srcCell, 0);
     }
+    // find may have collected; self is a rooted managed arg, re-derive.
+    w = reinterpret_cast<Il2CppLookupGenObject*>(self);
     Il2CppObject** groups = reinterpret_cast<Il2CppObject**>(
         il2cpp_array_get_elem_ptr(w->groupsRoot, 0));
     return reinterpret_cast<Il2CppArray*>(groups[hit]);
@@ -4349,8 +4343,8 @@ Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
 Il2CppClass g_lookupGenClass = {
     "System.Linq.ILookup`2<gen>",          // name (runtime-internal descriptor)
     static_cast<int32_t>(sizeof(Il2CppLookupGenObject)), // instanceSize
-    0b1100u,                               // refFieldBitmap: bit 2 keysRoot, bit 3 groupsRoot
-    2,                                     // refFieldCount
+    0b11100u,                              // refFieldBitmap: bit 2 keysRoot, bit 3 groupsRoot, bit 4 comparer
+    3,                                     // refFieldCount
     nullptr,                               // baseClass
     nullptr,                               // vtable
     0,                                     // vtableSize
@@ -4415,30 +4409,38 @@ Il2CppLookupGen* il2cpp_lookup_gen_create(int32_t capacity)
     return lk;
 }
 
-int32_t il2cpp_lookup_gen_find_or_add(Il2CppLookupGenObject* w, int32_t keyInt,
-                                      Il2CppObject* keyRef, int32_t keyKind)
+int32_t il2cpp_lookup_gen_find_or_add(Il2CppObject* wObj, int32_t keyInt,
+                                      Il2CppObject* keyRef, int32_t keyKind,
+                                      Il2CppObject* comparer)
 {
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&wObj));
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
     Il2CppLookupGen* lk = w->lookup;
     Il2CppObject** keys = reinterpret_cast<Il2CppObject**>(
         il2cpp_array_get_elem_ptr(w->keysRoot, 0));
-    for (int32_t i = 0; i < lk->count; ++i)
+    const int32_t c = lk->count;
+    for (int32_t i = 0; i < c; ++i)
     {
-        if (keyKind == kGenKind_Int32)
-        {
-            if (lk->keyInt[i] == keyInt) return i;
-        }
-        else
-        {
-            const Il2CppObject* k = keys[i];
-            if (k == nullptr ? keyRef == nullptr
-                             : (keyRef != nullptr
-                                && il2cpp_string_equals_ordinal(
-                                       reinterpret_cast<const Il2CppString*>(k),
-                                       reinterpret_cast<const Il2CppString*>(keyRef))))
-            {
-                return i;
-            }
-        }
+        const bool match = keyKind == kGenKind_Int32
+            ? (comparer == nullptr
+                   ? (lk->keyInt[i] == keyInt)
+                   : LinqValueEqualsCmpCell(comparer, IL2CPP_LINQ_CELL_I4,
+                                            lk->keyInt[i], keyInt))
+            : (comparer == nullptr
+                   ? (keys[i] == nullptr
+                          ? keyRef == nullptr
+                          : (keyRef != nullptr
+                             && il2cpp_string_equals_ordinal(
+                                    reinterpret_cast<const Il2CppString*>(keys[i]),
+                                    reinterpret_cast<const Il2CppString*>(keyRef))))
+                   : LinqRefEqualsCmp(comparer, keys[i], keyRef));
+        if (match) return i;
+        // the comparer call above may have collected: re-derive.
+        w = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+        lk = w->lookup;
+        keys = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(w->keysRoot, 0));
     }
     if (lk->count >= lk->capacity)
     {

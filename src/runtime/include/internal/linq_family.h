@@ -228,15 +228,23 @@ struct Il2CppLookupGen
     int32_t   srcIdxCount;
     int32_t   srcIdxCap;
 };
+// b5-gaps section 80: the wrapper carries ONE more managed slot
+// (comparer, refFieldBitmap bit 4): a user IEqualityComparer<TKey> given to
+// ToLookup. All group-membership + get_Item/Contains matching routes through
+// it (int32 -> LinqValueEqualsCmpCell "(i,i)"; string -> LinqRefEqualsCmp,
+// which also knows the StringComparer singletons). null = default equality
+// (identical to section 79).
 struct Il2CppLookupGenObject
 {
     Il2CppObject     obj;        // slot 0: object header
     Il2CppLookupGen* lookup;     // slot 1: raw table (NOT in the refFieldBitmap)
     Il2CppArray*     keysRoot;   // slot 2 (refFieldBitmap bit 2): ref keys
     Il2CppArray*     groupsRoot; // slot 3 (refFieldBitmap bit 3): per-key arrays
+    Il2CppObject*    comparer;   // slot 4 (refFieldBitmap bit 4): user comparer
 };
 Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
-                                    int32_t keyKind, int32_t srcCell);
+                                    Il2CppObject* comparer, int32_t keyKind,
+                                    int32_t srcCell);
 Il2CppClass*  il2cpp_lookup_gen_object_class();
 int32_t       il2cpp_lookup_gen_get_count(Il2CppObject* self);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
@@ -248,9 +256,13 @@ Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
 Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, Il2CppObject* keyRef,
                                          int32_t keyKind, int32_t srcCell);
 // internal table ops (defined in linq_family.cpp with the class registration).
+// find_or_add takes the ROOTED managed wrapper object (not a raw pointer): the
+// user comparer's Equals can collect, so the raw wrapper/keys pointers must be
+// re-derived from a GC-rooted handle after every comparer call.
 Il2CppLookupGen* il2cpp_lookup_gen_create(int32_t capacity);
-int32_t il2cpp_lookup_gen_find_or_add(Il2CppLookupGenObject* w, int32_t keyInt,
-                                      Il2CppObject* keyRef, int32_t keyKind);
+int32_t il2cpp_lookup_gen_find_or_add(Il2CppObject* wObj, int32_t keyInt,
+                                      Il2CppObject* keyRef, int32_t keyKind,
+                                      Il2CppObject* comparer);
 
 // b5-gaps section 57: user-comparer twins over the VALUE cell families
 // (int32/uint/narrow/char/bool, int64, double/float). Each entry dispatches a
