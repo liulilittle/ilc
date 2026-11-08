@@ -4193,6 +4193,7 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
     wrapper->lookup = il2cpp_lookup_gen_create(n > 0 ? n : 4);
     wrapper->lookup->keyKind = keyKind;
     wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    wrapper->groupingObjs = nullptr; // b5-gaps section 89: lazy cache sentinel
     wrapper->keysRoot = il2cpp_array_new(
         nullptr, static_cast<int32_t>(sizeof(void*)), true, n + 4);
     wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
@@ -4401,6 +4402,7 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
     // Every managed array_new can collect/move the (rooted) wrapper: re-derive
     // the raw wrapper pointer from wObj before EACH store (section-78 discipline).
     wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    wrapper->groupingObjs = nullptr; // b5-gaps section 89: lazy cache sentinel
     wrapper->keysRoot = il2cpp_array_new(
         nullptr, static_cast<int32_t>(sizeof(void*)), true, n + 4);
     wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
@@ -4604,6 +4606,14 @@ static Il2CppArray* il2cpp_lookup_gen_materialize_groupings(Il2CppObject* self)
     Il2CppLookupGen* lk = w->lookup;
     const int32_t c = lk->count;
     const int32_t keyKind = lk->keyKind;
+    // b5-gaps section 89: the grouping objects are CACHED (net48's Lookup
+    // caches its Grouping instances) -- a second materialization of the same
+    // wrapper must yield the SAME references, so the default reference equality
+    // collapses Union/Intersect/Except/SequenceEqual exactly like net48.
+    if (w->groupingObjs != nullptr)
+    {
+        return w->groupingObjs;
+    }
     Il2CppArray* snap = il2cpp_array_new(
         nullptr, static_cast<int32_t>(sizeof(void*)), true, c);
     roots.Add(reinterpret_cast<void**>(&snap));
@@ -4638,6 +4648,11 @@ static Il2CppArray* il2cpp_lookup_gen_materialize_groupings(Il2CppObject* self)
         dst[g] = ng;
         il2cpp_write_barrier(reinterpret_cast<void**>(&dst[g]), ng);
     }
+    // Publish the cache (re-derive the rooted wrapper; the loop allocated).
+    w = reinterpret_cast<Il2CppLookupGenObject*>(selfObj);
+    w->groupingObjs = snap;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&w->groupingObjs),
+                         reinterpret_cast<Il2CppObject*>(snap));
     return snap;
 }
 
@@ -4790,11 +4805,29 @@ Il2CppObject* il2cpp_lookup_gen_first_or_default(Il2CppObject* self)
 // groupings), so downstream ToArray/Select keep their kernels.
 static Il2CppArray* LinqGroupingEnumerableArray(Il2CppObject* src)
 {
+    if (src == nullptr)
+        return nullptr;
     if (src->klass == il2cpp_lookup_gen_object_class())
     {
         return il2cpp_lookup_gen_materialize_groupings(src);
     }
-    return il2cpp_linq_grouping_result_to_array(src);
+    // b5-gaps section 89: the SECOND sequence of a two-sequence operator may
+    // be a plain IGrouping[] snapshot -- already the materialized form.
+    if (src->klass->name != nullptr && src->klass->name[0] == '[')
+    {
+        return reinterpret_cast<Il2CppArray*>(src);
+    }
+    if (src->klass == il2cpp_linq_grouping_result_class())
+    {
+        return il2cpp_linq_grouping_result_to_array(src);
+    }
+    // Anything else is NOT a grouping-enumerable carrier this runtime can
+    // materialize -- an honest rejection instead of reinterpreting the object
+    // as a grouping-result header.
+    il2cpp_throw_not_supported_exception(
+        "the grouping-enumerable source must be an IGrouping[] snapshot, an "
+        "ILookup result, or a GroupBy result");
+    return nullptr;
 }
 
 Il2CppArray* il2cpp_linq_grouping_enumerable_where(Il2CppObject* src, Il2CppObject* pred)
@@ -4866,6 +4899,246 @@ Il2CppArray* il2cpp_linq_grouping_enumerable_take(Il2CppObject* src, int32_t cou
     return il2cpp_linq_take_family(elems, count, IL2CPP_LINQ_CELL_REF);
 }
 
+// b5-gaps section 89: the two-sequence set operators, the comparer forms, and
+// DefaultIfEmpty over the grouping-enumerable. The second sequence goes through
+// the SAME LinqGroupingEnumerableArray dispatch (an IGrouping[] snapshot, the
+// ILookup wrapper, or the GroupBy result), then the family-generic reference
+// kernels run with cell 15. `first` is rooted across the second materialization
+// (it allocates and can compact).
+static Il2CppArray* LinqGroupingEnumerableSecond(Il2CppObject* second)
+{
+    if (second == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("second");
+        return nullptr;
+    }
+    return LinqGroupingEnumerableArray(second);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_distinct_cmp(Il2CppObject* src, Il2CppObject* cmp)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_distinct_family_cmp(elems, cmp, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_concat(Il2CppObject* src, Il2CppObject* second)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* first = LinqGroupingEnumerableArray(src);
+    roots.Add(reinterpret_cast<void**>(&first));
+    if (first == nullptr)
+        return nullptr;
+    Il2CppArray* secondArr = LinqGroupingEnumerableSecond(second);
+    roots.Add(reinterpret_cast<void**>(&secondArr));
+    if (secondArr == nullptr)
+        return nullptr;
+    return il2cpp_linq_concat_family(first, secondArr, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_except(Il2CppObject* src, Il2CppObject* second)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* first = LinqGroupingEnumerableArray(src);
+    roots.Add(reinterpret_cast<void**>(&first));
+    if (first == nullptr)
+        return nullptr;
+    Il2CppArray* secondArr = LinqGroupingEnumerableSecond(second);
+    roots.Add(reinterpret_cast<void**>(&secondArr));
+    if (secondArr == nullptr)
+        return nullptr;
+    return il2cpp_linq_except_family(first, secondArr, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_except_cmp(Il2CppObject* src, Il2CppObject* second,
+                                                        Il2CppObject* cmp)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* first = LinqGroupingEnumerableArray(src);
+    roots.Add(reinterpret_cast<void**>(&first));
+    if (first == nullptr)
+        return nullptr;
+    Il2CppArray* secondArr = LinqGroupingEnumerableSecond(second);
+    roots.Add(reinterpret_cast<void**>(&secondArr));
+    if (secondArr == nullptr)
+        return nullptr;
+    return il2cpp_linq_except_family_cmp(first, secondArr, cmp, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_union(Il2CppObject* src, Il2CppObject* second)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* first = LinqGroupingEnumerableArray(src);
+    roots.Add(reinterpret_cast<void**>(&first));
+    if (first == nullptr)
+        return nullptr;
+    Il2CppArray* secondArr = LinqGroupingEnumerableSecond(second);
+    roots.Add(reinterpret_cast<void**>(&secondArr));
+    if (secondArr == nullptr)
+        return nullptr;
+    return il2cpp_linq_union_family(first, secondArr, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_union_cmp(Il2CppObject* src, Il2CppObject* second,
+                                                       Il2CppObject* cmp)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* first = LinqGroupingEnumerableArray(src);
+    roots.Add(reinterpret_cast<void**>(&first));
+    if (first == nullptr)
+        return nullptr;
+    Il2CppArray* secondArr = LinqGroupingEnumerableSecond(second);
+    roots.Add(reinterpret_cast<void**>(&secondArr));
+    if (secondArr == nullptr)
+        return nullptr;
+    return il2cpp_linq_union_family_cmp(first, secondArr, cmp, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_intersect(Il2CppObject* src, Il2CppObject* second)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* first = LinqGroupingEnumerableArray(src);
+    roots.Add(reinterpret_cast<void**>(&first));
+    if (first == nullptr)
+        return nullptr;
+    Il2CppArray* secondArr = LinqGroupingEnumerableSecond(second);
+    roots.Add(reinterpret_cast<void**>(&secondArr));
+    if (secondArr == nullptr)
+        return nullptr;
+    return il2cpp_linq_intersect_family(first, secondArr, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_intersect_cmp(Il2CppObject* src, Il2CppObject* second,
+                                                           Il2CppObject* cmp)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* first = LinqGroupingEnumerableArray(src);
+    roots.Add(reinterpret_cast<void**>(&first));
+    if (first == nullptr)
+        return nullptr;
+    Il2CppArray* secondArr = LinqGroupingEnumerableSecond(second);
+    roots.Add(reinterpret_cast<void**>(&secondArr));
+    if (secondArr == nullptr)
+        return nullptr;
+    return il2cpp_linq_intersect_family_cmp(first, secondArr, cmp, IL2CPP_LINQ_CELL_REF);
+}
+
+bool il2cpp_linq_grouping_enumerable_sequence_equal(Il2CppObject* src, Il2CppObject* second)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return false;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* first = LinqGroupingEnumerableArray(src);
+    roots.Add(reinterpret_cast<void**>(&first));
+    if (first == nullptr)
+        return false;
+    Il2CppArray* secondArr = LinqGroupingEnumerableSecond(second);
+    roots.Add(reinterpret_cast<void**>(&secondArr));
+    if (secondArr == nullptr)
+        return false;
+    return il2cpp_linq_sequence_equal_family(first, secondArr, IL2CPP_LINQ_CELL_REF);
+}
+
+bool il2cpp_linq_grouping_enumerable_sequence_equal_cmp(Il2CppObject* src, Il2CppObject* second,
+                                                        Il2CppObject* cmp)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return false;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* first = LinqGroupingEnumerableArray(src);
+    roots.Add(reinterpret_cast<void**>(&first));
+    if (first == nullptr)
+        return false;
+    Il2CppArray* secondArr = LinqGroupingEnumerableSecond(second);
+    roots.Add(reinterpret_cast<void**>(&secondArr));
+    if (secondArr == nullptr)
+        return false;
+    return il2cpp_linq_sequence_equal_family_cmp(first, secondArr, cmp, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_default_if_empty(Il2CppObject* src)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_default_if_empty_family(elems, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_default_if_empty_value(Il2CppObject* src,
+                                                                    Il2CppObject* value)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_default_if_empty_family_ref(elems, value, IL2CPP_LINQ_CELL_REF);
+}
+
 // b5-gaps section 82: Enumerable.ToLookup over a List<T> source (int32 or
 // System.String elements). The receiver is a LIST OBJECT -- never a cast of
 // the managed List to Il2CppArray* (the items pointer would be read as the
@@ -4927,8 +5200,8 @@ Il2CppObject* il2cpp_linq_list_to_lookup_sel(Il2CppObject* list, Il2CppObject* k
 Il2CppClass g_lookupGenClass = {
     "System.Linq.ILookup`2<gen>",          // name (runtime-internal descriptor)
     static_cast<int32_t>(sizeof(Il2CppLookupGenObject)), // instanceSize
-    0b111100u,                             // refFieldBitmap: bit 2 keysRoot, bit 3 groupsRoot, bit 4 comparer, bit 5 elemRoot
-    4,                                     // refFieldCount
+    0b1111100u,                             // refFieldBitmap: bit 2 keysRoot, bit 3 groupsRoot, bit 4 comparer, bit 5 elemRoot, bit 6 groupingObjs
+    5,                                     // refFieldCount
     nullptr,                               // baseClass
     nullptr,                               // vtable
     0,                                     // vtableSize

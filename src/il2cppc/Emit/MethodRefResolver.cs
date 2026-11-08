@@ -366,7 +366,8 @@ public static partial class MethodRefResolver
     // value (String.Concat(object, object) dispatches the numeric convenience
     // icall on the SECOND argument's box type).
     public static ResolvedMethod Resolve(MetadataReader md, int token, IReadOnlyList<TypeDef> knownTypes,
-        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
+        string? arg2Type = null)
     {
         var handle = MetadataTokens.Handle(token);
 
@@ -636,7 +637,7 @@ public static partial class MethodRefResolver
             // and always emitted the array cast -- a List receiver was mis-cast
             // to Il2CppArray* (a wrong count at runtime).
             var bcl = BclResolve(md, owner, name, mr.Signature, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type,
-                genArgNames: genArgNames);
+                genArgNames: genArgNames, arg2Type: arg2Type);
             if (bcl != null) return bcl;
             // M6: a MethodSpec on a USER-type member (MemberRef form) expands
             // only when the definition lives in this assembly (the generated
@@ -1579,12 +1580,12 @@ public static partial class MethodRefResolver
     public static ResolvedMethod? BclResolve(MetadataReader md, string owner, string name, BlobHandle sigHandle,
         byte[]? genArgs, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type = null,
         string[]? genArgNames = null, string? instName = null, string? keyTypeName = null,
-        string? valueTypeName = null)
+        string? valueTypeName = null, string? arg2Type = null)
     {
         try
         {
             var r = BclResolveCore(md, owner, name, sigHandle, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type,
-                genArgNames, instName, keyTypeName, valueTypeName);
+                genArgNames, instName, keyTypeName, valueTypeName, arg2Type);
             if (r == null && IsExternalBclOwner(md, owner) && receiverType != null)
             {
                 // P26 (bcldeep): the generated-name fallback for an EXTERNAL
@@ -1681,7 +1682,7 @@ public static partial class MethodRefResolver
     private static ResolvedMethod? BclResolveCore(MetadataReader md, string owner, string name, BlobHandle sigHandle,
         byte[]? genArgs, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type,
         string[]? genArgNames = null, string? instName = null, string? keyTypeName = null,
-        string? valueTypeName = null)
+        string? valueTypeName = null, string? arg2Type = null)
     {
         var (count, ret, ps) = RawSignature(md, sigHandle);
         // excmsg: the Argument*Exception family resolves through the EXCEPTION
@@ -2668,14 +2669,14 @@ var userRecvLike = receiverType ?? arg0Type;
                 if (name is "Sum" or "Min" or "Max" or "Average" && genArgs == null)
                     genArgs = LinqAggregateElementByte(md, sigHandle);
                 return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, genArgNames,
-                    receiverType, receiverIsAddress, arg0Type, arg1Type);
+                    receiverType, receiverIsAddress, arg0Type, arg1Type, arg2Type);
             // D-LINQ-4 grouping instance surface: the REAL BCL owner of an
             // IGrouping<TKey,TElement> instance property call (gr.Key ->
             // get_Key). Routes to the same TryMapLinq grouping block; the
             // owner itself proves grouping-ness when no hint flows.
             case "System.Linq.IGrouping`2":
                 return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, genArgNames,
-                    receiverType, receiverIsAddress, arg0Type, arg1Type);
+                    receiverType, receiverIsAddress, arg0Type, arg1Type, arg2Type);
             // b5-gaps section 79: the ILookup<TKey,TElement> instance surface
             // (get_Count / Contains / get_Item on a ToLookup result). Routes to
             // the same TryMapLinq block as the dict pseudo-types; the receiver
@@ -2683,7 +2684,7 @@ var userRecvLike = receiverType ?? arg0Type;
             // families into the instance arm.
             case "System.Linq.ILookup`2":
                 return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, genArgNames,
-                    receiverType, receiverIsAddress, arg0Type, arg1Type);
+                    receiverType, receiverIsAddress, arg0Type, arg1Type, arg2Type);
             // Legacy family (MethodMap.Legacy.cs): System.Runtime.Remoting.* /
             // AppDomain / ArgIterator / ReaderWriterLock / ExtensibleClassFactory.
             // p0c wired the five Remoting state accessors, the ReaderWriterLock

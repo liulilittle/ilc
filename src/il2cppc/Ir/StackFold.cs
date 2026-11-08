@@ -3383,6 +3383,7 @@ public static class StackFold
             string? arg0Type = null;
             bool arg0IsAddr = false;
             string? arg1Type = null;
+            string? arg2Type = null;
             // p-refl2-gapmatrix (B08): the member-VALUE provenance recorded for
             // a folded typeof-chain GetMethod/GetField call (the declaring type
             // token + the member name), attached to the emitted CallExpr so a
@@ -3455,6 +3456,17 @@ public static class StackFold
                 // second argument is the boxed number).
                 if (stack.Count > 1 && stack.ElementAt(1) is LocExpr sl && objTypes.TryGetValue(sl.Name, out var st1))
                     arg1Type = st1;
+                // b5-gaps section 89: the THIRD stack value's tracked type. A
+                // THREE-argument LINQ call (Union/Intersect/Except/SequenceEqual
+                // with an IEqualityComparer) pushes [source, second, cmp], so
+                // the SOURCE sits at stack depth 2 -- invisible to the two-slot
+                // hint above, which then mistook the SECOND sequence (or the
+                // comparer) for the source and let a grouping-enumerable call
+                // fall through to the array/ref kernels (a runtime family
+                // mismatch). Threading this hint lets TryMapLinq see the real
+                // source for the 3-arg two-sequence operators.
+                if (stack.Count > 2 && stack.ElementAt(2) is LocExpr s2 && objTypes.TryGetValue(s2.Name, out var st2))
+                    arg2Type = st2;
             }
 
             // typeof(T) fold (reflection audit F1): ldtoken <type>; call
@@ -4053,7 +4065,7 @@ public static class StackFold
             }
 
             var resolved = md != null
-                ? MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(), null, arg0IsAddr, arg0Type, arg1Type)
+                ? MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(), null, arg0IsAddr, arg0Type, arg1Type, arg2Type)
                 : null;
             var paramCount = resolved?.ParamCount ?? 0;
             // varargs (ECMA-335 II.23.2.2): the call-site MemberRef signature

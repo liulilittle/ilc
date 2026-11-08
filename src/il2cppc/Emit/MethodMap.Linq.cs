@@ -106,7 +106,7 @@ public static partial class MethodRefResolver
 
     private static ResolvedMethod? TryMapLinq(MetadataReader md, BlobHandle sigHandle, string owner, string name,
         byte[] ps, int count, byte[]? genArgs, string[]? genArgNames, string? receiverType, bool receiverIsAddress,
-        string? arg0Type, string? arg1Type)
+        string? arg0Type, string? arg1Type, string? arg2Type = null)
     {
         // [0] the source array, [1] the predicate/selector delegate.
         string[] TwoArg = { "a", "" };
@@ -1483,7 +1483,10 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
 
         // nb9 FIX (M15): the whole GroupBy RESULT (IEnumerable<IGrouping>) --
         // the gate below used to reject it because TSource is IGrouping (0x15).
-        if (srcType == "System.Linq.IGroupingResult")
+        if (srcType == "System.Linq.IGroupingResult"
+            // b5-gaps section 89: the same stack-depth-2 source recovery for the
+            // 3-arg two-sequence operators over a GroupBy result.
+            || arg2Type == "System.Linq.IGroupingResult")
         {
             switch (name)
             {
@@ -1572,6 +1575,56 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                                     new[] { "", "i" }, returnTypeName: "System.Object[]")
                                 : I("il2cpp::il2cpp_linq_grouping_enumerable_skip", 2, true, true, false,
                                     new[] { "", "i" }, returnTypeName: "System.Object[]");
+                case "Distinct" when count >= 2:
+                case "Concat" when count == 2:
+                case "Except" when count == 2:
+                case "Except" when count == 3:
+                case "Union" when count == 2:
+                case "Union" when count == 3:
+                case "Intersect" when count == 2:
+                case "Intersect" when count == 3:
+                case "DefaultIfEmpty" when count < 2:
+                case "DefaultIfEmpty" when count == 2:
+                    // b5-gaps section 89: the same two-sequence set operators,
+                    // their comparer forms, and DefaultIfEmpty.
+                    return name == "Distinct"
+                        ? I("il2cpp::il2cpp_linq_grouping_enumerable_distinct_cmp", 2, true, true, false,
+                            new[] { "", "" }, returnTypeName: "System.Object[]")
+                        : name == "Concat"
+                            ? I("il2cpp::il2cpp_linq_grouping_enumerable_concat", 2, true, true, false,
+                                new[] { "", "" }, returnTypeName: "System.Object[]")
+                            : name == "Except"
+                                ? count == 3
+                                    ? I("il2cpp::il2cpp_linq_grouping_enumerable_except_cmp", 3, true, true, false,
+                                        new[] { "", "", "" }, returnTypeName: "System.Object[]")
+                                    : I("il2cpp::il2cpp_linq_grouping_enumerable_except", 2, true, true, false,
+                                        new[] { "", "" }, returnTypeName: "System.Object[]")
+                                : name == "Union"
+                                    ? count == 3
+                                        ? I("il2cpp::il2cpp_linq_grouping_enumerable_union_cmp", 3, true, true, false,
+                                            new[] { "", "", "" }, returnTypeName: "System.Object[]")
+                                        : I("il2cpp::il2cpp_linq_grouping_enumerable_union", 2, true, true, false,
+                                            new[] { "", "" }, returnTypeName: "System.Object[]")
+                                    : name == "Intersect"
+                                        ? count == 3
+                                            ? I("il2cpp::il2cpp_linq_grouping_enumerable_intersect_cmp", 3, true, true, false,
+                                                new[] { "", "", "" }, returnTypeName: "System.Object[]")
+                                            : I("il2cpp::il2cpp_linq_grouping_enumerable_intersect", 2, true, true, false,
+                                                new[] { "", "" }, returnTypeName: "System.Object[]")
+                                        : name == "DefaultIfEmpty"
+                                            ? count == 2
+                                                ? I("il2cpp::il2cpp_linq_grouping_enumerable_default_if_empty_value", 2, true, true, false,
+                                                    new[] { "", "" }, returnTypeName: "System.Object[]")
+                                                : I("il2cpp::il2cpp_linq_grouping_enumerable_default_if_empty", 1, true, true, false,
+                                                    new[] { "" }, returnTypeName: "System.Object[]")
+                                            : I("il2cpp::il2cpp_linq_grouping_enumerable_distinct_cmp", 2, true, true, false,
+                                                new[] { "", "" }, returnTypeName: "System.Object[]");
+                case "SequenceEqual" when count == 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_sequence_equal", 2, true, false, false,
+                        new[] { "", "" });
+                case "SequenceEqual" when count == 3:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_sequence_equal_cmp", 3, true, false, false,
+                        new[] { "", "", "" });
                 default:
                     break;
             }
@@ -1584,8 +1637,16 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         // Any ride the wrapper's own group count (section 85); Where
         // materializes + filters. Every OTHER operator still falls through to
         // the section-85 LOUD gate in the ref-source block.
-        if (srcType != null
+        if ((srcType != null
             && srcType.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal))
+            // b5-gaps section 89: the 3-arg two-sequence operators
+            // (Union/Intersect/Except/SequenceEqual with a comparer) push the
+            // source at stack depth 2, so srcType then names the SECOND sequence
+            // and the grouping-enumerable call fell through to the array/ref
+            // kernels (a runtime family mismatch). arg2Type carries the real
+            // source for exactly those shapes.
+            || (arg2Type != null
+                && arg2Type.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal)))
         {
             switch (name)
             {
@@ -1641,6 +1702,43 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     // family-generic reference kernels (cell 15).
                     return I("il2cpp::il2cpp_linq_grouping_enumerable_distinct", 1, true, true, false,
                         new[] { "" }, returnTypeName: "System.Object[]");
+                case "Distinct" when count >= 2:
+                    // b5-gaps section 89: the user-comparer Distinct form.
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_distinct_cmp", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Object[]");
+                case "Concat" when count == 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_concat", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Object[]");
+                case "Except" when count == 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_except", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Object[]");
+                case "Except" when count == 3:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_except_cmp", 3, true, true, false,
+                        new[] { "", "", "" }, returnTypeName: "System.Object[]");
+                case "Union" when count == 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_union", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Object[]");
+                case "Union" when count == 3:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_union_cmp", 3, true, true, false,
+                        new[] { "", "", "" }, returnTypeName: "System.Object[]");
+                case "Intersect" when count == 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_intersect", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Object[]");
+                case "Intersect" when count == 3:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_intersect_cmp", 3, true, true, false,
+                        new[] { "", "", "" }, returnTypeName: "System.Object[]");
+                case "DefaultIfEmpty" when count < 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_default_if_empty", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Object[]");
+                case "DefaultIfEmpty" when count == 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_default_if_empty_value", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Object[]");
+                case "SequenceEqual" when count == 2:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_sequence_equal", 2, true, false, false,
+                        new[] { "", "" });
+                case "SequenceEqual" when count == 3:
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_sequence_equal_cmp", 3, true, false, false,
+                        new[] { "", "", "" });
                 case "Reverse" when count < 2:
                     return I("il2cpp::il2cpp_linq_grouping_enumerable_reverse", 1, true, true, false,
                         new[] { "" }, returnTypeName: "System.Object[]");

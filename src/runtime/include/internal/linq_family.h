@@ -254,6 +254,12 @@ struct Il2CppLookupGenObject
     Il2CppArray*     elemRoot;   // slot 5 (refFieldBitmap bit 5): elementSelector
                                  //   REF results held between the two materializer
                                  //   passes (an int-value selection has no refs)
+    // b5-gaps section 89: slot 6 (refFieldBitmap bit 6) -- the CACHED
+    // Il2CppLinqGrouping objects. net48's Lookup caches its Grouping objects,
+    // so two materializations of the same lookup yield the SAME references
+    // (reference equality collapses Union/Intersect/Except/SequenceEqual).
+    // Built lazily on the first materialization, then reused.
+    Il2CppArray*     groupingObjs;
 };
 Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
                                     Il2CppObject* comparer, int32_t keyKind,
@@ -322,6 +328,27 @@ Il2CppArray*  il2cpp_linq_grouping_enumerable_distinct(Il2CppObject* src);
 Il2CppArray*  il2cpp_linq_grouping_enumerable_reverse(Il2CppObject* src);
 Il2CppArray*  il2cpp_linq_grouping_enumerable_skip(Il2CppObject* src, int32_t count);
 Il2CppArray*  il2cpp_linq_grouping_enumerable_take(Il2CppObject* src, int32_t count);
+// b5-gaps section 89: the two-sequence set operators, their user-comparer
+// forms, and DefaultIfEmpty over the grouping-enumerable. The second sequence
+// rides the same materialize dispatch (an IGrouping[] snapshot, the ILookup
+// wrapper, or the GroupBy result).
+Il2CppArray*  il2cpp_linq_grouping_enumerable_distinct_cmp(Il2CppObject* src, Il2CppObject* cmp);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_concat(Il2CppObject* src, Il2CppObject* second);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_except(Il2CppObject* src, Il2CppObject* second);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_except_cmp(Il2CppObject* src, Il2CppObject* second,
+                                                         Il2CppObject* cmp);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_union(Il2CppObject* src, Il2CppObject* second);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_union_cmp(Il2CppObject* src, Il2CppObject* second,
+                                                        Il2CppObject* cmp);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_intersect(Il2CppObject* src, Il2CppObject* second);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_intersect_cmp(Il2CppObject* src, Il2CppObject* second,
+                                                            Il2CppObject* cmp);
+bool          il2cpp_linq_grouping_enumerable_sequence_equal(Il2CppObject* src, Il2CppObject* second);
+bool          il2cpp_linq_grouping_enumerable_sequence_equal_cmp(Il2CppObject* src, Il2CppObject* second,
+                                                                 Il2CppObject* cmp);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_default_if_empty(Il2CppObject* src);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_default_if_empty_value(Il2CppObject* src,
+                                                                     Il2CppObject* value);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
                                          int32_t keyKind);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, Il2CppObject* keyRef,

@@ -10109,15 +10109,34 @@ Il2CppArray* il2cpp_linq_grouping_result_to_array(Il2CppObject* result)
     const int32_t n = AsGroupingResult(result)->count;
     Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(void*), true, n);
     roots.Add(reinterpret_cast<void**>(&out));
-    Il2CppLinqGroupingResult* res = AsGroupingResult(result);
+    // b5-gaps section 89: net48's GroupBy is LAZY -- every enumeration re-runs
+    // the grouping and yields FRESH Grouping objects, so two materializations
+    // never share a reference (Except/SequenceEqual over a GroupBy result keep
+    // both sides). Clone each bucket per call instead of handing out the
+    // cached bucket objects. (The selector re-invocation itself is a separate
+    // registered gap -- the identity semantics is what the set operators see.)
+    Il2CppClass* groupingClass = il2cpp_linq_grouping_class();
     for (int32_t i = 0; i < n; ++i)
     {
+        Il2CppLinqGroupingResult* res = AsGroupingResult(result);
         Il2CppObject* bucket = *reinterpret_cast<Il2CppObject**>(
             res->groups->data + i * sizeof(void*));
+        Il2CppObject* ng = il2cpp_object_new(groupingClass);
+        roots.Add(reinterpret_cast<void**>(&ng));
+        Il2CppLinqGrouping* src = reinterpret_cast<Il2CppLinqGrouping*>(bucket);
+        Il2CppLinqGrouping* grp = reinterpret_cast<Il2CppLinqGrouping*>(ng);
+        grp->key = src->key;
+        grp->keyHi = src->keyHi;
+        grp->count = src->count;
+        grp->elements = src->elements;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&grp->elements),
+                             reinterpret_cast<Il2CppObject*>(grp->elements));
+        grp->keyRef = src->keyRef;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&grp->keyRef), grp->keyRef);
         Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(
             il2cpp_array_get_elem_ptr(out, i));
-        il2cpp_write_barrier(reinterpret_cast<void**>(slot), bucket);
-        *slot = bucket;
+        *slot = ng;
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), ng);
     }
     return out;
 }
