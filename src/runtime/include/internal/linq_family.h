@@ -294,6 +294,21 @@ int32_t       il2cpp_lookup_gen_any(Il2CppObject* self);
 // it in the shared managed array enumerator (MoveNext / get_Current / Dispose
 // ride the sortedlist-snapshot forwarders).
 Il2CppObject* il2cpp_lookup_gen_get_enumerator(Il2CppObject* self);
+// b5-gaps section 86: the grouping-result operators over the ILookup result
+// (IEnumerable<IGrouping>). All materialize the grouping snapshot (the
+// section-81 object[]) and apply the standard reference-element kernels --
+// the same shape as the GroupBy-result arms (b5-gaps §55).
+Il2CppArray*  il2cpp_lookup_gen_to_array(Il2CppObject* self);
+Il2CppObject* il2cpp_lookup_gen_to_list(Il2CppObject* self);
+Il2CppArray*  il2cpp_lookup_gen_select(Il2CppObject* self, Il2CppObject* sel,
+                                       int32_t resKind);
+Il2CppObject* il2cpp_lookup_gen_first(Il2CppObject* self);
+Il2CppObject* il2cpp_lookup_gen_first_or_default(Il2CppObject* self);
+// b5-gaps section 86: Enumerable.Where over a grouping-yielding source (the
+// ILookup result OR the GroupBy result): materialize the grouping objects,
+// filter with the ref predicate kernel; an object[] of the passing groupings.
+Il2CppArray*  il2cpp_linq_grouping_enumerable_where(Il2CppObject* src,
+                                                    Il2CppObject* pred);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
                                          int32_t keyKind);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, Il2CppObject* keyRef,

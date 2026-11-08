@@ -1547,6 +1547,83 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             }
         }
 
+        // b5-gaps section 86: the ILookup RESULT (a ToLookup wrapper) is the
+        // same IEnumerable<IGrouping> surface as the GroupBy result -- the
+        // grouping operators materialize the wrapper's grouping snapshot (the
+        // section-81 object[]) and apply the reference-element kernels. Count/
+        // Any ride the wrapper's own group count (section 85); Where
+        // materializes + filters. Every OTHER operator still falls through to
+        // the section-85 LOUD gate in the ref-source block.
+        if (srcType != null
+            && srcType.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal))
+        {
+            switch (name)
+            {
+                case "Count" when count < 2:
+                    return I("il2cpp::il2cpp_lookup_gen_get_count", 1, true, false, false, new[] { "" });
+                case "Any" when count < 2:
+                    return I("il2cpp::il2cpp_lookup_gen_any", 1, true, false, false, new[] { "" });
+                case "ToArray":
+                    return I("il2cpp::il2cpp_lookup_gen_to_array", 1, true, true, false, new[] { "" },
+                        returnTypeName: "System.Object[]");
+                case "ToList":
+                    return I("il2cpp::il2cpp_lookup_gen_to_list", 1, true, true, false, new[] { "" },
+                        returnTypeName: "System.Collections.Generic.List`1_object");
+                case "Select":
+                {
+                    if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    {
+                        throw new NotSupportedException(
+                            "Enumerable.Select (index form) over an ILookup result is not wired: "
+                            + "the materializing lookup-select takes the element and index-form "
+                            + "selector together -- see docs/audit/b5-gaps.md");
+                    }
+                    byte lkResByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x0E;
+                    string? lkResKind = lkResByte switch
+                    {
+                        0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "1",
+                        0x0A or 0x0B => "2",
+                        0x0C => "3",
+                        0x0D => "4",
+                        _ when IsRefFamilyByte(lkResByte) => "0",
+                        _ => null,
+                    };
+                    if (lkResKind == null)
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.Select TResult '{GenericArgTypeName(lkResByte)}' over an "
+                            + "ILookup result is not wired: the materializing lookup-select covers "
+                            + "the reference and the i4/i8/f/d result families -- see docs/audit/b5-gaps.md");
+                    }
+                    string lkResType = IsRefFamilyByte(lkResByte)
+                        ? (genArgNames is { Length: >= 2 } ? LinqStructNameOf(genArgNames[1]) : "System.Object") + "[]"
+                        : LinqArrayTypeNameExact(lkResByte, genArgNames, 1);
+                    string? lkRk = lkResKind == "2" ? "l"
+                        : lkResKind is "3" or "4" ? "d" : null;
+                    return I("il2cpp::il2cpp_lookup_gen_select", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: lkResType, resultKind: lkRk,
+                        appendLiterals: new[] { lkResKind });
+                }
+                case "First" when count < 2:
+                    return I("il2cpp::il2cpp_lookup_gen_first", 1, true, true, false, new[] { "" },
+                        returnTypeName: "System.Linq.IGrouping");
+                case "FirstOrDefault" when count < 2:
+                    return I("il2cpp::il2cpp_lookup_gen_first_or_default", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Linq.IGrouping");
+                case "Where" when count >= 2:
+                    if (LinqSecondParamGenericArgCount(md, sigHandle) == 3)
+                    {
+                        throw new NotSupportedException(
+                            "Enumerable.Where (index form) over an ILookup result is not wired: "
+                            + "the grouping-enumerable Where covers the element-only predicate.");
+                    }
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_where", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: "System.Object[]");
+                default:
+                    break;
+            }
+        }
+
         //--------------------------------------------------------------------------
         // P0-10 / P0-11 / B5-FIX: SOURCE-FAMILY dispatch.
         //

@@ -32,6 +32,7 @@
 #include "listi4.h"                    // il2cpp_list_i4_class (List<int> inners)
 #include "dictgen.h"                   // b5-gaps section 78: the Dictionary`2 wrapper + gen table
 #include "linq_map.h"                  // section 81: Il2CppLinqGrouping + il2cpp_linq_grouping_class
+#include "listobj.h"                  // b5-gaps section 86: il2cpp_list_obj_create/_add (ToList over the lookup)
 #include "sortedlist.h"                // section 81: il2cpp_sortedlist_snapshot_get_enumerator
 
 #include "arraysort.h"                 // FindVirtualSlotByNameAndSignature
@@ -4583,20 +4584,13 @@ Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
 }
 
 // b5-gaps section 81: IEnumerable.GetEnumerator over the ILookup result.
-// Materialises ONE Il2CppLinqGrouping per group (first-appearance order) --
+// b5-gaps section 86: the grouping-materialization loop is extracted into
+// il2cpp_lookup_gen_materialize_groupings (shared with ToArray/ToList/Select/
+// First/Where): ONE Il2CppLinqGrouping per group (first-appearance order) --
 // key from keyInt[]/keysRoot, elements = the group's exact snapshot array
-// (groupsRoot[g]), count = groupLen[g] -- into a rooted object[] and wraps it
-// in the shared managed array enumerator, so MoveNext / get_Current / Reset /
-// Dispose ride the sortedlist-snapshot forwarders. The grouping object reuses
-// the GroupBy bucket surface: get_Key + the per-bucket element enumerator
-// (boxed int32 / ref) already dispatch on its class.
-Il2CppObject* il2cpp_lookup_gen_get_enumerator(Il2CppObject* self)
+// (groupsRoot[g]), count = groupLen[g] -- into a rooted object[] snapshot.
+static Il2CppArray* il2cpp_lookup_gen_materialize_groupings(Il2CppObject* self)
 {
-    if (self == nullptr)
-    {
-        il2cpp_throw_null_reference_exception(nullptr);
-        return nullptr;
-    }
     Il2CppObject* selfObj = self;
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&selfObj));
@@ -4644,8 +4638,139 @@ Il2CppObject* il2cpp_lookup_gen_get_enumerator(Il2CppObject* self)
         dst[g] = ng;
         il2cpp_write_barrier(reinterpret_cast<void**>(&dst[g]), ng);
     }
+    return snap;
+}
+
+Il2CppObject* il2cpp_lookup_gen_get_enumerator(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return nullptr;
+    }
+    Il2CppArray* snap = il2cpp_lookup_gen_materialize_groupings(self);
+    if (snap == nullptr)
+        return nullptr;
     return runtime::il2cpp_sortedlist_snapshot_get_enumerator(
         reinterpret_cast<Il2CppObject*>(snap));
+}
+
+// b5-gaps section 86: Enumerable.ToArray / ToList / Select / First /
+// FirstOrDefault over the ILookup result (IEnumerable<IGrouping>). All
+// materialize the grouping snapshot and apply the standard reference-element
+// kernels, exactly like the GroupBy-result arms (b5-gaps §55).
+Il2CppArray* il2cpp_lookup_gen_to_array(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    return il2cpp_lookup_gen_materialize_groupings(self);
+}
+
+Il2CppObject* il2cpp_lookup_gen_to_list(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = il2cpp_lookup_gen_materialize_groupings(self);
+    if (elems == nullptr)
+        return nullptr;
+    Il2CppObject* list = il2cpp_list_obj_create();
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&elems));
+    roots.Add(reinterpret_cast<void**>(&list));
+    const int32_t n = elems->length;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Il2CppObject* g = *reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(elems, i));
+        il2cpp_list_obj_add(list, g);
+    }
+    return list;
+}
+
+Il2CppArray* il2cpp_lookup_gen_select(Il2CppObject* self, Il2CppObject* sel,
+                                      int32_t resKind)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = il2cpp_lookup_gen_materialize_groupings(self);
+    if (elems == nullptr)
+        return nullptr;
+    switch (resKind)
+    {
+        case 0: return il2cpp_linq_select_ref_ref(elems, sel);
+        case 1: return il2cpp_linq_select_ref_i4(elems, sel);
+        case 2: return il2cpp_linq_select_ref_i8(elems, sel);
+        case 3: return il2cpp_linq_select_ref_f(elems, sel);
+        default: return il2cpp_linq_select_ref_d(elems, sel);
+    }
+}
+
+Il2CppObject* il2cpp_lookup_gen_first(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = il2cpp_lookup_gen_materialize_groupings(self);
+    if (elems == nullptr)
+        return nullptr;
+    if (elems->length == 0)
+    {
+        il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
+        return nullptr;
+    }
+    return *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(elems, 0));
+}
+
+Il2CppObject* il2cpp_lookup_gen_first_or_default(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = il2cpp_lookup_gen_materialize_groupings(self);
+    if (elems == nullptr)
+        return nullptr;
+    if (elems->length == 0)
+        return nullptr;
+    return *reinterpret_cast<Il2CppObject**>(il2cpp_array_get_elem_ptr(elems, 0));
+}
+
+// b5-gaps section 86: Enumerable.Where over a grouping-yielding source -- the
+// ILookup result OR the GroupBy result. Materialize the grouping objects
+// (object[]) and filter with the standard reference-element predicate kernel;
+// the result is the ref Where's array carrier (an object[] of the passing
+// groupings), so downstream ToArray/Select keep their kernels.
+Il2CppArray* il2cpp_linq_grouping_enumerable_where(Il2CppObject* src, Il2CppObject* pred)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems;
+    if (src->klass == il2cpp_lookup_gen_object_class())
+    {
+        elems = il2cpp_lookup_gen_materialize_groupings(src);
+    }
+    else
+    {
+        elems = il2cpp_linq_grouping_result_to_array(src);
+    }
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_where_ref(elems, pred);
 }
 
 // b5-gaps section 82: Enumerable.ToLookup over a List<T> source (int32 or
