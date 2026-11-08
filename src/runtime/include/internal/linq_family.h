@@ -285,6 +285,9 @@ Il2CppObject* il2cpp_linq_list_to_lookup_sel(Il2CppObject* list, Il2CppObject* k
                                              int32_t elemCell);
 Il2CppClass*  il2cpp_lookup_gen_object_class();
 int32_t       il2cpp_lookup_gen_get_count(Il2CppObject* self);
+// b5-gaps section 85: Enumerable.Any() over the ILookup result (the group
+// count is non-zero). 0/1 int32 result.
+int32_t       il2cpp_lookup_gen_any(Il2CppObject* self);
 // b5-gaps section 81: IEnumerable.GetEnumerator over the ILookup result.
 // Materialises the per-group Il2CppLinqGrouping objects (first-appearance
 // order; key + exact element snapshot) into a rooted snapshot array and wraps

@@ -4503,6 +4503,12 @@ int32_t il2cpp_lookup_gen_get_count(Il2CppObject* self)
     return w->lookup->count;
 }
 
+// b5-gaps section 85: Enumerable.Any() over the ILookup result.
+int32_t il2cpp_lookup_gen_any(Il2CppObject* self)
+{
+    return il2cpp_lookup_gen_get_count(self) > 0 ? 1 : 0;
+}
+
 // section 80: comparer-aware group lookup shared by contains/get_Item. The
 // user comparer's Equals can COLLECT (c4), so the wrapper's raw pointers must
 // be re-derived from a GC-rooted handle after every comparer call.

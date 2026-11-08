@@ -2686,6 +2686,26 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 && srcType.StartsWith("System.Linq.IGrouping", StringComparison.Ordinal))
             && !IsLinqValueTypeSource(genArgs, receiverType, arg0Type))
         {
+            // b5-gaps section 85: the ILookup RESULT (a ToLookup wrapper
+            // pseudo-type) is a ref-element source whose concrete object is
+            // NEITHER an array NOR a List. Its operators stop here: Count()
+            // and Any() ride the wrapper's own group count (the generic
+            // ref/array kernels would read the wrapper as an array header --
+            // a garbage count), every OTHER operator over the wrapper stays
+            // LOUD (a Where/Select/First over the wrapper would crash the
+            // ref kernels -- the wrapper enumerator yields per-group
+            // groupings, a surface not wired for those operators yet).
+            if (srcType != null
+                && srcType.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal))
+            {
+                if (count == 1 && name == "Count")
+                    return I("il2cpp::il2cpp_lookup_gen_get_count", 1, true, false, false, new[] { "" });
+                if (count == 1 && name == "Any")
+                    return I("il2cpp::il2cpp_lookup_gen_any", 1, true, false, false, new[] { "" });
+                throw new NotSupportedException(
+                    $"Enumerable.{name} over an ILookup result is not wired: only Count() and " +
+                    "Any() route over the wrapper (b5-gaps section 85).");
+            }
             switch (name)
             {
                 case "Any" when count < 2:
