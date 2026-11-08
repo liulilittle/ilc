@@ -6789,3 +6789,22 @@ the tracked Dictionary`2 instantiation.
 * still LOUD: Where/Select/ToArray/First over the ILookup wrapper; arbitrary
   concrete enumerables; non-(int32|string) key/element families; ToDictionary
   int32 values.
+## 86. Grouping operators over an ILookup result (Where/Select/ToArray/ToList/First) -- IMPLEMENTED (commit 7beece3a)
+
+* extracted the section-81 grouping-materialization loop into
+  il2cpp_lookup_gen_materialize_groupings (a rooted object[] of the per-group
+  Il2CppLinqGrouping objects), shared by the section-81 enumerator and the new
+  arms: to_array / to_list / select / first / first_or_default (all
+  materialize-then-apply, the GroupBy-result shape of b5-gaps §55).
+* new il2cpp_linq_grouping_enumerable_where: materialize the grouping objects
+  (ILookup wrapper OR GroupBy result, dispatched by class) + the standard ref
+  predicate kernel; the result is the ref Where's object[] carrier.
+* transpiler: a new ILookup2_* block binds Count/Any/ToArray/ToList/Select/
+  First/FirstOrDefault/Where; every other operator falls through to the
+  section-85 LOUD gate.
+* probe-tolookup-down2 byte-exact 102B c106cb66 (w1-w9); mutations M1-M4
+  red->green; the section-81 refactor verified behavior-preserving
+  (probe-lookupenum 4dfa4d48 byte-identical).
+* still LOUD: Distinct/other set operators over the wrapper; the Select/Where
+  (element,index) forms; arbitrary concrete enumerables; non-(int32|string)
+  key/element families; ToDictionary int32 values.
