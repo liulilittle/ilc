@@ -31,6 +31,8 @@
 #include "linq_list.h"                 // il2cpp_linq_list_snapshot (List<int> inners)
 #include "listi4.h"                    // il2cpp_list_i4_class (List<int> inners)
 #include "dictgen.h"                   // b5-gaps section 78: the Dictionary`2 wrapper + gen table
+#include "linq_map.h"                  // section 81: Il2CppLinqGrouping + il2cpp_linq_grouping_class
+#include "sortedlist.h"                // section 81: il2cpp_sortedlist_snapshot_get_enumerator
 
 #include "arraysort.h"                 // FindVirtualSlotByNameAndSignature
 #include "il2cpp_array.h"              // kElemKind* (b5-gaps section 70 narrow Join)
@@ -4160,6 +4162,7 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
     roots.Add(reinterpret_cast<void**>(&wObj));
     Il2CppLookupGenObject* wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
     wrapper->lookup = il2cpp_lookup_gen_create(n > 0 ? n : 4);
+    wrapper->lookup->keyKind = keyKind;
     // Every managed array_new can collect/move the (rooted) wrapper: re-derive
     // the raw wrapper pointer from wObj before EACH store (section-78 discipline).
     wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
@@ -4337,6 +4340,72 @@ Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
     Il2CppObject** groups = reinterpret_cast<Il2CppObject**>(
         il2cpp_array_get_elem_ptr(w->groupsRoot, 0));
     return reinterpret_cast<Il2CppArray*>(groups[hit]);
+}
+
+// b5-gaps section 81: IEnumerable.GetEnumerator over the ILookup result.
+// Materialises ONE Il2CppLinqGrouping per group (first-appearance order) --
+// key from keyInt[]/keysRoot, elements = the group's exact snapshot array
+// (groupsRoot[g]), count = groupLen[g] -- into a rooted object[] and wraps it
+// in the shared managed array enumerator, so MoveNext / get_Current / Reset /
+// Dispose ride the sortedlist-snapshot forwarders. The grouping object reuses
+// the GroupBy bucket surface: get_Key + the per-bucket element enumerator
+// (boxed int32 / ref) already dispatch on its class.
+Il2CppObject* il2cpp_lookup_gen_get_enumerator(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return nullptr;
+    }
+    Il2CppObject* selfObj = self;
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&selfObj));
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(selfObj);
+    if (w == nullptr || w->lookup == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return nullptr;
+    }
+    Il2CppClass* groupingClass = il2cpp_linq_grouping_class(); // registered lazily
+    Il2CppLookupGen* lk = w->lookup;
+    const int32_t c = lk->count;
+    const int32_t keyKind = lk->keyKind;
+    Il2CppArray* snap = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, c);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    for (int32_t g = 0; g < c; ++g)
+    {
+        // il2cpp_object_new may collect: derive every raw pointer from the
+        // rooted selfObj BEFORE and AFTER the allocation.
+        Il2CppObject* ng = il2cpp_object_new(groupingClass);
+        Il2CppLinqGrouping* grp = reinterpret_cast<Il2CppLinqGrouping*>(ng);
+        w = reinterpret_cast<Il2CppLookupGenObject*>(selfObj);
+        lk = w->lookup;
+        grp->key = 0;
+        if (keyKind == kGenKind_Int32)
+        {
+            grp->key = lk->keyInt[g];
+            grp->keyRef = nullptr;
+        }
+        else
+        {
+            Il2CppObject** keys = reinterpret_cast<Il2CppObject**>(
+                il2cpp_array_get_elem_ptr(w->keysRoot, 0));
+            grp->keyRef = keys[g];
+            il2cpp_write_barrier(reinterpret_cast<void**>(&grp->keyRef), grp->keyRef);
+        }
+        Il2CppObject** groups = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(w->groupsRoot, 0));
+        grp->elements = reinterpret_cast<Il2CppArray*>(groups[g]);
+        il2cpp_write_barrier(reinterpret_cast<void**>(&grp->elements),
+                             reinterpret_cast<Il2CppObject*>(grp->elements));
+        grp->count = lk->groupLen[g];
+        Il2CppObject** dst = reinterpret_cast<Il2CppObject**>(snap->data);
+        dst[g] = ng;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&dst[g]), ng);
+    }
+    return runtime::il2cpp_sortedlist_snapshot_get_enumerator(
+        reinterpret_cast<Il2CppObject*>(snap));
 }
 
 // The ILookup wrapper descriptor (registered lazily, grouping precedent).

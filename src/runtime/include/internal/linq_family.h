@@ -227,6 +227,7 @@ struct Il2CppLookupGen
     int32_t*  srcIdx;      // flat source indices, group-blocks (grows)
     int32_t   srcIdxCount;
     int32_t   srcIdxCap;
+    int32_t   keyKind;     // kGenKind_Int32/String (the enumerator needs it)
 };
 // b5-gaps section 80: the wrapper carries ONE more managed slot
 // (comparer, refFieldBitmap bit 4): a user IEqualityComparer<TKey> given to
@@ -247,6 +248,12 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
                                     int32_t srcCell);
 Il2CppClass*  il2cpp_lookup_gen_object_class();
 int32_t       il2cpp_lookup_gen_get_count(Il2CppObject* self);
+// b5-gaps section 81: IEnumerable.GetEnumerator over the ILookup result.
+// Materialises the per-group Il2CppLinqGrouping objects (first-appearance
+// order; key + exact element snapshot) into a rooted snapshot array and wraps
+// it in the shared managed array enumerator (MoveNext / get_Current / Dispose
+// ride the sortedlist-snapshot forwarders).
+Il2CppObject* il2cpp_lookup_gen_get_enumerator(Il2CppObject* self);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
                                          int32_t keyKind);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, Il2CppObject* keyRef,

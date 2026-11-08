@@ -47,6 +47,7 @@
 #include "il2cpp_string.h"
 #include "il2cpp_time.h" // A3: DateTime[]/TimeSpan[] tick mask + values
 #include "linq_map.h" // nb9: GroupBy result/bucket enumerator dispatch
+#include "linq_family.h" // b5-gaps section 81: the ILookup wrapper (ToLookup result) enumerator dispatch
 #include "il2cpp_nullable.h" // impl-linq2 (C): icall_unbox_date_time / icall_unbox_guid
 #include "string_compare.h" // a5reds: ordinal / ordinal-ignore-case helpers
 #include "sortedlist.h" // P25d: array snapshot enumerator re-use
@@ -5276,6 +5277,11 @@ Il2CppObject* il2cpp_ienum_get_enumerator(Il2CppObject* receiver)
         return il2cpp_linq_grouping_result_get_enumerator(receiver);
     if (receiver->klass == il2cpp_linq_grouping_class())
         return il2cpp_linq_grouping_get_enumerator(receiver);
+    // b5-gaps section 81: the ILookup wrapper (a ToLookup result) enumerates
+    // its per-group IGrouping objects. The forwarders below serve the array
+    // enumerator it returns.
+    if (receiver->klass == il2cpp_lookup_gen_object_class())
+        return il2cpp_lookup_gen_get_enumerator(receiver);
     if (il2cpp::il2cpp_is_list_obj(receiver))
         return il2cpp::il2cpp_list_obj_get_enumerator(receiver);
     // nb9 fix: the shared BCL HashSet descriptor (one class for every element
@@ -5309,6 +5315,10 @@ Il2CppObject* il2cpp_ienum_get_enumerator_nongeneric(Il2CppObject* receiver)
         return il2cpp_linq_grouping_result_get_enumerator(receiver);
     if (receiver->klass == il2cpp_linq_grouping_class())
         return il2cpp_linq_grouping_get_enumerator(receiver);
+    // b5-gaps section 81: the ILookup wrapper (a ToLookup result) enumerates
+    // its per-group IGrouping objects.
+    if (receiver->klass == il2cpp_lookup_gen_object_class())
+        return il2cpp_lookup_gen_get_enumerator(receiver);
     if (il2cpp::il2cpp_is_list_obj(receiver))
         return il2cpp::il2cpp_list_obj_get_enumerator(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetEnumeratorObj, "GetEnumerator");
