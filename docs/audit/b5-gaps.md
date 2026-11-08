@@ -6661,3 +6661,27 @@ the tracked Dictionary`2 instantiation.
   as a rare use-after-collect, not a deterministic byte divergence. The probe
   pins the observable surface (Count / indexer / Keys / exceptions); the pack
   is the correctness guarantee that keeps those reads valid after a GC.
+
+## 79. Enumerable.ToLookup over ARRAY sources (default key comparer; int32/string keys; int32/string elements) -- IMPLEMENTED (commit d4743dbd)
+
+* materializer: il2cpp_linq_to_lookup(src, keySel, keyKind, srcCell) returns a
+  managed Il2CppLookupGenObject wrapper holding a RAW distinct-key table the GC
+  cannot see + TWO managed object[] root packs (keysRoot = selector-produced ref
+  keys, bit 3; groupsRoot = per-key element SNAPSHOT arrays, bit 4). int32 keys
+  ride an inline keyInt[]; string keys ride keysRoot. Group membership is
+  buffered as raw SRC INDICES (section-62 Join discipline), scattered in a second
+  pass (groupOff[g] + fill[g] advancement), materialized per group as an
+  exact-size LinqNewArray in phase 3. Instance surface:
+  il2cpp_lookup_gen_get_count / _contains (int32/object key overloads) /
+  _get_item (missing key -> empty snapshot; null key is a LEGAL group,
+  probe-verified vs net48). Transpiler: the ToLookup arm returns the tracked
+  pseudo-type System.Linq.ILookup backtick2_<k>_<v>; the instance arm routes
+  get_Count / Contains / get_Item over it (get_Item -> Int32[]/String[] carrier so
+  Sum/Count/Contains stay on the array kernels); MethodRefResolver routes
+  System.Linq.ILookup backtick2 into TryMapLinq (dict shorthand).
+* probe-tolookup byte-exact 299B 8ec63f50 (t1-t8) as recorded in process.md;
+  mutations M1-M5 red -> byte-restored green.
+* LIMITATION (kept LOUD by transpiler guard): only int32/string KEY and ELEMENT
+  sources are served; the user-IEqualityComparer ToLookup overloads stay LOUD;
+  List / IEnumerable sources stay LOUD; the elementSelector (3-generic) overloads
+  stay LOUD (explicit gate, never a silently dropped selector).
