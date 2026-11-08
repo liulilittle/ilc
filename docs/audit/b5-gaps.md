@@ -6808,3 +6808,18 @@ the tracked Dictionary`2 instantiation.
 * still LOUD: Distinct/other set operators over the wrapper; the Select/Where
   (element,index) forms; arbitrary concrete enumerables; non-(int32|string)
   key/element families; ToDictionary int32 values.
+## 87. (element,index) Select/Where over ILookup + Where over GroupBy result -- IMPLEMENTED (commit 62cb4a7d)
+
+* il2cpp_lookup_gen_select_idx (materialize + the ref idx select kernels by
+  resKind) and il2cpp_linq_lookup_gen_where_idx (materialize +
+  il2cpp_linq_where_idx_ref); the section-86 grouping-enumerable Where already
+  served the GroupBy result by class -- the transpiler arm was added.
+* transpiler: the ILookup2_* block splits Select/Where into plain/index forms
+  (idx value results cover ref/i4/i8/f/d); the IGroupingResult block gains the
+  plain Where arm.
+* probe-grp-lookup-idx byte-exact 89B 49bf0b83 (x1-x6); mutations M1-M4
+  red->green; regression 8 anchors byte-identical.
+* still LOUD: Distinct/other set operators over the wrapper (no ref distinct
+  kernel exists for object[] sources); the dt/ts/guid/dec idx-select results;
+  the GroupBy-result index-form Where; arbitrary concrete enumerables;
+  non-(int32|string) key/element families; ToDictionary int32 values.
