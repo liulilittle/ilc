@@ -6081,6 +6081,64 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         string? cmpCell = hasComparer
             ? (genArgs is { Length: >= 1 } && IsRefFamilyByte(genArgs[0]) ? "15" : genArgs is { Length: >= 1 } ? LinqCellCodeOfElemByte(genArgs[0]) : null)
             : null;
+
+        // b5-gaps section 82: Enumerable.ToLookup over a List<T> source
+        // (int32 or System.String elements). The receiver is a LIST OBJECT --
+        // the slot stays UNCAST ("") so the runtime snapshots the list through
+        // il2cpp_linq_list_snapshot and delegates to the section-79 ARRAY
+        // kernel; the ILookup pseudo-type, Count / indexer / Contains and the
+        // enumeration surface are then byte-identical to the array case. This
+        // arm must run BEFORE the comparer gate below (ToLookup+comparer is a
+        // legal combination routed through the same kernel).
+        if (name == "ToLookup")
+        {
+            if (genArgs is { Length: >= 3 })
+            {
+                // The elementSelector overloads STAY LOUD: the section-79/82
+                // kernels group by the SOURCE element and would silently drop
+                // an elementSelector if routed.
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup over a List<T> with an elementSelector is not wired: " +
+                    "the keySelector-only forms only (b5-gaps section 82).");
+            }
+            if (K != "0" && K != "1")
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup over a List<{GenericArgTypeName(genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08)}> " +
+                    "source is not wired: only int32 / System.String list elements have a " +
+                    "type-accurate snapshot (b5-gaps section 82).");
+            }
+            byte ltkey = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+            string lookupKeyKind;
+            if (ltkey is 0x08 or 0x09) { lookupKeyKind = "1"; }
+            else if (ltkey == 0x0E) { lookupKeyKind = "0"; }
+            else if (ltkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
+            { lookupKeyKind = "0"; }
+            else
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup<TKey={GenericArgTypeName(ltkey)}> over a List is not wired: " +
+                    "the TKey family must be int32 or a System.String (b5-gaps section 82).");
+            }
+            // The LIST element family (K) implies the delegated kernel's ARRAY
+            // cell code: an int32 list snapshots into int32[] (cell 7) and a
+            // reference list into the reference array (cell 15 / string).
+            string lsrcCell = K == "1" ? "15" : "7";
+            string lkeySuffix = lookupKeyKind == "1" ? "int" : "string";
+            string lelemSuffix = K == "1" ? "string" : "int";
+            string lookupName = "System.Linq.ILookup`2_" + lkeySuffix + "_" + lelemSuffix;
+            if (hasComparer)
+            {
+                return I("il2cpp::il2cpp_linq_list_to_lookup", 3, true, true, false,
+                    L3, appendLiterals: new[] { lookupKeyKind, lsrcCell },
+                    returnTypeName: lookupName);
+            }
+            return I("il2cpp::il2cpp_linq_list_to_lookup", 2, true, true, false,
+                L2, appendZero: true,
+                appendLiterals: new[] { lookupKeyKind, lsrcCell },
+                returnTypeName: lookupName);
+        }
+
         if (hasComparer && (cmpCell == null ||
             name is not ("Distinct" or "Except" or "Union" or "Intersect" or "SequenceEqual" or "Contains")))
         {

@@ -246,6 +246,15 @@ struct Il2CppLookupGenObject
 Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
                                     Il2CppObject* comparer, int32_t keyKind,
                                     int32_t srcCell);
+// b5-gaps section 82: Enumerable.ToLookup over a List<T> source. The
+// receiver is a LIST OBJECT: snapshotted through il2cpp_linq_list_snapshot
+// into the element-cell array (int32 cells when srcCell=="7", reference cells
+// when srcCell=="15") and delegated to the section-79 array kernel -- the
+// wrapper's Count/indexer/Contains/enumeration are byte-identical to the
+// array case.
+Il2CppObject* il2cpp_linq_list_to_lookup(Il2CppObject* list, Il2CppObject* keySel,
+                                         Il2CppObject* comparer, int32_t keyKind,
+                                         int32_t srcCell);
 Il2CppClass*  il2cpp_lookup_gen_object_class();
 int32_t       il2cpp_lookup_gen_get_count(Il2CppObject* self);
 // b5-gaps section 81: IEnumerable.GetEnumerator over the ILookup result.

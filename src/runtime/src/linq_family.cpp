@@ -4408,6 +4408,38 @@ Il2CppObject* il2cpp_lookup_gen_get_enumerator(Il2CppObject* self)
         reinterpret_cast<Il2CppObject*>(snap));
 }
 
+// b5-gaps section 82: Enumerable.ToLookup over a List<T> source (int32 or
+// System.String elements). The receiver is a LIST OBJECT -- never a cast of
+// the managed List to Il2CppArray* (the items pointer would be read as the
+// array length). The list is snapshotted through il2cpp_linq_list_snapshot
+// (which re-reads the item cells at their real width and REQUIRES a list
+// receiver) into a fresh element-cell array, then the section-79 array kernel
+// materialises the SAME ILookup wrapper -- Count / indexer / Contains and the
+// ILookup / IGrouping enumerators behave byte-identically to the array case.
+// srcCell is the element's array cell code ("7" int32, "15" reference/string)
+// and selects BOTH the snapshot list-kind and the delegated selector ABI.
+Il2CppObject* il2cpp_linq_list_to_lookup(Il2CppObject* list, Il2CppObject* keySel,
+                                         Il2CppObject* comparer, int32_t keyKind,
+                                         int32_t srcCell)
+{
+    if (list == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    if (keySel == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    const int32_t snapKind =
+        (srcCell == 15) ? IL2CPP_LIST_KIND_REF : IL2CPP_LIST_KIND_I4;
+    Il2CppArray* snap = il2cpp_linq_list_snapshot(list, snapKind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_to_lookup(snap, keySel, comparer, keyKind, srcCell);
+}
+
 // The ILookup wrapper descriptor (registered lazily, grouping precedent).
 Il2CppClass g_lookupGenClass = {
     "System.Linq.ILookup`2<gen>",          // name (runtime-internal descriptor)
