@@ -6722,3 +6722,20 @@ the tracked Dictionary`2 instantiation.
   overloads (explicit gate). The count-based LINQ operators over a lookup
   (Enumerable.Count(lk), Select etc.) were not exercised -- the raw foreach +
   Key + group enumeration is the pinned surface.
+## 82. Enumerable.ToLookup over List<T> sources -- IMPLEMENTED (commit 4fcbd587)
+
+* il2cpp_linq_list_to_lookup snapshots the LIST OBJECT (never cast to
+  Il2CppArray*: offsetof(Il2CppArray,length)==offsetof(Il2CppListI4,items))
+  through il2cpp_linq_list_snapshot (KIND_I4 / KIND_REF by srcCell) and
+  delegates to the section-79 array kernel -- Count / get_Item / Contains and
+  the ILookup/IGrouping enumerators byte-identical to the array case; the
+  comparer + GC-in-comparer rooting ride the same route.
+* transpiler: the TryMapLinqList ToLookup arm runs BEFORE the comparer gate and
+  keeps the receiver slot "" (UNCAST); gates mirror the array arm
+  (elementSelector 3-generic LOUD; List element family int32/string only;
+  TKey int32/System.String only).
+* probe-tolookup-list byte-exact 263B 08c3f23d; mutations M1-M4 red->green
+  (M4 started as a false-green pseudo-type mutation -- see the W7 note below).
+* still LOUD: ToLookup / ToDictionary over IEnumerable / ICollection sources;
+  non-(int32|string) key/element families; the elementSelector (3-generic)
+  overloads; ToDictionary List sources (section-78 gate untouched).
