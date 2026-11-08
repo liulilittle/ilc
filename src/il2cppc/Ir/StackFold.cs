@@ -5063,9 +5063,32 @@ public static class StackFold
                     || resolved.CppName.StartsWith("il2cpp::il2cpp_linq_aggregate", StringComparison.Ordinal)))
             {
                 var a0Type = args[0] is LocExpr fl2 && objTypes.TryGetValue(fl2.Name, out var tt2) ? tt2 : null;
+                // b5-gaps section 92: the re-resolve is a SECOND CHANCE for the
+                // receiver hint -- it must never destroy a good first mapping.
+                // It passes (receiverType = arg0Type = a0Type, arg1Type = null),
+                // so for a List-source SelectMany the first resolution -- which
+                // DID see arg1Type = the List and bound
+                // il2cpp_linq_list_select_many -- fails inside Resolve (the
+                // MethodSpec path throws "not wired in M5" instead of returning
+                // null) and the exception took the whole method down
+                // (probe-selectmanylist: a regression from section 74b's
+                // a0IsTrackedList extension, unnoticed because the recent
+                // regression lists omitted that anchor).
                 if (a0Type != null)
-                    resolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
-                        a0Type, args[0] is LocAddrExpr, a0Type);
+                {
+                    ResolvedMethod? reresolved = null;
+                    try
+                    {
+                        reresolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
+                            a0Type, args[0] is LocAddrExpr, a0Type);
+                    }
+                    catch (NotSupportedException)
+                    {
+                        // keep the first resolution
+                    }
+                    if (reresolved != null)
+                        resolved = reresolved;
+                }
             }
             else if (md != null && args.Count > 0 && resolved is { IsInstance: true })
             {

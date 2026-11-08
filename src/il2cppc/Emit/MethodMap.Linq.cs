@@ -235,6 +235,24 @@ public static partial class MethodRefResolver
         //    array-shaped read -- the D-2 guard for a mis-cast List receiver.
         if (name == "SelectMany")
         {
+            // b5-gaps section 92: a grouping-enumerable source (the ILookup
+            // result OR the GroupBy result) is neither an array nor a List --
+            // it must FALL THROUGH to the grouping blocks below, which bind
+            // the materialize-then-kernel helper. Falling into the array/list
+            // arms here would cast the wrapper to Il2CppArray* (the D-2 class).
+            bool smGroupingSrc =
+                (arg1Type != null && arg1Type.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal))
+                || arg1Type == "System.Linq.IGroupingResult"
+                || (arg2Type != null && arg2Type.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal))
+                || arg2Type == "System.Linq.IGroupingResult"
+                || (receiverType != null && receiverType.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal))
+                || receiverType == "System.Linq.IGroupingResult";
+            if (smGroupingSrc)
+            {
+                // fall through to the grouping-enumerable blocks below
+            }
+            else
+            {
             if (count == 3)
             {
                 if (genArgs is not { Length: >= 3 }) return null;
@@ -293,6 +311,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     appendLiterals: new[] { srcCell, resCell, smListKind });
             }
             return null;
+            }
         }
 
         // b5-gaps section 62: Enumerable.Join(outer, inner, outerKeySelector,
@@ -1494,6 +1513,46 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     return I("il2cpp::il2cpp_linq_grouping_result_get_count", 1, true, false, false, new[] { "" });
                 case "Any" when count < 2:
                     return I("il2cpp::il2cpp_linq_grouping_result_any", 1, true, false, false, new[] { "" });
+                case "SelectMany" when count == 2:
+                {
+                    // b5-gaps section 92: SelectMany over the GroupBy result --
+                    // the same materialize-then-section-59-kernel helper that
+                    // serves the ILookup result.
+                    if (genArgs is not { Length: >= 2 }) return null;
+                    string? smRes = genArgs is { Length: >= 2 }
+                        ? LinqCellCodeOfElemByte(genArgs[1]) ?? (IsRefFamilyByte(genArgs[1]) ? "15" : null)
+                        : null;
+                    if (smRes == null)
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.SelectMany<TResult='{GenericArgTypeName(genArgs[1])}'> over a "
+                            + "GroupBy result is not wired: the inner element family has no cell ABI "
+                            + "-- see docs/audit/b5-gaps.md");
+                    }
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_select_many", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: LinqArrayTypeNameExact(genArgs[1], genArgNames, 1),
+                        appendLiterals: new[] { smRes });
+                }
+                case "SelectMany" when count == 3:
+                {
+                    if (genArgs is not { Length: >= 3 }) return null;
+                    string? smColl = genArgs is { Length: >= 3 }
+                        ? LinqCellCodeOfElemByte(genArgs[1]) ?? (IsRefFamilyByte(genArgs[1]) ? "15" : null)
+                        : null;
+                    string? smRes = genArgs is { Length: >= 3 }
+                        ? LinqCellCodeOfElemByte(genArgs[2]) ?? (IsRefFamilyByte(genArgs[2]) ? "15" : null)
+                        : null;
+                    if (smColl == null || smRes == null)
+                    {
+                        throw new NotSupportedException(
+                            "Enumerable.SelectMany with a result selector over a GroupBy result is not "
+                            + "wired: the inner / result element family has no cell ABI -- see "
+                            + "docs/audit/b5-gaps.md");
+                    }
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_select_many3", 3, true, true, false,
+                        new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(genArgs[2], genArgNames, 2),
+                        appendLiterals: new[] { smColl, smRes });
+                }
                 case "ToArray":
                     return I("il2cpp::il2cpp_linq_grouping_result_to_array", 1, true, true, false, new[] { "" },
                         returnTypeName: "System.Object[]");
@@ -1652,6 +1711,47 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     return I("il2cpp::il2cpp_lookup_gen_get_count", 1, true, false, false, new[] { "" });
                 case "Any" when count < 2:
                     return I("il2cpp::il2cpp_lookup_gen_any", 1, true, false, false, new[] { "" });
+                case "SelectMany" when count == 2:
+                {
+                    // b5-gaps section 92: SelectMany over the grouping-enumerable
+                    // (the outer elements are IGrouping objects = reference cells,
+                    // so the section-59 kernel runs unchanged on the materialized
+                    // object[]).
+                    if (genArgs is not { Length: >= 2 }) return null;
+                    string? smRes = genArgs is { Length: >= 2 }
+                        ? LinqCellCodeOfElemByte(genArgs[1]) ?? (IsRefFamilyByte(genArgs[1]) ? "15" : null)
+                        : null;
+                    if (smRes == null)
+                    {
+                        throw new NotSupportedException(
+                            $"Enumerable.SelectMany<TResult='{GenericArgTypeName(genArgs[1])}'> over an "
+                            + "ILookup result is not wired: the inner element family has no cell ABI "
+                            + "-- see docs/audit/b5-gaps.md");
+                    }
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_select_many", 2, true, true, false,
+                        new[] { "", "" }, returnTypeName: LinqArrayTypeNameExact(genArgs[1], genArgNames, 1),
+                        appendLiterals: new[] { smRes });
+                }
+                case "SelectMany" when count == 3:
+                {
+                    if (genArgs is not { Length: >= 3 }) return null;
+                    string? smColl = genArgs is { Length: >= 3 }
+                        ? LinqCellCodeOfElemByte(genArgs[1]) ?? (IsRefFamilyByte(genArgs[1]) ? "15" : null)
+                        : null;
+                    string? smRes = genArgs is { Length: >= 3 }
+                        ? LinqCellCodeOfElemByte(genArgs[2]) ?? (IsRefFamilyByte(genArgs[2]) ? "15" : null)
+                        : null;
+                    if (smColl == null || smRes == null)
+                    {
+                        throw new NotSupportedException(
+                            "Enumerable.SelectMany with a result selector over an ILookup result is not "
+                            + "wired: the inner / result element family has no cell ABI -- see "
+                            + "docs/audit/b5-gaps.md");
+                    }
+                    return I("il2cpp::il2cpp_linq_grouping_enumerable_select_many3", 3, true, true, false,
+                        new[] { "", "", "" }, returnTypeName: LinqArrayTypeNameExact(genArgs[2], genArgNames, 2),
+                        appendLiterals: new[] { smColl, smRes });
+                }
                 case "ToArray":
                     return I("il2cpp::il2cpp_lookup_gen_to_array", 1, true, true, false, new[] { "" },
                         returnTypeName: "System.Object[]");

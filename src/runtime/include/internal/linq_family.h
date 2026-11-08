@@ -316,6 +316,15 @@ Il2CppArray*  il2cpp_linq_grouping_enumerable_select_idx(Il2CppObject* self, Il2
                                                          int32_t resKind);
 Il2CppArray*  il2cpp_linq_grouping_enumerable_where_idx(Il2CppObject* self,
                                                         Il2CppObject* pred);
+// b5-gaps section 92: Enumerable.SelectMany (2-arg and 3-arg) over the
+// grouping-enumerable (the ILookup result OR the GroupBy result). The outer
+// elements are IGrouping objects -- reference cells -- so the section-59/61
+// kernels run unchanged on the materialized object[].
+Il2CppArray*  il2cpp_linq_grouping_enumerable_select_many(Il2CppObject* src, Il2CppObject* sel,
+                                                          int32_t resCell);
+Il2CppArray*  il2cpp_linq_grouping_enumerable_select_many3(Il2CppObject* src, Il2CppObject* collSel,
+                                                           Il2CppObject* resSel, int32_t collCell,
+                                                           int32_t resCell);
 Il2CppObject* il2cpp_lookup_gen_first(Il2CppObject* self);
 Il2CppObject* il2cpp_lookup_gen_first_or_default(Il2CppObject* self);
 // b5-gaps section 86: Enumerable.Where over a grouping-yielding source (the

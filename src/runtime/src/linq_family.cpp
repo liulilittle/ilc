@@ -4770,6 +4770,41 @@ Il2CppArray* il2cpp_linq_grouping_enumerable_where_idx(Il2CppObject* self, Il2Cp
     return il2cpp_linq_where_idx_ref(elems, pred);
 }
 
+// b5-gaps section 92: Enumerable.SelectMany over the grouping-enumerable (the
+// ILookup result OR the GroupBy result). The outer elements are IGrouping
+// objects (reference cells), so the section-59/61 kernels run UNCHANGED on the
+// materialized object[] with the REFERENCE source cell; the inner sequence is
+// whatever the collection selector returns (an array, a List, a LINQ pipeline,
+// or the grouping itself -- SnapshotManyInner normalizes it).
+Il2CppArray* il2cpp_linq_grouping_enumerable_select_many(Il2CppObject* src, Il2CppObject* sel,
+                                                         int32_t resCell)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_select_many(elems, sel, IL2CPP_LINQ_CELL_REF, resCell);
+}
+
+Il2CppArray* il2cpp_linq_grouping_enumerable_select_many3(Il2CppObject* src, Il2CppObject* collSel,
+                                                          Il2CppObject* resSel, int32_t collCell,
+                                                          int32_t resCell)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    Il2CppArray* elems = LinqGroupingEnumerableArray(src);
+    if (elems == nullptr)
+        return nullptr;
+    return il2cpp_linq_select_many3(elems, collSel, resSel, IL2CPP_LINQ_CELL_REF, collCell, resCell);
+}
+
 Il2CppObject* il2cpp_lookup_gen_first(Il2CppObject* self)
 {
     if (self == nullptr)
