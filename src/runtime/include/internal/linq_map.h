@@ -473,6 +473,11 @@ Il2CppArray* il2cpp_linq_select_dec_ref(Il2CppArray* src, Il2CppObject* sel);
 // Func<decimal,bool>)). The predicate takes the decimal BY VALUE; the result is
 // a fresh decimal[] with the matching elements.
 Il2CppArray* il2cpp_linq_where_dec(Il2CppArray* src, Il2CppObject* pred);
+// b5-gaps section 90: the DECIMAL-source INDEX predicate (net48
+// Where<decimal>(source, Func<decimal,int,bool>)) -- the counterpart of the
+// dt/ts/guid/dtoffset where_idx_<fam> entries; the predicate takes the decimal
+// BY VALUE plus the zero-based source index; a fresh decimal[] of the matches.
+Il2CppArray* il2cpp_linq_where_idx_dec(Il2CppArray* src, Il2CppObject* pred);
 
 // p0grp: the DECIMAL-source element operators (net48 First / Last / ElementAt /
 // Contains / Reverse / Take / Skip). The element-returning entries write the

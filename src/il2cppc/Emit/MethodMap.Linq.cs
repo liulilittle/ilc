@@ -2057,12 +2057,13 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 if (genArgs is not { Length: >= 1 })
                     return null;
                 bool predIdx = LinqSecondParamGenericArgCount(md, sigHandle) == 3;
-                if (predIdx)
-                    throw new NotSupportedException(
-                        "Enumerable.Where over a System.Decimal source with an (element, index) predicate " +
-                        "is not wired (the runtime has no decimal index-predicate entry)");
-                return I("il2cpp::il2cpp_linq_where_dec", 2, true, true, false, TwoArg,
-                    returnTypeName: "System.Decimal[]");
+                // b5-gaps section 90: the (element, index) predicate rides the
+                // decimal index-predicate entry -- the counterpart of the
+                // dt/ts/guid/dtoffset where_idx_<fam> bindings in the vt block.
+                return I(predIdx
+                        ? "il2cpp::il2cpp_linq_where_idx_dec"
+                        : "il2cpp::il2cpp_linq_where_dec",
+                    2, true, true, false, TwoArg, returnTypeName: "System.Decimal[]");
             }
             // p0grp: the DECIMAL-source element operators (net48 First / Last /
             // ElementAt / Contains / Reverse / Take / Skip). The element-returning

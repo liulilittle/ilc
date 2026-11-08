@@ -622,6 +622,19 @@ float InvokeSelDecF(Il2CppDelegate* d, const runtime::Il2CppDecimal& v)
         : reinterpret_cast<SelDecFFn>(d->methodPtr)(v);
 }
 
+// b5-gaps section 90: the DECIMAL-source INDEX predicate ABI (net48
+// Where<decimal>(source, Func<decimal,int,bool>)) -- the counterpart of
+// InvokePredDtIdx/TsIdx/GuidIdx/DtoIdx.
+typedef bool (*PredDecIdxFn)(runtime::Il2CppDecimal, int32_t);
+typedef bool (*PredDecIdxThisFn)(Il2CppObject*, runtime::Il2CppDecimal, int32_t);
+
+bool InvokePredDecIdx(Il2CppDelegate* d, const runtime::Il2CppDecimal& v, int32_t index)
+{
+    return d->target != nullptr
+        ? reinterpret_cast<PredDecIdxThisFn>(d->methodPtr)(d->target, v, index)
+        : reinterpret_cast<PredDecIdxFn>(d->methodPtr)(v, index);
+}
+
 // The DECIMAL-source INDEX selector ABIs (net48 Select<decimal,int,TResult>):
 // the element crosses by value and the zero-based source index as the second
 // argument.
@@ -3879,6 +3892,51 @@ Il2CppArray* il2cpp_linq_select_dec_ref(Il2CppArray* src, Il2CppObject* sel)
             il2cpp_array_get_elem_ptr(out, i));
         il2cpp_write_barrier(reinterpret_cast<void**>(slot), r);
         *slot = r;
+    }
+    return out;
+}
+
+// b5-gaps section 90: Where over a DECIMAL source with an (element, index)
+// predicate (net48 Where<decimal>(source, Func<decimal,int,bool>)). Same
+// shape as il2cpp_linq_where_dec but the predicate also gets the zero-based
+// source index.
+Il2CppArray* il2cpp_linq_where_idx_dec(Il2CppArray* src, Il2CppObject* pred)
+{
+    RequireArray(src);
+    Il2CppDelegate* d = RequireCallback(pred, "predicate");
+    RequireDecimalFamily(src);
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&d));
+    roots.Add(reinterpret_cast<void**>(&src));
+
+    Il2CppArray* scratch = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, src->length);
+    roots.Add(reinterpret_cast<void**>(&scratch));
+    int32_t w = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        const runtime::Il2CppDecimal v = *DecAt(src, i);
+        if (InvokePredDecIdx(d, v, i))
+        {
+            *reinterpret_cast<runtime::Il2CppDecimal*>(
+                il2cpp_array_get_elem_ptr(scratch, w)) = v;
+            ++w;
+        }
+    }
+    if (w == src->length)
+    {
+        return scratch; // already exact
+    }
+    Il2CppArray* out = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, w);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < w; ++i)
+    {
+        *reinterpret_cast<runtime::Il2CppDecimal*>(
+            il2cpp_array_get_elem_ptr(out, i)) =
+            *reinterpret_cast<runtime::Il2CppDecimal*>(
+                il2cpp_array_get_elem_ptr(scratch, i));
     }
     return out;
 }
