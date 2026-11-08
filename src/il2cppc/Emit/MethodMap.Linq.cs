@@ -1614,17 +1614,23 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             }
             // TValue: the 3-generic-argument form has TElement at index 2; the
             // 2-argument form's VALUE is the TSource element itself (index 0).
+            // ONLY string values are served: a ToDictionary result is a DICTGEN
+            // wrapper object whose instance surface (get_Item/get_Keys/foreach)
+            // is wired for the string-value gen domains (int32->string /
+            // string->string); an int32 value would route the wrapper through
+            // the DICTSI icalls (string->int32) and read the wrong object
+            // layout (a latent pre-existing crash -- b5-gaps section 83).
             byte tval = genArgs.Length >= 3 ? genArgs[2] : genArgs[0];
             string dictValueKind, dictValueSuffix;
-            if (tval is 0x08 or 0x09) { dictValueKind = "1"; dictValueSuffix = "int"; }
-            else if (tval == 0x0E) { dictValueKind = "0"; dictValueSuffix = "string"; }
+            if (tval == 0x0E) { dictValueKind = "0"; dictValueSuffix = "string"; }
             else if (tval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.String")
             { dictValueKind = "0"; dictValueSuffix = "string"; }
             else
             {
                 throw new NotSupportedException(
-                    $"Enumerable.ToDictionary<TValue={GenericArgTypeName(tval)}> is not wired: the " +
-                    "TValue family must be int32 or a System.String (b5-gaps section 78).");
+                    $"Enumerable.ToDictionary with a {GenericArgTypeName(tval)} TValue is not wired: " +
+                    "only System.String values have a ToDictionary result surface (an int32 value would " +
+                    "route the dictionary wrapper through the incompatible dictsi icalls -- b5-gaps section 83).");
             }
             string? srcCell = genArgs is { Length: >= 1 }
                 ? LinqCellCodeOfElemByte(genArgs[0]) ?? (genArgs[0] == 0x0E ? "15" : null)
@@ -6108,6 +6114,21 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     "source is not wired: only int32 / System.String list elements have a " +
                     "type-accurate snapshot (b5-gaps section 82).");
             }
+            // The ELEMENT byte must be int32 (cell "7") or System.String (cell
+            // "15") -- a reference-list K "1" also covers some OTHER class, and
+            // routing a List<SomeClass> through the string cell ABI would
+            // silently mis-type it (b5-gaps section 82 element gate).
+            bool ltElemOk = genArgs is { Length: >= 1 } &&
+                (LinqCellCodeOfElemByte(genArgs[0]) == "7"
+                 || genArgs[0] == 0x0E
+                 || (genArgs[0] == 0x11 && genArgNames is { Length: >= 1 }
+                     && genArgNames[0] == "System.String"));
+            if (!ltElemOk && K == "1")
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup over a List<{GenericArgTypeName(genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08)}> " +
+                    "source is not wired: the element family must be System.String (b5-gaps section 82).");
+            }
             byte ltkey = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
             string lookupKeyKind;
             if (ltkey is 0x08 or 0x09) { lookupKeyKind = "1"; }
@@ -6137,6 +6158,86 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 L2, appendZero: true,
                 appendLiterals: new[] { lookupKeyKind, lsrcCell },
                 returnTypeName: lookupName);
+        }
+
+        // b5-gaps section 83: Enumerable.ToDictionary over a List<T> source
+        // (int32 or System.String elements). The receiver is a LIST OBJECT --
+        // the slot stays UNCAST ("") so the runtime snapshots the list through
+        // il2cpp_linq_list_snapshot and delegates to the section-78 ARRAY
+        // kernel; the Dictionary`2 pseudo-type, get_Item / get_Count /
+        // get_Keys / ContainsKey are then byte-identical to the array case.
+        // Both the 2-arg (value = element) and the 3-generic elementSelector
+        // forms are wired; the user-IEqualityComparer overloads stay LOUD
+        // exactly as the section-78 array arm leaves them.
+        if (name == "ToDictionary")
+        {
+            if (LinqHasComparerParam(md, sigHandle))
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary over a List<T> with a user IEqualityComparer is not wired: " +
+                    "the default comparer forms only (b5-gaps section 83).");
+            }
+            if (genArgs is not { Length: >= 2 })
+            {
+                return null;
+            }
+            // The receipt of the two element families:
+            bool dtElemOk = genArgs is { Length: >= 1 } &&
+                (LinqCellCodeOfElemByte(genArgs[0]) == "7"
+                 || genArgs[0] == 0x0E
+                 || (genArgs[0] == 0x11 && genArgNames is { Length: >= 1 }
+                     && genArgNames[0] == "System.String"));
+            if (!dtElemOk || (K != "0" && K != "1") ||
+                (K == "1" && LinqCellCodeOfElemByte(genArgs[0]) == "7"))
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary over a List<{GenericArgTypeName(genArgs[0])}> " +
+                    "source is not wired: only int32 / System.String list elements have a " +
+                    "type-accurate snapshot (b5-gaps section 83).");
+            }
+            byte dtkey = genArgs[1];
+            string dtKeyKind, dtKeySuffix;
+            if (dtkey is 0x08 or 0x09) { dtKeyKind = "1"; dtKeySuffix = "int"; }
+            else if (dtkey == 0x0E) { dtKeyKind = "0"; dtKeySuffix = "string"; }
+            else if (dtkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
+            { dtKeyKind = "0"; dtKeySuffix = "string"; }
+            else
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary<TKey={GenericArgTypeName(dtkey)}> over a List is not wired: " +
+                    "the TKey family must be int32 or a System.String (b5-gaps section 83).");
+            }
+            // TValue: the 3-generic form has TElement at index 2; the 2-arg
+            // form's VALUE is the TSource element itself (index 0).
+            // ONLY string values are served (the ToDictionary result is a
+            // DICTGEN wrapper; an int32 value would route it through the
+            // incompatible dictsi icalls -- b5-gaps section 83).
+            byte dtval = genArgs.Length >= 3 ? genArgs[2] : genArgs[0];
+            string dtValueKind, dtValueSuffix;
+            if (dtval == 0x0E) { dtValueKind = "0"; dtValueSuffix = "string"; }
+            else if (dtval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.String")
+            { dtValueKind = "0"; dtValueSuffix = "string"; }
+            else
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary over a List with a {GenericArgTypeName(dtval)} TValue is not wired: " +
+                    "only System.String values have a ToDictionary result surface (b5-gaps section 83).");
+            }
+            // The delegated kernel's ARRAY cell code follows the List element
+            // family: int32 list -> cell 7; reference list -> cell 15.
+            string dtsrcCell = K == "1" ? "15" : "7";
+            string dtName = "System.Collections.Generic.Dictionary`2_" + dtKeySuffix + "_" + dtValueSuffix;
+            if (genArgs.Length < 3)
+            {
+                return I("il2cpp::il2cpp_linq_list_to_dictionary", 2, true, true, false,
+                    L2, appendZero: true,
+                    appendLiterals: new[] { dtKeyKind, dtValueKind, dtsrcCell },
+                    returnTypeName: dtName);
+            }
+            return I("il2cpp::il2cpp_linq_list_to_dictionary", 3, true, true, false,
+                L3,
+                appendLiterals: new[] { dtKeyKind, dtValueKind, dtsrcCell },
+                returnTypeName: dtName);
         }
 
         if (hasComparer && (cmpCell == null ||

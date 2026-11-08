@@ -209,6 +209,15 @@ bool il2cpp_linq_contains_family_cmp_dtoffset(Il2CppArray* src,
 Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
                                         Il2CppObject* elemSel, int32_t keyKind,
                                         int32_t valueKind, int32_t srcCell);
+// b5-gaps section 83: Enumerable.ToDictionary over a List<T> source. The
+// receiver is a LIST OBJECT: snapshotted through il2cpp_linq_list_snapshot
+// into the element-cell array (int32 cells when srcCell=="7", reference cells
+// when srcCell=="15") and delegated to the section-78 array kernel -- the
+// dictionary's get_Item/get_Count/get_Keys/ContainsKey behave byte-identically
+// to the array case above.
+Il2CppObject* il2cpp_linq_list_to_dictionary(Il2CppObject* list, Il2CppObject* keySel,
+                                             Il2CppObject* elemSel, int32_t keyKind,
+                                             int32_t valueKind, int32_t srcCell);
 
 // b5-gaps section 79: Enumerable.ToLookup over an ARRAY source. The result is
 // a managed ILookup pseudo-object (Il2CppLookupGenObject) holding a raw

@@ -4082,6 +4082,38 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
     return wObj;
 }
 
+// b5-gaps section 83: Enumerable.ToDictionary over a List<T> source (int32 or
+// System.String elements). The receiver is a LIST OBJECT -- never a cast of the
+// managed List to Il2CppArray* (the items pointer would be read as the array
+// length). The list is snapshotted through il2cpp_linq_list_snapshot into a
+// fresh element-cell array (int32 cells when srcCell=="7", reference cells when
+// srcCell=="15"), then the section-78 array kernel materialises the SAME
+// Dictionary`2 wrapper -- get_Item / get_Count / get_Keys / ContainsKey behave
+// byte-identically to the array case. The elementSelector is glued in either
+// form (null for the 2-arg value-is-element form; the kernel's 3rd param for
+// the elementSelector form).
+Il2CppObject* il2cpp_linq_list_to_dictionary(Il2CppObject* list, Il2CppObject* keySel,
+                                             Il2CppObject* elemSel, int32_t keyKind,
+                                             int32_t valueKind, int32_t srcCell)
+{
+    if (list == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    if (keySel == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    const int32_t snapKind =
+        (srcCell == 15) ? IL2CPP_LIST_KIND_REF : IL2CPP_LIST_KIND_I4;
+    Il2CppArray* snap = il2cpp_linq_list_snapshot(list, snapKind);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&snap));
+    return il2cpp_linq_to_dictionary(snap, keySel, elemSel, keyKind, valueKind, srcCell);
+}
+
 // b5-gaps section 79: Enumerable.ToLookup over an ARRAY source.
 //
 // src         -- the source array (element family in srcCell).
