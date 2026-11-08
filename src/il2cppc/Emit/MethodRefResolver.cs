@@ -2676,6 +2676,14 @@ var userRecvLike = receiverType ?? arg0Type;
             case "System.Linq.IGrouping`2":
                 return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, genArgNames,
                     receiverType, receiverIsAddress, arg0Type, arg1Type);
+            // b5-gaps section 79: the ILookup<TKey,TElement> instance surface
+            // (get_Count / Contains / get_Item on a ToLookup result). Routes to
+            // the same TryMapLinq block as the dict pseudo-types; the receiver
+            // hint "System.Linq.ILookup`2_<key>_<elem>" carries the key/elem
+            // families into the instance arm.
+            case "System.Linq.ILookup`2":
+                return TryMapLinq(md, sigHandle, owner, name, ps, count, genArgs, genArgNames,
+                    receiverType, receiverIsAddress, arg0Type, arg1Type);
             // Legacy family (MethodMap.Legacy.cs): System.Runtime.Remoting.* /
             // AppDomain / ArgIterator / ReaderWriterLock / ExtensibleClassFactory.
             // p0c wired the five Remoting state accessors, the ReaderWriterLock

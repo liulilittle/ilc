@@ -953,6 +953,65 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             };
         }
 
+        // b5-gaps section 79: the ILookup<TKey,TElement> instance surface over
+        // a ToLookup result. The receiver hint
+        // "System.Linq.ILookup`2_<key>_<elem>" (the static arm's returnTypeName)
+        // carries the key/elem families; get_Item returns the group's
+        // ELEMENT-ARRAY snapshot (int[]/string[]) -- the returnTypeName below
+        // keeps Sum/Count/Contains on the array kernels. The int32-key and
+        // object-key overloads bind the SAME icall name through C++ overload
+        // resolution (the key cast selects it: "i" vs ""). The HINT can ride
+        // srcType (get_Count, pre-scan) OR arg1Type (Contains/get_Item under
+        // the interface-dispatched shape -- the grouping get_Key precedent),
+        // and the OWNER + genArgs fallback covers the callvirt-on-interface
+        // shape: Try every carrier before giving up.
+        string? lookupHint = srcType;
+        if (lookupHint == null || !lookupHint.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal))
+        {
+            if (arg1Type != null && arg1Type.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal))
+                lookupHint = arg1Type;
+        }
+        string? lkKeyKind = null, lkElemCell = null, lkElemArr = null;
+        if (lookupHint != null && lookupHint.StartsWith("System.Linq.ILookup`2_", StringComparison.Ordinal))
+        {
+            string rest = lookupHint.Substring("System.Linq.ILookup`2_".Length);
+            int us = rest.IndexOf('_');
+            string kp = us > 0 ? rest.Substring(0, us) : rest;
+            string ep = us > 0 ? rest.Substring(us + 1) : "";
+            lkKeyKind = kp == "int" ? "1" : "0";
+            lkElemCell = ep == "string" ? "15" : "7";
+            lkElemArr = ep == "string" ? "System.String[]" : "System.Int32[]";
+        }
+        else if (owner == "System.Linq.ILookup`2" && genArgs is { Length: >= 2 }
+            && (genArgs[0] is 0x08 or 0x09 or 0x0E)
+            && (genArgs[1] == 0x0E || LinqCellCodeOfElemByte(genArgs[1]) != null))
+        {
+            lkKeyKind = genArgs[0] is 0x08 or 0x09 ? "1" : "0";
+            lkElemCell = genArgs[1] == 0x0E ? "15" : LinqCellCodeOfElemByte(genArgs[1]);
+            lkElemArr = genArgs[1] == 0x0E ? "System.String[]" : "System.Int32[]";
+        }
+        if (lkKeyKind != null && lkElemCell != null && lkElemArr != null)
+        {
+            if (name == "get_Count" && count == 0)
+            {
+                return I("il2cpp::il2cpp_lookup_gen_get_count", 0, true, false, true,
+                    new[] { "" });
+            }
+            if (name == "Contains" && count == 1)
+            {
+                return I("il2cpp::il2cpp_lookup_gen_contains", 1, true, false, true,
+                    lkKeyKind == "1" ? new[] { "", "i" } : new[] { "", "" },
+                    appendLiterals: new[] { lkKeyKind });
+            }
+            if (name == "get_Item" && count == 1)
+            {
+                return I("il2cpp::il2cpp_lookup_gen_get_item", 1, true, true, true,
+                    lkKeyKind == "1" ? new[] { "", "i" } : new[] { "", "" },
+                    appendLiterals: new[] { lkKeyKind, lkElemCell },
+                    returnTypeName: lkElemArr);
+            }
+        }
+
         // D-LINQ-4 grouping surface: the GroupBy pseudo-types dispatch here.
         // "System.Linq.IGrouping" is one per-bucket grouping (int32 keys and
         // int32 elements only); it arrives as an arg0/receiver hint on
@@ -1590,6 +1649,64 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 new[] { "a", "", "" },
                 appendLiterals: new[] { dictKeyKind, dictValueKind, srcCell },
                 returnTypeName: dictName);
+        }
+
+        // b5-gaps section 79: Enumerable.ToLookup over an ARRAY source. The
+        // result is the ILookup wrapper (il2cpp_linq_to_lookup); its
+        // pseudo-type "System.Linq.ILookup`2_<key>_<elem>" routes the instance
+        // surface, and get_Item returns the group's ELEMENT-ARRAY snapshot
+        // (int[]/string[]) so the downstream array operators keep their
+        // kernels. The comparer forms stay LOUD (a silently-dropped comparer
+        // would diverge from net48).
+        if (name == "ToLookup")
+        {
+            if (listKind != null)
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup over a List<T> source is not wired: " +
+                    "only ARRAY sources are served (b5-gaps section 79).");
+            }
+            if (LinqHasComparerParam(md, sigHandle))
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup with a user IEqualityComparer is not wired: " +
+                    "the default comparer forms only (b5-gaps section 79).");
+            }
+            if (genArgs is not { Length: >= 2 })
+            {
+                return null;
+            }
+            byte ltkey = genArgs[1];
+            string lookupKeyKind, lookupKeySuffix;
+            if (ltkey is 0x08 or 0x09) { lookupKeyKind = "1"; lookupKeySuffix = "int"; }
+            else if (ltkey == 0x0E) { lookupKeyKind = "0"; lookupKeySuffix = "string"; }
+            else if (ltkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
+            { lookupKeyKind = "0"; lookupKeySuffix = "string"; }
+            else
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup<TKey={GenericArgTypeName(ltkey)}> is not wired: the " +
+                    "TKey family must be int32 or a System.String (b5-gaps section 79).");
+            }
+            string? lsrcCell = genArgs is { Length: >= 1 }
+                ? LinqCellCodeOfElemByte(genArgs[0]) ?? (genArgs[0] == 0x0E ? "15" : null)
+                : null;
+            // The instance surface's get_Item returns the group as an
+            // "Int32[]"/"String[]" carrier; only those two ELEMENT families
+            // have a type-accurate snapshot (a long[]/double[]/enum[] source
+            // would be silently mis-typed if routed -- always LOUD instead).
+            if (lsrcCell != "7" && lsrcCell != "15")
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToLookup over a {GenericArgTypeName(genArgs[0])} source is not wired: " +
+                    "the source element family must be int32 or a System.String (b5-gaps section 79).");
+            }
+            string lelemSuffix = lsrcCell == "15" ? "string" : "int";
+            string lookupName = "System.Linq.ILookup`2_" + lookupKeySuffix + "_" + lelemSuffix;
+            return I("il2cpp::il2cpp_linq_to_lookup", 2, true, true, false,
+                new[] { "a", "" },
+                appendLiterals: new[] { lookupKeyKind, lsrcCell },
+                returnTypeName: lookupName);
         }
 
         // P0LINQ1 (D3): a VALUE-TYPE-element ARRAY source. LinqSourceFamily

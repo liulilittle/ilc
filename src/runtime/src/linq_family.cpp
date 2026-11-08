@@ -43,6 +43,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <vector>
@@ -4077,6 +4078,401 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
         il2cpp_dict_gen_add(wrapper->dict, keyInt, keyRef, value, keyKind, valueKind);
     }
     return wObj;
+}
+
+// b5-gaps section 79: Enumerable.ToLookup over an ARRAY source.
+//
+// src         -- the source array (element family in srcCell).
+// keySel      -- Func<TSource,TKey> (never null; a null THROWS ArgumentNullException).
+// keyKind     -- kGenKind_Int32 (1) = int32 key (inline in keyInt[]);
+//                kGenKind_String (0) = reference key (managed carriers).
+// srcCell     -- the source ELEMENT cell code (LinqCell family); the groups hold
+//                TSource elements, so the group snapshot arrays are srcCell arrays.
+//
+// NET48 CONTRACT (probe-verified): distinct keys appear in FIRST-APPEARANCE order;
+// each group's elements preserve SOURCE order. A NULL reference key is a LEGAL
+// distinct key (Lookup.Create stores it as its own group -- unlike Dictionary --
+// and the probe pins Count incl. the null group + Contains(null) == true). get_Item
+// for a MISSING key returns an EMPTY sequence; get_Item(any null key) returns the
+// null group. The default key comparer: int32 == / string ORDINAL content.
+//
+// REF-KEY + GROUP ROOTING (the objective's "ref-key rooting"): the distinct keys
+// and the per-key element SNAPSHOT arrays live in TWO managed object[] packs the
+// wrapper roots (refFieldBitmap bits 2 and 3). The materializer stores every
+// selector-produced reference key into keysRoot and every snapshot array into
+// groupsRoot (both through the write barrier). A selector that returns NEW strings
+// (t7's GC.Collect-in-selector case) is therefore kept alive for the lookup's
+// lifetime. Intermediate buffering is row SOURCE INDICES (raw ints, no managed
+// pointers -- the section-62 Join discipline), materialized in a second pass.
+Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
+                                    int32_t keyKind, int32_t srcCell)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("source");
+        return nullptr;
+    }
+    if (keySel == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    Il2CppClass* cls = reinterpret_cast<Il2CppObject*>(src)->klass;
+    if (cls == nullptr || cls->name == nullptr || cls->name[0] != '[')
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToLookup: the source is not a one-dimensional array "
+            "(List/IEnumerable sources stay LOUD, b5-gaps section 79).");
+        return nullptr;
+    }
+    LinqRequireCell(src, srcCell);
+    const int32_t srcSlot = Sel2ArgSlotOf(srcCell);
+    if (srcSlot < 0)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToLookup: the source element family has no selector "
+            "ABI (b5-gaps section 79).");
+        return nullptr;
+    }
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_String)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.ToLookup: this TKey family has no lookup key kind "
+            "(b5-gaps section 79).");
+        return nullptr;
+    }
+    Il2CppDelegate* kd = reinterpret_cast<Il2CppDelegate*>(keySel);
+    if (kd == nullptr || kd->methodPtr == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("keySelector");
+        return nullptr;
+    }
+    const int32_t keySlot = keyKind == kGenKind_Int32 ? 0 : 3; // i4 / ref (o)
+    const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
+    const int32_t n = src->length;
+
+    Il2CppObject* wObj = il2cpp_object_new(il2cpp_lookup_gen_object_class());
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+    roots.Add(reinterpret_cast<void**>(&wObj));
+    Il2CppLookupGenObject* wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    wrapper->lookup = il2cpp_lookup_gen_create(n > 0 ? n : 4);
+    // Every managed array_new can collect/move the (rooted) wrapper: re-derive
+    // the raw wrapper pointer from wObj before EACH store (section-78 discipline).
+    wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    wrapper->keysRoot = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, n + 4);
+    wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    wrapper->groupsRoot = il2cpp_array_new(
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, n + 4);
+
+    Il2CppLookupGen* lk = wrapper->lookup;
+    int32_t* srcGroup = static_cast<int32_t*>(
+        std::malloc(sizeof(int32_t) * (n > 0 ? n : 1)));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Sel2Arg a;
+        switch (srcSlot)
+        {
+            case 0: a.i4 = LinqCellReadI4(src, i, srcCell); break;
+            case 1: a.i8 = LinqCellReadI8(src, i, srcCell); break;
+            case 2: a.d  = LinqCellReadD(src, i, srcCell); break;
+            default: a.o = LinqCellReadRef(src, i, srcCell); break;
+        }
+        const int64_t kc = ikey(kd, a);
+        int32_t keyInt = 0;
+        Il2CppObject* keyRef = nullptr;
+        if (keyKind == kGenKind_Int32)
+        {
+            keyInt = static_cast<int32_t>(kc);
+        }
+        else
+        {
+            keyRef = reinterpret_cast<Il2CppObject*>(kc);
+        }
+        // The selector may allocate (t7's GC.Collect), compacting the heap;
+        // re-derive every managed pointer from the roots before any barrier-write
+        // and keep the group search driving off the KEYSTree state it owns.
+        wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+        const int32_t group = il2cpp_lookup_gen_find_or_add(
+            wrapper, keyInt, keyRef, keyKind);
+        srcGroup[i] = group;
+        ++lk->groupLen[group];
+    }
+    // Phase 2: prefix-sum the per-group counts into groupOff, then scatter
+    // the collected source indices so each group's block is contiguous and
+    // preserves SOURCE order inside the group.
+    int32_t run = 0;
+    for (int32_t g = 0; g < lk->count; ++g)
+    {
+        lk->groupOff[g] = run;
+        run += lk->groupLen[g];
+    }
+    int32_t* fill = static_cast<int32_t*>(
+        std::malloc(sizeof(int32_t) * (lk->count > 0 ? lk->count : 1)));
+    for (int32_t g = 0; g < lk->count; ++g) fill[g] = 0;
+    for (int32_t i = 0; i < n; ++i)
+    {
+        const int32_t g = srcGroup[i];
+        lk->srcIdx[lk->groupOff[g] + fill[g]] = i;
+        ++fill[g];
+    }
+    std::free(fill);
+    std::free(srcGroup);
+    // Phase 3: materialize each group's element snapshot array from the
+    // collected source indices (exact-size LinqNewArray, no reallocation).
+    // NOTE: the groupsRoot pack pointer MUST be re-derived per group AFTER
+    // LinqNewArray -- that allocation can collect/move the rooted wrapper, so
+    // a pointer captured before the loop goes stale (section-78 discipline).
+    const int32_t gcount = lk->count;
+    for (int32_t g = 0; g < gcount; ++g)
+    {
+        const int32_t len = lk->groupLen[g];
+        Il2CppArray* arr = LinqNewArray(srcCell, len);
+        char* dst = LinqCellPtr(arr, 0);
+        for (int32_t k = 0; k < len; ++k)
+        {
+            const int32_t si = lk->srcIdx[lk->groupOff[g] + k];
+            char* dslot = dst + k * static_cast<int64_t>(LinqCellSize(srcCell));
+            Il2CppObject** barrierSlot =
+                srcCell == IL2CPP_LINQ_CELL_REF
+                    ? reinterpret_cast<Il2CppObject**>(dslot)
+                    : nullptr;
+            LinqCellCopy(dslot, barrierSlot, src, si, srcCell);
+        }
+        wrapper = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+        Il2CppObject** groups = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(wrapper->groupsRoot, 0));
+        Il2CppObject* arrObj = reinterpret_cast<Il2CppObject*>(arr);
+        groups[g] = arrObj;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&groups[g]), arrObj);
+    }
+    return wObj;
+}
+
+// instance surface (routed by the tracked pseudo-type "System.Linq.ILookup`2_<k>_<v>"):
+int32_t il2cpp_lookup_gen_get_count(Il2CppObject* self)
+{
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    if (w == nullptr || w->lookup == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return 0;
+    }
+    return w->lookup->count;
+}
+
+bool il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
+                                Il2CppObject* keyRef, int32_t keyKind)
+{
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    if (w == nullptr || w->lookup == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return false;
+    }
+    const int32_t c = w->lookup->count;
+    if (keyKind == kGenKind_Int32)
+    {
+        for (int32_t i = 0; i < c; ++i)
+            if (w->lookup->keyInt[i] == keyInt) return true;
+        return false;
+    }
+    Il2CppObject** keys = reinterpret_cast<Il2CppObject**>(
+        il2cpp_array_get_elem_ptr(w->keysRoot, 0));
+    for (int32_t i = 0; i < c; ++i)
+    {
+        const Il2CppObject* k = keys[i];
+        if (k == nullptr)
+        {
+            if (keyRef == nullptr) return true;
+        }
+        else if (keyRef != nullptr
+                 && il2cpp_string_equals_ordinal(
+                        reinterpret_cast<const Il2CppString*>(k),
+                        reinterpret_cast<const Il2CppString*>(keyRef)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
+                                        Il2CppObject* keyRef, int32_t keyKind,
+                                        int32_t srcCell)
+{
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    if (w == nullptr || w->lookup == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return nullptr;
+    }
+    const int32_t c = w->lookup->count;
+    int32_t hit = -1;
+    if (keyKind == kGenKind_Int32)
+    {
+        for (int32_t i = 0; i < c; ++i)
+            if (w->lookup->keyInt[i] == keyInt) { hit = i; break; }
+    }
+    else
+    {
+        Il2CppObject** keys = reinterpret_cast<Il2CppObject**>(
+            il2cpp_array_get_elem_ptr(w->keysRoot, 0));
+        for (int32_t i = 0; i < c; ++i)
+        {
+            const Il2CppObject* k = keys[i];
+            if (k == nullptr)
+            {
+                if (keyRef == nullptr) { hit = i; break; }
+            }
+            else if (keyRef != nullptr
+                     && il2cpp_string_equals_ordinal(
+                            reinterpret_cast<const Il2CppString*>(k),
+                            reinterpret_cast<const Il2CppString*>(keyRef)))
+            {
+                hit = i; break;
+            }
+        }
+    }
+    if (hit < 0)
+    {
+        return LinqNewArray(srcCell, 0);
+    }
+    Il2CppObject** groups = reinterpret_cast<Il2CppObject**>(
+        il2cpp_array_get_elem_ptr(w->groupsRoot, 0));
+    return reinterpret_cast<Il2CppArray*>(groups[hit]);
+}
+
+// The ILookup wrapper descriptor (registered lazily, grouping precedent).
+Il2CppClass g_lookupGenClass = {
+    "System.Linq.ILookup`2<gen>",          // name (runtime-internal descriptor)
+    static_cast<int32_t>(sizeof(Il2CppLookupGenObject)), // instanceSize
+    0b1100u,                               // refFieldBitmap: bit 2 keysRoot, bit 3 groupsRoot
+    2,                                     // refFieldCount
+    nullptr,                               // baseClass
+    nullptr,                               // vtable
+    0,                                     // vtableSize
+    nullptr,                               // interfaces
+    0,                                     // interfaceCount
+};
+
+bool g_lookupGenRegistered = false;
+
+void EnsureLookupClassesRegistered()
+{
+    if (g_lookupGenRegistered) return;
+    il2cpp_class_register(&g_lookupGenClass);
+    g_lookupGenRegistered = true;
+}
+
+Il2CppClass* il2cpp_lookup_gen_object_class()
+{
+    EnsureLookupClassesRegistered();
+    return &g_lookupGenClass;
+}
+
+// instance surface overloads (int32-key / object-key binding + the emitted
+// keyKind/srcCell literals; see the transpiler's ILookup instance arm).
+bool il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt, int32_t keyKind)
+{
+    return il2cpp_lookup_gen_contains(self, keyInt, nullptr, keyKind);
+}
+
+bool il2cpp_lookup_gen_contains(Il2CppObject* self, Il2CppObject* keyRef, int32_t keyKind)
+{
+    return il2cpp_lookup_gen_contains(self, 0, keyRef, keyKind);
+}
+
+Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
+                                        int32_t keyKind, int32_t srcCell)
+{
+    return il2cpp_lookup_gen_get_item(self, keyInt, nullptr, keyKind, srcCell);
+}
+
+Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, Il2CppObject* keyRef,
+                                        int32_t keyKind, int32_t srcCell)
+{
+    return il2cpp_lookup_gen_get_item(self, 0, keyRef, keyKind, srcCell);
+}
+
+Il2CppLookupGen* il2cpp_lookup_gen_create(int32_t capacity)
+{
+    if (capacity < 4) capacity = 4;
+    Il2CppLookupGen* lk = static_cast<Il2CppLookupGen*>(
+        std::calloc(1, sizeof(Il2CppLookupGen)));
+    lk->capacity = capacity;
+    lk->keyInt = static_cast<int32_t*>(
+        std::calloc(capacity, sizeof(int32_t)));
+    lk->groupLen = static_cast<int32_t*>(
+        std::calloc(capacity, sizeof(int32_t)));
+    lk->groupOff = static_cast<int32_t*>(
+        std::calloc(capacity, sizeof(int32_t)));
+    lk->srcIdxCap = capacity;
+    lk->srcIdx = static_cast<int32_t*>(
+        std::calloc(capacity, sizeof(int32_t)));
+    return lk;
+}
+
+int32_t il2cpp_lookup_gen_find_or_add(Il2CppLookupGenObject* w, int32_t keyInt,
+                                      Il2CppObject* keyRef, int32_t keyKind)
+{
+    Il2CppLookupGen* lk = w->lookup;
+    Il2CppObject** keys = reinterpret_cast<Il2CppObject**>(
+        il2cpp_array_get_elem_ptr(w->keysRoot, 0));
+    for (int32_t i = 0; i < lk->count; ++i)
+    {
+        if (keyKind == kGenKind_Int32)
+        {
+            if (lk->keyInt[i] == keyInt) return i;
+        }
+        else
+        {
+            const Il2CppObject* k = keys[i];
+            if (k == nullptr ? keyRef == nullptr
+                             : (keyRef != nullptr
+                                && il2cpp_string_equals_ordinal(
+                                       reinterpret_cast<const Il2CppString*>(k),
+                                       reinterpret_cast<const Il2CppString*>(keyRef))))
+            {
+                return i;
+            }
+        }
+    }
+    if (lk->count >= lk->capacity)
+    {
+        const int32_t ncap = lk->capacity * 2;
+        int32_t* nk = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * ncap));
+        std::memcpy(nk, lk->keyInt, sizeof(int32_t) * lk->capacity);
+        std::free(lk->keyInt);
+        lk->keyInt = nk;
+        int32_t* nl = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * ncap));
+        std::memcpy(nl, lk->groupLen, sizeof(int32_t) * lk->capacity);
+        std::free(lk->groupLen);
+        lk->groupLen = nl;
+        int32_t* no = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * ncap));
+        std::memcpy(no, lk->groupOff, sizeof(int32_t) * lk->capacity);
+        std::free(lk->groupOff);
+        lk->groupOff = no;
+        lk->capacity = ncap;
+    }
+    const int32_t g = lk->count;
+    if (keyKind == kGenKind_Int32)
+    {
+        lk->keyInt[g] = keyInt;
+    }
+else
+        {
+            keys[g] = keyRef;
+            il2cpp_write_barrier(reinterpret_cast<void**>(&keys[g]), keyRef);
+        }
+    lk->groupLen[g] = 0;
+    ++lk->count;
+    return g;
 }
 
 } // namespace il2cpp

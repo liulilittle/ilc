@@ -210,6 +210,48 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
                                         Il2CppObject* elemSel, int32_t keyKind,
                                         int32_t valueKind, int32_t srcCell);
 
+// b5-gaps section 79: Enumerable.ToLookup over an ARRAY source. The result is
+// a managed ILookup pseudo-object (Il2CppLookupGenObject) holding a raw
+// distinct-key table + TWO managed root packs (keysRoot = selector-produced
+// reference keys; groupsRoot = per-key element SNAPSHOT arrays), rooted because
+// the table itself is a raw allocation the collector cannot see. int32 keys
+// ride keyInt[] inline; string keys ride keysRoot. The instance surface routes
+// through the tracked pseudo-type name "System.Linq.ILookup`2_<key>_<elem>".
+struct Il2CppLookupGen
+{
+    int32_t   count;       // distinct keys
+    int32_t   capacity;    // keyInt / groupLen / groupOff length
+    int32_t*  keyInt;      // parallel int32 keys (kGenKind_Int32)
+    int32_t*  groupLen;    // per-group element count
+    int32_t*  groupOff;    // per-group start offset into srcIdx
+    int32_t*  srcIdx;      // flat source indices, group-blocks (grows)
+    int32_t   srcIdxCount;
+    int32_t   srcIdxCap;
+};
+struct Il2CppLookupGenObject
+{
+    Il2CppObject     obj;        // slot 0: object header
+    Il2CppLookupGen* lookup;     // slot 1: raw table (NOT in the refFieldBitmap)
+    Il2CppArray*     keysRoot;   // slot 2 (refFieldBitmap bit 2): ref keys
+    Il2CppArray*     groupsRoot; // slot 3 (refFieldBitmap bit 3): per-key arrays
+};
+Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
+                                    int32_t keyKind, int32_t srcCell);
+Il2CppClass*  il2cpp_lookup_gen_object_class();
+int32_t       il2cpp_lookup_gen_get_count(Il2CppObject* self);
+bool          il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
+                                         int32_t keyKind);
+bool          il2cpp_lookup_gen_contains(Il2CppObject* self, Il2CppObject* keyRef,
+                                         int32_t keyKind);
+Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
+                                         int32_t keyKind, int32_t srcCell);
+Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, Il2CppObject* keyRef,
+                                         int32_t keyKind, int32_t srcCell);
+// internal table ops (defined in linq_family.cpp with the class registration).
+Il2CppLookupGen* il2cpp_lookup_gen_create(int32_t capacity);
+int32_t il2cpp_lookup_gen_find_or_add(Il2CppLookupGenObject* w, int32_t keyInt,
+                                      Il2CppObject* keyRef, int32_t keyKind);
+
 // b5-gaps section 57: user-comparer twins over the VALUE cell families
 // (int32/uint/narrow/char/bool, int64, double/float). Each entry dispatches a
 // user IEqualityComparer<T>.Equals through the reflected slot of the element
