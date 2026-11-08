@@ -6770,3 +6770,22 @@ the tracked Dictionary`2 instantiation.
   selector over a growing List<int>); mutations M1-M4 red->green.
 * still LOUD: IEnumerable / ICollection sources; non-(int32|string) key or
   element families; ToDictionary int32 values (section-83).
+## 85. Enumerable.Count()/Any() over an ILookup result -- IMPLEMENTED (commit e3e791f1)
+
+* MEASURED: the ILookup wrapper is a ref-element source whose object is neither
+  an array nor a List, so the generic ref/array Count/Any kernels read the
+  wrapper header as an array length (lk.Count() garbage); Where/Select over the
+  wrapper crashed the ref kernels.
+* fix: the ILookup2_* pseudo stops at the top of the ref-source block in
+  TryMapLinq -- Count()/Any() bind the wrapper's own group count (new
+  il2cpp_lookup_gen_any = count>0); EVERY OTHER wrapper operator throws LOUD at
+  transpile (Where/Select/First/ToArray over a ToLookup result are not wired).
+* MEASURED too: IEnumerable/ICollection-typed receivers backed by an array or
+  a List are already routed correctly (interface-typed locals track to their
+  concrete assigned type); the LOUD remains for ARBITRARY concrete enumerables
+  (HashSet / custom), which needs a general enumerator-walk seat.
+* probe-tolookup-down byte-exact 123B 9f793381 (d1-d6); mutations M1-M4
+  red->green.
+* still LOUD: Where/Select/ToArray/First over the ILookup wrapper; arbitrary
+  concrete enumerables; non-(int32|string) key/element families; ToDictionary
+  int32 values.
