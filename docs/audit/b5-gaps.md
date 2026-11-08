@@ -6823,3 +6823,21 @@ the tracked Dictionary`2 instantiation.
   kernel exists for object[] sources); the dt/ts/guid/dec idx-select results;
   the GroupBy-result index-form Where; arbitrary concrete enumerables;
   non-(int32|string) key/element families; ToDictionary int32 values.
+## 88. Distinct/Reverse/Skip/Take over a grouping-enumerable -- IMPLEMENTED (commit 7877261d)
+
+* measured first: the family-generic kernels (il2cpp_linq_distinct_family /
+  _reverse_family / _skip_family / _take_family with cell 15) already handle
+  REF correctly (string[] Distinct dedups by value; Reverse/Skip/Take are
+  correct) -- so the grouping-enumerable arms are pure materialize-then-apply.
+* extracted LinqGroupingEnumerableArray (ILookup wrapper OR GroupBy result, by
+  class) + new il2cpp_linq_grouping_enumerable_distinct/_reverse/_skip/_take.
+* transpiler: the ILookup2_* and IGroupingResult blocks gain the four plain
+  arms (uncast slots; Skip/Take count rides an "i" slot).
+* probe-grp-lookup-set byte-exact 131B eb10c9f1 (s1-s6); mutations M1-M4
+  red->green. NOTE: a Distinct KERNEL mutation is not discriminated (the
+  groupings are all reference-distinct) -- the distinct_family REF path is
+  covered by the pre-existing string[] Distinct anchors.
+* still LOUD: the (comparer) Distinct form; Union/Intersect/Except/Concat/
+  SequenceEqual/DefaultIfEmpty over the grouping-enumerable; the dt/ts/guid/
+  dec idx-select results; arbitrary concrete enumerables; non-(int32|string)
+  key/element families; ToDictionary int32 values.
