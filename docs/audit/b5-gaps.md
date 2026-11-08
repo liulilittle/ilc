@@ -6873,3 +6873,22 @@ the tracked Dictionary`2 instantiation.
   operators observe and is now fixed; the selector re-run is a separate seat);
   the dt/ts/guid/dec idx-select results; arbitrary concrete enumerables;
   non-(int32|string) key/element families; ToDictionary int32 values.
+## 90. The decimal-source (element, index) Where -- IMPLEMENTED (commit 1eea0292)
+
+* measured first with a PER-FAMILY probe (one method per family so one transpile
+  LOUD cannot hide the others): dt/ts/guid/dtoffset ALREADY route (the vt block
+  binds il2cpp_linq_where_idx_{dt,ts,guid,dtoffset} + select_idx_<src>_<res>);
+  ONLY the decimal source was LOUD ("the runtime has no decimal index-predicate
+  entry") -- and because the fold aborts the whole method, one such call took
+  the entire Main down with it.
+* runtime: new InvokePredDecIdx (bool(*)(Il2CppDecimal,int32_t) + the
+  instance-bound this-form) and il2cpp_linq_where_idx_dec (the counterpart of
+  the dt/ts/guid/dtoffset where_idx_<fam> entries).
+* transpiler: the decimal Where arm binds the idx entry when the second
+  generic-arg count is 3 (the non-idx form unchanged), replacing the LOUD throw.
+* probe-idx-vt byte-exact 159B sha 554cda9b (d1-d11); mutations M1-M4 red->green.
+  The corpus (i % 3 == 0 over 4 elements) makes predicate inversion {1,2} and
+  an off-by-one index {2} DISTINCT, so the two mutations are not aliases.
+* still LOUD / remaining: the GroupBy LAZINESS (key-selector re-invocation per
+  enumeration); arbitrary concrete enumerables; non-(int32|string) key/element
+  families; ToDictionary int32 values.
