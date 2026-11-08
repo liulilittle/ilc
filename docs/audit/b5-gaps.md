@@ -6739,3 +6739,19 @@ the tracked Dictionary`2 instantiation.
 * still LOUD: ToLookup / ToDictionary over IEnumerable / ICollection sources;
   non-(int32|string) key/element families; the elementSelector (3-generic)
   overloads; ToDictionary List sources (section-78 gate untouched).
+## 83. Enumerable.ToDictionary over List<T> sources -- IMPLEMENTED (commit a09c1889)
+
+* il2cpp_linq_list_to_dictionary snapshots the LIST OBJECT (never cast to
+  Il2CppArray*) through il2cpp_linq_list_snapshot (KIND_I4/REF by srcCell) and
+  delegates to the section-78 ARRAY kernel; instance surface byte-identical.
+* transpiler: TryMapLinqList ToDictionary arm (slots "" uncast; 2-arg and
+  3-generic elementSelector forms). Value family STRING only.
+* PRE-EXISTING CRASH FIXED (probe-driven): array ToDictionary with an int32
+  VALUE (string->int/int->int) produced a DICTGEN wrapper routed through the
+  DICTSI icalls (wrong object layout => access violation). BOTH arms now LOUD
+  int32 values (verified transpile rejection for array + list).
+* also tightened the section-82 ToLookup List arm element gate (a non-string
+  reference list can no longer ride the string cell ABI).
+* probe-todict-list byte-exact 249B ee1969fe; mutations M1-M4 red->green.
+* still LOUD: IEnumerable / ICollection sources; the ToLookup elementSelector
+  (3-generic); non-(int32|string) key families; ToDictionary int32 values.
