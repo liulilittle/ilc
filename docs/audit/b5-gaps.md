@@ -6841,3 +6841,35 @@ the tracked Dictionary`2 instantiation.
   SequenceEqual/DefaultIfEmpty over the grouping-enumerable; the dt/ts/guid/
   dec idx-select results; arbitrary concrete enumerables; non-(int32|string)
   key/element families; ToDictionary int32 values.
+## 89. Two-sequence set operators + comparer forms + DefaultIfEmpty over a grouping-enumerable -- IMPLEMENTED (commit 116b0968)
+
+* measured net48 FIRST (they drive the design): the default equality for
+  IGrouping is REFERENCE equality; a Lookup CACHES its Grouping objects
+  (lk.Union(lk.ToArray()) == 3); a GroupBy result is LAZY and yields FRESH
+  Grouping objects per enumeration (gr.Except(gr.ToArray()) == 2, and the key
+  selector re-runs: 2 -> 4 calls); a key comparer collapses what reference
+  equality keeps apart.
+* runtime: LinqGroupingEnumerableArray also accepts an IGrouping[] snapshot and
+  loudly rejects anything else; new grouping_enumerable_{concat,except,union,
+  intersect,sequence_equal}[,_cmp] + _distinct_cmp + _default_if_empty[_value]
+  (materialize both sequences + the family-generic ref kernels, cell 15).
+* identity semantics fixed: the ILookup wrapper gained a groupingObjs cache
+  slot (refFieldBitmap bit 6) so materializations share references like net48's
+  Lookup; il2cpp_linq_grouping_result_to_array now CLONES each bucket per call
+  (net48's GroupBy yields fresh groupings per enumeration).
+* transpiler: the ILookup2_* / IGroupingResult blocks gain the plain + comparer
+  arms; ROOT-CAUSE FIX -- StackFold only exposed the top two stack slots, so a
+  3-arg call (Union(first, second, cmp)) had its SOURCE at stack depth 2 and
+  srcType named the second sequence -> the grouping call fell to the array
+  kernels (runtime family mismatch). New arg2Type (third slot) is threaded
+  StackFold -> Resolve -> BclResolve -> BclResolveCore -> TryMapLinq and the two
+  grouping blocks accept it as the source hint.
+* probe-grp-lookup-setops byte-exact 324B sha 984f60c6 (u1-u24); mutations
+  M1-M7 red->green. CAVEAT: the Distinct(comparer) ARM is not value-discriminable
+  (a single sequence of reference-distinct groupings is unchanged by any
+  equality) -- u12 pins the arm's presence via the LOUD gate.
+* still LOUD / remaining: the GroupBy LAZINESS itself (the key selector
+  re-invocation per enumeration -- the identity semantics is what the set
+  operators observe and is now fixed; the selector re-run is a separate seat);
+  the dt/ts/guid/dec idx-select results; arbitrary concrete enumerables;
+  non-(int32|string) key/element families; ToDictionary int32 values.
