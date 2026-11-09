@@ -545,4 +545,17 @@ Il2CppArray* il2cpp_linq_repeat_i8(int64_t element, int32_t count, int32_t cell)
 Il2CppArray* il2cpp_linq_repeat_d(double element, int32_t count, int32_t cell);
 Il2CppArray* il2cpp_linq_repeat_ref(Il2CppObject* element, int32_t count);
 
+// b5-gaps section 94: Append / Prepend -- Concat(source, [element]) with the
+// single-element tail on the source's own cell. One entry per element family
+// (the narrow/int32/uint cells ride the i4 entry, int64 the i8, float/double
+// the d, references the ref); a family with no entry stays LOUD.
+Il2CppArray* il2cpp_linq_append_i4(Il2CppArray* first, int32_t element, int32_t cell);
+Il2CppArray* il2cpp_linq_prepend_i4(Il2CppArray* first, int32_t element, int32_t cell);
+Il2CppArray* il2cpp_linq_append_i8(Il2CppArray* first, int64_t element, int32_t cell);
+Il2CppArray* il2cpp_linq_prepend_i8(Il2CppArray* first, int64_t element, int32_t cell);
+Il2CppArray* il2cpp_linq_append_d(Il2CppArray* first, double element, int32_t cell);
+Il2CppArray* il2cpp_linq_prepend_d(Il2CppArray* first, double element, int32_t cell);
+Il2CppArray* il2cpp_linq_append_ref(Il2CppArray* first, Il2CppObject* element);
+Il2CppArray* il2cpp_linq_prepend_ref(Il2CppArray* first, Il2CppObject* element);
+
 } // namespace il2cpp

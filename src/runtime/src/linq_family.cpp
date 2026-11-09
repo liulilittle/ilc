@@ -2063,6 +2063,61 @@ Il2CppArray* il2cpp_linq_repeat_ref(Il2CppObject* element, int32_t count)
     return arr;
 }
 
+// b5-gaps section 94: Append / Prepend. Append(source, element) IS
+// Concat(source, [element]) -- the single-element tail rides the SAME cell as
+// the source (net48 yields the identical sequence plus exactly one element,
+// and the appended reference is the IDENTICAL object). The runtime ships one
+// entry per element family; a family with no entry (decimal / DateTime /
+// TimeSpan / Guid / DateTimeOffset) stays LOUD in the transpiler instead of
+// fabricating a cell write.
+Il2CppArray* il2cpp_linq_append_i4(Il2CppArray* first, int32_t element, int32_t cell)
+{
+    Il2CppArray* tail = il2cpp_linq_repeat_i4(element, 1, cell);
+    return il2cpp_linq_concat_family(first, tail, cell);
+}
+
+Il2CppArray* il2cpp_linq_prepend_i4(Il2CppArray* first, int32_t element, int32_t cell)
+{
+    Il2CppArray* head = il2cpp_linq_repeat_i4(element, 1, cell);
+    return il2cpp_linq_concat_family(head, first, cell);
+}
+
+Il2CppArray* il2cpp_linq_append_i8(Il2CppArray* first, int64_t element, int32_t cell)
+{
+    Il2CppArray* tail = il2cpp_linq_repeat_i8(element, 1, cell);
+    return il2cpp_linq_concat_family(first, tail, cell);
+}
+
+Il2CppArray* il2cpp_linq_prepend_i8(Il2CppArray* first, int64_t element, int32_t cell)
+{
+    Il2CppArray* head = il2cpp_linq_repeat_i8(element, 1, cell);
+    return il2cpp_linq_concat_family(head, first, cell);
+}
+
+Il2CppArray* il2cpp_linq_append_d(Il2CppArray* first, double element, int32_t cell)
+{
+    Il2CppArray* tail = il2cpp_linq_repeat_d(element, 1, cell);
+    return il2cpp_linq_concat_family(first, tail, cell);
+}
+
+Il2CppArray* il2cpp_linq_prepend_d(Il2CppArray* first, double element, int32_t cell)
+{
+    Il2CppArray* head = il2cpp_linq_repeat_d(element, 1, cell);
+    return il2cpp_linq_concat_family(head, first, cell);
+}
+
+Il2CppArray* il2cpp_linq_append_ref(Il2CppArray* first, Il2CppObject* element)
+{
+    Il2CppArray* tail = il2cpp_linq_repeat_ref(element, 1);
+    return il2cpp_linq_concat_family(first, tail, IL2CPP_LINQ_CELL_REF);
+}
+
+Il2CppArray* il2cpp_linq_prepend_ref(Il2CppArray* first, Il2CppObject* element)
+{
+    Il2CppArray* head = il2cpp_linq_repeat_ref(element, 1);
+    return il2cpp_linq_concat_family(head, first, IL2CPP_LINQ_CELL_REF);
+}
+
 Il2CppArray* il2cpp_linq_select_many(Il2CppArray* src, Il2CppObject* sel,
                                      int32_t srcCell, int32_t resCell)
 {

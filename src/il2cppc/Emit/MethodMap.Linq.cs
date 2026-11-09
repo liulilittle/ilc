@@ -3295,6 +3295,13 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     return I("il2cpp::il2cpp_linq_concat_family", 2, true, true, false,
                         new[] { "a", "a" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
                         appendLiterals: new[] { "15" });
+                // b5-gaps section 94: Append/Prepend over a REFERENCE source --
+                // the appended reference is the IDENTICAL object (net48), so the
+                // tail is repeat_ref(element, 1) and the result a ref array.
+                case "Append":
+                case "Prepend":
+                    return I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_ref", 2, true, true, false,
+                        new[] { "a", "" }, returnTypeName: LinqRefArrayTypeName(genArgs, srcType));
                 case "Distinct" when count < 2:
                     return I("il2cpp::il2cpp_linq_distinct_family", 1, true, true, false,
                         OneArg, returnTypeName: LinqRefArrayTypeName(genArgs, srcType),
@@ -4327,6 +4334,16 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 // array slots ride the "a" cast.
                 return I("il2cpp::il2cpp_linq_concat_i4", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: "System.Int32[]");
+            case "Append":
+            case "Prepend":
+                // b5-gaps section 94: Append/Prepend(source, element) IS
+                // Concat(source, [element]) -- the single-element tail rides the
+                // int32 cell. The resolver had NO arm for either operator in ANY
+                // source block (array / List / bucket), so the call died as a
+                // phantom "no BCL mapping".
+                return I($"il2cpp::il2cpp_linq_{name.ToLowerInvariant()}_i4", 2, true, true, false,
+                    new[] { "a", "i" }, returnTypeName: "System.Int32[]",
+                    appendLiterals: new[] { "7" });
             case "Distinct" when count < 2:
                 // Distinct(source) -> il2cpp_linq_distinct_i4 (D-LINQZ-1):
                 // remove duplicates keeping FIRST-APPEARANCE order (net48
@@ -8035,6 +8052,22 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 if (cellCode == null) return null;
                 return I("il2cpp::il2cpp_linq_concat_family", 2, true, true, false,
                     new[] { "a", "a" }, returnTypeName: elemTracked,
+                    appendLiterals: new[] { cellCode });
+            case "Append":
+            case "Prepend":
+                // b5-gaps section 94: Append/Prepend(source, element) IS
+                // Concat(source, [element]) -- the single-element tail rides the
+                // source's own cell. The resolver had NO arm for either operator
+                // anywhere (array, List and bucket sources alike), so the call
+                // died as a phantom "no BCL mapping". The element crosses on the
+                // family's ABI ("l" int64, "d" float/double, "i" the narrow and
+                // int32 cells); a family with no cell ABI keeps its LOUD.
+                if (cellCode == null) return null;
+                string apOp = name.ToLowerInvariant();
+                string apCast = cellCode == "8" ? "l" : (cellCode == "9" || cellCode == "10") ? "d" : "i";
+                string apFam = cellCode == "8" ? "i8" : (cellCode == "9" || cellCode == "10") ? "d" : "i4";
+                return I($"il2cpp::il2cpp_linq_{apOp}_{apFam}", 2, true, true, false,
+                    new[] { "a", apCast }, returnTypeName: elemTracked,
                     appendLiterals: new[] { cellCode });
             case "Distinct" when count < 2:
                 // Distinct() -> duplicates removed keeping FIRST-APPEARANCE
