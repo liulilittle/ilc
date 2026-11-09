@@ -7163,3 +7163,34 @@ byte-identical. C0 0/0; unit 4164/0/0.
 an int32/int64/16-byte-struct key carrier; a float key has no carrier
 (`KeyKindFor` returns -1 for 0x0C). The OrderBy probe therefore uses an int32
 key.
+## section 101 (2026-11-09): Append / Prepend over a GroupBy bucket -- commit b5bca9ee
+
+**Symptom**: `xs.GroupBy(x => x).First().Append(9)` was LOUD-rejected (the
+floatBucket / valueBucket gates) or fell through to the array kernels and cast
+the GROUPING OBJECT to `Il2CppArray*` -- measured on probe-grp-append: oracle
+72B sha 201f65ef vs runtime `LINQ element family mismatch`.
+
+**Root cause**: the bucket switch had no Append/Prepend arm.
+
+**Fix**: the bucket switch gains a `genArgs[0]`-keyed Append/Prepend arm -- the
+bucket receiver's single generic argument IS the bucket's element family
+(measured with an on-arm fprintf: `genArgsLen=1 genArgs=0x08/0x0C/0x0E` for
+the int32/float/string buckets). A reference element rides the new dispatcher
+kernels (`il2cpp_linq_grouping_[append|prepend]_ref`, which read the bucket's
+reference elements directly); an int32/narrow element the int32 kernels; a
+float/double element the double kernels. The result is a fresh array of the
+bucket's element family.
+
+**Verification**: probe-grp-append oracle=runtime=72B sha 201f65ef (5 shapes:
+Append/Prepend over int32/float/string buckets). Mutations M1 (the float
+kernel's cell code 9 -> 7) and M2 (the resolver's float kernel name _d -> _i4)
+red. The earlier M1 attempt (the dispatcher's float unbox -> the int32 unbox)
+was a FALSE GREEN because the dispatcher's float branch was dead code (the
+probe's float bucket goes through the genArgs[0]=0x0C arm directly) -- the
+dispatcher was simplified to the reference-only path. 19 anchors byte-identical.
+C0 0/0; unit 4164/0/0.
+
+**Remaining LOUD**: Append/Prepend over a decimal/DateTime/Guid/TimeSpan/
+DateTimeOffset bucket (no cell ABI); OfType/Cast over a value-element source;
+ToLookup int64/double/char/DateTime keys; ToDictionary int32/int64/double
+values; GroupBy LAZINESS; a float TKey GroupBy.
