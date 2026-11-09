@@ -7194,3 +7194,35 @@ C0 0/0; unit 4164/0/0.
 DateTimeOffset bucket (no cell ABI); OfType/Cast over a value-element source;
 ToLookup int64/double/char/DateTime keys; ToDictionary int32/int64/double
 values; GroupBy LAZINESS; a float TKey GroupBy.
+## section 102 (2026-11-10): ToLookup with an int64 TKey -- commit e6c7d62b
+
+**Symptom**: `new[] { 3L, 1L, 2L }.ToLookup(x => x)` was LOUD-rejected ("the
+TKey family must be int32 or a System.String").
+
+**Root cause**: the ToLookup resolver gate accepted only int32/System.String
+keys, and the lookup table's key carrier was a single `int32_t` slot
+(`keyInt`). A long key has no carrier.
+
+**Fix**: `Il2CppLookupGen` gains a parallel `int64_t* keyI64` array (grown
+with the table); a new `kGenKind_Int64` (=16, distinct from `kGenKind_Uri`)
+marks the family; `il2cpp_lookup_gen_find_or_add_i64` materialises a long key
+(the reflected `IEqualityComparer<long>.Equals(long,long)` slot is honoured
+through `il2cpp_lookup_gen_comparer_equals_long`); the int64
+contains/get_Item overloads scan `keyI64` by value or through the comparer;
+the grouping materializer reads the bucket's key slot for the int64 family. The
+transpiler gate accepts 0x0A/0x0B keys and an int64 source element; the ILookup2
+instance surface routes keyKind 16 through the `l` cast -- the int32 cast
+binds the int32 overload, whose ref branch matches every null keysRoot entry
+(measured: `[has9] expected False vs True`).
+
+**Verification**: probe-s99lk64a oracle=runtime=52B sha b51c0aee; probe-s99lk64c
+ok=True. Mutations M1b (the groupLen increment -> group 0), M2 (the resolver's
+int64 keyKind 16 -> 1) and M3 (the resolver's int64 key cast 'l' -> 'i') red.
+The earlier M1 (the key slot 1 -> 3) was a FALSE GREEN -- both slots return the
+same 64-bit value for a long source and the groupLen increment was untouched.
+20 anchors byte-identical. C0 0/0; unit 4164/0/0.
+
+**SEPARATE GAPS (registered)**: the int64-key lookup ENUMERATION carrier
+(probe-s99lk64b: "bucket element width has no enumerator carrier") and the
+int64-key elementSelector (probe-s99lk64d: "a source/element family has no
+selector cell ABI").
