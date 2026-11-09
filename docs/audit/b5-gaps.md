@@ -6993,3 +6993,28 @@ the tracked Dictionary`2 instantiation.
 * remaining LOUD: Append/Prepend over a List source and over a GroupBy bucket
   (both still unmapped); OfType/Cast over a VALUE-element source; OrderBy over a
   bucket; ToLookup int64/double keys; ToDictionary int32 values; GroupBy LAZINESS.
+## 95. Append / Prepend over a List<T> source -- IMPLEMENTED (commit 2de9e92b)
+
+* gap (measured): the List block had NO arm for Append/Prepend, so the call fell
+  through to the section-94 ARRAY kernels -- which cast the LIST OBJECT to
+  Il2CppArray* and died with "LINQ element family mismatch".
+* semantics: Append(list, element) IS Concat(list, [element]); the value is
+  written at the family's REAL list-storage width (the List domain has its own
+  per-family kinds).
+* runtime: il2cpp_linq_list_append_i4 / _prepend_i4, _append_i8 / _prepend_i8,
+  _append_d / _prepend_d, _append_ref / _prepend_ref, _append_dec /
+  _prepend_dec, _append_dt / _prepend_dt, _append_ts / _prepend_ts,
+  _append_guid / _prepend_guid, _append_dtoffset / _prepend_dtoffset (snapshot +
+  AllocElemArray + CopyElem + the DefaultIfEmpty-value write helpers).
+* transpiler: the List block gains the two arms (UNCAST list slot, the element
+  on the family ABI, the K literal selects the entry).
+* evidence: probe-append-list2 oracle=runtime byte-exact 235B sha 3de617e9
+  (m1-m14). M1/M2/M3 red->green. 4 regression anchors byte-identical;
+  unit 4164/0/0; C0 0/0.
+* NOTE: string.Join over a narrow/bool list result differs for BOTH oracle and
+  runtime -- the pre-existing shared formatter limitation (linq_list.cpp:182-
+  194, elemKind 0). The narrow forms are verified via scalar readback instead.
+* remaining LOUD: Append/Prepend over a GroupBy bucket (the bucket probe is
+  byte-exact already -- the section-93-style grouping path serves it);
+  OfType/Cast over a value-element source; OrderBy over a bucket; ToLookup
+  int64/double keys; ToDictionary int32 values; GroupBy LAZINESS.
