@@ -7018,3 +7018,22 @@ the tracked Dictionary`2 instantiation.
   byte-exact already -- the section-93-style grouping path serves it);
   OfType/Cast over a value-element source; OrderBy over a bucket; ToLookup
   int64/double keys; ToDictionary int32 values; GroupBy LAZINESS.
+## 96. Cast<T> over a wrong box: the exception TYPE -- FIXED (commit c15baeae)
+
+* gap (measured): Cast<T> obeys unbox.any -- a boxed value whose klass is NOT
+  the target family's box throws InvalidCastException. CastStoreValue called the
+  family icall unconditionally, so icall_unbox_int32 on a System.Double box
+  reached the icall's guard and answered NullReferenceException -- the WRONG
+  type (net48 answers InvalidCastException).
+* fix: new CastThrowInvalid() + a CastBoxMatches pre-check in every
+  CastStoreValue family case. OfType is unchanged (it drops non-matches).
+* evidence: probe-cast-invoke oracle=runtime byte-exact 201B sha a390be9e
+  (m1-m9). M1 (the factory declares NullReferenceException) red->green.
+  8 regression anchors byte-identical; unit 4164/0/0; C0 0/0.
+* NOTE: the exception MESSAGE text is localized (the oracle prints Chinese);
+  the probe classifies by TYPE -- the byte-exact contract is the type.
+* scan findings: OfType/Cast over a homogeneous object[]/string[] WORK;
+  OrderBy over a GroupBy bucket WORKS (a registered seat already served);
+  Cast/OfType over a VALUE-element array or List<T> stays LOUD; ToLookup with an
+  int64/double/char/DateTime TKey and ToDictionary with an int32/int64/double
+  TValue stay LOUD gates.
