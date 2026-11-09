@@ -231,12 +231,17 @@ struct Il2CppLookupGen
     int32_t   count;       // distinct keys
     int32_t   capacity;    // keyInt / groupLen / groupOff length
     int32_t*  keyInt;      // parallel int32 keys (kGenKind_Int32)
+    // b5-gaps section 102: the int64 key carrier. A long key does not fit the
+    // int32 keyInt slot, so it rides this parallel array (kGenKind_Int64 = 2);
+    // the membership scan compares by value (default) or through the reflected
+    // IEqualityComparer<long>.Equals(long,long) slot.
+    int64_t*  keyI64;
     int32_t*  groupLen;    // per-group element count
     int32_t*  groupOff;    // per-group start offset into srcIdx
     int32_t*  srcIdx;      // flat source indices, group-blocks (grows)
     int32_t   srcIdxCount;
     int32_t   srcIdxCap;
-    int32_t   keyKind;     // kGenKind_Int32/String (the enumerator needs it)
+    int32_t   keyKind;     // kGenKind_Int32/Int64/String (the enumerator needs it)
 };
 // b5-gaps section 80: the wrapper carries ONE more managed slot
 // (comparer, refFieldBitmap bit 4): a user IEqualityComparer<TKey> given to
@@ -273,6 +278,9 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
 Il2CppObject* il2cpp_linq_list_to_lookup(Il2CppObject* list, Il2CppObject* keySel,
                                          Il2CppObject* comparer, int32_t keyKind,
                                          int32_t srcCell);
+// b5-gaps section 102: the int64-key source/element families. The
+// selector ABI table (kSel1) covers the int64 key (slot 1); the source cell
+// 8 (int64) is now accepted by the ToLookup resolver gate.
 // b5-gaps section 84: Enumerable.ToLookup with an elementSelector (the
 // 3-generic overload). Identical to il2cpp_linq_to_lookup except that each
 // source element is ALSO passed through the element selector and the group
@@ -364,6 +372,13 @@ bool          il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt,
                                          int32_t keyKind);
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, Il2CppObject* keyRef,
                                          int32_t keyKind);
+// b5-gaps section 102: the int64-key overloads (the long key does not fit the
+// int32 keyInt slot; the membership scan compares by value or through the
+// reflected IEqualityComparer<long>.Equals(long,long) slot).
+bool          il2cpp_lookup_gen_contains(Il2CppObject* self, int64_t keyI64,
+                                         int32_t keyKind);
+Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, int64_t keyI64,
+                                         int32_t keyKind, int32_t srcCell);
 Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
                                          int32_t keyKind, int32_t srcCell);
 Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, Il2CppObject* keyRef,
@@ -376,6 +391,15 @@ Il2CppLookupGen* il2cpp_lookup_gen_create(int32_t capacity);
 int32_t il2cpp_lookup_gen_find_or_add(Il2CppObject* wObj, int32_t keyInt,
                                       Il2CppObject* keyRef, int32_t keyKind,
                                       Il2CppObject* comparer);
+// b5-gaps section 102: the int64-key materializer entry (the long key rides the
+// parallel keyI64 array; the comparer's Equals(long,long) slot is honoured).
+int32_t il2cpp_lookup_gen_find_or_add_i64(Il2CppObject* wObj, int64_t keyI64,
+                                          int32_t keyKind, Il2CppObject* comparer);
+// the int64 membership comparer (the reflected IEqualityComparer<long>.Equals
+// slot; null == the default value equality). Declared here for the int64
+// contains/get_Item overloads.
+bool il2cpp_lookup_gen_comparer_equals_long(Il2CppObject* cmp, int64_t key,
+                                             int64_t existing);
 
 // b5-gaps section 57: user-comparer twins over the VALUE cell families
 // (int32/uint/narrow/char/bool, int64, double/float). Each entry dispatches a

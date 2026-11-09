@@ -997,15 +997,17 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             int us = rest.IndexOf('_');
             string kp = us > 0 ? rest.Substring(0, us) : rest;
             string ep = us > 0 ? rest.Substring(us + 1) : "";
-            lkKeyKind = kp == "int" ? "1" : "0";
-            lkElemCell = ep == "string" ? "15" : "7";
-            lkElemArr = ep == "string" ? "System.String[]" : "System.Int32[]";
+            lkKeyKind = kp == "int" ? "1" : kp == "long" ? "16" : "0";
+            lkElemCell = ep == "string" ? "15" : ep == "long" ? "8" : "7";
+            lkElemArr = ep == "string" ? "System.String[]" : ep == "long" ? "System.Int64[]" : "System.Int32[]";
         }
         else if (owner == "System.Linq.ILookup`2" && genArgs is { Length: >= 2 }
-            && (genArgs[0] is 0x08 or 0x09 or 0x0E)
+            && (genArgs[0] is 0x08 or 0x09 or 0x0E or 0x0A or 0x0B)
             && (genArgs[1] == 0x0E || LinqCellCodeOfElemByte(genArgs[1]) != null))
         {
-            lkKeyKind = genArgs[0] is 0x08 or 0x09 ? "1" : "0";
+            lkKeyKind = genArgs[0] is 0x08 or 0x09 ? "1"
+                : genArgs[0] is 0x0A or 0x0B ? "16"
+                : "0";
             lkElemCell = genArgs[1] == 0x0E ? "15" : LinqCellCodeOfElemByte(genArgs[1]);
             lkElemArr = genArgs[1] == 0x0E ? "System.String[]" : "System.Int32[]";
         }
@@ -1018,14 +1020,19 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             }
             if (name == "Contains" && count == 1)
             {
+                // b5-gaps section 102: the int64 key rides the "l" cast (the
+                // int32 cast would bind the int32 overload, whose ref branch
+                // matches every null keysRoot entry).
+                string lkCast = lkKeyKind == "0" ? "" : lkKeyKind == "16" ? "l" : "i";
                 return I("il2cpp::il2cpp_lookup_gen_contains", 1, true, false, true,
-                    lkKeyKind == "1" ? new[] { "", "i" } : new[] { "", "" },
+                    new[] { "", lkCast },
                     appendLiterals: new[] { lkKeyKind });
             }
             if (name == "get_Item" && count == 1)
             {
+                string lkCast = lkKeyKind == "0" ? "" : lkKeyKind == "16" ? "l" : "i";
                 return I("il2cpp::il2cpp_lookup_gen_get_item", 1, true, true, true,
-                    lkKeyKind == "1" ? new[] { "", "i" } : new[] { "", "" },
+                    new[] { "", lkCast },
                     appendLiterals: new[] { lkKeyKind, lkElemCell },
                     returnTypeName: lkElemArr);
             }
@@ -2114,13 +2121,17 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             string lookupKeyKind, lookupKeySuffix;
             if (ltkey is 0x08 or 0x09) { lookupKeyKind = "1"; lookupKeySuffix = "int"; }
             else if (ltkey == 0x0E) { lookupKeyKind = "0"; lookupKeySuffix = "string"; }
+            // b5-gaps section 102: the int64 key (the long key does not fit the
+            // int32 keyInt slot; it rides the parallel keyI64 array).
+            else if (ltkey is 0x0A or 0x0B) { lookupKeyKind = "16"; lookupKeySuffix = "long"; }
             else if (ltkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
             { lookupKeyKind = "0"; lookupKeySuffix = "string"; }
             else
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup<TKey={GenericArgTypeName(ltkey)}> is not wired: the " +
-                    "TKey family must be int32 or a System.String (b5-gaps section 79).");
+                    "TKey family must be int32, a System.String, or an int64/uint64 " +
+                    "(b5-gaps section 79/102).");
             }
             string? lsrcCell = genArgs is { Length: >= 1 }
                 ? LinqCellCodeOfElemByte(genArgs[0]) ?? (genArgs[0] == 0x0E ? "15" : null)
@@ -2129,11 +2140,12 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // "Int32[]"/"String[]" carrier; only those two ELEMENT families
             // have a type-accurate snapshot (a long[]/double[]/enum[] source
             // would be silently mis-typed if routed -- always LOUD instead).
-            if (lsrcCell != "7" && lsrcCell != "15")
+            if (lsrcCell != "7" && lsrcCell != "15" && lsrcCell != "8")
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup over a {GenericArgTypeName(genArgs[0])} source is not wired: " +
-                    "the source element family must be int32 or a System.String (b5-gaps section 79).");
+                    "the source element family must be int32, a System.String, or an int64 " +
+                    "(b5-gaps section 79/102).");
             }
             // b5-gaps section 84: the ELEMENT family. The 3-generic form
             // (ToLookup<TKey,TElement> with an elementSelector) has the
@@ -2153,7 +2165,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     "the TElement family must be int32 or a System.String (b5-gaps section 84).");
             }
             bool hasElemSel = genArgs.Length >= 3;
-            string lelemSuffix = lelemCell == "15" ? "string" : "int";
+            string lelemSuffix = lelemCell == "15" ? "string" : lelemCell == "8" ? "long" : "int";
             string lookupName = "System.Linq.ILookup`2_" + lookupKeySuffix + "_" + lelemSuffix;
             // b5-gaps section 80: the user-IEqualityComparer overloads ride the
             // SAME materializer -- the comparer object becomes the kernel's 3rd

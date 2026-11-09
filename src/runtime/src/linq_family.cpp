@@ -4428,7 +4428,8 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
             "ABI (b5-gaps section 79).");
         return nullptr;
     }
-    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_String)
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64
+        && keyKind != kGenKind_String)
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.ToLookup: this TKey family has no lookup key kind "
@@ -4441,7 +4442,9 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
         il2cpp_throw_argument_null_exception("keySelector");
         return nullptr;
     }
-    const int32_t keySlot = keyKind == kGenKind_Int32 ? 0 : 3; // i4 / ref (o)
+    const int32_t keySlot = keyKind == kGenKind_Int32 ? 0
+        : keyKind == kGenKind_Int64 ? 1
+        : 3; // i4 / i8 / ref (o)
     const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
     const int32_t n = src->length;
 
@@ -4493,8 +4496,9 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
         }
         // The selector may allocate (t7's GC.Collect), compacting the heap;
         // re-derive every managed pointer from the roots before any barrier-write.
-        const int32_t group = il2cpp_lookup_gen_find_or_add(
-            wObj, keyInt, keyRef, keyKind, comparer);
+        const int32_t group = keyKind == kGenKind_Int64
+            ? il2cpp_lookup_gen_find_or_add_i64(wObj, kc, keyKind, comparer)
+            : il2cpp_lookup_gen_find_or_add(wObj, keyInt, keyRef, keyKind, comparer);
         srcGroup[i] = group;
         ++lk->groupLen[group];
     }
@@ -4684,6 +4688,13 @@ static Il2CppArray* il2cpp_lookup_gen_materialize_groupings(Il2CppObject* self)
         if (keyKind == kGenKind_Int32)
         {
             grp->key = lk->keyInt[g];
+            grp->keyRef = nullptr;
+        }
+        else if (keyKind == kGenKind_Int64)
+        {
+            // b5-gaps section 102: the int64 key rides the bucket's key slot
+            // (the get_Key accessor returns it as a long).
+            grp->key = lk->keyI64[g];
             grp->keyRef = nullptr;
         }
         else
@@ -5326,6 +5337,52 @@ bool il2cpp_lookup_gen_contains(Il2CppObject* self, int32_t keyInt, int32_t keyK
     return il2cpp_lookup_gen_contains(self, keyInt, nullptr, keyKind);
 }
 
+bool il2cpp_lookup_gen_comparer_equals_long(Il2CppObject* cmp, int64_t key,
+                                             int64_t existing)
+{
+    if (cmp == nullptr)
+    {
+        return key == existing;
+    }
+    int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Equals", "(l,l)");
+    if (slot < 0 || cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
+        slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
+    {
+        il2cpp_throw_not_supported_exception(
+            "IEqualityComparer<long>.Equals dispatch: the comparer type has no "
+            "reflected virtual Equals(long,long) slot.");
+        return false; // unreachable (the factory throws)
+    }
+    typedef bool (*EqualsFn)(Il2CppObject*, int64_t, int64_t);
+    return reinterpret_cast<EqualsFn>(cmp->klass->vtable[slot])(cmp, key, existing);
+}
+
+bool il2cpp_lookup_gen_contains(Il2CppObject* self, int64_t keyI64, int32_t keyKind)
+{
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    if (w == nullptr || w->lookup == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return false;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&self));
+    Il2CppLookupGenObject* wd = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    Il2CppLookupGen* lk = wd->lookup;
+    Il2CppObject* cmp = wd->comparer;
+    for (int32_t i = 0; i < lk->count; ++i)
+    {
+        const bool eq = cmp == nullptr
+            ? (lk->keyI64[i] == keyI64)
+            : il2cpp_lookup_gen_comparer_equals_long(cmp, keyI64, lk->keyI64[i]);
+        if (eq) return true;
+        // the comparer call above may have collected: re-derive.
+        wd = reinterpret_cast<Il2CppLookupGenObject*>(self);
+        lk = wd->lookup;
+    }
+    return false;
+}
+
 bool il2cpp_lookup_gen_contains(Il2CppObject* self, Il2CppObject* keyRef, int32_t keyKind)
 {
     return il2cpp_lookup_gen_contains(self, 0, keyRef, keyKind);
@@ -5335,6 +5392,40 @@ Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
                                         int32_t keyKind, int32_t srcCell)
 {
     return il2cpp_lookup_gen_get_item(self, keyInt, nullptr, keyKind, srcCell);
+}
+
+Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, int64_t keyI64,
+                                        int32_t keyKind, int32_t srcCell)
+{
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    if (w == nullptr || w->lookup == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&self));
+    Il2CppLookupGenObject* wd = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    Il2CppLookupGen* lk = wd->lookup;
+    Il2CppObject* cmp = wd->comparer;
+    int32_t hit = -1;
+    for (int32_t i = 0; i < lk->count; ++i)
+    {
+        const bool eq = cmp == nullptr
+            ? (lk->keyI64[i] == keyI64)
+            : il2cpp_lookup_gen_comparer_equals_long(cmp, keyI64, lk->keyI64[i]);
+        if (eq) { hit = i; break; }
+        wd = reinterpret_cast<Il2CppLookupGenObject*>(self);
+        lk = wd->lookup;
+    }
+    if (hit < 0)
+    {
+        return LinqNewArray(srcCell, 0);
+    }
+    // the int64 scan may have collected; self is a rooted managed arg, re-derive.
+    Il2CppObject** groups = reinterpret_cast<Il2CppObject**>(
+        il2cpp_array_get_elem_ptr(wd->groupsRoot, 0));
+    return reinterpret_cast<Il2CppArray*>(groups[hit]);
 }
 
 Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, Il2CppObject* keyRef,
@@ -5351,6 +5442,8 @@ Il2CppLookupGen* il2cpp_lookup_gen_create(int32_t capacity)
     lk->capacity = capacity;
     lk->keyInt = static_cast<int32_t*>(
         std::calloc(capacity, sizeof(int32_t)));
+    lk->keyI64 = static_cast<int64_t*>(
+        std::calloc(capacity, sizeof(int64_t)));
     lk->groupLen = static_cast<int32_t*>(
         std::calloc(capacity, sizeof(int32_t)));
     lk->groupOff = static_cast<int32_t*>(
@@ -5402,6 +5495,11 @@ int32_t il2cpp_lookup_gen_find_or_add(Il2CppObject* wObj, int32_t keyInt,
         std::memcpy(nk, lk->keyInt, sizeof(int32_t) * lk->capacity);
         std::free(lk->keyInt);
         lk->keyInt = nk;
+        int64_t* ni = static_cast<int64_t*>(
+            std::malloc(sizeof(int64_t) * ncap));
+        std::memcpy(ni, lk->keyI64, sizeof(int64_t) * lk->capacity);
+        std::free(lk->keyI64);
+        lk->keyI64 = ni;
         int32_t* nl = static_cast<int32_t*>(
             std::malloc(sizeof(int32_t) * ncap));
         std::memcpy(nl, lk->groupLen, sizeof(int32_t) * lk->capacity);
@@ -5424,6 +5522,56 @@ else
             keys[g] = keyRef;
             il2cpp_write_barrier(reinterpret_cast<void**>(&keys[g]), keyRef);
         }
+    lk->groupLen[g] = 0;
+    ++lk->count;
+    return g;
+}
+
+int32_t il2cpp_lookup_gen_find_or_add_i64(Il2CppObject* wObj, int64_t keyI64,
+                                          int32_t keyKind, Il2CppObject* comparer)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&wObj));
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    Il2CppLookupGen* lk = w->lookup;
+    const int32_t c = lk->count;
+    for (int32_t i = 0; i < c; ++i)
+    {
+        const bool match = comparer == nullptr
+            ? (lk->keyI64[i] == keyI64)
+            : il2cpp_lookup_gen_comparer_equals_long(comparer, keyI64, lk->keyI64[i]);
+        if (match) return i;
+        // the comparer call above may have collected: re-derive.
+        w = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+        lk = w->lookup;
+    }
+    if (lk->count >= lk->capacity)
+    {
+        const int32_t ncap = lk->capacity * 2;
+        int32_t* nk = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * ncap));
+        std::memcpy(nk, lk->keyInt, sizeof(int32_t) * lk->capacity);
+        std::free(lk->keyInt);
+        lk->keyInt = nk;
+        int64_t* ni = static_cast<int64_t*>(
+            std::malloc(sizeof(int64_t) * ncap));
+        std::memcpy(ni, lk->keyI64, sizeof(int64_t) * lk->capacity);
+        std::free(lk->keyI64);
+        lk->keyI64 = ni;
+        int32_t* nl = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * ncap));
+        std::memcpy(nl, lk->groupLen, sizeof(int32_t) * lk->capacity);
+        std::free(lk->groupLen);
+        lk->groupLen = nl;
+        int32_t* no = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * ncap));
+        std::memcpy(no, lk->groupOff, sizeof(int32_t) * lk->capacity);
+        std::free(lk->groupOff);
+        lk->groupOff = no;
+        lk->capacity = ncap;
+    }
+    const int32_t g = lk->count;
+    lk->keyI64[g] = keyI64;
     lk->groupLen[g] = 0;
     ++lk->count;
     return g;

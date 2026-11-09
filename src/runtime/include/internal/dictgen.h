@@ -65,6 +65,10 @@ namespace il2cpp {
 // Phase-1 kind codes (ride the gen icalls as trailing int32 literals).
 constexpr int32_t kGenKind_String = 0; // reference passthrough
 constexpr int32_t kGenKind_Int32 = 1;  // boxed int32
+// b5-gaps section 102: the int64 key carrier (the long key does not fit the
+// int32 keyInt slot; it rides a parallel int64 array in the lookup table).
+// Distinct from kGenKind_Uri (which is normalized to the string kind on entry).
+constexpr int32_t kGenKind_Int64 = 16;
 // Phase-2: Uri keys normalize to their string form at the twin entry, then
 // ride the string-kind table path (the T4 uristr contract, no twin family).
 constexpr int32_t kGenKind_Uri = 2; // normalized to string on entry
