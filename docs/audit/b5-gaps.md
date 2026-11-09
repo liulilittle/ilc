@@ -7068,3 +7068,33 @@ the tracked Dictionary`2 instantiation.
   int64/double/char/DateTime keys; ToDictionary int32/int64/double values;
   GroupBy LAZINESS; ToList over a single IGrouping (falls through to
   il2cpp_linq_to_list -> "Object is not an array.").
+## 98. ToList over ONE GroupBy bucket -- FIXED (commit 28c6bb34)
+
+* gap (measured): the bucket switch had no ToList arm, so ucket.ToList()
+  fell through to the generic ToList arm and bound il2cpp_linq_to_list --
+  which casts the GROUPING OBJECT to Il2CppArray* and dies with
+  "Object is not an array." (probe-s103j2: oracle [j2] 3,3 vs runtime empty).
+* fix: il2cpp_linq_grouping_to_list snapshots the bucket through
+  il2cpp_linq_grouping_get_elements (an exact-size array at the bucket's own
+  element width) and materializes the list in the bucket's OWN family. The list
+  DOMAIN is dispatched by the bucket's recorded elemKind: an int32 bucket yields
+  the listi4 domain (List\1) and every other family the generic listobj domain
+  (List\1_float / List\1_string / ...). The element add is dispatched by the
+  same kind (raw int32 for the listi4 domain, boxed for the listobj domain).
+  The transpiler gains a grouping-receiver guard at the top of the generic
+  ToList arm plus a floatBucket arm in the bucket switch (it must precede the
+  floatBucket LOUD gate, which is inside the switch and runs first).
+* evidence: probe-grp-tolist oracle=runtime byte-exact 67B sha cfe4486c
+  (5 records: int32/float/string buckets plus reference-typed reads).
+  Mutations M1'-M4' red->green. M1/M2/M3 were FALSE GREENS and are the
+  transferable lesson: (a) the listi4 and listobj domains are layout-compatible
+  and the add/get pair is symmetric, so mutating only the CREATE is
+  unobservable -- the anchor must change the ADD; (b) a C# variable's declared
+  type overrides the tracked List name, so a returnTypeName mutation is
+  unobservable -- the anchor must be the emitted KERNEL NAME. 20 regression
+  anchors byte-identical; unit 4164/0/0; C0 0/0.
+* remaining LOUD: ToLookup/GroupBy with a float TKey; Append/Prepend over a
+  GroupBy bucket; OfType/Cast over a value-element source; OrderBy over a
+  bucket; ToLookup int64/double/char/DateTime keys; ToDictionary
+  int32/int64/double values; GroupBy LAZINESS; string.Join over an
+  IGrouping-enumerable (probe-s100r4: oracle 3,3 vs runtime empty).
