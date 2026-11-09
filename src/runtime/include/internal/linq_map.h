@@ -1594,5 +1594,13 @@ Il2CppArray* il2cpp_linq_cast(Il2CppArray* src, int32_t fam);
 Il2CppArray* il2cpp_linq_of_type(Il2CppArray* src, int32_t fam);
 Il2CppArray* il2cpp_linq_cast_ref(Il2CppArray* src, Il2CppClass* klass);
 Il2CppArray* il2cpp_linq_of_type_ref(Il2CppArray* src, Il2CppClass* klass);
+// b5-gaps section 103: the VALUE-element source entries. srcByte is the source
+// element TYPE byte; the entry boxes every cell through the family's own box
+// helper (the non-generic IEnumerable contract) and then runs the SAME
+// unbox.any / isinst path as the object-element entries above.
+Il2CppArray* il2cpp_linq_cast_value(Il2CppArray* src, int32_t fam, int32_t srcByte);
+Il2CppArray* il2cpp_linq_of_type_value(Il2CppArray* src, int32_t fam, int32_t srcByte);
+Il2CppArray* il2cpp_linq_cast_value_ref(Il2CppArray* src, Il2CppClass* klass, int32_t srcByte);
+Il2CppArray* il2cpp_linq_of_type_value_ref(Il2CppArray* src, Il2CppClass* klass, int32_t srcByte);
 } // namespace il2cpp
 

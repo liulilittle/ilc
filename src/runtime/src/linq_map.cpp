@@ -10754,7 +10754,246 @@ void CastRequireObjectSource(Il2CppArray* src)
     }
 }
 
+// b5-gaps section 103: the VALUE-element source form. net48's
+// Enumerable.Cast/OfType over int[]/long[]/double[] enumerates the array
+// through the non-generic IEnumerable, so every element is BOXED first (the
+// shared snapshot enumerator boxes each cell through its own family box) and
+// the boxed value then follows the unbox.any / isinst contract of the
+// object-element form. These helpers read one boxed element and run the SAME
+// CastStoreValue / CastBoxMatches path, so a value source is dispatched to the
+// boxed kernels without duplicating the classification.
+//
+// The source element byte selects the box helper; the cell widths are the
+// runtime's own array cell widths (a float cell is a real 4-byte float, a
+// DateTime cell is the packed 8-byte image). A source family with no box
+// helper is rejected loudly instead of reinterpreting the cell bits.
+Il2CppObject* CastBoxValueAt(Il2CppArray* src, int32_t i, int32_t srcByte)
+{
+    RequireArray(src);
+    if (src->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "CastBoxValueAt: the source is a reference-element array.");
+    }
+    char* p = il2cpp_array_get_elem_ptr(src, i);
+    switch (srcByte)
+    {
+        case 0x08:
+            return il2cpp_box_int32(nullptr, *reinterpret_cast<const int32_t*>(p));
+        case 0x0A:
+        case 0x0B:
+            return il2cpp::runtime::icall_box_long(*reinterpret_cast<const int64_t*>(p));
+        case 0x0C:
+            // A float cell is a REAL 4-byte float; the box widens it to the ABI
+            // double (icall_box_float stores that double).
+            return il2cpp::runtime::icall_box_float(
+                static_cast<double>(*reinterpret_cast<const float*>(p)));
+        case 0x0D:
+            return il2cpp::runtime::icall_box_double(*reinterpret_cast<const double*>(p));
+        case 0x02:
+            return il2cpp::runtime::icall_box_bool(*reinterpret_cast<const uint8_t*>(p) != 0);
+        case 0x03:
+            return il2cpp::runtime::icall_box_char(*reinterpret_cast<const int32_t*>(p));
+        case 0x04:
+            return il2cpp::runtime::icall_box_sbyte(*reinterpret_cast<const int8_t*>(p));
+        case 0x05:
+            return il2cpp::runtime::icall_box_byte(*reinterpret_cast<const int32_t*>(p));
+        case 0x06:
+            return il2cpp::runtime::icall_box_short(*reinterpret_cast<const int16_t*>(p));
+        case 0x07:
+            return il2cpp::runtime::icall_box_ushort(*reinterpret_cast<const int32_t*>(p));
+        case 0x09:
+            return il2cpp::runtime::icall_box_uint(*reinterpret_cast<const int32_t*>(p));
+        case 0x11:
+        {
+            // A 0x11 value-struct source: the NAME decides. The box helper is
+            // picked from the array's recorded element kind (the same
+            // width-plus-kind authority the grouping enumerator uses).
+            const int32_t elemSize = src->elemSize;
+            if (src->elemKind == kElemKindDecimal
+                || (src->elemKind == kElemKindNone
+                    && elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDecimal))))
+            {
+                const runtime::Il2CppDecimal v = *reinterpret_cast<const runtime::Il2CppDecimal*>(p);
+                return il2cpp::runtime::icall_box_decimal(&v);
+            }
+            if (src->elemKind == kElemKindGuid)
+            {
+                Il2CppGuid v;
+                std::memcpy(&v, p, sizeof(v));
+                return il2cpp::runtime::icall_box_guid(&v);
+            }
+            if (src->elemKind == kElemKindDateTime)
+            {
+                const runtime::Il2CppDateTime v =
+                    runtime::il2cpp_datetime_from_array_bits(*reinterpret_cast<const int64_t*>(p));
+                return il2cpp::runtime::icall_box_date_time(v);
+            }
+            if (src->elemKind == kElemKindTimeSpan)
+            {
+                const runtime::Il2CppTimeSpan v =
+                    runtime::Il2CppTimeSpan(*reinterpret_cast<const int64_t*>(p));
+                return il2cpp::runtime::icall_box_time_span(v);
+            }
+            if (src->elemKind == kElemKindNone
+                && elemSize == static_cast<int32_t>(sizeof(runtime::Il2CppDateTimeOffset)))
+            {
+                runtime::Il2CppDateTimeOffset v;
+                std::memcpy(&v, p, sizeof(v));
+                return il2cpp::runtime::icall_box_date_time_offset(&v);
+            }
+            il2cpp_throw_not_supported_exception(
+                "Cast/OfType: a value-struct source has no box carrier.");
+            return nullptr; // unreachable (the factory throws)
+        }
+        default:
+            il2cpp_throw_not_supported_exception(
+                "Cast/OfType: the value source family has no box carrier.");
+            return nullptr; // unreachable (the factory throws)
+    }
+}
+
+// The boxed element of a value source at index i, rooted across the box
+// allocation (the box may collect/compact the source array).
+Il2CppObject* CastBoxValueSource(Il2CppArray* src, int32_t i, int32_t srcByte, RootScope* roots)
+{
+    RequireArray(src);
+    if (roots != nullptr)
+    {
+        roots->Add(reinterpret_cast<void**>(&src));
+    }
+    return CastBoxValueAt(src, i, srcByte);
+}
+
 } // namespace
+
+// b5-gaps section 103: the VALUE-element source entries. The source is a real
+// value array (int32[]/long[]/double[]/float[]/the narrow integral families/
+// the 16-byte value structs); net48 boxes every element through the non-generic
+// IEnumerable and then runs the SAME unbox.any / isinst contract, so each entry
+// reuses CastBoxValueSource + the shared CastStoreValue / CastBoxMatches path.
+// srcByte is the source element TYPE byte (the transpiler's metadata byte).
+Il2CppArray* il2cpp_linq_cast_value(Il2CppArray* src, int32_t fam, int32_t srcByte)
+{
+    RequireArray(src);
+    if (src->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.Cast over a reference-element source must use the "
+            "object-element entry (il2cpp_linq_cast).");
+    }
+    const CastFamInfo& f = CastFamOf(fam);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = CastAllocResult(f, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* boxed = CastBoxValueAt(src, i, srcByte);
+        if (boxed == nullptr)
+        {
+            il2cpp_throw_null_reference_exception(
+                "Object reference not set to an instance of an object.");
+        }
+        CastStoreValue(out->data + static_cast<size_t>(i) * static_cast<size_t>(f.size),
+                       fam, boxed);
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_of_type_value(Il2CppArray* src, int32_t fam, int32_t srcByte)
+{
+    RequireArray(src);
+    if (src->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.OfType over a reference-element source must use the "
+            "object-element entry (il2cpp_linq_of_type).");
+    }
+    const CastFamInfo& f = CastFamOf(fam);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t n = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        if (CastBoxMatches(CastBoxValueAt(src, i, srcByte), f)) ++n;
+    }
+    Il2CppArray* out = CastAllocResult(f, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+    int32_t w = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* boxed = CastBoxValueAt(src, i, srcByte);
+        if (!CastBoxMatches(boxed, f)) continue;
+        CastStoreValue(out->data + static_cast<size_t>(w) * static_cast<size_t>(f.size),
+                       fam, boxed);
+        ++w;
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_cast_value_ref(Il2CppArray* src, Il2CppClass* klass, int32_t srcByte)
+{
+    RequireArray(src);
+    if (src->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.Cast over a reference-element source must use the "
+            "object-element entry (il2cpp_linq_cast_ref).");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)),
+                                        true, src->length);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = CastBoxValueAt(src, i, srcByte);
+        if (elem != nullptr && !il2cpp_is_instance(elem, klass))
+        {
+            il2cpp_throw_new(
+                "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+                "Specified cast is not valid.");
+        }
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(out->data) + i;
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), elem);
+        *slot = elem;
+    }
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_of_type_value_ref(Il2CppArray* src, Il2CppClass* klass, int32_t srcByte)
+{
+    RequireArray(src);
+    if (src->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "Enumerable.OfType over a reference-element source must use the "
+            "object-element entry (il2cpp_linq_of_type_ref).");
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&src));
+    int32_t n = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = CastBoxValueAt(src, i, srcByte);
+        if (elem != nullptr && il2cpp_is_instance(elem, klass)) ++n;
+    }
+    Il2CppArray* out = il2cpp_array_new(nullptr, static_cast<int32_t>(sizeof(void*)),
+                                        true, n);
+    roots.Add(reinterpret_cast<void**>(&out));
+    int32_t w = 0;
+    for (int32_t i = 0; i < src->length; ++i)
+    {
+        Il2CppObject* elem = CastBoxValueAt(src, i, srcByte);
+        if (elem == nullptr || !il2cpp_is_instance(elem, klass)) continue;
+        Il2CppObject** slot = reinterpret_cast<Il2CppObject**>(out->data) + w;
+        il2cpp_write_barrier(reinterpret_cast<void**>(slot), elem);
+        *slot = elem;
+        ++w;
+    }
+    return out;
+}
 
 Il2CppArray* il2cpp_linq_cast(Il2CppArray* src, int32_t fam)
 {

@@ -445,6 +445,14 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     + "IEnumerable receiver needs its own element-kind snapshot) "
                     + "-- see docs/audit/b5-gaps.md");
             }
+            // b5-gaps section 103: a VALUE-element ARRAY source rides the *_value
+            // entries (net48 boxes every element through the non-generic
+            // IEnumerable before the unbox.any / isinst contract). A reference /
+            // object source keeps the b5-gaps §54 object-element entries. The
+            // tracked array NAME is the authority: the receiver of
+            // `new[] { 3, 1, 2 }.Cast<int>()` is System.Int32[], while
+            // `new object[] { 1, "a" }.Cast<int>()` is System.Object[].
+            bool srcIsValueArray = LinqTryValueArrayElemByte(srcType, out byte srcElemByte);
             byte castRes = genArgs[0];
             bool castIsRef = IsRefFamilyByte(castRes);
             string? castFam = castRes switch
@@ -478,9 +486,12 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             string castOp = name == "Cast" ? "cast" : "of_type";
             if (castFam != null)
             {
-                return I($"il2cpp::il2cpp_linq_{castOp}", 1, true, true, false, OneArg,
+                return I($"il2cpp::il2cpp_linq_{castOp}{(srcIsValueArray ? "_value" : "")}",
+                    1, true, true, false, OneArg,
                     returnTypeName: LinqArrayTypeNameExact(castRes, genArgNames, 0),
-                    appendLiterals: new[] { castFam });
+                    appendLiterals: srcIsValueArray
+                        ? new[] { castFam, ((int)srcElemByte).ToString(System.Globalization.CultureInfo.InvariantCulture) }
+                        : new[] { castFam });
             }
             if (castIsRef)
             {
@@ -488,9 +499,12 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     ? "System.String"
                     : genArgNames is { Length: >= 1 }
                         ? LinqStructNameOf(genArgNames[0]) : "System.Object";
-                return I($"il2cpp::il2cpp_linq_{castOp}_ref", 1, true, true, false, OneArg,
+                return I($"il2cpp::il2cpp_linq_{castOp}{(srcIsValueArray ? "_value" : "")}_ref",
+                    1, true, true, false, OneArg,
                     returnTypeName: castName + "[]",
-                    appendLiterals: new[] { LinqClassSymbolOf(castName) });
+                    appendLiterals: srcIsValueArray
+                        ? new[] { LinqClassSymbolOf(castName), ((int)srcElemByte).ToString(System.Globalization.CultureInfo.InvariantCulture) }
+                        : new[] { LinqClassSymbolOf(castName) });
             }
             throw new NotSupportedException(
                 $"Enumerable.{name} TResult '{GenericArgTypeName(castRes)}' is not "
@@ -6540,6 +6554,40 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
 
     // The tracked array type name for a source/result family byte (narrow
     // families keep their real element type -- not System.Int32[]).
+    // b5-gaps section 103: is `arrayName` a tracked VALUE-element array, and if
+    // so which element TYPE byte? net48's Cast/OfType over int[]/long[]/double[]
+    // enumerates through the non-generic IEnumerable (every element is BOXED),
+    // so those sources ride the *_value entries; System.String[] / System.Object[]
+    // / a class[] stay the object-element (boxed) sources of b5-gaps §54.
+    private static bool LinqTryValueArrayElemByte(string? arrayName, out byte elemByte)
+    {
+        elemByte = 0;
+        if (arrayName is not { Length: > 2 } || !arrayName.EndsWith("[]", StringComparison.Ordinal))
+            return false;
+        string n = arrayName.Substring(0, arrayName.Length - 2);
+        switch (n)
+        {
+            case "System.Int32": elemByte = 0x08; return true;
+            case "System.Int64": elemByte = 0x0A; return true;
+            case "System.UInt64": elemByte = 0x0B; return true;
+            case "System.UInt32": elemByte = 0x09; return true;
+            case "System.SByte": elemByte = 0x04; return true;
+            case "System.Byte": elemByte = 0x05; return true;
+            case "System.Int16": elemByte = 0x06; return true;
+            case "System.UInt16": elemByte = 0x07; return true;
+            case "System.Boolean": elemByte = 0x02; return true;
+            case "System.Char": elemByte = 0x03; return true;
+            case "System.Single": elemByte = 0x0C; return true;
+            case "System.Double": elemByte = 0x0D; return true;
+            case "System.Decimal":
+            case "System.DateTime":
+            case "System.TimeSpan":
+            case "System.Guid":
+            case "System.DateTimeOffset": elemByte = 0x11; return true;
+            default: return false;
+        }
+    }
+
     private static string LinqArrayTypeNameExact(byte b) => b switch
     {
         0x08 => "System.Int32[]",
