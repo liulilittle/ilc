@@ -6943,3 +6943,32 @@ the tracked Dictionary`2 instantiation.
   the grouping is bound to the array/ref kernels and dies with "Object is not
   an array"); ToLookup with an int64/double TKey; ToDictionary with an
   int32/int64 TValue; the GroupBy LAZINESS (key-selector re-invocation).
+## 93. Single / SingleOrDefault / Aggregate over a GroupBy bucket -- IMPLEMENTED (commit a56ff069)
+
+* scan that found it (one method per shape, so a LOUD in one cannot mask the
+  others -- a lesson from section 92, where a LOUD in the same Main zeroed the
+  whole probe):
+  - WORKS: Last, ElementAt, Sum, Min, Max, Contains, All, and the element-only
+    operators over a single grouping (Where/Select/Count(pred)) -- the last one
+    CORRECTS a registered item from section 92 (it is served, not a gap).
+  - BROKEN: Single / SingleOrDefault (a loud "LINQ element family mismatch"),
+    Aggregate (a SILENT WRONG VALUE -- the bucket's IGrouping* cell pointers
+    folded through the int32 kernel: expected 6, answered 1185).
+  - LOUD: Append, OfType, Cast (mapping gaps); OrderBy aborts ("Object is not
+    an array").
+  - LOUD gates (deliberate): ToLookup with an int64/double TKey, ToDictionary
+    with an int32 TValue.
+* root cause: the GroupBy bucket switch had NO arm for Single/SingleOrDefault/
+  Aggregate, so they fell through to the generic element block -- which cast
+  the GROUPING OBJECT to Il2CppArray* (Single) or ran the int32 aggregate over
+  that bad cast (Aggregate).
+* fix: new il2cpp_linq_grouping_single_i4 / _single_or_default_i4 /
+  _aggregate_i4 (RequireI4GroupElements first, then the family kernel) + the
+  three bucket arms with OBJECT casts; the bucket guard learns the concrete
+  IGrouping2_<K>_<T> carrier.
+* evidence: probe-grp-elemops oracle=runtime byte-exact 91B sha 0845346f.
+  M1 (the single wrapper passes CELL_REF) / M2 (the aggregate wrapper skips
+  RequireI4GroupElements) / M3 (the aggregate wrapper seeds with 0) all
+  red->green. 8 regression anchors byte-identical; unit 4164/0/0; C0 0/0.
+* remaining LOUD: Append / OfType / Cast over a bucket, OrderBy over a bucket,
+  ToLookup int64/double keys, ToDictionary int32 values, the GroupBy LAZINESS.
