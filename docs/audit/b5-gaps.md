@@ -6972,3 +6972,24 @@ the tracked Dictionary`2 instantiation.
   red->green. 8 regression anchors byte-identical; unit 4164/0/0; C0 0/0.
 * remaining LOUD: Append / OfType / Cast over a bucket, OrderBy over a bucket,
   ToLookup int64/double keys, ToDictionary int32 values, the GroupBy LAZINESS.
+## 94. Append / Prepend over ARRAY sources -- IMPLEMENTED (commit 39ef9bf2)
+
+* gap (measured): Append and Prepend had NO arm ANYWHERE in the resolver -- not
+  for an ARRAY source, not for a List, not for a GroupBy bucket -- so every
+  call died as a phantom "generic instantiation ... has no BCL mapping in M5".
+* semantics: Append(source, element) IS Concat(source, [element]) and Prepend
+  is its mirror; the one-element tail/head rides the SOURCE's own cell, and an
+  appended reference is the IDENTICAL object (net48).
+* runtime: il2cpp_linq_append_i4 / _prepend_i4, _append_i8 / _prepend_i8,
+  _append_d / _prepend_d, _append_ref / _prepend_ref -- each builds the
+  one-element array with the matching repeat entry and runs
+  il2cpp_linq_concat_family over it.
+* transpiler: the int32 ARRAY block, the wide/narrow ARRAY block (the element
+  crosses on the family ABI) and the REFERENCE-source block gain the two arms.
+* evidence: probe-append-prepend oracle=runtime byte-exact 227B sha 21790545
+  (m1-m13: int32/int64/double/string Append+Prepend, short and char narrow,
+  bool, empty-source). M1/M2/M3 red->green. 9 regression anchors byte-identical;
+  unit 4164/0/0; C0 0/0.
+* remaining LOUD: Append/Prepend over a List source and over a GroupBy bucket
+  (both still unmapped); OfType/Cast over a VALUE-element source; OrderBy over a
+  bucket; ToLookup int64/double keys; ToDictionary int32 values; GroupBy LAZINESS.
