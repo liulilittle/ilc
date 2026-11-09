@@ -7134,3 +7134,32 @@ carrier and M1/M3 re-ran on the simplified code. 18 anchors byte-identical. C0
 **Remaining LOUD**: ToLookup/GroupBy with an int64/double/char/DateTime TKey;
 ToDictionary with int32/int64/double values; Append/Prepend over a GroupBy bucket;
 OfType/Cast over a value-element source; OrderBy over a bucket; GroupBy LAZINESS.
+## section 100 (2026-11-09): OrderBy/OrderByDescending over a System.Single GroupBy bucket -- commit 2401d834
+
+**Symptom**: `xs.GroupBy(x => (int)x).First().OrderBy(x => x)` was LOUD-rejected
+(the floatBucket gate: "the float bucket surface covers ... Contains and
+get_Key").
+
+**Root cause**: the bucket switch's float arms ended at Contains; the
+float-SOURCE keyed-sort kernels (`il2cpp_linq_order_by_key[_desc]_f_<keyfam>`)
+already existed, but no bucket wrapper called them.
+
+**Fix**: eight new runtime wrappers (`il2cpp_linq_grouping_order_by_key[_desc]_f_
+{i4,i8,d,f}`) snapshot the bucket to its REAL float[] (`RequireFGroupElements`)
+and reuse the float-source kernel; the transpiler bucket switch gains the
+OrderBy/OrderByDescending floatBucket arm.
+
+**Verification**: probe-grp-forder oracle=runtime=85B sha 2261775c (5 shapes:
+OrderBy/Desc self, int32/int64/double keys). Mutations M1 (desc flag inverted in
+the resolver) and M2b (the float wrapper -> the int32 kernel on the raw grouping
+object) red. M2/M3/M3b/M3c/M3d/M3e/M4 were FALSE GREENS (an identity int32 key,
+a desc/asc pair whose comparator is the same, and an anchor that hit desc_d_f
+instead of desc_f_f); the probe was strengthened with NEGATIVE float values so
+the int32 bit-pattern order is the reverse of the value order. 16 anchors
+byte-identical. C0 0/0; unit 4164/0/0.
+
+**SEPARATE GAP (registered)**: a float TKey GroupBy
+(`new[] { 3f, 1f }.GroupBy(x => x)`) is LOUD -- the grouping surface buckets by
+an int32/int64/16-byte-struct key carrier; a float key has no carrier
+(`KeyKindFor` returns -1 for 0x0C). The OrderBy probe therefore uses an int32
+key.
