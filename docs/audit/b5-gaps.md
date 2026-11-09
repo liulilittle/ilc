@@ -7226,3 +7226,39 @@ same 64-bit value for a long source and the groupLen increment was untouched.
 (probe-s99lk64b: "bucket element width has no enumerator carrier") and the
 int64-key elementSelector (probe-s99lk64d: "a source/element family has no
 selector cell ABI").
+## section 103 (2026-11-10): Cast/OfType over a VALUE-element source -- commit d884f52e
+
+**Symptom**: `new[] { 3, 1, 2 }.Cast<int>()` threw
+"NotSupportedException: Enumerable.Cast/OfType over a VALUE-element array source
+is not wired: the source must be an object-element (boxed) array."
+
+**Root cause**: the four cast entries (`il2cpp_linq_cast/_of_type` and their
+`_ref` twins) validated `CastRequireObjectSource` -- a value-element array
+was refused at runtime. net48 enumerates `int[]`/`long[]`/`double[]`
+through the non-generic IEnumerable, boxing every element first.
+
+**Fix**: `CastBoxValueAt(src, i, srcByte)` boxes ONE cell through its own
+family box helper (int32/int64/uint64/float/double/bool/char/sbyte/byte/short/
+ushort/uint, and the 0x11 value structs by the array's recorded element kind --
+the same width-plus-kind authority the grouping enumerator uses); the four new
+entries (`il2cpp_linq_cast_value` / `_of_type_value` / `_cast_value_ref` /
+`_of_type_value_ref`) reuse the SAME `CastStoreValue` / `CastBoxMatches`
+path, so unbox.any semantics (null -> NullReferenceException, wrong family ->
+InvalidCastException) and the OfType family filter are preserved. The
+transpiler's `LinqTryValueArrayElemByte` resolves the tracked receiver array
+NAME to its element TYPE byte and routes a value array to the `*_value` /
+`*_value_ref` entries (the result family literal plus the source element byte
+ride `AppendLiterals`; the IL argument count stays 1).
+
+**Verification**: probe-castval oracle=runtime=255B sha 6e46b38e; probe-castoftype
+(the object-element source) unchanged at 392B sha 76fbcf3e. Mutations M1 (the
+int32 box +1), M2 (the transpiler's Int32 source byte 0x08 -> 0x0A) and M3b
+(the OfType value filter dropped) red. M3 (the `of_type_value` ->
+`cast_value` routing) and M4 (the `_value_ref` conformance filter) were
+FALSE GREENS -- a same-family value source makes OfType and Cast equivalent, and
+a `byte[]` source reaches the value-family entries, not the `*_value_ref`
+ones. 24 anchors byte-identical. C0 0/0; unit 4164/0/0.
+
+**SEPARATE GAPS (registered)**: the `*_value_ref` entries' conformance filter
+has no reachable probe (a `byte[]` source reaches the value-family entries,
+not the ref ones); a List receiver still needs its own element-kind snapshot.
