@@ -1291,6 +1291,35 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     return I($"il2cpp::il2cpp_linq_grouping_order_by_key{(desc ? "_desc" : "")}_f_{fKeyFam}",
                         2, true, true, false, new[] { "", "" }, returnTypeName: "System.Single[]");
                 }
+                // b5-gaps section 101: Append / Prepend over a GroupBy bucket.
+                // The bucket's element family EQUALS the appended element's
+                // family (net48's Append(T) requires the element be a T), so the
+                // APPENDED element's byte (genArgs[1]) selects the kernel -- the
+                // receiver's srcType is System.Linq.IGrouping (the First() over
+                // a GroupBy RESULT) and hides the family. A reference element
+                // rides the dispatcher kernel (which reads the bucket's own
+                // element kind); an int32/narrow element the int32 kernel; a
+                // float/double element the double kernel.
+                case "Append":
+                case "Prepend":
+                {
+                    byte elemByte = genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0;
+                    string apOp = name.ToLowerInvariant();
+                    if (IsRefFamilyByte(elemByte))
+                        return I($"il2cpp::il2cpp_linq_grouping_{apOp}_ref", 2, true, true, false,
+                            new[] { "", "" }, returnTypeName: "System.Object[]");
+                    if (elemByte is >= 0x02 and <= 0x09)
+                        return I($"il2cpp::il2cpp_linq_grouping_{apOp}_i4", 2, true, true, false,
+                            new[] { "", "i" }, returnTypeName: "System.Int32[]");
+                    if (elemByte == 0x0C || elemByte == 0x0D)
+                        return I($"il2cpp::il2cpp_linq_grouping_{apOp}_d", 2, true, true, false,
+                            new[] { "", "d" },
+                            returnTypeName: elemByte == 0x0C ? "System.Single[]" : "System.Double[]");
+                    throw new NotSupportedException(
+                        $"Enumerable.{name} over a GroupBy bucket with a {GenericArgTypeName(elemByte)} " +
+                        "element is not wired: the bucket append/prepend surface covers reference, " +
+                        "int32-slot and float/double elements only (see docs/audit/b5-gaps.md)");
+                }
                 // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each
                 // entry snapshots the bucket's exact-size decimal cells (the
                 // runtime RequireDecGroupElements) and reuses the DECIMAL-SOURCE
@@ -5774,6 +5803,45 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         // bucket's keyRef slot (keyKind 11).
         if (IsRefFamilyByte(keyByte)) return 11;
         return KeyKindFor(keyByte);
+    }
+
+    // b5-gaps section 101: is the GroupBy bucket's ELEMENT a reference family?
+    // The bucket's element family is the IGrouping`2<TKey,TElement> carrier's
+    // SECOND generic argument (the Append/Prepend genArgs[1] is the APPENDED
+    // element, not the bucket element). The carrier decodes as
+    // "System.Linq.IGrouping`2<r:System.String, r:System.String>" (the closed
+    // name) or "System.Linq.IGrouping`2_int_string" (the tracked pseudo-type);
+    // both name the element after the comma / the second underscore.
+    private static bool BucketElementIsRef(string? srcType)
+    {
+        if (srcType == null) return false;
+        // A System.Linq.IGrouping srcType (the First() over a GroupBy RESULT)
+        // hides the element family -- the runtime dispatcher reads the bucket's
+        // own element kind, so the transpiler routes it to the dispatcher kernel.
+        if (srcType == "System.Linq.IGrouping") return true;
+        const string marker = "System.Linq.IGrouping`2";
+        int idx = srcType.IndexOf(marker, StringComparison.Ordinal);
+        if (idx < 0) return false;
+        int start = idx + marker.Length;
+        if (start >= srcType.Length) return false;
+        char c = srcType[start];
+        if (c == '<')
+        {
+            int comma = srcType.IndexOf(',', start);
+            if (comma < 0) return false;
+            string elem = srcType.Substring(comma + 1).TrimStart();
+            return elem.StartsWith("r:", StringComparison.Ordinal)
+                || elem.StartsWith("System.String", StringComparison.Ordinal)
+                || elem.StartsWith("System.Object", StringComparison.Ordinal);
+        }
+        if (c == '_')
+        {
+            int us = srcType.IndexOf('_', start + 1);
+            if (us < 0) return false;
+            string elem = srcType.Substring(us + 1);
+            return elem == "string" || elem == "ref" || elem == "object";
+        }
+        return false;
     }
 
     // impl-groupbykey: is `name` a USER enum (a TypeDef of THIS session whose

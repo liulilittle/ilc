@@ -1239,6 +1239,20 @@ Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_f_i8(Il2CppObject* grouping
 Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_f_d(Il2CppObject* grouping, Il2CppObject* keySel);
 Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_f_f(Il2CppObject* grouping, Il2CppObject* keySel);
 
+// b5-gaps section 101: Append / Prepend over a GroupBy bucket. The bucket
+// switch had no arm, so the call was LOUD (the floatBucket / valueBucket gates)
+// or fell through to the array kernels and cast the GROUPING OBJECT to
+// Il2CppArray* (a loud element-family mismatch). The wrapper snapshots the
+// bucket to its REAL element array (RequireI4GroupElements /
+// RequireFGroupElements) or reads its reference elements directly, and reuses
+// the array append/prepend kernel.
+Il2CppArray*  il2cpp_linq_grouping_append_i4(Il2CppObject* grouping, int32_t element);
+Il2CppArray*  il2cpp_linq_grouping_prepend_i4(Il2CppObject* grouping, int32_t element);
+Il2CppArray*  il2cpp_linq_grouping_append_d(Il2CppObject* grouping, double element);
+Il2CppArray*  il2cpp_linq_grouping_prepend_d(Il2CppObject* grouping, double element);
+Il2CppArray*  il2cpp_linq_grouping_append_ref(Il2CppObject* grouping, Il2CppObject* element);
+Il2CppArray*  il2cpp_linq_grouping_prepend_ref(Il2CppObject* grouping, Il2CppObject* element);
+
 // BATCH4: the DECIMAL-bucket operators (a decimal-source bucket stores 16-byte
 // System.Decimal cells). The aggregate results ride the decimal T3 result-slot
 // ABI (the result slot is the FIRST C++ parameter); Contains takes the value by

@@ -9619,6 +9619,89 @@ Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_f_f(Il2CppObject* grouping, 
     return il2cpp_linq_order_by_key_desc_f_f(RequireFGroupElements(grouping), keySel);
 }
 
+// b5-gaps section 101: Append / Prepend over a GroupBy bucket. The wrapper
+// snapshots the bucket to its REAL element array (RequireI4GroupElements /
+// RequireFGroupElements) or reads its reference elements directly, and reuses
+// the array append/prepend kernel. Append(source, element) IS
+// Concat(source, [element]) -- the tail rides the bucket's own cell.
+Il2CppArray* il2cpp_linq_grouping_append_i4(Il2CppObject* grouping, int32_t element)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_append_i4(RequireI4GroupElements(grouping), element, IL2CPP_LINQ_CELL_I4);
+}
+
+Il2CppArray* il2cpp_linq_grouping_prepend_i4(Il2CppObject* grouping, int32_t element)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_prepend_i4(RequireI4GroupElements(grouping), element, IL2CPP_LINQ_CELL_I4);
+}
+
+Il2CppArray* il2cpp_linq_grouping_append_d(Il2CppObject* grouping, double element)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_append_d(RequireFGroupElements(grouping), element, IL2CPP_LINQ_CELL_F);
+}
+
+Il2CppArray* il2cpp_linq_grouping_prepend_d(Il2CppObject* grouping, double element)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_prepend_d(RequireFGroupElements(grouping), element, IL2CPP_LINQ_CELL_F);
+}
+
+Il2CppArray* il2cpp_linq_grouping_append_ref(Il2CppObject* grouping, Il2CppObject* element)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = il2cpp_linq_grouping_get_elements(grouping);
+    // b5-gaps section 101: a System.Linq.IGrouping srcType (the First() over a
+    // GroupBy RESULT) hides the element family, so the dispatcher reads the
+    // bucket's own element kind. A float bucket rides the float kernel; an
+    // int32 bucket the int32 kernel; a reference bucket the reference kernel.
+    if (elems != nullptr && !elems->isRefElem
+        && elems->elemSize == static_cast<int32_t>(sizeof(float))
+        && elems->elemKind == kElemKindF)
+    {
+        return il2cpp_linq_append_d(elems, element != nullptr ? il2cpp::runtime::icall_unbox_float(element) : 0.0, IL2CPP_LINQ_CELL_F);
+    }
+    if (elems != nullptr && !elems->isRefElem
+        && elems->elemSize == static_cast<int32_t>(sizeof(int32_t)))
+    {
+        return il2cpp_linq_append_i4(elems, element != nullptr ? il2cpp::runtime::icall_unbox_int32(element) : 0, IL2CPP_LINQ_CELL_I4);
+    }
+    if (elems == nullptr || !elems->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "GroupBy bucket operator: the bucket holds non-reference elements "
+            "(an int32/float bucket has no reference append kernel).");
+        return nullptr; // unreachable (the factory throws)
+    }
+    return il2cpp_linq_append_ref(elems, element);
+}
+
+Il2CppArray* il2cpp_linq_grouping_prepend_ref(Il2CppObject* grouping, Il2CppObject* element)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = il2cpp_linq_grouping_get_elements(grouping);
+    if (elems != nullptr && !elems->isRefElem
+        && elems->elemSize == static_cast<int32_t>(sizeof(float))
+        && elems->elemKind == kElemKindF)
+    {
+        return il2cpp_linq_prepend_d(elems, element != nullptr ? il2cpp::runtime::icall_unbox_float(element) : 0.0, IL2CPP_LINQ_CELL_F);
+    }
+    if (elems != nullptr && !elems->isRefElem
+        && elems->elemSize == static_cast<int32_t>(sizeof(int32_t)))
+    {
+        return il2cpp_linq_prepend_i4(elems, element != nullptr ? il2cpp::runtime::icall_unbox_int32(element) : 0, IL2CPP_LINQ_CELL_I4);
+    }
+    if (elems == nullptr || !elems->isRefElem)
+    {
+        il2cpp_throw_not_supported_exception(
+            "GroupBy bucket operator: the bucket holds non-reference elements "
+            "(an int32/float bucket has no reference append kernel).");
+        return nullptr; // unreachable (the factory throws)
+    }
+    return il2cpp_linq_prepend_ref(elems, element);
+}
+
 Il2CppArray* il2cpp_linq_grouping_where(Il2CppObject* grouping, Il2CppObject* pred)
 {
     ThrowIfNullReceiver(grouping);
