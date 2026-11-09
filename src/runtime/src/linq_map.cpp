@@ -9565,6 +9565,32 @@ bool il2cpp_linq_grouping_contains_i4(Il2CppObject* grouping, int32_t value)
     return il2cpp_linq_contains_i4(RequireI4GroupElements(grouping), value);
 }
 
+// b5-gaps section 93: Single / SingleOrDefault / Aggregate over a GroupBy
+// bucket. The bucket switch had NO arm for them, so they fell through to the
+// generic element block -- which cast the GROUPING OBJECT to Il2CppArray*
+// (Single) or read the bucket's IGrouping* cells through the int32 kernels
+// (Aggregate). Single died loudly ("LINQ element family mismatch") and
+// Aggregate answered a SILENT WRONG VALUE (the cell pointers folded as int32).
+// The grouping_* wrappers extract the bucket's exact-size element snapshot
+// first (RequireI4GroupElements), so the family kernels read real int32 cells.
+int32_t il2cpp_linq_grouping_single_i4(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_single_fam_i4(RequireI4GroupElements(grouping), IL2CPP_LINQ_CELL_I4);
+}
+
+int32_t il2cpp_linq_grouping_single_or_default_i4(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_single_or_default_fam_i4(RequireI4GroupElements(grouping), IL2CPP_LINQ_CELL_I4);
+}
+
+int32_t il2cpp_linq_grouping_aggregate_i4(Il2CppObject* grouping, Il2CppObject* func)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_aggregate_i4(RequireI4GroupElements(grouping), func);
+}
+
 //------------------------------------------------------------------------------
 // BATCH4: the DECIMAL-bucket operators. A decimal-source bucket stores 16-byte
 // System.Decimal VALUE cells; these entries run the decimal array kernels over

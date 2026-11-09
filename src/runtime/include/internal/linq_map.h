@@ -1176,6 +1176,15 @@ int32_t       il2cpp_linq_grouping_first_or_default_i4(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_last_i4(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_element_at_i4(Il2CppObject* grouping, int32_t index);
 bool          il2cpp_linq_grouping_contains_i4(Il2CppObject* grouping, int32_t value);
+// b5-gaps section 93: the bucket's Single / SingleOrDefault / Aggregate. The
+// bucket switch had no arm for them, so the generic element block cast the
+// GROUPING OBJECT to Il2CppArray* (Single: a loud element-family mismatch) or
+// read the bucket's IGrouping* cells through the int32 kernels (Aggregate: a
+// silent wrong value). Each wrapper extracts the bucket's exact-size int32
+// element snapshot first, then runs the family kernel over it.
+int32_t       il2cpp_linq_grouping_single_i4(Il2CppObject* grouping);
+int32_t       il2cpp_linq_grouping_single_or_default_i4(Il2CppObject* grouping);
+int32_t       il2cpp_linq_grouping_aggregate_i4(Il2CppObject* grouping, Il2CppObject* func);
 Il2CppArray*  il2cpp_linq_grouping_to_array(Il2CppObject* grouping);
 
 // floatgrp: the System.Single bucket operator surface. The bucket snapshot is

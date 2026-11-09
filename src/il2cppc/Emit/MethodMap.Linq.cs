@@ -1048,6 +1048,13 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         // array-family icall with an object cast.
         if (srcType == "System.Linq.IGrouping"
             || (srcType != null && srcType.StartsWith("System.Linq.IGrouping_key_", StringComparison.Ordinal))
+            // b5-gaps section 93: a GroupBy result's First()/ElementAt()/
+            // Last() hand back a CONCRETE IGrouping`2_<K>_<T> carrier, which
+            // the exact-match guard above missed -- so Single/Aggregate over
+            // that group fell through to the generic element block and cast
+            // the GROUPING OBJECT to Il2CppArray* (a loud element-family
+            // mismatch). The bucket block must own every IGrouping carrier.
+            || (srcType != null && srcType.StartsWith("System.Linq.IGrouping`2_", StringComparison.Ordinal))
             || (owner == "System.Linq.IGrouping`2" && name == "get_Key"))
         {
             // b5-gaps section 56: a comparer overload over a GroupBy bucket /
@@ -1438,6 +1445,23 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     return I("il2cpp::il2cpp_linq_grouping_first_or_default_i4", 1, true, false, false, new[] { "" });
                 case "Last" when count < 2 && !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_last_i4", 1, true, false, false, new[] { "" });
+                // b5-gaps section 93: Single / SingleOrDefault / Aggregate over a
+                // GroupBy bucket. Without these arms the bucket switch fell
+                // through to the generic element block, which cast the GROUPING
+                // OBJECT to Il2CppArray* (Single -> the runtime's "LINQ element
+                // family mismatch" abort) or folded the bucket's IGrouping* cell
+                // pointers through the int32 aggregate kernel (Aggregate -> a
+                // SILENT WRONG VALUE). The grouping_* wrappers extract the
+                // bucket's exact-size int32 element snapshot first.
+                case "Single" when count < 2 && !valueBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_single_i4", 1, true, false, false, new[] { "" });
+                case "SingleOrDefault" when count < 2 && !valueBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_single_or_default_i4", 1, true, false, false, new[] { "" });
+                case "Aggregate" when count == 2 && !valueBucket:
+                    // Casts ["",""]: OBJECT receivers, never Il2CppArray* -- the
+                    // grouping_* wrapper takes the bucket object.
+                    return I("il2cpp::il2cpp_linq_grouping_aggregate_i4", 2, true, false, false,
+                        new[] { "", "" });
                 case "ElementAt" when !valueBucket:
                     return I("il2cpp::il2cpp_linq_grouping_element_at_i4", 2, true, false, false,
                         new[] { "", "i" });
