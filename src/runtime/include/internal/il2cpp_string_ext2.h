@@ -236,6 +236,12 @@ bool icall_string_is_null_or_whitespace(Il2CppObject* s);
 // allocation (plus one per non-string element's ToString conversion -- keep
 // the array and separator reachable, see the GC-ROOTING CONTRACT above).
 Il2CppObject* icall_string_join(Il2CppObject* separator, Il2CppObject* valuesArray);
+// b5-gaps section 99: string.Join(string, IEnumerable<string>) /
+// Join<T>(string, IEnumerable<T>) over a NON-ARRAY source (a GroupBy bucket is
+// an IGrouping object, not an Il2CppArray*). The array overload casts the
+// source to Il2CppArray* and answers an empty join for such a source; this
+// entry enumerates the source through the runtime IEnumerator dispatch.
+Il2CppObject* icall_string_join_ienumerable(Il2CppObject* separator, Il2CppObject* source);
 
 // string.Copy: a NEW instance with equal content (always allocates, even for
 // ""); null -> ArgumentNullException. One managed allocation.

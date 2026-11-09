@@ -34,6 +34,8 @@
 #include "il2cpp_value_semantics.h"
 #include "il2cpp_gc.h"
 #include "arraysort.h"        // il2cpp_ienum_* (Concat<T>(IEnumerable<T>))
+#include "sortedlist.h"       // System_Collections_SortedList_Enumerator_class (the shared array enumerator)
+#include "il2cpp_runtime.h"   // il2cpp_box_int32 (a value-array element through the ref carrier)
 #include "decimal_format.h"   // icall_decimal_to_string (decimal enumerable)
 
 #include <cstdint>
@@ -943,6 +945,18 @@ bool icall_string_is_null_or_whitespace(Il2CppObject* s)
 //------------------------------------------------------------------------------
 Il2CppObject* icall_string_join(Il2CppObject* separator, Il2CppObject* valuesArray)
 {
+    // b5-gaps section 99: a NON-ARRAY source (a GroupBy bucket is an IGrouping
+    // OBJECT, not an Il2CppArray*) must be ENUMERATED, not cast. The cast
+    // answered an empty join (probe-s100r4: oracle [r4] 3,3 vs runtime empty).
+    // The transpiler cannot route this (arg1Type is null in both fold passes),
+    // so the runtime dispatches on the source's own shape.
+    if (valuesArray != nullptr
+        && (valuesArray->klass == nullptr
+            || valuesArray->klass->name == nullptr
+            || valuesArray->klass->name[0] != '['))
+    {
+        return icall_string_join_ienumerable(separator, valuesArray);
+    }
     return reinterpret_cast<Il2CppObject*>(
         JoinFromArray(reinterpret_cast<Il2CppArray*>(valuesArray), AsString(separator)));
 }
@@ -1207,6 +1221,61 @@ Il2CppObject* icall_string_concat_enumerable(Il2CppObject* source, int32_t elemK
             break;
         }
         }
+        if (text != nullptr)
+        {
+            units.insert(units.end(), text->chars, text->chars + text->length);
+        }
+    }
+    il2cpp_ienum_dispose(enumerator);
+    il2cpp_gc_remove_root_range(reinterpret_cast<void**>(roots));
+    return reinterpret_cast<Il2CppObject*>(
+        il2cpp_string_new(units.data(), static_cast<int32_t>(units.size())));
+}
+
+//------------------------------------------------------------------------------
+// icall_string_join_ienumerable -- string.Join(string, IEnumerable<string>) /
+// Join<T>(string, IEnumerable<T>) over a NON-ARRAY source.
+//
+// The array overload (icall_string_join) casts the source to Il2CppArray*;
+// a GroupBy bucket (an IGrouping object) is NOT an array, so that cast yields
+// an empty join (probe-s100r4: oracle [r4] 3,3 vs runtime empty). The source
+// is enumerated through the runtime IEnumerator dispatch (the same discipline
+// as icall_string_concat_enumerable above); each element's net48 ToString text
+// is staged into a non-GC vector<char16_t> with the separator between
+// segments. A null source is an empty join (the IEnumerable overload's
+// documented deviation, matching icall_string_join).
+//------------------------------------------------------------------------------
+Il2CppObject* icall_string_join_ienumerable(Il2CppObject* separator, Il2CppObject* source)
+{
+    const Il2CppString* sep = AsString(separator);
+    if (source == nullptr)
+    {
+        return reinterpret_cast<Il2CppObject*>(il2cpp_string_new(u"", 0));
+    }
+std::vector<char16_t> units;
+Il2CppObject* roots[2] = { source, nullptr };
+il2cpp_gc_add_root_range(reinterpret_cast<void**>(roots), 2);
+Il2CppObject* enumerator = il2cpp_ienum_get_enumerator(source);
+roots[1] = enumerator;
+bool first = true;
+while (enumerator != nullptr && il2cpp_ienum_move_next(enumerator))
+{
+// The shared array enumerator (the grouping snapshot) is the SortedList
+// snapshot enumerator class; its get_Current is a DIRECT struct read
+// (il2cpp_sortedlist_enumerator_get_current), not a vtable slot.
+Il2CppObject* current = enumerator->klass == &System_Collections_SortedList_Enumerator_class
+? il2cpp_sortedlist_enumerator_get_current(enumerator)
+: il2cpp_ienum_get_current_obj(enumerator);
+        Il2CppString* text = current != nullptr
+            ? (IsStringObject(current)
+                ? reinterpret_cast<Il2CppString*>(current)
+                : icall_object_to_string(current))
+            : nullptr;
+        if (!first && sep != nullptr && sep->length > 0)
+        {
+            units.insert(units.end(), sep->chars, sep->chars + sep->length);
+        }
+        first = false;
         if (text != nullptr)
         {
             units.insert(units.end(), text->chars, text->chars + text->length);

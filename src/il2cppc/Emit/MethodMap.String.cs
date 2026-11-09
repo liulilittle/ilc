@@ -688,6 +688,20 @@ case "ReplaceLineEndings":
                 // icall_object_to_string (JoinFromArray), so the generic
                 // shape shares the string[] mapping; the element/array
                 // semantics live in the runtime.
+                //
+                // b5-gaps section 99: a GROUPING source (one GroupBy bucket,
+                // arg1Type System.Linq.IGrouping...) is an OBJECT, not an
+                // array -- the array icall casts it to Il2CppArray* and answers
+                // an empty join (probe-s100r4: oracle [r4] 3,3 vs runtime
+                // empty). Route a grouping source to the IEnumerable overload.
+                if (ps.Length == 2 && ps[0] == 0x0E && ps[1] is 0x1D or 0x15
+                    && arg1Type != null
+                    && (arg1Type == "System.Linq.IGrouping"
+                        || arg1Type.StartsWith("System.Linq.IGrouping`2", StringComparison.Ordinal)
+                        || arg1Type.StartsWith("System.Linq.IGrouping_key_", StringComparison.Ordinal)
+                        || arg1Type == "System.Linq.IGroupingResult"
+                        || arg1Type == "System.Collections.Generic.IEnumerable`1"))
+                    return I("il2cpp::runtime::icall_string_join_ienumerable", 2, true, true, false, null, null, false, false, false, "System.String");
                 if (ps.Length == 2 && ps[0] == 0x0E && ps[1] is 0x1D or 0x15)
                     return I("il2cpp::runtime::icall_string_join", 2, true, true, false, null, null, false, false, false, "System.String");
                 // joinchar sweep: Join(char separator, string[]/object[]
