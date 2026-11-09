@@ -9565,6 +9565,60 @@ bool il2cpp_linq_grouping_contains_f(Il2CppObject* grouping, double value)
     return il2cpp_linq_contains_family_d(RequireFGroupElements(grouping), value, IL2CPP_LINQ_CELL_F);
 }
 
+// b5-gaps section 100: the float bucket's OrderBy / OrderByDescending. The
+// bucket switch's float arms ended at Contains, so OrderBy fell through to the
+// floatBucket LOUD gate. The wrapper snapshots the bucket to its REAL float[]
+// (RequireFGroupElements) and reuses the float-SOURCE keyed-sort kernel
+// (il2cpp_linq_order_by_key[_desc]_f_<keyfam>); the result is a fresh float[]
+// stamped kElemKindF.
+Il2CppArray* il2cpp_linq_grouping_order_by_key_f_i4(Il2CppObject* grouping, Il2CppObject* keySel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_order_by_key_f_i4(RequireFGroupElements(grouping), keySel);
+}
+
+Il2CppArray* il2cpp_linq_grouping_order_by_key_f_i8(Il2CppObject* grouping, Il2CppObject* keySel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_order_by_key_f_i8(RequireFGroupElements(grouping), keySel);
+}
+
+Il2CppArray* il2cpp_linq_grouping_order_by_key_f_d(Il2CppObject* grouping, Il2CppObject* keySel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_order_by_key_f_d(RequireFGroupElements(grouping), keySel);
+}
+
+Il2CppArray* il2cpp_linq_grouping_order_by_key_f_f(Il2CppObject* grouping, Il2CppObject* keySel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_order_by_key_f_f(RequireFGroupElements(grouping), keySel);
+}
+
+Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_f_i4(Il2CppObject* grouping, Il2CppObject* keySel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_order_by_key_desc_f_i4(RequireFGroupElements(grouping), keySel);
+}
+
+Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_f_i8(Il2CppObject* grouping, Il2CppObject* keySel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_order_by_key_desc_f_i8(RequireFGroupElements(grouping), keySel);
+}
+
+Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_f_d(Il2CppObject* grouping, Il2CppObject* keySel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_order_by_key_desc_f_d(RequireFGroupElements(grouping), keySel);
+}
+
+Il2CppArray* il2cpp_linq_grouping_order_by_key_desc_f_f(Il2CppObject* grouping, Il2CppObject* keySel)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_order_by_key_desc_f_f(RequireFGroupElements(grouping), keySel);
+}
+
 Il2CppArray* il2cpp_linq_grouping_where(Il2CppObject* grouping, Il2CppObject* pred)
 {
     ThrowIfNullReceiver(grouping);

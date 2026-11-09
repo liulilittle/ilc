@@ -1264,6 +1264,33 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 case "Contains" when floatBucket:
                     return I("il2cpp::il2cpp_linq_grouping_contains_f", 2, true, false, false,
                         new[] { "", "d" });
+                // b5-gaps section 100: OrderBy / OrderByDescending over a float
+                // bucket. The float arms above end at Contains, so OrderBy fell
+                // through to the floatBucket LOUD gate. The wrapper snapshots
+                // the bucket to its REAL float[] (RequireFGroupElements) and
+                // reuses the float-SOURCE keyed-sort kernel
+                // (il2cpp_linq_order_by_key[_desc]_f_<keyfam>); the result is a
+                // fresh float[] stamped kElemKindF.
+                case "OrderBy" or "OrderByDescending" when floatBucket:
+                {
+                    bool desc = name == "OrderByDescending";
+                    byte keyByte = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
+                    string? fKeyFam = keyByte switch
+                    {
+                        0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 => "i4",
+                        0x0A or 0x0B => "i8",
+                        0x0C => "f",
+                        0x0D => "d",
+                        _ => null,
+                    };
+                    if (fKeyFam == null)
+                        throw new NotSupportedException(
+                            $"Enumerable.{name}<System.Single,{GenericArgTypeName(keyByte)}> over a " +
+                            "System.Single bucket not wired: the float bucket keyed sort covers int32/int64/" +
+                            "double/float keys only (see docs/audit/b5-gaps.md)");
+                    return I($"il2cpp::il2cpp_linq_grouping_order_by_key{(desc ? "_desc" : "")}_f_{fKeyFam}",
+                        2, true, true, false, new[] { "", "" }, returnTypeName: "System.Single[]");
+                }
                 // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each
                 // entry snapshots the bucket's exact-size decimal cells (the
                 // runtime RequireDecGroupElements) and reuses the DECIMAL-SOURCE

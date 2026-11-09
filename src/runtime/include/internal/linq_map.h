@@ -1224,6 +1224,21 @@ float         il2cpp_linq_grouping_aggregate_f(Il2CppObject* grouping, Il2CppObj
 double        il2cpp_linq_grouping_element_at_f(Il2CppObject* grouping, int32_t index);
 bool          il2cpp_linq_grouping_contains_f(Il2CppObject* grouping, double value);
 
+// b5-gaps section 100: the float bucket's OrderBy / OrderByDescending. The
+// bucket switch's float arms ended at Contains, so OrderBy fell through to the
+// floatBucket LOUD gate (an honest rejection). The wrapper snapshots the bucket
+// to its REAL float[] (RequireFGroupElements) and reuses the float-SOURCE
+// keyed-sort kernel (il2cpp_linq_order_by_key[_desc]_f_<keyfam>); the result is
+// a fresh float[] stamped kElemKindF.
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_f_i4(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_f_i8(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_f_d(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_f_f(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_f_i4(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_f_i8(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_f_d(Il2CppObject* grouping, Il2CppObject* keySel);
+Il2CppArray*  il2cpp_linq_grouping_order_by_key_desc_f_f(Il2CppObject* grouping, Il2CppObject* keySel);
+
 // BATCH4: the DECIMAL-bucket operators (a decimal-source bucket stores 16-byte
 // System.Decimal cells). The aggregate results ride the decimal T3 result-slot
 // ABI (the result slot is the FIRST C++ parameter); Contains takes the value by
