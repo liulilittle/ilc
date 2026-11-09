@@ -7098,3 +7098,39 @@ the tracked Dictionary`2 instantiation.
   bucket; ToLookup int64/double/char/DateTime keys; ToDictionary
   int32/int64/double values; GroupBy LAZINESS; string.Join over an
   IGrouping-enumerable (probe-s100r4: oracle 3,3 vs runtime empty).
+## section 99 (2026-11-09): string.Join over an IGrouping-enumerable (GroupBy bucket) -- commit e5c8d8ee
+
+**Symptom**: `string.Join(",", xs.GroupBy(x => x).First())` answered an EMPTY
+string. Oracle (net48, probe-s100r4) `[r4] 3,3` vs runtime empty.
+
+**Root cause**: `string.Join(string, IEnumerable<string>)` /
+`Join<T>(string, IEnumerable<T>)` had no arm for a GROUPING source. A GroupBy
+bucket is an IGrouping OBJECT, not an `Il2CppArray*`, so the array icall
+(`icall_string_join`) cast it to `Il2CppArray*` and answered an empty join.
+
+**Why the transpiler could not route it**: the fold's `arg1Type` is null in
+BOTH passes (measured with an on-arm fprintf: `ps1=21 arg1Type=null` x6), so a
+grouping guard in the Join arm never fires. The runtime therefore dispatches on
+the source's own shape: `icall_string_join` checks the source klass name; a
+non-array source is routed to the new `icall_string_join_ienumerable`, which
+enumerates through the runtime IEnumerator dispatch (the same discipline as
+`icall_string_concat_enumerable`) and stages each element's net48 ToString text
+with the separator between segments. The new icall keeps the source and
+enumerator rooted across the walk.
+
+**Fix**: new runtime icall `icall_string_join_ienumerable` (stringext2.cpp) +
+the non-array dispatch in `icall_string_join`; the transpiler Join arm keeps a
+grouping guard (binding the IEnumerable entry directly when the source IS
+statically typed).
+
+**Verification**: probe-grp-join oracle=runtime=44B sha 9a9918a9 (int32/float/ref
+buckets + multi-char separator). Mutations M1 (non-array -> array cast) and M3
+(separator on every element) red->green; M2 (SortedList direct struct read -> obj
+carrier) was a FALSE GREEN because `FindIEnumSlot` resolves the same slot
+through the reflected typeinfo -- the helper was simplified to the single obj
+carrier and M1/M3 re-ran on the simplified code. 18 anchors byte-identical. C0
+0/0; unit 4164/0/0.
+
+**Remaining LOUD**: ToLookup/GroupBy with an int64/double/char/DateTime TKey;
+ToDictionary with int32/int64/double values; Append/Prepend over a GroupBy bucket;
+OfType/Cast over a value-element source; OrderBy over a bucket; GroupBy LAZINESS.
