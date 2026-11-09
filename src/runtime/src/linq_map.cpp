@@ -9418,6 +9418,44 @@ float il2cpp_linq_grouping_average_f(Il2CppObject* grouping)
     return il2cpp_linq_average_f(RequireFGroupElements(grouping));
 }
 
+// b5-gaps section 97: the float bucket's Single / SingleOrDefault / Aggregate /
+// ElementAt / Contains. The bucket switch had no floatBucket arm for these
+// operators (the float arms end at Average), so they fell through to the
+// !valueBucket arms and bound the INT32 bucket kernels -- a float cell read as
+// int32 (ElementAt/Aggregate -> a silent wrong value) or an int32-family guard
+// mismatch (Single/Contains -> a loud abort). The wrappers snapshot the bucket
+// to its REAL float[] (RequireFGroupElements) and reuse the float array
+// kernels; the F-stack carrier means a float leaf crosses as a double.
+double il2cpp_linq_grouping_single_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_single_fam_d(RequireFGroupElements(grouping), IL2CPP_LINQ_CELL_F);
+}
+
+double il2cpp_linq_grouping_single_or_default_f(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_single_or_default_fam_d(RequireFGroupElements(grouping), IL2CPP_LINQ_CELL_F);
+}
+
+float il2cpp_linq_grouping_aggregate_f(Il2CppObject* grouping, Il2CppObject* func)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_aggregate_f_f(RequireFGroupElements(grouping), func);
+}
+
+double il2cpp_linq_grouping_element_at_f(Il2CppObject* grouping, int32_t index)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_element_at_fam_d(RequireFGroupElements(grouping), index, IL2CPP_LINQ_CELL_F);
+}
+
+bool il2cpp_linq_grouping_contains_f(Il2CppObject* grouping, double value)
+{
+    ThrowIfNullReceiver(grouping);
+    return il2cpp_linq_contains_family_d(RequireFGroupElements(grouping), value, IL2CPP_LINQ_CELL_F);
+}
+
 Il2CppArray* il2cpp_linq_grouping_where(Il2CppObject* grouping, Il2CppObject* pred)
 {
     ThrowIfNullReceiver(grouping);

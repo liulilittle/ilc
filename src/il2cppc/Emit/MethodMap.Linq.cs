@@ -1231,6 +1231,32 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                             "docs/audit/b5-gaps.md)");
                     return I("il2cpp::il2cpp_linq_grouping_average_f", 1, true, false, false,
                         new[] { "" }, resultKind: "d");
+                // b5-gaps section 97: the float bucket's Single / SingleOrDefault /
+                // Aggregate / ElementAt / Contains. The float arms above end at
+                // Average, so these five fell through to the !valueBucket arms
+                // below and bound the INT32 bucket kernels -- ElementAt/Aggregate
+                // read the 4-byte float cells as int32 (a silent wrong value) and
+                // Single/Contains hit the int32-family guard (a loud abort). The
+                // float bucket snapshot is a REAL float[], so each rides the
+                // float array kernel; the F-stack carrier means a float leaf
+                // crosses as a double (resultKind "d").
+                case "Single" when count < 2 && floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_single_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
+                case "SingleOrDefault" when count < 2 && floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_single_or_default_f", 1, true, false, false,
+                        new[] { "" }, resultKind: "d");
+                case "Aggregate" when count == 2 && floatBucket:
+                    // Casts ["",""]: OBJECT receivers, never Il2CppArray* -- the
+                    // grouping_* wrapper takes the bucket object.
+                    return I("il2cpp::il2cpp_linq_grouping_aggregate_f", 2, true, false, false,
+                        new[] { "", "" }, resultKind: "d");
+                case "ElementAt" when floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_element_at_f", 2, true, false, false,
+                        new[] { "", "i" }, resultKind: "d");
+                case "Contains" when floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_contains_f", 2, true, false, false,
+                        new[] { "", "d" });
                 // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each
                 // entry snapshots the bucket's exact-size decimal cells (the
                 // runtime RequireDecGroupElements) and reuses the DECIMAL-SOURCE

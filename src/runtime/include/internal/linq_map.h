@@ -1203,6 +1203,19 @@ float         il2cpp_linq_grouping_sum_f(Il2CppObject* grouping);
 float         il2cpp_linq_grouping_min_f(Il2CppObject* grouping);
 float         il2cpp_linq_grouping_max_f(Il2CppObject* grouping);
 float         il2cpp_linq_grouping_average_f(Il2CppObject* grouping);
+// b5-gaps section 97: the float bucket's Single / SingleOrDefault / Aggregate /
+// ElementAt / Contains -- the bucket switch's float arms ended at Average, so
+// these five fell through to the !valueBucket (int32) arms: ElementAt and
+// Aggregate read the 4-byte float cells as int32 (a silent wrong value) and
+// Single / Contains hit the int32-family guard (a loud abort). Each wrapper
+// snapshots the bucket to its REAL float[] (RequireFGroupElements) and reuses
+// the float array kernel; the F-stack carrier means a float leaf crosses as a
+// double.
+double        il2cpp_linq_grouping_single_f(Il2CppObject* grouping);
+double        il2cpp_linq_grouping_single_or_default_f(Il2CppObject* grouping);
+float         il2cpp_linq_grouping_aggregate_f(Il2CppObject* grouping, Il2CppObject* func);
+double        il2cpp_linq_grouping_element_at_f(Il2CppObject* grouping, int32_t index);
+bool          il2cpp_linq_grouping_contains_f(Il2CppObject* grouping, double value);
 
 // BATCH4: the DECIMAL-bucket operators (a decimal-source bucket stores 16-byte
 // System.Decimal cells). The aggregate results ride the decimal T3 result-slot
