@@ -7313,6 +7313,32 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             case "Concat":
                 return I("il2cpp::il2cpp_linq_list_concat", 2, true, true, false,
                     new[] { "", "" }, returnTypeName: elemTracked, appendLiterals: new[] { K });
+            case "Append":
+            case "Prepend":
+                // b5-gaps section 95: Append/Prepend over a List<T> -- the mirror
+                // of the section-94 array forms. The list object rides the
+                // UNCAST slot ("" -- never "a"), the element crosses on the
+                // family ABI, and the element-kind literal K selects the entry.
+                {
+                    string apOp = name.ToLowerInvariant();
+                    string? apSuffix = abi == "ref" ? "ref"
+                        : abi == "i8" ? "i8"
+                        : abi == "d" ? "d"
+                        : abi == "i4" ? "i4"
+                        : null;
+                    if (apSuffix == null)
+                        throw new NotSupportedException(
+                            $"Enumerable.{name} over a List<{LinqStructNameOf(genArgNames is { Length: >= 1 } ? genArgNames[0] : null)}> " +
+                            "is not wired: the runtime has no append/prepend kernel for this element family " +
+                            "(see docs/audit/b5-gaps.md)");
+                    string apEntry = $"il2cpp::il2cpp_linq_list_{apOp}_{apSuffix}";
+                    if (abi == "ref")
+                        return I(apEntry, 2, true, true, false, new[] { "", "" },
+                            returnTypeName: elemTracked, appendLiterals: new[] { K });
+                    string apCast = abi == "i8" ? "l" : abi == "d" ? "d" : "i";
+                    return I(apEntry, 2, true, true, false, new[] { "", apCast },
+                        returnTypeName: elemTracked, appendLiterals: new[] { K });
+                }
             case "Distinct":
                 if (hasComparer)
                     return I("il2cpp::il2cpp_linq_list_distinct_cmp", 2, true, true, false,

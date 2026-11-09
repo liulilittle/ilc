@@ -252,6 +252,30 @@ Il2CppArray* il2cpp_linq_list_take_while_idx(Il2CppObject* list, Il2CppObject* p
 Il2CppArray* il2cpp_linq_list_skip_while_idx(Il2CppObject* list, Il2CppObject* pred, int32_t kind);
 Il2CppArray* il2cpp_linq_list_concat(Il2CppObject* list, Il2CppObject* second, int32_t kind);
 
+// b5-gaps section 95: Append / Prepend over a List<T>. Append IS
+// Concat(list, [element]) and Prepend its mirror; the one-element value is
+// written at the family's REAL width (the DefaultIfEmpty value forms' helpers)
+// -- never a 4-byte store into an 8/16-byte cell and never a reference slot
+// read of a value cell. One pair per element family.
+Il2CppArray* il2cpp_linq_list_append_i4(Il2CppObject* list, int32_t value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_prepend_i4(Il2CppObject* list, int32_t value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_append_i8(Il2CppObject* list, int64_t value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_prepend_i8(Il2CppObject* list, int64_t value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_append_d(Il2CppObject* list, double value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_prepend_d(Il2CppObject* list, double value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_append_ref(Il2CppObject* list, Il2CppObject* value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_prepend_ref(Il2CppObject* list, Il2CppObject* value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_append_dec(Il2CppObject* list, runtime::Il2CppDecimal value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_prepend_dec(Il2CppObject* list, runtime::Il2CppDecimal value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_append_dt(Il2CppObject* list, runtime::Il2CppDateTime value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_prepend_dt(Il2CppObject* list, runtime::Il2CppDateTime value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_append_ts(Il2CppObject* list, runtime::Il2CppTimeSpan value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_prepend_ts(Il2CppObject* list, runtime::Il2CppTimeSpan value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_append_guid(Il2CppObject* list, Il2CppGuid value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_prepend_guid(Il2CppObject* list, Il2CppGuid value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_append_dtoffset(Il2CppObject* list, runtime::Il2CppDateTimeOffset value, int32_t kind);
+Il2CppArray* il2cpp_linq_list_prepend_dtoffset(Il2CppObject* list, runtime::Il2CppDateTimeOffset value, int32_t kind);
+
 //------------------------------------------------------------------------------
 // Set operators / Zip / SequenceEqual (element equality -- int32 and
 // reference families; the array kernels own the semantics).

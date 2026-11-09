@@ -3272,6 +3272,282 @@ Il2CppArray* il2cpp_linq_list_concat(Il2CppObject* list, Il2CppObject* second, i
 }
 
 //------------------------------------------------------------------------------
+// b5-gaps section 95: Append / Prepend over a List<T>. Append IS
+// Concat(list, [element]) and Prepend its mirror; the one-element array is
+// allocated with the SNAPSHOT's element layout and the value is written at the
+// family's REAL width (the same helpers the DefaultIfEmpty value forms use) --
+// never a fixed 4-byte store into an 8/16-byte cell, and never a reference slot
+// read of a value cell. A family with no entry keeps its LOUD.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_linq_list_append_i4(Il2CppObject* list, int32_t value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i, snap, i);
+    WriteI4At(il2cpp_array_get_elem_ptr(out, snap->length), kind, value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_prepend_i4(Il2CppObject* list, int32_t value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i + 1, snap, i);
+    WriteI4At(il2cpp_array_get_elem_ptr(out, 0), kind, value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_append_i8(Il2CppObject* list, int64_t value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i, snap, i);
+    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, snap->length)) = value;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_prepend_i8(Il2CppObject* list, int64_t value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i + 1, snap, i);
+    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, 0)) = value;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_append_d(Il2CppObject* list, double value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i, snap, i);
+    WriteDAt(il2cpp_array_get_elem_ptr(out, snap->length), kind, value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_prepend_d(Il2CppObject* list, double value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i + 1, snap, i);
+    WriteDAt(il2cpp_array_get_elem_ptr(out, 0), kind, value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_append_ref(Il2CppObject* list, Il2CppObject* value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    roots.Add(reinterpret_cast<void**>(&value));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i, snap, i);
+    char* dst = il2cpp_array_get_elem_ptr(out, snap->length);
+    *reinterpret_cast<Il2CppObject**>(dst) = value;
+    il2cpp_write_barrier(reinterpret_cast<void**>(dst), value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_prepend_ref(Il2CppObject* list, Il2CppObject* value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    roots.Add(reinterpret_cast<void**>(&value));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i + 1, snap, i);
+    char* dst = il2cpp_array_get_elem_ptr(out, 0);
+    *reinterpret_cast<Il2CppObject**>(dst) = value;
+    il2cpp_write_barrier(reinterpret_cast<void**>(dst), value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_append_dec(Il2CppObject* list, runtime::Il2CppDecimal value,
+                                         int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i, snap, i);
+    std::memcpy(il2cpp_array_get_elem_ptr(out, snap->length), &value, sizeof(value));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_prepend_dec(Il2CppObject* list, runtime::Il2CppDecimal value,
+                                          int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i + 1, snap, i);
+    std::memcpy(il2cpp_array_get_elem_ptr(out, 0), &value, sizeof(value));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_append_dt(Il2CppObject* list, runtime::Il2CppDateTime value,
+                                        int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i, snap, i);
+    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, snap->length)) =
+        runtime::il2cpp_datetime_to_array_bits(value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_prepend_dt(Il2CppObject* list, runtime::Il2CppDateTime value,
+                                         int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i + 1, snap, i);
+    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, 0)) =
+        runtime::il2cpp_datetime_to_array_bits(value);
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_append_ts(Il2CppObject* list, runtime::Il2CppTimeSpan value,
+                                        int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i, snap, i);
+    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, snap->length)) = value.ticks;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_prepend_ts(Il2CppObject* list, runtime::Il2CppTimeSpan value,
+                                         int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i + 1, snap, i);
+    *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(out, 0)) = value.ticks;
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_append_guid(Il2CppObject* list, Il2CppGuid value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i, snap, i);
+    std::memcpy(il2cpp_array_get_elem_ptr(out, snap->length), value.b, sizeof(value.b));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_prepend_guid(Il2CppObject* list, Il2CppGuid value, int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i + 1, snap, i);
+    std::memcpy(il2cpp_array_get_elem_ptr(out, 0), value.b, sizeof(value.b));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_append_dtoffset(Il2CppObject* list, runtime::Il2CppDateTimeOffset value,
+                                              int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i, snap, i);
+    std::memcpy(il2cpp_array_get_elem_ptr(out, snap->length), &value, sizeof(value));
+    return out;
+}
+
+Il2CppArray* il2cpp_linq_list_prepend_dtoffset(Il2CppObject* list, runtime::Il2CppDateTimeOffset value,
+                                               int32_t kind)
+{
+    RequireList(list);
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&list));
+    Il2CppArray* snap = SnapshotOf(list, kind);
+    roots.Add(reinterpret_cast<void**>(&snap));
+    Il2CppArray* out = AllocElemArray(snap, kind, snap->length + 1);
+    roots.Add(reinterpret_cast<void**>(&out));
+    for (int32_t i = 0; i < snap->length; ++i) CopyElem(out, i + 1, snap, i);
+    std::memcpy(il2cpp_array_get_elem_ptr(out, 0), &value, sizeof(value));
+    return out;
+}
+
+//------------------------------------------------------------------------------
 // Set operators / Zip / SequenceEqual
 //------------------------------------------------------------------------------
 Il2CppArray* il2cpp_linq_list_distinct(Il2CppObject* list, int32_t kind)
