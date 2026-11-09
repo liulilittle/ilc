@@ -2934,6 +2934,115 @@ Il2CppObject* il2cpp_linq_to_list_f(Il2CppArray* src)
 }
 
 //------------------------------------------------------------------------------
+// b5-gaps section 98: ToList over ONE GroupBy bucket.
+//
+// The bucket switch's ToList arm did not exist, so a `bucket.ToList()` fell
+// through to the generic ToList arm (MethodMap.Linq.cs) and bound
+// il2cpp_linq_to_list -- which casts the GROUPING OBJECT to Il2CppArray* and
+// dies with "Object is not an array." (probe-s103j2: oracle [j2] 3,3 vs
+// runtime empty). The wrapper snapshots the bucket through
+// il2cpp_linq_grouping_get_elements (an EXACT-SIZE array at the bucket's own
+// element width) and materializes the list in the bucket's OWN family -- the
+// element kind is the bucket's recorded elemKind, so an int32 bucket yields a
+// List<int32> and a float bucket a List<float> (never a reinterpretation).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_linq_grouping_to_list(Il2CppObject* grouping)
+{
+    ThrowIfNullReceiver(grouping);
+    Il2CppArray* elems = il2cpp_linq_grouping_get_elements(grouping);
+    if (elems == nullptr)
+    {
+        il2cpp_throw_argument_exception("The grouping has no element snapshot.");
+        return nullptr; // unreachable (the factory throws)
+    }
+
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&elems));
+
+    // The list domain must match the tracked List`1 name the transpiler emits:
+    // an int32 bucket yields the listi4 domain (List`1), every other family the
+    // generic listobj domain (List`1_float / List`1_string / ...). Creating the
+    // generic domain for an int32 bucket would make the downstream enumerator
+    // dispatch by the WRONG klass and yield nothing.
+    Il2CppObject* list = elems->isRefElem || elems->elemKind != kElemKindI4
+        ? il2cpp_list_obj_create()
+        : il2cpp_list_i4_create();
+    roots.Add(reinterpret_cast<void**>(&list));
+
+    if (elems->isRefElem)
+    {
+        for (int32_t i = 0; i < elems->length; ++i)
+            il2cpp_list_obj_add(list, RefAt(elems, i));
+        return list;
+    }
+
+    switch (elems->elemKind)
+    {
+        case kElemKindI4:
+            for (int32_t i = 0; i < elems->length; ++i)
+                il2cpp_list_i4_add(list, *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(elems, i)));
+            return list;
+        case kElemKindI8:
+            for (int32_t i = 0; i < elems->length; ++i)
+                il2cpp_list_obj_add_long(list, *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(elems, i)));
+            return list;
+        case kElemKindF:
+            for (int32_t i = 0; i < elems->length; ++i)
+            {
+                const float elem = *reinterpret_cast<float*>(il2cpp_array_get_elem_ptr(elems, i));
+                il2cpp_list_obj_add_float(list, static_cast<double>(elem));
+            }
+            return list;
+        case kElemKindD:
+            for (int32_t i = 0; i < elems->length; ++i)
+                il2cpp_list_obj_add_double(list, *reinterpret_cast<double*>(il2cpp_array_get_elem_ptr(elems, i)));
+            return list;
+        case kElemKindDecimal:
+        {
+            for (int32_t i = 0; i < elems->length; ++i)
+            {
+                runtime::Il2CppDecimal elem;
+                std::memcpy(&elem, il2cpp_array_get_elem_ptr(elems, i), sizeof(elem));
+                il2cpp_list_obj_add_dec(list, &elem);
+            }
+            return list;
+        }
+        case kElemKindDateTime:
+        {
+            for (int32_t i = 0; i < elems->length; ++i)
+            {
+                const int64_t bits = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(elems, i));
+                il2cpp_list_obj_add_dt(list, runtime::il2cpp_datetime_from_array_bits(bits));
+            }
+            return list;
+        }
+        case kElemKindTimeSpan:
+        {
+            for (int32_t i = 0; i < elems->length; ++i)
+            {
+                const int64_t ticks = *reinterpret_cast<int64_t*>(il2cpp_array_get_elem_ptr(elems, i));
+                il2cpp_list_obj_add_ts(list, runtime::Il2CppTimeSpan(ticks));
+            }
+            return list;
+        }
+        case kElemKindGuid:
+        {
+            for (int32_t i = 0; i < elems->length; ++i)
+            {
+                Il2CppGuid elem;
+                std::memcpy(&elem, il2cpp_array_get_elem_ptr(elems, i), sizeof(elem));
+                il2cpp_list_obj_add_guid(list, reinterpret_cast<const uint8_t*>(&elem));
+            }
+            return list;
+        }
+        default:
+            il2cpp_throw_not_supported_exception(
+                "GroupBy bucket ToList: the bucket's element kind has no List<T> carrier.");
+            return nullptr; // unreachable (the factory throws)
+    }
+}
+
+//------------------------------------------------------------------------------
 // p0linq4 (D1) -- ToList over the remaining value families.
 //
 // Same discipline as the entries above: the source and the growing list are

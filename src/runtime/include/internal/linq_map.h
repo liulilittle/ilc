@@ -1186,6 +1186,13 @@ int32_t       il2cpp_linq_grouping_single_i4(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_single_or_default_i4(Il2CppObject* grouping);
 int32_t       il2cpp_linq_grouping_aggregate_i4(Il2CppObject* grouping, Il2CppObject* func);
 Il2CppArray*  il2cpp_linq_grouping_to_array(Il2CppObject* grouping);
+// b5-gaps section 98: ToList over ONE GroupBy bucket. The bucket's ToList had
+// no arm, so it fell through to the generic ToList arm and bound
+// il2cpp_linq_to_list -- which casts the GROUPING OBJECT to Il2CppArray* and
+// dies with "Object is not an array.". The wrapper snapshots the bucket
+// (get_elements, an exact-size array at the bucket's own element width) and
+// materializes the list in the bucket's OWN family (its recorded elemKind).
+Il2CppObject* il2cpp_linq_grouping_to_list(Il2CppObject* grouping);
 
 // floatgrp: the System.Single bucket operator surface. The bucket snapshot is
 // a REAL float[] (4-byte kElemKindF cells), so each entry reuses the float

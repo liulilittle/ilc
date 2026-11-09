@@ -1231,6 +1231,13 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                             "docs/audit/b5-gaps.md)");
                     return I("il2cpp::il2cpp_linq_grouping_average_f", 1, true, false, false,
                         new[] { "" }, resultKind: "d");
+                // b5-gaps section 98: ToList over a float bucket. The arm must
+                // precede the floatBucket LOUD gate below (the gate is inside the
+                // bucket switch, which runs before the generic ToList arm); the
+                // wrapper snapshots the bucket and materializes a List<float>.
+                case "ToList" when floatBucket:
+                    return I("il2cpp::il2cpp_linq_grouping_to_list", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Collections.Generic.List`1_float");
                 // b5-gaps section 97: the float bucket's Single / SingleOrDefault /
                 // Aggregate / ElementAt / Contains. The float arms above end at
                 // Average, so these five fell through to the !valueBucket arms
@@ -1539,14 +1546,16 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             {
                 // floatgrp: the runtime float bucket surface covers Where /
                 // Select / Count(pred) / Any(pred) / All / First / FirstOr-
-                // Default / Last / LastOrDefault / Sum / Min / Max / Average.
+                // Default / Last / LastOrDefault / Sum / Min / Max / Average /
+                // Single / SingleOrDefault / Aggregate / ElementAt / Contains.
                 // Everything else stays LOUD: the int32 bucket entries below
                 // would read 4-byte float cells as int32 (a silent wrong value)
                 // and declare an int32 result for a float element.
                 throw new NotSupportedException(
                     $"Enumerable.{name} over a System.Single GroupBy bucket is not wired: the float " +
                     "bucket surface covers Where/Select/Count(pred)/Any(pred)/All/First/FirstOrDefault/" +
-                    "Last/LastOrDefault/Sum/Min/Max/Average and get_Key (see docs/audit/b5-gaps.md)");
+                    "Last/LastOrDefault/Sum/Min/Max/Average/Single/SingleOrDefault/Aggregate/ElementAt/" +
+                    "Contains and get_Key (see docs/audit/b5-gaps.md)");
             }
         }
 
@@ -3613,6 +3622,37 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 //               with the struct's OWN descriptor + sizeof(T))
                 // The tracked List name carries the element so MethodMap.List
                 // dispatches the boxed arms.
+                //
+                // b5-gaps section 98: a GROUPING receiver (one GroupBy bucket)
+                // must NOT ride the generic arms -- the bucket OBJECT is not an
+                // array, so il2cpp_linq_to_list would cast it to Il2CppArray*
+                // and die with "Object is not an array." (probe-s103j2). The
+                // wrapper snapshots the bucket and materializes the list in the
+                // bucket's OWN element family.
+                {
+                    var toListRecv = receiverType ?? arg0Type;
+                    if (toListRecv != null
+                        && (toListRecv == "System.Linq.IGrouping"
+                            || toListRecv.StartsWith("System.Linq.IGrouping`2_", StringComparison.Ordinal)
+                            || toListRecv.StartsWith("System.Linq.IGrouping_key_", StringComparison.Ordinal)))
+                    {
+                        // The tracked List name must match the domain convention
+                        // MethodMap.List's receiver gate selects: int32 -> the
+                        // bare List`1 (the listi4 AOT expansion), float ->
+                        // List`1_float, a reference element -> List`1_string.
+                        string toListListName = genArgs is { Length: >= 1 } ? genArgs[0] switch
+                        {
+                            0x08 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x09 => "System.Collections.Generic.List`1",
+                            0x0A or 0x0B => "System.Collections.Generic.List`1_long",
+                            0x0C => "System.Collections.Generic.List`1_float",
+                            0x0D => "System.Collections.Generic.List`1_double",
+                            _ when IsRefFamilyByte(genArgs[0]) => "System.Collections.Generic.List`1_string",
+                            _ => "System.Collections.Generic.List`1",
+                        } : "System.Collections.Generic.List`1";
+                        return I("il2cpp::il2cpp_linq_grouping_to_list", 1, true, true, false,
+                            new[] { "" }, returnTypeName: toListListName);
+                    }
+                }
                 if (genArgs is not { Length: >= 1 })
                     return null;
                 switch (genArgs[0])
