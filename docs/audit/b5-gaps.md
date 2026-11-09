@@ -7037,3 +7037,34 @@ the tracked Dictionary`2 instantiation.
   Cast/OfType over a VALUE-element array or List<T> stays LOUD; ToLookup with an
   int64/double/char/DateTime TKey and ToDictionary with an int32/int64/double
   TValue stay LOUD gates.
+## 97. Single/SingleOrDefault/Aggregate/ElementAt/Contains over a System.Single GroupBy bucket -- FIXED (commit 829d876e)
+
+* gap (measured): the bucket switch's floatBucket arms ended at Average, so
+  these five operators fell through to the !valueBucket arms and bound the INT32
+  bucket kernels. ElementAt/Aggregate read the bucket's 4-byte float cells as
+  int32 -- a SILENT WRONG VALUE (probe-s100felem3: ElementAt(1) answered
+  1.077936E+09 for the float 3f; probe-s100fagg2: Aggregate((a,b)=>a+b) answered
+  1.517427E+09 for 3+1+3). Single/Contains hit the int32-family guard -- a loud
+  abort (probe-s100fsingle / probe-s100fcontains: "not transpiled" / missing).
+* fix: five runtime wrappers (il2cpp_linq_grouping_single_f /
+  _single_or_default_f / _aggregate_f / _element_at_f / _contains_f) snapshot
+  the bucket through RequireFGroupElements (the REAL float[] with kElemKindF
+  cells) and reuse the float array kernels (single_fam_d /
+  single_or_default_fam_d / aggregate_f_f / element_at_fam_d /
+  contains_family_d with IL2CPP_LINQ_CELL_F). The F-stack carrier means a float
+  leaf crosses as a double, so the scalar results ride resultKind d. Five
+  floatBucket arms in the bucket switch, bound before the !valueBucket arms.
+* evidence: probe-floatgrp-elemops oracle=runtime byte-exact 101B sha 81dda912
+  (7 records). Mutations M1-M8 red->green (M1-M3 runtime kernel cell anchors;
+  M4'-M8 transpiler kernel-name anchors -- the first M4 anchor
+  aggregate_f_f->aggregate_f_d was a FALSE GREEN because the two kernels are
+  implementation-identical, so it was replaced by a transpiler-side anchor).
+  16 regression anchors byte-identical; unit 4164/0/0; C0 0/0.
+* remaining LOUD: the multi-element Single/SingleOrDefault form (both oracle and
+  runtime throw InvalidOperationException; a difftest false-red when the oracle
+  itself faults, so the probe excludes it); ToLookup/GroupBy with a float TKey
+  (the key carrier is a separate gate); Append/Prepend over a GroupBy bucket;
+  OfType/Cast over a value-element source; OrderBy over a bucket; ToLookup
+  int64/double/char/DateTime keys; ToDictionary int32/int64/double values;
+  GroupBy LAZINESS; ToList over a single IGrouping (falls through to
+  il2cpp_linq_to_list -> "Object is not an array.").
