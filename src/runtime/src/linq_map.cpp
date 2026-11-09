@@ -10345,78 +10345,107 @@ bool CastBoxMatches(Il2CppObject* boxed, const CastFamInfo& fam)
     return std::strcmp(boxed->klass->name, fam.boxName) == 0;
 }
 
+// b5-gaps section 96: Cast<T> obeys unbox.any -- a boxed value whose klass is
+// NOT exactly the target family's box throws InvalidCastException ("Specified
+// cast is not valid"). The old CastStoreValue called the family icall
+// unconditionally (icall_unbox_int32 on a System.Double box) and the icall's
+// own check answered NullReferenceException -- the WRONG exception type.
+void CastThrowInvalid()
+{
+    il2cpp_throw_new(
+        "System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception",
+        "Specified cast is not valid.");
+}
+
 void CastStoreValue(char* cell, int32_t fam, Il2CppObject* boxed)
 {
     switch (fam)
     {
         case 0:
+            if (!CastBoxMatches(boxed, CastFamOf(0))) CastThrowInvalid();
             *reinterpret_cast<int32_t*>(cell) = runtime::icall_unbox_int32(boxed);
             break;
         case 1:
+            if (!CastBoxMatches(boxed, CastFamOf(1))) CastThrowInvalid();
             *reinterpret_cast<int64_t*>(cell) = runtime::icall_unbox_long(boxed);
             break;
         case 2:
+            if (!CastBoxMatches(boxed, CastFamOf(2))) CastThrowInvalid();
             *reinterpret_cast<uint64_t*>(cell) = runtime::icall_unbox_ulong(boxed);
             break;
         case 3:
+            if (!CastBoxMatches(boxed, CastFamOf(3))) CastThrowInvalid();
             *reinterpret_cast<int32_t*>(cell) = runtime::icall_unbox_uint(boxed);
             break;
         case 4:
+            if (!CastBoxMatches(boxed, CastFamOf(4))) CastThrowInvalid();
             *reinterpret_cast<int8_t*>(cell) =
                 static_cast<int8_t>(runtime::icall_unbox_sbyte(boxed));
             break;
         case 5:
+            if (!CastBoxMatches(boxed, CastFamOf(5))) CastThrowInvalid();
             *reinterpret_cast<uint8_t*>(cell) =
                 static_cast<uint8_t>(runtime::icall_unbox_byte(boxed));
             break;
         case 6:
+            if (!CastBoxMatches(boxed, CastFamOf(6))) CastThrowInvalid();
             *reinterpret_cast<int16_t*>(cell) =
                 static_cast<int16_t>(runtime::icall_unbox_short(boxed));
             break;
         case 7:
+            if (!CastBoxMatches(boxed, CastFamOf(7))) CastThrowInvalid();
             *reinterpret_cast<uint16_t*>(cell) =
                 static_cast<uint16_t>(runtime::icall_unbox_ushort(boxed));
             break;
         case 8:
+            if (!CastBoxMatches(boxed, CastFamOf(8))) CastThrowInvalid();
             *reinterpret_cast<uint8_t*>(cell) = runtime::icall_unbox_bool(boxed) ? 1 : 0;
             break;
         case 9:
+            if (!CastBoxMatches(boxed, CastFamOf(9))) CastThrowInvalid();
             *reinterpret_cast<uint16_t*>(cell) =
                 static_cast<uint16_t>(runtime::icall_unbox_char(boxed));
             break;
         case 10:
+            if (!CastBoxMatches(boxed, CastFamOf(10))) CastThrowInvalid();
             *reinterpret_cast<float*>(cell) =
                 static_cast<float>(runtime::icall_unbox_float(boxed));
             break;
         case 11:
+            if (!CastBoxMatches(boxed, CastFamOf(11))) CastThrowInvalid();
             *reinterpret_cast<double*>(cell) = runtime::icall_unbox_double(boxed);
             break;
         case 12:
         {
+            if (!CastBoxMatches(boxed, CastFamOf(12))) CastThrowInvalid();
             const runtime::Il2CppDecimal v = runtime::icall_unbox_decimal(boxed);
             std::memcpy(cell, &v, sizeof(v));
             break;
         }
         case 13:
         {
+            if (!CastBoxMatches(boxed, CastFamOf(13))) CastThrowInvalid();
             const runtime::Il2CppDateTime v = runtime::icall_unbox_date_time(boxed);
             *reinterpret_cast<int64_t*>(cell) = runtime::il2cpp_datetime_to_array_bits(v);
             break;
         }
         case 14:
         {
+            if (!CastBoxMatches(boxed, CastFamOf(14))) CastThrowInvalid();
             const runtime::Il2CppTimeSpan v = runtime::icall_unbox_time_span(boxed);
             *reinterpret_cast<int64_t*>(cell) = v.ticks;
             break;
         }
         case 15:
         {
+            if (!CastBoxMatches(boxed, CastFamOf(15))) CastThrowInvalid();
             const Il2CppGuid v = runtime::icall_unbox_guid(boxed);
             std::memcpy(cell, v.b, sizeof(v.b));
             break;
         }
         default:
         {
+            if (!CastBoxMatches(boxed, CastFamOf(16))) CastThrowInvalid();
             const runtime::Il2CppDateTimeOffset v =
                 runtime::icall_unbox_date_time_offset(boxed);
             std::memcpy(cell, &v, sizeof(v));
