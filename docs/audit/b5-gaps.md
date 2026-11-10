@@ -7289,3 +7289,30 @@ GAPS (registered)
 - GroupBy LAZINESS (key-selector re-invocation per enumeration) is unwired.
 - A float TKey GroupBy is LOUD (KeyKindFor returns -1 for 0x0C).
 - The int64-key lookup enumeration carrier and elementSelector are unwired.
+
+## section 105 (2026-11-10): int64 lookup enumeration + int64 elementSelector -- commit ae0eccc4
+
+DONE
+- linq_map.cpp: the bucket-enumerator box dispatch gains kElemKindI8
+  (icall_box_long) and kElemKindD (icall_box_double); the TimeSpan arm is
+  consolidated.
+- linq_family.cpp: il2cpp_linq_to_lookup_sel accepts an int64 source cell and
+  an int64 selected-value cell; the selected values ride one int64 raw buffer
+  for both families; the int64 key routes through find_or_add_i64; the List
+  twins snapshot an int64 source through IL2CPP_LIST_KIND_I8.
+- MethodMap.Linq.cs: the array/List ToLookup elementSelector gates accept an
+  int64 TElement and TKey.
+- probe-s99lk64b 23 B sha f3b1dd17; probe-s99lk64d 19 B sha ba8e0a0b;
+  probe-s105dbl 17 B sha 2710c2f0.
+- Mutation M1 (force every element into one group) red; M2/M3 FALSE GREENS
+  (see below). 34 anchors byte-identical; unit 4164/0/0; C0 0/0.
+
+GAPS (registered)
+- The double-bucket box arm (kElemKindD) has no probe that reaches it: a
+  string.Join over the bucket does not walk the mutated path.
+- The int64 selected-value width is indistinguishable at 10/30 (the low 32
+  bits coincide), so M2 cannot be made to red without a value >= 2^32.
+- ToLookup double/char/DateTime keys stay LOUD; ToDictionary int64/double
+  values stay LOUD; GroupBy LAZINESS is unwired; a float TKey GroupBy is
+  LOUD; the int64 lookup enumeration carrier for a user-comparer form is
+  untested.
