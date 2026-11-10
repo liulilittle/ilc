@@ -7262,3 +7262,30 @@ ones. 24 anchors byte-identical. C0 0/0; unit 4164/0/0.
 **SEPARATE GAPS (registered)**: the `*_value_ref` entries' conformance filter
 has no reachable probe (a `byte[]` source reaches the value-family entries,
 not the ref ones); a List receiver still needs its own element-kind snapshot.
+
+## section 104 (2026-11-10): Enumerable.ToDictionary with an int32 TValue -- commit b3096b7e
+
+DONE
+- Runtime: il2cpp_dict_gen_get_values_i (a real int32[] snapshot of the live
+  entries) + the get_i/add_i/set_i/try_get_value_i bare-table wrappers and
+  their namespace runtime icall twins; dictsi_obj.cpp IsDictGenWrapper
+  forwards the whole SI surface to the gen arms. get_Item routes the STRING
+  key through icall_dict_gen_get_o + unbox int32.
+- Transpiler: the ToDictionary gate accepts 0x08/0x09/0x11+Int32 for BOTH the
+  array and List cores; the iiReceiver (int,int) and siValueGenReceiver
+  (string,int,gen) Dictionary domains; the Dictionary`2_int_int allocation;
+  the stloc ReturnTypeName objTypes propagation.
+- probe-todict-i4val: oracle == runtime, 140 B, sha aa4d7d34, 12/12 records.
+- Mutations: M1 (unbox offset 8->12) red; M2 (nullptr key) red. M3/M4
+  (dropping the contains-key / values forwards) FALSE GREENS -- recorded
+  below. 33 anchors byte-identical; unit 4164/0/0; C0 0/0.
+
+GAPS (registered)
+- The gen wrapper's ContainsKey / get_Values forwards have no reachable
+  probe on the int32-valued wrapper (the probe never calls ContainsKey on
+  it and never reaches d3.Values). A probe must call every forwarded member.
+- ToDictionary int64/double values stay LOUD (the gate accepts only int32).
+- ToLookup double/char/DateTime keys stay LOUD.
+- GroupBy LAZINESS (key-selector re-invocation per enumeration) is unwired.
+- A float TKey GroupBy is LOUD (KeyKindFor returns -1 for 0x0C).
+- The int64-key lookup enumeration carrier and elementSelector are unwired.
