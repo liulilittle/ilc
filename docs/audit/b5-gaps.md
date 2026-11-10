@@ -7339,3 +7339,21 @@ GAPS (registered)
 - ToDictionary double values stay LOUD.
 - ToLookup double/char/DateTime keys stay LOUD; GroupBy LAZINESS is unwired; a
   float TKey GroupBy is LOUD.
+
+## section 107 (2026-11-10): Enumerable.ToLookup with a System.Double TKey -- commit a004f20e
+
+DONE
+- kGenKind_Double = 17; Il2CppLookupGen keyDbl[] carrier.
+- find_or_add_dbl / contains(double) / get_item(double): value equality
+  (NaN == NaN, +0 == -0) + the reflected Equals(double,double) comparer slot.
+- The selector carrier is memcpy-reinterpreted (never an int64->double value
+  conversion -- cvtsi2sd makes every key a denormal).
+- The materializer reads the double carrier into the bucket key (get_Key).
+- The List twins snapshot a List<double> through IL2CPP_LIST_KIND_D.
+- probe-lk64dbl 307 B sha 6f9b77eb; M1/M2/M3 red; 34 anchors byte-identical;
+  unit 4164/0/0; C0 0/0.
+
+GAPS (registered)
+- ToLookup char/DateTime keys stay LOUD.
+- ToDictionary int64 keys + double values stay LOUD.
+- GroupBy LAZINESS is unwired; a float TKey GroupBy is LOUD.
