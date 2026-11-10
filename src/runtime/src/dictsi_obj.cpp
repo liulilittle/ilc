@@ -19,6 +19,7 @@
 
 #include "dictsi_obj.h"
 
+#include "dictgen.h"               // b5-gaps section 104: the gen-wrapper forward
 #include "il2cpp_exception_ext.h" // il2cpp_throw_key_not_found_exception
 #include "il2cpp_gc.h"             // il2cpp_write_barrier
 #include "il2cpp_gcroot.h"         // GcRoot
@@ -62,6 +63,18 @@ void EnsureDictSIObjectRegistered()
     if (g_dictSIObjectRegistered) return;
     il2cpp_class_register(&System_Collections_Generic_Dictionary_2_string_int_class);
     g_dictSIObjectRegistered = true;
+}
+
+// b5-gaps section 104: a LINQ ToDictionary result whose KEY is a string and
+// whose VALUE is an int32 is materialised through the DICTGEN wrapper
+// (keysRoot + a boxed int32 value carrier) -- a DIFFERENT object layout from
+// this SI domain's own wrapper. The IL TypeSpec parent name is IDENTICAL for
+// both shapes, so the transpiler cannot tell them apart at the dispatch; the
+// SI icalls detect the gen wrapper by its klass and forward to the gen arms
+// (the gen wrapper's slot 1 is the raw Il2CppDictGen*, slot 2 the keysRoot).
+bool IsDictGenWrapper(Il2CppObject* self)
+{
+    return self != nullptr && self->klass == &System_Collections_Generic_Dictionary_2_gen_class;
 }
 
 // The dict pointer from a wrapper receiver.
@@ -193,6 +206,13 @@ void icall_dict_si_ctor(Il2CppObject* self, int32_t capacity)
 void icall_dict_si_add(Il2CppObject* self, Il2CppObject* key, int32_t value)
 {
     ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        // b5-gaps section 104: forward to the gen arm (keyKind=0 string,
+        // valueKind=1 boxed int32).
+        il2cpp::runtime::icall_dict_gen_add_o(self, key, il2cpp::il2cpp_dict_gen_box_int32(value), 0, 1);
+        return;
+    }
     il2cpp_dict_si_add(AsDict(self), AsKey(key), value);
 }
 
@@ -203,6 +223,11 @@ void icall_dict_si_add(Il2CppObject* self, Il2CppObject* key, int32_t value)
 void icall_dict_si_set(Il2CppObject* self, Il2CppObject* key, int32_t value)
 {
     ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        il2cpp::runtime::icall_dict_gen_set_o(self, key, il2cpp::il2cpp_dict_gen_box_int32(value), 0, 1);
+        return;
+    }
     il2cpp_dict_si_set(AsDict(self), AsKey(key), value);
 }
 
@@ -216,6 +241,13 @@ int32_t icall_dict_si_get(Il2CppObject* self, Il2CppObject* key)
     if (key == nullptr)
     {
         il2cpp_throw_argument_null_exception("key");
+    }
+    if (IsDictGenWrapper(self))
+    {
+        // The gen wrapper's key is a STRING -- get_o returns the boxed int32
+        // carrier, unboxed to the leaf.
+        Il2CppObject* boxed = il2cpp::runtime::icall_dict_gen_get_o(self, key, 0, 1);
+        return boxed != nullptr ? il2cpp::il2cpp_dict_gen_unbox_int32(boxed) : 0;
     }
     int32_t value = 0;
     if (il2cpp_dict_si_try_get_value(AsDict(self), AsKey(key), &value))
@@ -233,6 +265,17 @@ int32_t icall_dict_si_get(Il2CppObject* self, Il2CppObject* key)
 bool icall_dict_si_try_get_value(Il2CppObject* self, Il2CppObject* key, int32_t* value)
 {
     ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        Il2CppObject* boxed = nullptr;
+        const bool found = il2cpp::runtime::icall_dict_gen_try_get_value_o(
+            self, key, &boxed, 0, 1);
+        if (found && value != nullptr)
+        {
+            *value = boxed != nullptr ? il2cpp::il2cpp_dict_gen_unbox_int32(boxed) : 0;
+        }
+        return found;
+    }
     return il2cpp_dict_si_try_get_value(AsDict(self), AsKey(key), value);
 }
 
@@ -242,6 +285,10 @@ bool icall_dict_si_try_get_value(Il2CppObject* self, Il2CppObject* key, int32_t*
 bool icall_dict_si_contains_key(Il2CppObject* self, Il2CppObject* key)
 {
     ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        return il2cpp::runtime::icall_dict_gen_contains_key_o(self, key, 0, 1);
+    }
     return il2cpp_dict_si_contains_key(AsDict(self), AsKey(key));
 }
 
@@ -251,6 +298,10 @@ bool icall_dict_si_contains_key(Il2CppObject* self, Il2CppObject* key)
 bool icall_dict_si_remove(Il2CppObject* self, Il2CppObject* key)
 {
     ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        return il2cpp::runtime::icall_dict_gen_remove_o(self, key, 0, 1);
+    }
     return il2cpp_dict_si_remove(AsDict(self), AsKey(key));
 }
 
@@ -260,6 +311,10 @@ bool icall_dict_si_remove(Il2CppObject* self, Il2CppObject* key)
 int32_t icall_dict_si_get_count(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        return il2cpp::runtime::icall_dict_gen_get_count(self);
+    }
     return il2cpp_dict_si_get_count(AsDict(self));
 }
 
@@ -269,6 +324,11 @@ int32_t icall_dict_si_get_count(Il2CppObject* self)
 void icall_dict_si_clear(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        il2cpp::runtime::icall_dict_gen_clear(self);
+        return;
+    }
     il2cpp_dict_si_clear(AsDict(self));
 }
 
@@ -279,6 +339,10 @@ void icall_dict_si_clear(Il2CppObject* self)
 Il2CppArray* icall_dict_si_get_keys(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        return il2cpp::runtime::icall_dict_gen_get_keys_o(self, 0);
+    }
     return il2cpp_dict_si_get_keys(AsDict(self));
 }
 
@@ -289,6 +353,10 @@ Il2CppArray* icall_dict_si_get_keys(Il2CppObject* self)
 Il2CppArray* icall_dict_si_get_values(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        return il2cpp::runtime::icall_dict_gen_get_values_i(self);
+    }
     return il2cpp_dict_si_get_values(AsDict(self));
 }
 

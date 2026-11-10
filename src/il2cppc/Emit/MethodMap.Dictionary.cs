@@ -87,6 +87,25 @@ public static partial class MethodRefResolver
         // string-ref). The int32 key arrives unboxed ("i" cast) and is boxed
         // inside the icall; string values/references are ReturnsRef.
         var isReceiver = instTag is "System.Collections.Generic.Dictionary`2_int_string";
+        // b5-gaps section 104: the int->int expansion. The VALUE is a boxed
+        // int32 (the same carrier the section-78 kernel already stores), so the
+        // instance surface rides the SAME shared generic table with
+        // (keyKind=1, valueKind=1): get_Item unboxes the boxed value, get_Values
+        // returns a real int32[] snapshot, Add/set_Item/TryGetValue/ContainsKey/
+        // Remove take the int32 key.
+        var iiReceiver = instTag is "System.Collections.Generic.Dictionary`2_int_int";
+        // b5-gaps section 104: a LINQ ToDictionary result whose KEY is a string
+        // and whose VALUE is an int32. The LINQ kernel materialises it through
+        // the DICTGEN wrapper (keysRoot + a boxed int32 value carrier), so its
+        // instance surface must ride the gen icalls -- the SI domain's own
+        // string->int32 layout is a DIFFERENT wrapper object (dictsi_obj.h) and
+        // dispatching a gen wrapper through the si icalls read the wrong slots
+        // (probe-todict-i4val segfaulted at the get_Item dispatch). The IL
+        // TypeSpec parent name is IDENTICAL for both shapes, so the dispatcher
+        // keys on the TRACKED receiver type (the LINQ call's dictName carries a
+        // _gen suffix) to tell them apart.
+        var siValueGenReceiver = receiverType is "System.Collections.Generic.Dictionary`2_string_int_gen";
+        if (siValueGenReceiver) siReceiver = false;
         // Value-type tuple key: the key is a BOXED ValueTuple -- the runtime
         // reads the boxed payload structurally (net48
         // EqualityComparer<ValueTuple<..>>.Default). The element kinds come
@@ -115,10 +134,10 @@ public static partial class MethodRefResolver
                 if (count == 0)
                     return siReceiver
                         ? I("il2cpp::runtime::icall_dict_si_ctor", 0, false, false, true, null, null, appendZero: true)
-                        : ssReceiver || nestedListReceiver || uriReceiver || isReceiver || tupleReceiver
+                        : ssReceiver || nestedListReceiver || uriReceiver || isReceiver || iiReceiver || siValueGenReceiver || tupleReceiver
                             ? I("il2cpp::runtime::icall_dict_gen_ctor", 0, false, false, true, null, null, appendZero: true)
                             : Loud();
-                if (count == 1 && ps.Length == 1 && ps[0] == 0x08 && (ssReceiver || nestedListReceiver || uriReceiver || isReceiver))
+                if (count == 1 && ps.Length == 1 && ps[0] == 0x08 && (ssReceiver || nestedListReceiver || uriReceiver || isReceiver || iiReceiver || siValueGenReceiver))
                     return I("il2cpp::runtime::icall_dict_gen_ctor", 1, false, false, true, new[] { "", "i" });
                 if (count == 1 && ps.Length == 1 && ps[0] == 0x08 && siReceiver)
                     return I("il2cpp::runtime::icall_dict_si_ctor", 1, false, false, true, new[] { "", "i" });
@@ -144,7 +163,12 @@ public static partial class MethodRefResolver
                         : isReceiver
                             ? I("il2cpp::runtime::icall_dict_gen_add", 2, false, false, true, new[] { "", "i", "" },
                                 appendLiterals: new[] { "1", "0" })
-                            : Loud();
+                            : iiReceiver
+                                // b5-gaps section 104: the int32 value arrives as a
+                                // VALUE slot ("i") -- the runtime boxes it.
+                                ? I("il2cpp::runtime::icall_dict_gen_add_i", 2, false, false, true, new[] { "", "i", "i" },
+                                    appendLiterals: new[] { "1", "1" })
+                                : Loud();
             case "set_Item":
                 // indexer SET: void set_Item(TKey, TValue) -- insert-or-replace
                 // (same VAR [13,13] shape as Add).
@@ -163,7 +187,10 @@ public static partial class MethodRefResolver
                         : isReceiver
                             ? I("il2cpp::runtime::icall_dict_gen_set", 2, false, false, true, new[] { "", "i", "" },
                                 appendLiterals: new[] { "1", "0" })
-                            : Loud();
+                            : iiReceiver
+                                ? I("il2cpp::runtime::icall_dict_gen_set_i", 2, false, false, true, new[] { "", "i", "i" },
+                                    appendLiterals: new[] { "1", "1" })
+                                : Loud();
             case "get_Item":
                 // indexer GET: TValue get_Item(TKey) -- the value or
                 // KeyNotFoundException on a miss. The RETURN is TValue (0x13),
@@ -187,7 +214,20 @@ public static partial class MethodRefResolver
                         : isReceiver
                             ? I("il2cpp::runtime::icall_dict_gen_get", 1, true, true, true, new[] { "", "i" },
                                 appendLiterals: new[] { "1", "0" })
-                            : Loud();
+                    : siValueGenReceiver
+                        // b5-gaps section 104: the LINQ string->int32 wrapper --
+                        // the value is a boxed int32 carrier, unboxed to the leaf.
+                        ? I("il2cpp::runtime::icall_dict_gen_get_i", 1, true, false, true,
+                            new[] { "", "i" },
+                            appendLiterals: new[] { "0", "1" })
+                    : iiReceiver
+                                    // b5-gaps section 104: the int32 value is a BOXED
+                                    // carrier -- the get_Item result is unboxed back to
+                                    // the int32 leaf (ReturnsRef false, ResultKind
+                                    // null -> the int32 result slot).
+                                    ? I("il2cpp::runtime::icall_dict_gen_get_i", 1, true, false, true, new[] { "", "i" },
+                                        appendLiterals: new[] { "1", "1" })
+                                    : Loud();
             case "TryGetValue":
                 // bool TryGetValue(TKey, out TValue) -- the BYREF (0x10)
                 // consumes its element (VAR 0x13), so ps is [13,13] like Add;
@@ -204,10 +244,24 @@ public static partial class MethodRefResolver
                         appendLiterals: new[] { "0", "0" })
                     : siReceiver
                         ? I("il2cpp::runtime::icall_dict_si_try_get_value", 2, true, false, true, new[] { "", "", "" })
-                        : isReceiver
-                            ? I("il2cpp::runtime::icall_dict_gen_try_get_value", 2, true, false, true, new[] { "", "", "" },
-                                appendLiterals: new[] { "1", "0" })
-                            : Loud();
+                    : isReceiver
+                        ? I("il2cpp::runtime::icall_dict_gen_try_get_value", 2, true, false, true, new[] { "", "", "" },
+                            appendLiterals: new[] { "1", "0" })
+                        : siValueGenReceiver
+                            // b5-gaps section 104: the out value is written
+                            // back through the int32 address (the runtime
+                            // unboxes into the caller's slot).
+                            ? I("il2cpp::runtime::icall_dict_gen_try_get_value_i", 2, true, false, true,
+                                new[] { "", "i", "deref:i" },
+                                appendLiterals: new[] { "0", "1" })
+                            : iiReceiver
+                                // b5-gaps section 104: the out value is written
+                                // back through the int32 address (the runtime
+                                // unboxes into the caller's slot).
+                                ? I("il2cpp::runtime::icall_dict_gen_try_get_value_i", 2, true, false, true,
+                                    new[] { "", "i", "deref:i" },
+                                    appendLiterals: new[] { "1", "1" })
+                                : Loud();
             case "ContainsKey":
                 // bool ContainsKey(TKey): ps [0x13] (dictcase 20 01 02 13 00).
                 if (count != 1 || ps.Length != 1 || ps[0] != 0x13) return Loud();
@@ -225,7 +279,13 @@ public static partial class MethodRefResolver
                         : isReceiver
                             ? I("il2cpp::runtime::icall_dict_gen_contains_key", 1, true, false, true, new[] { "", "i" },
                                 appendLiterals: new[] { "1", "0" })
-                            : Loud();
+                            : siValueGenReceiver
+                                ? I("il2cpp::runtime::icall_dict_gen_contains_key_o", 1, true, false, true, new[] { "", "" },
+                                    appendLiterals: new[] { "0", "1" })
+                                : iiReceiver
+                                    ? I("il2cpp::runtime::icall_dict_gen_contains_key", 1, true, false, true, new[] { "", "i" },
+                                        appendLiterals: new[] { "1", "1" })
+                                    : Loud();
             case "Remove":
                 // bool Remove(TKey): ps [0x13] (same shape as ContainsKey).
                 if (count != 1 || ps.Length != 1 || ps[0] != 0x13) return Loud();
@@ -243,17 +303,23 @@ public static partial class MethodRefResolver
                         : isReceiver
                             ? I("il2cpp::runtime::icall_dict_gen_remove", 1, true, false, true, new[] { "", "i" },
                                 appendLiterals: new[] { "1", "0" })
-                            : Loud();
+                            : siValueGenReceiver
+                                ? I("il2cpp::runtime::icall_dict_gen_remove_o", 1, true, false, true, new[] { "", "" },
+                                    appendLiterals: new[] { "0", "1" })
+                                : iiReceiver
+                                    ? I("il2cpp::runtime::icall_dict_gen_remove", 1, true, false, true, new[] { "", "i" },
+                                        appendLiterals: new[] { "1", "1" })
+                                    : Loud();
             case "get_Count":
                 if (count != 0) return Loud();
-                return ssReceiver || nestedListReceiver || uriReceiver || isReceiver || tupleReceiver
+                return ssReceiver || nestedListReceiver || uriReceiver || isReceiver || iiReceiver || siValueGenReceiver || tupleReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_get_count", 0, true, false, true, new[] { "" })
                     : siReceiver
                         ? I("il2cpp::runtime::icall_dict_si_get_count", 0, true, false, true, new[] { "" })
                         : Loud();
             case "Clear":
                 if (count != 0) return Loud();
-                return ssReceiver || nestedListReceiver || uriReceiver || isReceiver || tupleReceiver
+                return ssReceiver || nestedListReceiver || uriReceiver || isReceiver || iiReceiver || siValueGenReceiver || tupleReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_clear", 0, false, false, true, new[] { "" })
                     : siReceiver
                         ? I("il2cpp::runtime::icall_dict_si_clear", 0, false, false, true, new[] { "" })
@@ -264,7 +330,7 @@ public static partial class MethodRefResolver
                 // ICollection`1<string> members over the snapshot dispatch on
                 // the receiver hint.
                 if (count != 0) return Loud();
-                return ssReceiver || nestedListReceiver
+                return ssReceiver || nestedListReceiver || siValueGenReceiver
                     ? I("il2cpp::runtime::icall_dict_gen_get_keys_o", 0, true, true, true, new[] { "" },
                         appendLiterals: new[] { "0" },
                         returnTypeName: "System.String[]")
@@ -282,7 +348,12 @@ public static partial class MethodRefResolver
                     : siReceiver
                         ? I("il2cpp::runtime::icall_dict_si_get_values", 0, true, true, true, new[] { "" },
                             returnTypeName: "System.Int32[]")
-                        : Loud();
+                        // b5-gaps section 104: the int32 value snapshot (the
+                        // icall twin reads the wrapper slot itself).
+                        : siValueGenReceiver || iiReceiver
+                            ? I("il2cpp::runtime::icall_dict_gen_get_values_i", 0, true, true, true, new[] { "" },
+                                returnTypeName: "System.Int32[]")
+                            : Loud();
             case "GetEnumerator":
                 // foreach: the snapshot PAIR enumerator object (P25d
                 // il2cpp_dict_si_get_enumerator -- the runtime walks frozen
@@ -300,7 +371,7 @@ public static partial class MethodRefResolver
                 return count == 0 && siReceiver
                     ? I("il2cpp::il2cpp_dict_si_get_enumerator", 0, true, true, true, new[] { "" },
                         returnTypeName: "System.Collections.Generic.Dictionary`2.Enumerator")
-                    : count == 0 && isReceiver
+                    : count == 0 && (isReceiver || iiReceiver || siValueGenReceiver)
                         ? I("il2cpp::il2cpp_dict_gen_get_enumerator", 0, true, true, true, new[] { "" },
                             returnTypeName: "System.Collections.Generic.Dictionary`2.Enumerator_int_string")
                         : Loud();

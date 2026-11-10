@@ -557,6 +557,114 @@ Il2CppArray* il2cpp_dict_gen_get_values(Il2CppDictGen* d)
     return result;
 }
 
+// b5-gaps section 104: the int32-value instance arms. The value carrier is a
+// BOXED int32 (the section-78 kernel's il2cpp_dict_gen_box_int32); the raw
+// table fns are shared with the reference-value form.
+int32_t il2cpp_dict_gen_get_i(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* value = nullptr;
+    if (il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &value, keyKind, valueKind))
+    {
+        return value != nullptr ? il2cpp_dict_gen_unbox_int32(value) : 0;
+    }
+    il2cpp_throw_key_not_found_exception(nullptr);
+    return 0; // unreachable (the factory throws)
+}
+
+void il2cpp_dict_gen_add_i(Il2CppObject* self, int32_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_add(AsDict(self), key, nullptr,
+        il2cpp_dict_gen_box_int32(value), keyKind, valueKind);
+}
+
+void il2cpp_dict_gen_set_i(Il2CppObject* self, int32_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_set(AsDict(self), key, nullptr,
+        il2cpp_dict_gen_box_int32(value), keyKind, valueKind);
+}
+
+bool il2cpp_dict_gen_try_get_value_i(Il2CppObject* self, int32_t key,
+    int32_t* value, int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* boxed = nullptr;
+    if (!il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &boxed,
+                                       keyKind, valueKind))
+    {
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = boxed != nullptr ? il2cpp_dict_gen_unbox_int32(boxed) : 0;
+    }
+    return true;
+}
+
+// b5-gaps section 104: the int32-value snapshot (a real int32[] -- net48's
+// Dictionary<int,int>.Values layout). Every value carrier is a boxed int32
+// (il2cpp_dict_gen_box_int32), so the unbox is a payload read at offset 8.
+Il2CppArray* il2cpp_dict_gen_get_values_i(Il2CppDictGen* d)
+{
+    const int32_t live = OccupiedCount(d);
+    Il2CppArray* result = il2cpp_array_new_typed(
+        static_cast<int32_t>(sizeof(int32_t)), kElemKindI4, live);
+    int32_t* dst = reinterpret_cast<int32_t*>(result->data);
+    int32_t n = 0;
+    for (int32_t i = d->seqHead; i >= 0 && n < live; i = d->entries[i].seqNext)
+    {
+        if (d->entries[i].hashCode < 0)
+        {
+            continue;
+        }
+        Il2CppObject* boxed = d->entries[i].value;
+        dst[n++] = boxed != nullptr
+            ? il2cpp_dict_gen_unbox_int32(boxed) : 0;
+    }
+    return result;
+}
+
+namespace runtime {
+
+// b5-gaps section 104: the int32-value icall arms. The value carrier is a
+// BOXED int32; the raw table fns are shared with the reference-value form.
+int32_t icall_dict_gen_get_i(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    return il2cpp_dict_gen_get_i(self, key, keyKind, valueKind);
+}
+
+void icall_dict_gen_add_i(Il2CppObject* self, int32_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    il2cpp_dict_gen_add_i(self, key, value, keyKind, valueKind);
+}
+
+void icall_dict_gen_set_i(Il2CppObject* self, int32_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    il2cpp_dict_gen_set_i(self, key, value, keyKind, valueKind);
+}
+
+bool icall_dict_gen_try_get_value_i(Il2CppObject* self, int32_t key,
+    int32_t* value, int32_t keyKind, int32_t valueKind)
+{
+    return il2cpp_dict_gen_try_get_value_i(self, key, value, keyKind, valueKind);
+}
+
+Il2CppArray* icall_dict_gen_get_values_i(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return il2cpp_dict_gen_get_values_i(AsDict(self));
+}
+
+} // namespace il2cpp::runtime
+
 //-----------------------------------------------------------------------------
 // Wrapper object, enumerator + KVP holders (Phase-1 int_string shape).
 //-----------------------------------------------------------------------------

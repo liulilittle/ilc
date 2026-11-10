@@ -6829,6 +6829,9 @@ public static class CodeGenerator
         // every future kind combination (kinds ride the icalls as trailing
         // literals, not as distinct classes).
         "System.Collections.Generic.Dictionary`2_int_string" => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",
+        // b5-gaps section 104: Dictionary<int,int> rides the shared generic
+        // wrapper descriptor; the value kind rides the icalls as a literal.
+        "System.Collections.Generic.Dictionary`2_int_int" => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",
         // G4: the string->string expansion rides the shared generic wrapper
         // descriptor (dictgen.h -- Phase-2 absorption of the hashtable arms).
         "System.Collections.Generic.Dictionary`2_string_string" => "il2cpp_object_new(il2cpp::il2cpp_dict_gen_object_class())",

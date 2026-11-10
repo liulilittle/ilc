@@ -145,6 +145,13 @@ int32_t il2cpp_dict_gen_get_count(Il2CppDictGen* d);
 Il2CppArray* il2cpp_dict_gen_get_keys(Il2CppDictGen* d, int32_t keyKind);
 Il2CppArray* il2cpp_dict_gen_get_values(Il2CppDictGen* d);
 
+// b5-gaps section 104: the INT32-VALUE snapshot. net48's
+// Dictionary<int,int>.Values is an int32[] (a VALUE array, not a boxed
+// object[]), so the value kind decides the snapshot layout -- the generic
+// object[] form above cannot serve it (a downstream int32[] consumer would read
+// a managed pointer as a 4-byte cell).
+Il2CppArray* il2cpp_dict_gen_get_values_i(Il2CppDictGen* d);
+
 //-----------------------------------------------------------------------------
 // Wrapper object + enumeration objects (Phase-1 int_string shape). The wrapper
 // is ONE shared class for every future kind combination (it holds only the
@@ -198,6 +205,20 @@ int32_t il2cpp_kvp_gen_int_string_get_key(Il2CppObject* self);
 Il2CppObject* il2cpp_kvp_gen_int_string_get_value(Il2CppObject* self);
 
 namespace runtime {
+
+// b5-gaps section 104: the int32-VALUE instance arms. The value carrier is a
+// BOXED int32 (the section-78 kernel's il2cpp_dict_gen_box_int32), so each arm
+// boxes an incoming int32 / unboxes the stored carrier. The raw table fns are
+// shared; only the carrier conversion differs.
+int32_t icall_dict_gen_get_i(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_add_i(Il2CppObject* self, int32_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_set_i(Il2CppObject* self, int32_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind);
+bool icall_dict_gen_try_get_value_i(Il2CppObject* self, int32_t key,
+    int32_t* value, int32_t keyKind, int32_t valueKind);
+Il2CppArray* icall_dict_gen_get_values_i(Il2CppObject* self);
 
 // .ctor(capacity) -- allocate the table and store it in the wrapper slot.
 void icall_dict_gen_ctor(Il2CppObject* self, int32_t capacity);

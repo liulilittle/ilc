@@ -2080,12 +2080,32 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             if (tval == 0x0E) { dictValueKind = "0"; dictValueSuffix = "string"; }
             else if (tval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.String")
             { dictValueKind = "0"; dictValueSuffix = "string"; }
+            // b5-gaps section 104: the int32 VALUE family. The runtime's
+            // ToDictionary kernel already boxes an int32 value
+            // (il2cpp_dict_gen_box_int32); the old gate refused it on the
+            // assumption that the wrapper's instance surface could not serve a
+            // non-string value. get_Item unboxes the boxed carrier and
+            // get_Values returns a real int32[] snapshot, so the int32 value is
+            // byte-exact with net48 (probe-todict-i4val).
+            else if (tval is 0x08 or 0x09) { dictValueKind = "1"; dictValueSuffix = "int"; }
+            else if (tval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.Int32")
+            { dictValueKind = "1"; dictValueSuffix = "int"; }
             else
             {
                 throw new NotSupportedException(
-                    $"Enumerable.ToDictionary with a {GenericArgTypeName(tval)} TValue is not wired: " +
-                    "only System.String values have a ToDictionary result surface (an int32 value would " +
-                    "route the dictionary wrapper through the incompatible dictsi icalls -- b5-gaps section 83).");
+                    $"Enumerable.ToDictionary with a {GenericArgTypeName(tval)} TValue is not wired: "
+                    + "only System.String and int32 values have a ToDictionary result surface "
+                    + "(b5-gaps section 83/104).");
+            }
+            // b5-gaps section 104: a string KEY + an int32 VALUE is a LINQ-only
+            // shape (the instance-path SI domain's own wrapper is a DIFFERENT
+            // object). Its result must ride the gen icalls -- the dictName
+            // carries a _gen suffix so the Dictionary dispatcher routes it to
+            // the gen arms (get_Item/get_Values/get_Keys/ContainsKey/Remove),
+            // never to the si arms (whose wrapper layout is incompatible).
+            if (dictKeySuffix == "string" && dictValueSuffix == "int")
+            {
+                dictValueSuffix = "int_gen";
             }
             string? srcCell = genArgs is { Length: >= 1 }
                 ? LinqCellCodeOfElemByte(genArgs[0]) ?? (genArgs[0] == 0x0E ? "15" : null)
@@ -6859,19 +6879,29 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             }
             // TValue: the 3-generic form has TElement at index 2; the 2-arg
             // form's VALUE is the TSource element itself (index 0).
-            // ONLY string values are served (the ToDictionary result is a
-            // DICTGEN wrapper; an int32 value would route it through the
-            // incompatible dictsi icalls -- b5-gaps section 83).
+            // b5-gaps section 104: the int32 VALUE family rides the same
+            // shared wrapper (the boxed int32 carrier + the int32 snapshot),
+            // so a List<int> ToDictionary is byte-exact with net48.
             byte dtval = genArgs.Length >= 3 ? genArgs[2] : genArgs[0];
             string dtValueKind, dtValueSuffix;
             if (dtval == 0x0E) { dtValueKind = "0"; dtValueSuffix = "string"; }
             else if (dtval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.String")
             { dtValueKind = "0"; dtValueSuffix = "string"; }
+            else if (dtval is 0x08 or 0x09) { dtValueKind = "1"; dtValueSuffix = "int"; }
+            else if (dtval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.Int32")
+            { dtValueKind = "1"; dtValueSuffix = "int"; }
             else
             {
                 throw new NotSupportedException(
-                    $"Enumerable.ToDictionary over a List with a {GenericArgTypeName(dtval)} TValue is not wired: " +
-                    "only System.String values have a ToDictionary result surface (b5-gaps section 83).");
+                    $"Enumerable.ToDictionary over a List with a {GenericArgTypeName(dtval)} TValue is not wired: "
+                    + "only System.String and int32 values have a ToDictionary result surface "
+                    + "(b5-gaps section 83/104).");
+            }
+            // b5-gaps section 104: the string-key + int32-value LINQ shape rides
+            // the gen wrapper (see the array kernel above).
+            if (dtKeySuffix == "string" && dtValueSuffix == "int")
+            {
+                dtValueSuffix = "int_gen";
             }
             // The delegated kernel's ARRAY cell code follows the List element
             // family: int32 list -> cell 7; reference list -> cell 15.

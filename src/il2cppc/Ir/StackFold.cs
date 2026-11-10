@@ -512,6 +512,17 @@ public static class StackFold
                     if (stValue is ExceptionEntryExpr)
                         objTypes[stName] = "System.Type";
 
+                    // b5-gaps section 104: propagate a call's ReturnTypeName
+                    // through the store (the LINQ ToDictionary result's tracked
+                    // dictionary type -- the Dictionary dispatcher keys on it
+                    // to tell a LINQ-produced string->int32 wrapper from the
+                    // instance-path SI domain's own wrapper, whose object
+                    // layout is DIFFERENT). Without this the get_Item dispatch
+                    // on the local loses the hint and misroutes to the si
+                    // icalls (probe-todict-i4val segfault).
+                    else if (stValue is CallExpr stRtnCall
+                        && stRtnCall.Resolved?.ReturnTypeName is { } stRtn)
+                        objTypes[stName] = BareManagedName(stRtn);
                     // tuple1 (ValueTuple): propagate the tracked tuple type
                     // through the store so a later ldloca+callvirt (ToString /
                     // GetHashCode / Equals) sees the receiver hint.
