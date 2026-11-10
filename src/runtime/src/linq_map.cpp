@@ -7890,18 +7890,45 @@ Il2CppObject* il2cpp_linq_grouping_get_enumerator(Il2CppObject* grouping)
                     il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
                 boxed = runtime::icall_box_float(static_cast<double>(v));
             }
-            else if (cells->elemKind == kElemKindTimeSpan)
+            else if (cells->elemKind == kElemKindI8)
             {
-                // A TimeSpan bucket element is not produced by any grouping
-                // surface today; the recorded kind still has a safe carrier
-                // (an 8-byte ticks cell) so the snapshot stays well-typed.
+                // b5-gaps section 105: an int64 bucket (a long-element
+                // ToLookup/GroupBy) boxes each cell as System.Int64 -- the i8
+                // get_Current carrier unboxes it.
                 const int64_t v = *reinterpret_cast<const int64_t*>(
                     il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
                 boxed = runtime::icall_box_long(v);
             }
-            else if (cells->elemKind == kElemKindTimeSpan && elemSize == static_cast<int32_t>(sizeof(int64_t)))
+            else if (cells->elemKind == kElemKindD)
             {
-                // impl-vtsel: a TimeSpan bucket element boxes as System.TimeSpan.
+                // b5-gaps section 105: a double bucket boxes each cell as
+                // System.Double (the d get_Current carrier unboxes it).
+                const double v = *reinterpret_cast<const double*>(
+                    il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+                boxed = runtime::icall_box_double(v);
+            }
+            else if (cells->elemKind == kElemKindI8)
+            {
+                // b5-gaps section 105: an int64 bucket (a long-element
+                // ToLookup/GroupBy) boxes each cell as System.Int64 -- the i8
+                // get_Current carrier unboxes it.
+                const int64_t v = *reinterpret_cast<const int64_t*>(
+                    il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+                boxed = runtime::icall_box_long(v);
+            }
+            else if (cells->elemKind == kElemKindD)
+            {
+                // b5-gaps section 105: a double bucket boxes each cell as
+                // System.Double (the d get_Current carrier unboxes it).
+                const double v = *reinterpret_cast<const double*>(
+                    il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
+                boxed = runtime::icall_box_double(v);
+            }
+            else if (cells->elemKind == kElemKindTimeSpan)
+            {
+                // impl-vtsel: a TimeSpan bucket element is not produced by any
+                // grouping surface today; the recorded kind still has a safe
+                // carrier (an 8-byte ticks cell) so the snapshot stays well-typed.
                 const int64_t v = *reinterpret_cast<const int64_t*>(
                     il2cpp_array_get_elem_ptr(AsGrouping(grouping)->elements, i));
                 boxed = runtime::icall_box_time_span(runtime::Il2CppTimeSpan(v));

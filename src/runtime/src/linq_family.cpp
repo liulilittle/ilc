@@ -4210,18 +4210,26 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
     }
     LinqRequireCell(src, srcCell);
     const int32_t srcSlot = Sel2ArgSlotOf(srcCell);
-    if (srcSlot < 0 || (elemCell != IL2CPP_LINQ_CELL_I4 && elemCell != IL2CPP_LINQ_CELL_REF))
+    // b5-gaps section 105: the source and the SELECTED value may each be an
+    // int64 (a long[] source with an x*10 elementSelector) -- the selector ABI
+    // table covers the i8 slot (Sel2ArgSlotOf cell 8 -> 1) and the selected
+    // value rides the same int64 raw buffer / rooted ref array as the int32
+    // family. A float/double cell has no Sel2ArgSlotOf mapping and stays LOUD.
+    if (srcSlot < 0
+        || (elemCell != IL2CPP_LINQ_CELL_I4 && elemCell != IL2CPP_LINQ_CELL_I8
+            && elemCell != IL2CPP_LINQ_CELL_REF))
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.ToLookup(elementSelector): a source/element family has "
-            "no selector cell ABI (only int32/System.String, b5-gaps section 84).");
+            "no selector cell ABI (int32/int64/System.String, b5-gaps section 105).");
         return nullptr;
     }
-    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_String)
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64
+        && keyKind != kGenKind_String)
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.ToLookup(elementSelector): this TKey family has no "
-            "lookup key kind (b5-gaps section 84).");
+            "lookup key kind (b5-gaps section 105).");
         return nullptr;
     }
     Il2CppDelegate* kd = reinterpret_cast<Il2CppDelegate*>(keySel);
@@ -4231,8 +4239,10 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
         il2cpp_throw_argument_null_exception("keySelector");
         return nullptr;
     }
-    const int32_t keySlot = keyKind == kGenKind_Int32 ? 0 : 3; // i4 / ref (o)
-    const int32_t elemSlot = elemCell == IL2CPP_LINQ_CELL_I4 ? 0 : 3;
+    const int32_t keySlot = keyKind == kGenKind_Int32 ? 0
+        : keyKind == kGenKind_Int64 ? 1 : 3; // i4 / i8 / ref (o)
+    const int32_t elemSlot = elemCell == IL2CPP_LINQ_CELL_I4 ? 0
+        : elemCell == IL2CPP_LINQ_CELL_I8 ? 1 : 3;
     const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
     const Sel1Fn iele = kSel1[(elemSlot * 4 + srcSlot)];
     const int32_t n = src->length;
@@ -4266,11 +4276,16 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
     il2cpp_write_barrier(reinterpret_cast<void**>(&wrapper->comparer), comparer);
 
     Il2CppLookupGen* lk = wrapper->lookup;
-    int32_t* selRaw = nullptr;
-    if (elemCell == IL2CPP_LINQ_CELL_I4)
+    // b5-gaps section 105: the selected values ride a raw int64 buffer for the
+    // int64 family (the same discipline as the int32 selRaw) and the rooted
+    // elemRoot array for the reference family.
+    const bool elemIsRef = elemCell == IL2CPP_LINQ_CELL_REF;
+    const bool elemIsI8 = elemCell == IL2CPP_LINQ_CELL_I8;
+    int64_t* selRaw = nullptr;
+    if (!elemIsRef)
     {
-        selRaw = static_cast<int32_t*>(
-            std::malloc(sizeof(int32_t) * (n > 0 ? n : 1)));
+        selRaw = static_cast<int64_t*>(
+            std::malloc(sizeof(int64_t) * (n > 0 ? n : 1)));
     }
     int32_t* srcGroup = static_cast<int32_t*>(
         std::malloc(sizeof(int32_t) * (n > 0 ? n : 1)));
@@ -4296,9 +4311,9 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
             keyRef = reinterpret_cast<Il2CppObject*>(kc);
         }
         const int64_t ec = iele(ed, a);
-        if (elemCell == IL2CPP_LINQ_CELL_I4)
+        if (!elemIsRef)
         {
-            selRaw[i] = static_cast<int32_t>(ec);
+            selRaw[i] = ec;
         }
         else
         {
@@ -4311,8 +4326,9 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
             elems[i] = v;
             il2cpp_write_barrier(reinterpret_cast<void**>(&elems[i]), v);
         }
-        const int32_t group = il2cpp_lookup_gen_find_or_add(
-            wObj, keyInt, keyRef, keyKind, comparer);
+        const int32_t group = keyKind == kGenKind_Int64
+            ? il2cpp_lookup_gen_find_or_add_i64(wObj, kc, keyKind, comparer)
+            : il2cpp_lookup_gen_find_or_add(wObj, keyInt, keyRef, keyKind, comparer);
         srcGroup[i] = group;
         ++lk->groupLen[group];
     }
@@ -4347,9 +4363,19 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
         {
             const int32_t si = lk->srcIdx[lk->groupOff[g] + k];
             char* dslot = dst + k * static_cast<int64_t>(LinqCellSize(elemCell));
-            if (elemCell == IL2CPP_LINQ_CELL_I4)
+            if (!elemIsRef)
             {
-                *reinterpret_cast<int32_t*>(dslot) = selRaw[si];
+                // b5-gaps section 105: the int32 and int64 families share the
+                // raw selRaw buffer (the int64 slot carries both widths).
+                if (elemIsI8)
+                {
+                    *reinterpret_cast<int64_t*>(dslot) = selRaw[si];
+                }
+                else
+                {
+                    *reinterpret_cast<int32_t*>(dslot) =
+                        static_cast<int32_t>(selRaw[si]);
+                }
             }
             else
             {
@@ -5270,7 +5296,9 @@ Il2CppObject* il2cpp_linq_list_to_lookup(Il2CppObject* list, Il2CppObject* keySe
         return nullptr;
     }
     const int32_t snapKind =
-        (srcCell == 15) ? IL2CPP_LIST_KIND_REF : IL2CPP_LIST_KIND_I4;
+        (srcCell == 15) ? IL2CPP_LIST_KIND_REF
+        : (srcCell == 8) ? IL2CPP_LIST_KIND_I8
+        : IL2CPP_LIST_KIND_I4;
     Il2CppArray* snap = il2cpp_linq_list_snapshot(list, snapKind);
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&snap));
@@ -5294,7 +5322,9 @@ Il2CppObject* il2cpp_linq_list_to_lookup_sel(Il2CppObject* list, Il2CppObject* k
         return nullptr;
     }
     const int32_t snapKind =
-        (srcCell == 15) ? IL2CPP_LIST_KIND_REF : IL2CPP_LIST_KIND_I4;
+        (srcCell == 15) ? IL2CPP_LIST_KIND_REF
+        : (srcCell == 8) ? IL2CPP_LIST_KIND_I8
+        : IL2CPP_LIST_KIND_I4;
     Il2CppArray* snap = il2cpp_linq_list_snapshot(list, snapKind);
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&snap));

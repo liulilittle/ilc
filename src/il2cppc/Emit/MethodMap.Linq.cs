@@ -2192,11 +2192,15 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                        : (genArgs[2] == 0x11 && genArgNames is { Length: >= 3 }
                           && genArgNames[2] == "System.String" ? "15" : null)))
                 : lsrcCell;
+            // b5-gaps section 105: the elementSelector form also accepts an
+            // int64 source / int64 selected value (a long[] with an x*10
+            // selector); the selector ABI table covers the i8 slot and the
+            // selected values ride the int64 raw buffer.
             if (lelemCell == null && genArgs.Length >= 3)
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup with a {GenericArgTypeName(genArgs[2])} element selector result is not wired: " +
-                    "the TElement family must be int32 or a System.String (b5-gaps section 84).");
+                    "the TElement family must be int32, int64, or a System.String (b5-gaps section 105).");
             }
             bool hasElemSel = genArgs.Length >= 3;
             string lelemSuffix = lelemCell == "15" ? "string" : lelemCell == "8" ? "long" : "int";
@@ -6759,7 +6763,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // routing a List<SomeClass> through the string cell ABI would
             // silently mis-type it (b5-gaps section 82 element gate).
             bool ltElemOk = genArgs is { Length: >= 1 } &&
-                (LinqCellCodeOfElemByte(genArgs[0]) == "7"
+                (LinqCellCodeOfElemByte(genArgs[0]) is "7" or "8"
                  || genArgs[0] == 0x0E
                  || (genArgs[0] == 0x11 && genArgNames is { Length: >= 1 }
                      && genArgNames[0] == "System.String"));
@@ -6767,24 +6771,28 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup over a List<{GenericArgTypeName(genArgs is { Length: >= 1 } ? genArgs[0] : (byte)0x08)}> " +
-                    "source is not wired: the element family must be System.String (b5-gaps section 82).");
+                    "source is not wired: the element family must be System.String or an int64 " +
+                    "(b5-gaps section 105).");
             }
             byte ltkey = genArgs is { Length: >= 2 } ? genArgs[1] : (byte)0x08;
             string lookupKeyKind;
             if (ltkey is 0x08 or 0x09) { lookupKeyKind = "1"; }
             else if (ltkey == 0x0E) { lookupKeyKind = "0"; }
+            // b5-gaps section 105: the int64 key over a List source.
+            else if (ltkey is 0x0A or 0x0B) { lookupKeyKind = "16"; }
             else if (ltkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
             { lookupKeyKind = "0"; }
             else
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup<TKey={GenericArgTypeName(ltkey)}> over a List is not wired: " +
-                    "the TKey family must be int32 or a System.String (b5-gaps section 82).");
+                    "the TKey family must be int32, an int64, or a System.String (b5-gaps section 105).");
             }
             // The LIST element family (K) implies the delegated kernel's ARRAY
-            // cell code: an int32 list snapshots into int32[] (cell 7) and a
-            // reference list into the reference array (cell 15 / string).
-            string lsrcCell = K == "1" ? "15" : "7";
+            // cell code: an int32 list snapshots into int32[] (cell 7), an int64
+            // list into int64[] (cell 8) and a reference list into the reference
+            // array (cell 15 / string).
+            string lsrcCell = K == "1" ? "15" : (K == "8" ? "8" : "7");
             // b5-gaps section 84: the ELEMENT (TElement) family. The 3-generic
             // form's elementSelector result family is genArgs[2]; the
             // keySelector-only form's element IS the source element.
@@ -6799,11 +6807,11 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup over a List with a {GenericArgTypeName(genArgs[2])} element selector result is not wired: " +
-                    "the TElement family must be int32 or a System.String (b5-gaps section 84).");
+                    "the TElement family must be int32, int64, or a System.String (b5-gaps section 105).");
             }
             bool hasLElemSel = genArgs.Length >= 3;
-            string lkeySuffix = lookupKeyKind == "1" ? "int" : "string";
-            string lelemSuffix = lelemCell == "15" ? "string" : "int";
+            string lkeySuffix = lookupKeyKind == "1" ? "int" : lookupKeyKind == "16" ? "long" : "string";
+            string lelemSuffix = lelemCell == "15" ? "string" : lelemCell == "8" ? "long" : "int";
             string lookupName = "System.Linq.ILookup`2_" + lkeySuffix + "_" + lelemSuffix;
             if (hasLElemSel)
             {
