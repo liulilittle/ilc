@@ -4038,11 +4038,12 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
             "ABI (b5-gaps section 78).");
         return nullptr;
     }
-    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_String)
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64Key
+        && keyKind != kGenKind_String)
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.ToDictionary: this TKey family has no dictgen key kind "
-            "(b5-gaps section 78).");
+            "(b5-gaps section 78/108).");
         return nullptr;
     }
     if (valueKind != kGenKind_Int32 && valueKind != kGenKind_Int64
@@ -4062,7 +4063,9 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
                                                            : "elementSelector");
         return nullptr;
     }
-    const int32_t keySlot = keyKind == kGenKind_Int32 ? 0 : 3; // i4 / ref (o)
+    const int32_t keySlot = keyKind == kGenKind_Int32 ? 0
+        : keyKind == kGenKind_Int64Key ? 1
+        : 3; // i4 / i8 / ref (o)
     const int32_t valSlot = valueKind == kGenKind_Int32 ? 0
         : valueKind == kGenKind_Int64 ? 1 : 3;
     const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
@@ -4099,7 +4102,7 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
         {
             keyInt = static_cast<int32_t>(kc);
         }
-        else
+        else if (keyKind != kGenKind_Int64Key)
         {
             keyRef = reinterpret_cast<Il2CppObject*>(kc);
         }
@@ -4153,11 +4156,18 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
             il2cpp_write_barrier(reinterpret_cast<void**>(&pack[packIdx]), value);
             ++packIdx;
         }
-        il2cpp_dict_gen_add(wrapper->dict, keyInt, keyRef, value, keyKind, valueKind);
+        // b5-gaps section 108: the int64 key rides the dedicated table arm.
+        if (keyKind == kGenKind_Int64Key)
+        {
+            il2cpp_dict_gen_add_kl(wrapper->dict, kc, value, keyKind, valueKind);
+        }
+        else
+        {
+            il2cpp_dict_gen_add(wrapper->dict, keyInt, keyRef, value, keyKind, valueKind);
+        }
     }
     return wObj;
 }
-
 // b5-gaps section 83: Enumerable.ToDictionary over a List<T> source (int32 or
 // System.String elements). The receiver is a LIST OBJECT -- never a cast of the
 // managed List to Il2CppArray* (the items pointer would be read as the array
@@ -4183,7 +4193,9 @@ Il2CppObject* il2cpp_linq_list_to_dictionary(Il2CppObject* list, Il2CppObject* k
         return nullptr;
     }
     const int32_t snapKind =
-        (srcCell == 15) ? IL2CPP_LIST_KIND_REF : IL2CPP_LIST_KIND_I4;
+        (srcCell == 15) ? IL2CPP_LIST_KIND_REF
+        : (srcCell == 8) ? IL2CPP_LIST_KIND_I8
+        : IL2CPP_LIST_KIND_I4;
     Il2CppArray* snap = il2cpp_linq_list_snapshot(list, snapKind);
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&snap));

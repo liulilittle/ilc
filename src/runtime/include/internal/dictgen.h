@@ -73,6 +73,9 @@ constexpr int32_t kGenKind_Int64 = 16;
 // Distinct from kGenKind_Int64 because the equality contract differs: a double
 // key compares VALUES (NaN == NaN, +0 == -0), never the bit pattern.
 constexpr int32_t kGenKind_Double = 17;
+// b5-gaps section 108: the INT64 KEY carrier. The entry's keyInt slot is only
+// 4 bytes, so a long key rides a parallel int64 array in the same entry slot.
+constexpr int32_t kGenKind_Int64Key = 18;
 // Phase-2: Uri keys normalize to their string form at the twin entry, then
 // ride the string-kind table path (the T4 uristr contract, no twin family).
 constexpr int32_t kGenKind_Uri = 2; // normalized to string on entry
@@ -93,6 +96,10 @@ struct Il2CppDictGenEntry
     int32_t       next;     // bucket-chain successor INDEX (-1 at tail)
     int32_t       seqNext;  // insertion-sequence successor (-1 at tail)
     int32_t       keyInt;   // inline int32 key (kGenKind_Int32)
+    // b5-gaps section 108: the int64 key carrier (kGenKind_Int64Key). The int32
+    // keyInt slot cannot hold a long, so it rides this parallel slot -- the
+    // same entry index, one more word. keyRef stays null for value keys.
+    int64_t       keyI64;
     Il2CppObject* keyRef;   // reference key (other kinds; null for int32)
     Il2CppObject* value;    // managed carrier (null is legal)
 };
@@ -143,6 +150,18 @@ bool il2cpp_dict_gen_remove(Il2CppDictGen* d, int32_t keyInt, Il2CppObject* keyR
     int32_t keyKind, int32_t valueKind);
 void il2cpp_dict_gen_clear(Il2CppDictGen* d);
 int32_t il2cpp_dict_gen_get_count(Il2CppDictGen* d);
+
+void il2cpp_dict_gen_add_kl(Il2CppDictGen* d, int64_t key, Il2CppObject* value,
+    int32_t keyKind, int32_t valueKind);
+void il2cpp_dict_gen_set_kl(Il2CppDictGen* d, int64_t key, Il2CppObject* value,
+    int32_t keyKind, int32_t valueKind);
+bool il2cpp_dict_gen_try_get_value_kl(Il2CppDictGen* d, int64_t key,
+    Il2CppObject** value, int32_t keyKind, int32_t valueKind);
+bool il2cpp_dict_gen_contains_key_kl(Il2CppDictGen* d, int64_t key,
+    int32_t keyKind, int32_t valueKind);
+bool il2cpp_dict_gen_remove_kl(Il2CppDictGen* d, int64_t key,
+    int32_t keyKind, int32_t valueKind);
+Il2CppArray* il2cpp_dict_gen_get_keys_kl(Il2CppDictGen* d);
 
 // Snapshots in enumeration order (fresh managed arrays): keys unboxed to
 // int32 (keyKind Int32) or passed as references; values always references.
@@ -221,6 +240,42 @@ int32_t il2cpp_kvp_gen_int_string_get_key(Il2CppObject* self);
 Il2CppObject* il2cpp_kvp_gen_int_string_get_value(Il2CppObject* self);
 
 namespace runtime {
+
+bool icall_dict_gen_try_get_value_kl(Il2CppObject* self, int64_t key,
+    Il2CppObject** value, int32_t keyKind, int32_t valueKind);
+bool icall_dict_gen_contains_key_kl(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind);
+bool icall_dict_gen_remove_kl(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind);
+Il2CppArray* icall_dict_gen_get_keys_kl(Il2CppObject* self);
+// The INT64-KEY + REFERENCE-VALUE twin (Dictionary<long,string>): the value
+// carrier is a managed reference, so get_Item returns it directly.
+Il2CppObject* icall_dict_gen_get_kl(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_add_kl(Il2CppObject* self, int64_t key, Il2CppObject* value,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_set_kl(Il2CppObject* self, int64_t key, Il2CppObject* value,
+    int32_t keyKind, int32_t valueKind);
+
+// b5-gaps section 108: the INT64-KEY + {INT64,INT32}-VALUE twins. The key rides
+// the parallel keyI64 scan; the value carrier is the boxed int64 / boxed int32
+// form (the same carriers the _l / _i value families store).
+int64_t icall_dict_gen_get_kl_l(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_add_kl_l(Il2CppObject* self, int64_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_set_kl_l(Il2CppObject* self, int64_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind);
+bool icall_dict_gen_try_get_value_kl_l(Il2CppObject* self, int64_t key,
+    int64_t* value, int32_t keyKind, int32_t valueKind);
+int32_t icall_dict_gen_get_kl_i(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_add_kl_i(Il2CppObject* self, int64_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_set_kl_i(Il2CppObject* self, int64_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind);
+bool icall_dict_gen_try_get_value_kl_i(Il2CppObject* self, int64_t key,
+    int32_t* value, int32_t keyKind, int32_t valueKind);
 
 // b5-gaps section 104: the int32-VALUE instance arms. The value carrier is a
 // BOXED int32 (the section-78 kernel's il2cpp_dict_gen_box_int32), so each arm

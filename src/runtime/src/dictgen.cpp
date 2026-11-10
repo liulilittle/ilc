@@ -113,6 +113,15 @@ int32_t IncomingHash(int32_t keyInt, Il2CppObject* keyRef, int32_t kind)
     return AddressHash(keyRef);
 }
 
+// b5-gaps section 108: the int64 KEY hash (the int64 hash contract used by the
+// lookup table's int64 keys -- fold the high word so adjacent longs do not
+// collide into one bucket).
+int32_t IncomingHash64(int64_t key)
+{
+    const uint64_t u = static_cast<uint64_t>(key);
+    return static_cast<int32_t>((u ^ (u >> 33)) & 0x7FFFFFFFULL);
+}
+
 // Incoming-vs-stored equality (int32 keys compare INLINE -- the table never
 // holds an unrooted box, so no unbox is needed on any path).
 bool IncomingEquals(int32_t keyInt, Il2CppObject* keyRef,
@@ -135,6 +144,12 @@ bool IncomingEquals(int32_t keyInt, Il2CppObject* keyRef,
     return keyRef == stored->keyRef;
 }
 
+// b5-gaps section 108: the int64 KEY equality (the full 64-bit compare).
+bool IncomingEquals64(int64_t key, const Il2CppDictGenEntry* stored)
+{
+    return stored->keyI64 == key;
+}
+
 int32_t FindEntryIndex(const Il2CppDictGen* d, int32_t keyInt,
     Il2CppObject* keyRef, int32_t kind, int32_t hash)
 {
@@ -148,6 +163,30 @@ int32_t FindEntryIndex(const Il2CppDictGen* d, int32_t keyInt,
         }
     }
     return -1;
+}
+
+// b5-gaps section 108: the int64 KEY entry scan (the same bucket-chain walk with
+// the 64-bit equality/hash).
+int32_t FindEntryIndex64(const Il2CppDictGen* d, int64_t key, int32_t hash)
+{
+    for (int32_t i = d->buckets[BucketIndex(hash, d->bucketCount)]; i >= 0;
+         i = d->entries[i].next)
+    {
+        if (d->entries[i].hashCode == hash &&
+            IncomingEquals64(key, &d->entries[i]))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// b5-gaps section 108: the int64 KEY scan through the generic (int32-keyInt)
+// entry point -- the table's hash/equality helpers cannot see the parallel
+// keyI64 slot, so the int64-key callers route here instead.
+int32_t FindEntryIndexKL(const Il2CppDictGen* d, int64_t key)
+{
+    return FindEntryIndex64(d, key, IncomingHash64(key));
 }
 
 void GrowEntries(Il2CppDictGen* d, int32_t needed)
@@ -357,9 +396,16 @@ void il2cpp_dict_gen_add(Il2CppDictGen* d, int32_t keyInt, Il2CppObject* keyRef,
     Il2CppObject* value, int32_t keyKind, int32_t valueKind)
 {
     (void)valueKind;
-    if (keyKind != kGenKind_Int32)
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64Key)
     {
         ThrowIfNullCarrier(keyRef);
+    }
+    // b5-gaps section 108: the int64 key rides the parallel keyI64 slot.
+    if (keyKind == kGenKind_Int64Key)
+    {
+        il2cpp_dict_gen_add_kl(d, static_cast<int64_t>(keyInt), value,
+                               keyKind, valueKind);
+        return;
     }
     const int32_t hash = IncomingHash(keyInt, keyRef, keyKind);
     if (FindEntryIndex(d, keyInt, keyRef, keyKind, hash) >= 0)
@@ -383,9 +429,16 @@ void il2cpp_dict_gen_set(Il2CppDictGen* d, int32_t keyInt, Il2CppObject* keyRef,
     Il2CppObject* value, int32_t keyKind, int32_t valueKind)
 {
     (void)valueKind;
-    if (keyKind != kGenKind_Int32)
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64Key)
     {
         ThrowIfNullCarrier(keyRef);
+    }
+    // b5-gaps section 108: the int64 key rides the parallel keyI64 slot.
+    if (keyKind == kGenKind_Int64Key)
+    {
+        il2cpp_dict_gen_set_kl(d, static_cast<int64_t>(keyInt), value,
+                               keyKind, valueKind);
+        return;
     }
     const int32_t hash = IncomingHash(keyInt, keyRef, keyKind);
     const int32_t existing = FindEntryIndex(d, keyInt, keyRef, keyKind, hash);
@@ -411,12 +464,15 @@ bool il2cpp_dict_gen_try_get_value(Il2CppDictGen* d, int32_t keyInt, Il2CppObjec
     Il2CppObject** value, int32_t keyKind, int32_t valueKind)
 {
     (void)valueKind;
-    if (keyKind != kGenKind_Int32)
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64Key)
     {
         ThrowIfNullCarrier(keyRef);
     }
-    const int32_t i = FindEntryIndex(d, keyInt, keyRef, keyKind,
-        IncomingHash(keyInt, keyRef, keyKind));
+    // b5-gaps section 108: the int64 key scans the parallel keyI64 slot.
+    const int32_t i = keyKind == kGenKind_Int64Key
+        ? FindEntryIndexKL(d, static_cast<int64_t>(keyInt))
+        : FindEntryIndex(d, keyInt, keyRef, keyKind,
+            IncomingHash(keyInt, keyRef, keyKind));
     if (i < 0)
     {
         return false;
@@ -432,21 +488,30 @@ bool il2cpp_dict_gen_contains_key(Il2CppDictGen* d, int32_t keyInt, Il2CppObject
     int32_t keyKind, int32_t valueKind)
 {
     (void)valueKind;
-    if (keyKind != kGenKind_Int32)
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64Key)
     {
         ThrowIfNullCarrier(keyRef);
     }
-    return FindEntryIndex(d, keyInt, keyRef, keyKind,
-        IncomingHash(keyInt, keyRef, keyKind)) >= 0;
+    // b5-gaps section 108: the int64 key scans the parallel keyI64 slot.
+    return keyKind == kGenKind_Int64Key
+        ? FindEntryIndexKL(d, static_cast<int64_t>(keyInt)) >= 0
+        : FindEntryIndex(d, keyInt, keyRef, keyKind,
+            IncomingHash(keyInt, keyRef, keyKind)) >= 0;
 }
 
 bool il2cpp_dict_gen_remove(Il2CppDictGen* d, int32_t keyInt, Il2CppObject* keyRef,
     int32_t keyKind, int32_t valueKind)
 {
     (void)valueKind;
-    if (keyKind != kGenKind_Int32)
+    if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64Key)
     {
         ThrowIfNullCarrier(keyRef);
+    }
+    // b5-gaps section 108: the int64 key removes through the parallel slot.
+    if (keyKind == kGenKind_Int64Key)
+    {
+        return il2cpp_dict_gen_remove_kl(d, static_cast<int64_t>(keyInt),
+                                         keyKind, valueKind);
     }
     const int32_t hash = IncomingHash(keyInt, keyRef, keyKind);
     const int32_t bucket = BucketIndex(hash, d->bucketCount);
@@ -489,6 +554,7 @@ void il2cpp_dict_gen_clear(Il2CppDictGen* d)
     {
         d->entries[i].hashCode = kFreeHashCode;
         d->entries[i].keyInt = 0;
+        d->entries[i].keyI64 = 0;
         d->entries[i].keyRef = nullptr;
         d->entries[i].value = nullptr;
         d->entries[i].next = -1;
@@ -504,6 +570,141 @@ void il2cpp_dict_gen_clear(Il2CppDictGen* d)
 int32_t il2cpp_dict_gen_get_count(Il2CppDictGen* d)
 {
     return OccupiedCount(d);
+}
+
+//-----------------------------------------------------------------------------
+// b5-gaps section 108: the INT64 KEY arms. The entry's keyInt slot is 4 bytes,
+// so a long key rides the parallel keyI64 slot (same entry index). A duplicate
+// add throws ArgumentException, get-miss throws KeyNotFoundException, and the
+// enumeration order follows the insertion sequence (the shared seqHead chain).
+//-----------------------------------------------------------------------------
+void il2cpp_dict_gen_add_kl(Il2CppDictGen* d, int64_t key, Il2CppObject* value,
+    int32_t keyKind, int32_t valueKind)
+{
+    (void)keyKind;
+    (void)valueKind;
+    const int32_t hash = IncomingHash64(key);
+    if (FindEntryIndex64(d, key, hash) >= 0)
+    {
+        il2cpp_throw_argument_exception("Item has already been added.");
+    }
+    if (NeedsResize(OccupiedCount(d) + 1, d->bucketCount))
+    {
+        ResizeBuckets(d);
+    }
+    bool reused = false;
+    const int32_t slot = AcquireSlot(d, &reused);
+    (void)reused;
+    d->entries[slot].keyI64 = key;
+    d->entries[slot].keyRef = nullptr;
+    d->entries[slot].value = value;
+    LinkSlot(d, slot, hash);
+}
+
+void il2cpp_dict_gen_set_kl(Il2CppDictGen* d, int64_t key, Il2CppObject* value,
+    int32_t keyKind, int32_t valueKind)
+{
+    (void)keyKind;
+    (void)valueKind;
+    const int32_t hash = IncomingHash64(key);
+    const int32_t existing = FindEntryIndex64(d, key, hash);
+    if (existing >= 0)
+    {
+        d->entries[existing].value = value; // in-place replace (R2)
+        return;
+    }
+    if (NeedsResize(OccupiedCount(d) + 1, d->bucketCount))
+    {
+        ResizeBuckets(d);
+    }
+    bool reused = false;
+    const int32_t slot = AcquireSlot(d, &reused);
+    (void)reused;
+    d->entries[slot].keyI64 = key;
+    d->entries[slot].keyRef = nullptr;
+    d->entries[slot].value = value;
+    LinkSlot(d, slot, hash);
+}
+
+bool il2cpp_dict_gen_try_get_value_kl(Il2CppDictGen* d, int64_t key,
+    Il2CppObject** value, int32_t keyKind, int32_t valueKind)
+{
+    (void)keyKind;
+    (void)valueKind;
+    const int32_t i = FindEntryIndex64(d, key, IncomingHash64(key));
+    if (i < 0)
+    {
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = d->entries[i].value;
+    }
+    return true;
+}
+
+bool il2cpp_dict_gen_contains_key_kl(Il2CppDictGen* d, int64_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    (void)keyKind;
+    (void)valueKind;
+    return FindEntryIndex64(d, key, IncomingHash64(key)) >= 0;
+}
+
+bool il2cpp_dict_gen_remove_kl(Il2CppDictGen* d, int64_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    (void)keyKind;
+    (void)valueKind;
+    const int32_t hash = IncomingHash64(key);
+    const int32_t bucket = BucketIndex(hash, d->bucketCount);
+    int32_t prev = -1;
+    for (int32_t i = d->buckets[bucket]; i >= 0; i = d->entries[i].next)
+    {
+        if (d->entries[i].hashCode == hash &&
+            IncomingEquals64(key, &d->entries[i]))
+        {
+            if (prev < 0)
+            {
+                d->buckets[bucket] = d->entries[i].next;
+            }
+            else
+            {
+                d->entries[prev].next = d->entries[i].next;
+            }
+            d->entries[i].hashCode = kFreeHashCode;
+            d->entries[i].keyInt = 0;
+            d->entries[i].keyI64 = 0;
+            d->entries[i].keyRef = nullptr;
+            d->entries[i].value = nullptr;
+            d->entries[i].next = d->freeList;
+            d->freeList = i;
+            ++d->freeCount;
+            return true;
+        }
+        prev = i;
+    }
+    return false;
+}
+
+// The int64-key snapshot (a real int64[] -- net48's Dictionary<long,T>.Keys
+// layout), in insertion order.
+Il2CppArray* il2cpp_dict_gen_get_keys_kl(Il2CppDictGen* d)
+{
+    const int32_t live = OccupiedCount(d);
+    Il2CppArray* result = il2cpp_array_new_typed(
+        static_cast<int32_t>(sizeof(int64_t)), kElemKindI8, live);
+    int64_t* dst = reinterpret_cast<int64_t*>(result->data);
+    int32_t n = 0;
+    for (int32_t i = d->seqHead; i >= 0 && n < live; i = d->entries[i].seqNext)
+    {
+        if (d->entries[i].hashCode < 0)
+        {
+            continue;
+        }
+        dst[n++] = d->entries[i].keyI64;
+    }
+    return result;
 }
 
 Il2CppArray* il2cpp_dict_gen_get_keys(Il2CppDictGen* d, int32_t keyKind)
@@ -638,6 +839,17 @@ int64_t il2cpp_dict_gen_get_l(Il2CppObject* self, int32_t key,
 {
     ThrowIfNullReceiver(self);
     Il2CppObject* value = nullptr;
+    // b5-gaps section 108: the int64 key rides the dedicated scan.
+    if (keyKind == kGenKind_Int64Key)
+    {
+        if (!il2cpp_dict_gen_try_get_value_kl(AsDict(self), static_cast<int64_t>(key),
+                                              &value, keyKind, valueKind))
+        {
+            il2cpp_throw_key_not_found_exception(nullptr);
+            return 0; // unreachable (the factory throws)
+        }
+        return value != nullptr ? runtime::icall_unbox_long(value) : 0;
+    }
     if (il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &value, keyKind, valueKind))
     {
         return value != nullptr ? runtime::icall_unbox_long(value) : 0;
@@ -650,6 +862,13 @@ void il2cpp_dict_gen_add_l(Il2CppObject* self, int32_t key, int64_t value,
     int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
+    // b5-gaps section 108: the int64 key rides the dedicated arm.
+    if (keyKind == kGenKind_Int64Key)
+    {
+        il2cpp_dict_gen_add_kl(AsDict(self), static_cast<int64_t>(key),
+                               runtime::icall_box_long(value), keyKind, valueKind);
+        return;
+    }
     il2cpp_dict_gen_add(AsDict(self), key, nullptr,
         runtime::icall_box_long(value), keyKind, valueKind);
 }
@@ -658,6 +877,13 @@ void il2cpp_dict_gen_set_l(Il2CppObject* self, int32_t key, int64_t value,
     int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
+    // b5-gaps section 108: the int64 key rides the dedicated arm.
+    if (keyKind == kGenKind_Int64Key)
+    {
+        il2cpp_dict_gen_set_kl(AsDict(self), static_cast<int64_t>(key),
+                               runtime::icall_box_long(value), keyKind, valueKind);
+        return;
+    }
     il2cpp_dict_gen_set(AsDict(self), key, nullptr,
         runtime::icall_box_long(value), keyKind, valueKind);
 }
@@ -667,8 +893,13 @@ bool il2cpp_dict_gen_try_get_value_l(Il2CppObject* self, int32_t key,
 {
     ThrowIfNullReceiver(self);
     Il2CppObject* boxed = nullptr;
-    if (!il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &boxed,
-                                       keyKind, valueKind))
+    // b5-gaps section 108: the int64 key rides the dedicated scan.
+    const bool hit = keyKind == kGenKind_Int64Key
+        ? il2cpp_dict_gen_try_get_value_kl(AsDict(self), static_cast<int64_t>(key),
+                                           &boxed, keyKind, valueKind)
+        : il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &boxed,
+                                        keyKind, valueKind);
+    if (!hit)
     {
         // net48: out is default(TValue) on a miss.
         if (value != nullptr)
@@ -1041,6 +1272,181 @@ Il2CppArray* icall_dict_gen_get_values_o(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     return il2cpp_dict_gen_get_values(AsDict(self));
+}
+
+// b5-gaps section 108: the INT64-KEY instance twins. The key arrives as an int64
+// VALUE slot; the value carrier is the boxed int32/int64/reference form the
+// generic table already stores.
+Il2CppObject* icall_dict_gen_get_kl(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* value = nullptr;
+    if (il2cpp_dict_gen_try_get_value_kl(AsDict(self), key, &value,
+                                         keyKind, valueKind))
+    {
+        return value;
+    }
+    il2cpp_throw_key_not_found_exception(nullptr);
+    return nullptr; // unreachable (the factory throws)
+}
+
+// b5-gaps section 108: the INT64-KEY + INT64-VALUE twin (Dictionary<long,long>).
+// The key arrives as an int64 VALUE slot and rides the parallel keyI64 scan;
+// the value carrier is a BOXED int64 (the same 8-byte payload as the int64-value
+// form), so the result is unboxed back to the int64 leaf.
+int64_t icall_dict_gen_get_kl_l(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* value = nullptr;
+    if (il2cpp_dict_gen_try_get_value_kl(AsDict(self), key, &value,
+                                         keyKind, valueKind))
+    {
+        return value != nullptr ? runtime::icall_unbox_long(value) : 0;
+    }
+    il2cpp_throw_key_not_found_exception(nullptr);
+    return 0; // unreachable (the factory throws)
+}
+
+void icall_dict_gen_add_kl_l(Il2CppObject* self, int64_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_add_kl(AsDict(self), key, runtime::icall_box_long(value),
+                           keyKind, valueKind);
+}
+
+void icall_dict_gen_set_kl_l(Il2CppObject* self, int64_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_set_kl(AsDict(self), key, runtime::icall_box_long(value),
+                           keyKind, valueKind);
+}
+
+bool icall_dict_gen_try_get_value_kl_l(Il2CppObject* self, int64_t key,
+    int64_t* value, int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* boxed = nullptr;
+    if (!il2cpp_dict_gen_try_get_value_kl(AsDict(self), key, &boxed,
+                                          keyKind, valueKind))
+    {
+        if (value != nullptr)
+        {
+            *value = 0; // net48: out is default(TValue) on a miss
+        }
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = boxed != nullptr ? runtime::icall_unbox_long(boxed) : 0;
+    }
+    return true;
+}
+
+// b5-gaps section 108: the INT64-KEY + INT32-VALUE twin (Dictionary<long,int>).
+// The key rides the parallel keyI64 scan; the value carrier is a BOXED int32.
+int32_t icall_dict_gen_get_kl_i(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* value = nullptr;
+    if (il2cpp_dict_gen_try_get_value_kl(AsDict(self), key, &value,
+                                         keyKind, valueKind))
+    {
+        return value != nullptr ? il2cpp_dict_gen_unbox_int32(value) : 0;
+    }
+    il2cpp_throw_key_not_found_exception(nullptr);
+    return 0; // unreachable (the factory throws)
+}
+
+void icall_dict_gen_add_kl_i(Il2CppObject* self, int64_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_add_kl(AsDict(self), key, il2cpp_dict_gen_box_int32(value),
+                           keyKind, valueKind);
+}
+
+void icall_dict_gen_set_kl_i(Il2CppObject* self, int64_t key, int32_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_set_kl(AsDict(self), key, il2cpp_dict_gen_box_int32(value),
+                           keyKind, valueKind);
+}
+
+bool icall_dict_gen_try_get_value_kl_i(Il2CppObject* self, int64_t key,
+    int32_t* value, int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* boxed = nullptr;
+    if (!il2cpp_dict_gen_try_get_value_kl(AsDict(self), key, &boxed,
+                                          keyKind, valueKind))
+    {
+        if (value != nullptr)
+        {
+            *value = 0; // net48: out is default(TValue) on a miss
+        }
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = boxed != nullptr ? il2cpp_dict_gen_unbox_int32(boxed) : 0;
+    }
+    return true;
+}
+
+void icall_dict_gen_add_kl(Il2CppObject* self, int64_t key, Il2CppObject* value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_add_kl(AsDict(self), key, value, keyKind, valueKind);
+}
+
+void icall_dict_gen_set_kl(Il2CppObject* self, int64_t key, Il2CppObject* value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_set_kl(AsDict(self), key, value, keyKind, valueKind);
+}
+
+bool icall_dict_gen_try_get_value_kl(Il2CppObject* self, int64_t key,
+    Il2CppObject** value, int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    if (il2cpp_dict_gen_try_get_value_kl(AsDict(self), key, value,
+                                         keyKind, valueKind))
+    {
+        return true;
+    }
+    if (value != nullptr)
+    {
+        *value = nullptr; // net48: out is default(TValue) on a miss
+    }
+    return false;
+}
+
+bool icall_dict_gen_contains_key_kl(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    return il2cpp_dict_gen_contains_key_kl(AsDict(self), key, keyKind, valueKind);
+}
+
+bool icall_dict_gen_remove_kl(Il2CppObject* self, int64_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    return il2cpp_dict_gen_remove_kl(AsDict(self), key, keyKind, valueKind);
+}
+
+Il2CppArray* icall_dict_gen_get_keys_kl(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return il2cpp_dict_gen_get_keys_kl(AsDict(self));
 }
 
 // b5-gaps section 106: the STRING-KEY int64-value twins (the LINQ

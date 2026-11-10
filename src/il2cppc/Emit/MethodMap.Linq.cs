@@ -2059,13 +2059,16 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             string dictKeyKind, dictKeySuffix;
             if (tkey is 0x08 or 0x09) { dictKeyKind = "1"; dictKeySuffix = "int"; }
             else if (tkey == 0x0E) { dictKeyKind = "0"; dictKeySuffix = "string"; }
+            // b5-gaps section 108: the int64 KEY family (the long key rides the
+            // dictgen entry's parallel keyI64 slot).
+            else if (tkey is 0x0A or 0x0B) { dictKeyKind = "18"; dictKeySuffix = "long"; }
             else if (tkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
             { dictKeyKind = "0"; dictKeySuffix = "string"; }
             else
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToDictionary<TKey={GenericArgTypeName(tkey)}> is not wired: the " +
-                    "TKey family must be int32 or a System.String (b5-gaps section 78).");
+                    "TKey family must be int32, an int64/uint64, or a System.String (b5-gaps section 78/108).");
             }
             // TValue: the 3-generic-argument form has TElement at index 2; the
             // 2-argument form's VALUE is the TSource element itself (index 0).
@@ -2128,6 +2131,16 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                 throw new NotSupportedException(
                     $"Enumerable.ToDictionary over a {GenericArgTypeName(genArgs[0])} source is not wired: " +
                     "the source element family has no selector cell ABI (b5-gaps section 78).");
+            }
+            // b5-gaps section 108: the int64 KEY source family. The source array
+            // must be a long[] (cell "8") -- a double[] source cannot feed a
+            // long-keyed dictionary without a widening decision net48 does not
+            // make here (the selector's TSource IS the key type).
+            if (dictKeySuffix == "long" && srcCell != "8")
+            {
+                throw new NotSupportedException(
+                    $"Enumerable.ToDictionary<long,...> over a {GenericArgTypeName(genArgs[0])} source is not wired: " +
+                    "the int64 key source must be a long[]/List<long> (b5-gaps section 108).");
             }
             string dictName = "System.Collections.Generic.Dictionary`2_" + dictKeySuffix + "_" + dictValueSuffix;
             if (genArgs.Length < 3)
@@ -6881,28 +6894,31 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // The receipt of the two element families:
             bool dtElemOk = genArgs is { Length: >= 1 } &&
                 (LinqCellCodeOfElemByte(genArgs[0]) == "7"
+                 || LinqCellCodeOfElemByte(genArgs[0]) == "8"
                  || genArgs[0] == 0x0E
                  || (genArgs[0] == 0x11 && genArgNames is { Length: >= 1 }
                      && genArgNames[0] == "System.String"));
-            if (!dtElemOk || (K != "0" && K != "1") ||
+            if (!dtElemOk || (K != "0" && K != "1" && K != "2") ||
                 (K == "1" && LinqCellCodeOfElemByte(genArgs[0]) == "7"))
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToDictionary over a List<{GenericArgTypeName(genArgs[0])}> " +
-                    "source is not wired: only int32 / System.String list elements have a " +
-                    "type-accurate snapshot (b5-gaps section 83).");
+                    "source is not wired: only int32 / int64 / System.String list elements have a " +
+                    "type-accurate snapshot (b5-gaps section 83/108).");
             }
             byte dtkey = genArgs[1];
             string dtKeyKind, dtKeySuffix;
             if (dtkey is 0x08 or 0x09) { dtKeyKind = "1"; dtKeySuffix = "int"; }
             else if (dtkey == 0x0E) { dtKeyKind = "0"; dtKeySuffix = "string"; }
+            // b5-gaps section 108: the int64 KEY family over a List source.
+            else if (dtkey is 0x0A or 0x0B) { dtKeyKind = "18"; dtKeySuffix = "long"; }
             else if (dtkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
             { dtKeyKind = "0"; dtKeySuffix = "string"; }
             else
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToDictionary<TKey={GenericArgTypeName(dtkey)}> over a List is not wired: " +
-                    "the TKey family must be int32 or a System.String (b5-gaps section 83).");
+                    "the TKey family must be int32, an int64/uint64, or a System.String (b5-gaps section 83/108).");
             }
             // TValue: the 3-generic form has TElement at index 2; the 2-arg
             // form's VALUE is the TSource element itself (index 0).
@@ -6942,7 +6958,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             }
             // The delegated kernel's ARRAY cell code follows the List element
             // family: int32 list -> cell 7; reference list -> cell 15.
-            string dtsrcCell = K == "1" ? "15" : "7";
+            string dtsrcCell = K == "1" ? "15" : (K == "2" ? "8" : "7");
             string dtName = "System.Collections.Generic.Dictionary`2_" + dtKeySuffix + "_" + dtValueSuffix;
             if (genArgs.Length < 3)
             {
