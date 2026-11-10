@@ -7316,3 +7316,26 @@ GAPS (registered)
   values stay LOUD; GroupBy LAZINESS is unwired; a float TKey GroupBy is
   LOUD; the int64 lookup enumeration carrier for a user-comparer form is
   untested.
+
+## section 106 (2026-11-10): Enumerable.ToDictionary with an int64 TValue -- commit e5df44e7
+
+DONE
+- dictgen.cpp/h: il2cpp_dict_gen_get_l/add_l/set_l/try_get_value_l +
+  il2cpp_dict_gen_get_values_l (a real int64[] snapshot) + the runtime icall
+  twins + the string-key twins (_l_o).
+- dictsi_obj.cpp/h: icall_dict_si_add_l/set_l/get_l/try_get_value_l forward a
+  gen wrapper to the gen arms; the SI wrapper itself throws LOUD.
+- linq_family.cpp: il2cpp_linq_to_dictionary accepts valueKind 16 and boxes an
+  int64 value through icall_box_long.
+- MethodMap.Linq.cs: the array/List ToDictionary gates accept an int64 TValue.
+- MethodMap.Dictionary.cs: the ilReceiver/llReceiver/slValueGenReceiver/
+  slInstReceiver domains.
+- probe-todict-i8val 157 B sha f99acf87.
+- Mutations M1 (snapshot offset) red; M2 (out slot untouched on a miss) red;
+  M3 (low-32-bit int32 box) red. 33 anchors byte-identical; unit 4164/0/0; C0 0/0.
+
+GAPS (registered)
+- The int64-KEY ToDictionary domain (long keys) is still LOUD.
+- ToDictionary double values stay LOUD.
+- ToLookup double/char/DateTime keys stay LOUD; GroupBy LAZINESS is unwired; a
+  float TKey GroupBy is LOUD.
