@@ -69,6 +69,10 @@ constexpr int32_t kGenKind_Int32 = 1;  // boxed int32
 // int32 keyInt slot; it rides a parallel int64 array in the lookup table).
 // Distinct from kGenKind_Uri (which is normalized to the string kind on entry).
 constexpr int32_t kGenKind_Int64 = 16;
+// b5-gaps section 107: the System.Double key carrier (the raw 64-bit image).
+// Distinct from kGenKind_Int64 because the equality contract differs: a double
+// key compares VALUES (NaN == NaN, +0 == -0), never the bit pattern.
+constexpr int32_t kGenKind_Double = 17;
 // Phase-2: Uri keys normalize to their string form at the twin entry, then
 // ride the string-kind table path (the T4 uristr contract, no twin family).
 constexpr int32_t kGenKind_Uri = 2; // normalized to string on entry

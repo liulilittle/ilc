@@ -236,12 +236,21 @@ struct Il2CppLookupGen
     // the membership scan compares by value (default) or through the reflected
     // IEqualityComparer<long>.Equals(long,long) slot.
     int64_t*  keyI64;
+    // b5-gaps section 107: the System.Double key carrier. A double key does not
+    // fit the int32 slot either, and its 64-bit IMAGE cannot be compared by
+    // memcmp (net48 EqualityComparer<double>.Default is Double.Equals: NaN
+    // equals NaN and +0.0 equals -0.0, both of which differ in the bit
+    // pattern). The membership scan therefore compares VALUES with the
+    // a==b || (a!=a && b!=b) rule (the floatgrp GroupBy key contract), or
+    // through the reflected IEqualityComparer<double>.Equals(double,double)
+    // slot. kGenKind_Double = 17 (distinct from kGenKind_Int64 = 16).
+    int64_t*  keyDbl;
     int32_t*  groupLen;    // per-group element count
     int32_t*  groupOff;    // per-group start offset into srcIdx
     int32_t*  srcIdx;      // flat source indices, group-blocks (grows)
     int32_t   srcIdxCount;
     int32_t   srcIdxCap;
-    int32_t   keyKind;     // kGenKind_Int32/Int64/String (the enumerator needs it)
+    int32_t   keyKind;     // kGenKind_Int32/Int64/Double/String (the enumerator needs it)
 };
 // b5-gaps section 80: the wrapper carries ONE more managed slot
 // (comparer, refFieldBitmap bit 4): a user IEqualityComparer<TKey> given to
@@ -377,8 +386,15 @@ bool          il2cpp_lookup_gen_contains(Il2CppObject* self, Il2CppObject* keyRe
 // reflected IEqualityComparer<long>.Equals(long,long) slot).
 bool          il2cpp_lookup_gen_contains(Il2CppObject* self, int64_t keyI64,
                                          int32_t keyKind);
+// b5-gaps section 107: the System.Double key carrier (the raw 64-bit image;
+// the membership scan compares VALUES, never the bit pattern).
+bool          il2cpp_lookup_gen_contains(Il2CppObject* self, double keyDbl,
+                                         int32_t keyKind);
 Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, int64_t keyI64,
-                                         int32_t keyKind, int32_t srcCell);
+                                        int32_t keyKind, int32_t srcCell);
+// b5-gaps section 107: the System.Double key carrier.
+Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, double keyDbl,
+                                        int32_t keyKind, int32_t srcCell);
 Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, int32_t keyInt,
                                          int32_t keyKind, int32_t srcCell);
 Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, Il2CppObject* keyRef,
@@ -395,11 +411,19 @@ int32_t il2cpp_lookup_gen_find_or_add(Il2CppObject* wObj, int32_t keyInt,
 // parallel keyI64 array; the comparer's Equals(long,long) slot is honoured).
 int32_t il2cpp_lookup_gen_find_or_add_i64(Il2CppObject* wObj, int64_t keyI64,
                                           int32_t keyKind, Il2CppObject* comparer);
+// b5-gaps section 107: the System.Double key carrier (the raw 64-bit image;
+// the value-equality scan compares values, never the bit pattern).
+int32_t il2cpp_lookup_gen_find_or_add_dbl(Il2CppObject* wObj, double keyDbl,
+                                          int32_t keyKind, Il2CppObject* comparer);
 // the int64 membership comparer (the reflected IEqualityComparer<long>.Equals
 // slot; null == the default value equality). Declared here for the int64
 // contains/get_Item overloads.
 bool il2cpp_lookup_gen_comparer_equals_long(Il2CppObject* cmp, int64_t key,
-                                             int64_t existing);
+                                            int64_t existing);
+// b5-gaps section 107: the reflected IEqualityComparer<double>.Equals(double,double)
+// slot (the floatgrp GroupBy key contract).
+bool il2cpp_lookup_gen_comparer_equals_dbl(Il2CppObject* cmp, double key,
+                                           double existing);
 
 // b5-gaps section 57: user-comparer twins over the VALUE cell families
 // (int32/uint/narrow/char/bool, int64, double/float). Each entry dispatches a
