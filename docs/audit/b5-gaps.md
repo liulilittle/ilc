@@ -7357,3 +7357,34 @@ GAPS (registered)
 - ToLookup char/DateTime keys stay LOUD.
 - ToDictionary int64 keys + double values stay LOUD.
 - GroupBy LAZINESS is unwired; a float TKey GroupBy is LOUD.
+## section 108 (2026-11-11): Enumerable.ToDictionary with an int64 TKey -- commit 90b27ac7
+
+DONE
+- kGenKind_Int64Key = 18 (distinct from kGenKind_Int64 = 16, the VALUE kind).
+- Il2CppDictGenEntry.keyI64: a parallel int64 key carrier (the int32 keyInt slot
+  cannot hold a long); IncomingHash64 / IncomingEquals64 / FindEntryIndex64 /
+  FindEntryIndexKL.
+- Table arms il2cpp_dict_gen_add_kl / set_kl / try_get_value_kl /
+  contains_key_kl / remove_kl / get_keys_kl; the int64-key instance twins and
+  the int64-key + {int64,int32}-value twins (*_kl_l / *_kl_i).
+- Transpiler: the llReceiver (Dictionary<long,long>) arm is REMOVED -- it was
+  checked before klReceiver and mis-routed the long key to the int64-VALUE arm
+  (icall_dict_gen_get_l, keyKind=16 -> ArgumentNullException(""key"")). That
+  routing was latent since section 106 (no probe exercised Dictionary<long,long>).
+  klReceiver now covers long_int / long_string / long_long; the value-related
+  arms split by VALUE family (reference -> *_kl, boxed int32 -> *_kl_i, boxed
+  int64 -> *_kl_l); the key-only arms stay value-family-agnostic.
+- linq_family.cpp il2cpp_linq_to_dictionary routes an int64 key through
+  il2cpp_dict_gen_add_kl; the gate accepts kGenKind_Int64Key.
+- probe-todict-lkey 442 B sha 08644d61 (29 records: Dictionary<long,long>,
+  <long,int>, <long,string>; duplicate-key ArgumentException, missing-key
+  KeyNotFoundException, a >int32-range value 4000000001).
+- M1 (int64 unbox truncation) / M2 (int32 unbox truncation, probe values raised
+  to 70000/210000) / M3 (TryGetValue miss not zeroed) / M4 (transpiler get_Item
+  routed to the int32-value arm) red -> green.
+- 12 anchors byte-identical; unit 4164/0/0; C0 0/0.
+
+GAPS (registered)
+- ToDictionary double values stay LOUD.
+- ToLookup char/DateTime keys stay LOUD.
+- GroupBy LAZINESS is unwired; a float TKey GroupBy is LOUD.
