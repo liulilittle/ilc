@@ -407,6 +407,10 @@ bool il2cpp_dict_si_try_get_value(Il2CppDictSI* d, Il2CppString* key, int32_t* v
     const int32_t i = FindEntryIndex(d, key, StringHash(key));
     if (i < 0)
     {
+        if (value != nullptr)
+        {
+            *value = 0; // net48: out is default(TValue) on a miss
+        }
         return false;
     }
     if (value != nullptr)

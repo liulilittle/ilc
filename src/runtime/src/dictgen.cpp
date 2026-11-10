@@ -799,6 +799,10 @@ bool il2cpp_dict_gen_try_get_value_i(Il2CppObject* self, int32_t key,
     if (!il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &boxed,
                                        keyKind, valueKind))
     {
+        if (value != nullptr)
+        {
+            *value = 0; // net48: out is default(TValue) on a miss
+        }
         return false;
     }
     if (value != nullptr)

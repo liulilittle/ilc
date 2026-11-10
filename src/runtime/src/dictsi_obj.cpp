@@ -319,7 +319,8 @@ bool icall_dict_si_try_get_value_l(Il2CppObject* self, Il2CppObject* key, int64_
 
 //------------------------------------------------------------------------------
 // icall_dict_si_try_get_value -- TryGetValue(key, &value): true + the value
-// on a hit; false on a miss (the out-param is left untouched).
+// on a hit; false on a miss. net48 writes default(TValue) into the out param
+// on a miss (a pre-set caller local is overwritten), so both arms clear it.
 //------------------------------------------------------------------------------
 bool icall_dict_si_try_get_value(Il2CppObject* self, Il2CppObject* key, int32_t* value)
 {
@@ -332,6 +333,10 @@ bool icall_dict_si_try_get_value(Il2CppObject* self, Il2CppObject* key, int32_t*
         if (found && value != nullptr)
         {
             *value = boxed != nullptr ? il2cpp::il2cpp_dict_gen_unbox_int32(boxed) : 0;
+        }
+        else if (!found && value != nullptr)
+        {
+            *value = 0; // net48: out is default(TValue) on a miss
         }
         return found;
     }

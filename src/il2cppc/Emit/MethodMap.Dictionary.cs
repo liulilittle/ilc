@@ -345,18 +345,19 @@ public static partial class MethodRefResolver
                             appendLiterals: new[] { "1", "0" })
                         : siValueGenReceiver
                             // b5-gaps section 104: the out value is written
-                            // back through the int32 address (the runtime
-                            // unboxes into the caller's slot).
+                            // back through the int32 address -- the runtime
+                            // writes *value, so the ADDRESS passes through (the
+                            // deref:i cast read the slot and produced an
+                            // int32 -> int32_t* conversion error).
                             ? I("il2cpp::runtime::icall_dict_gen_try_get_value_i", 2, true, false, true,
-                                new[] { "", "i", "deref:i" },
+                                new[] { "", "i", "" },
                                 appendLiterals: new[] { "0", "1" })
-                            : iiReceiver
-                                // b5-gaps section 104: the out value is written
-                                // back through the int32 address (the runtime
-                                // unboxes into the caller's slot).
-                                ? I("il2cpp::runtime::icall_dict_gen_try_get_value_i", 2, true, false, true,
-                                    new[] { "", "i", "deref:i" },
-                                    appendLiterals: new[] { "1", "1" })
+                        : iiReceiver
+                            // b5-gaps section 104: the out value is written
+                            // back through the int32 address (see above).
+                            ? I("il2cpp::runtime::icall_dict_gen_try_get_value_i", 2, true, false, true,
+                                new[] { "", "i", "" },
+                                appendLiterals: new[] { "1", "1" })
                                 : ilReceiver
                                     // b5-gaps section 106: the out value is written
                                     // back through the int64 address (the address
