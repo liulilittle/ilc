@@ -137,6 +137,20 @@ int32_t il2cpp_rmethodhandle_equals(const Il2CppMethodInfo* a, const Il2CppMetho
 // -> identical hash).
 int32_t il2cpp_rmethodhandle_get_hash_code(const Il2CppMethodInfo* handle);
 
+// handle.GetFunctionPointer() -> the method ENTRY ADDRESS (the AOT static
+// function pointer recorded in the typeinfo table, typeinfo.h fnPtr).
+// net48 (RuntimeHandles.cs:1066): a zero handle throws ArgumentNullException;
+// otherwise the entry pointer is returned. The transpiler records the real
+// emitted function address (TypeEmitter.cs:2652), so this is a callable
+// address in this runtime. A null fnPtr (interface/abstract/PInvoke/folded/
+// delegate -- TypeEmitter.cs:2652) reports 0: the net48 pre-jit stub is not
+// materialised by an AOT runtime (documented AOT boundary).
+intptr_t il2cpp_rmethodhandle_get_function_pointer(const Il2CppMethodInfo* handle);
+// The intptr_t handle-VALUE overload (see il2cpp_rthandle_get_value_intptr):
+// the transpiler models a handle VALUE as an intptr_t slot, so the IL passes
+// the handle address/value where the pointer primitive wants the table entry.
+intptr_t il2cpp_rmethodhandle_get_function_pointer_intptr(intptr_t handle);
+
 //------------------------------------------------------------------------------
 // RuntimeFieldHandle (handle value = const Il2CppFieldInfo* table entry)
 //------------------------------------------------------------------------------

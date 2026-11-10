@@ -89,6 +89,19 @@ public static partial class MethodRefResolver
                         $"{owner}.GetRuntimeType not wired: only RuntimeTypeHandle has GetRuntimeType in the reflect-handle surface (reflecthandle.h)");
                 return I("il2cpp::il2cpp_rthandle_get_runtime_type", 0, true, true, true,
                     new[] { receiverIsAddress ? "deref:l" : "" }, returnTypeName: "System.Type");
+            case "GetFunctionPointer":
+                // instance IntPtr GetFunctionPointer(): the method ENTRY ADDRESS
+                // (the AOT function pointer, typeinfo.h fnPtr). net48
+                // (RuntimeHandles.cs:1066): a zero handle throws
+                // ArgumentNullException; otherwise the entry pointer is returned.
+                // Only the METHOD handle has this member -- the type/field
+                // handles declare no GetFunctionPointer in net48.
+                if (count != 0) return null;
+                if (prefix != "rmethodhandle")
+                    throw new NotSupportedException(
+                        $"{owner}.GetFunctionPointer not wired: only RuntimeMethodHandle has GetFunctionPointer in the reflect-handle surface (reflecthandle.h)");
+                return I($"il2cpp::il2cpp_{prefix}_get_function_pointer_intptr", 0, true, false, true,
+                    new[] { receiverIsAddress ? "deref:l" : "" }, "ptr");
             default:
                 throw new NotSupportedException(
                     $"{owner}::{name} not wired: the reflect-handle surface covers get_Value / Equals / " +

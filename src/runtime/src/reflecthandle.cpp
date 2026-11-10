@@ -25,6 +25,7 @@
 
 #include "reflecthandle.h"
 
+#include "il2cpp_exception_ext.h" // il2cpp_throw_argument_null_exception (GetFunctionPointer zero-handle contract)
 #include "il2cpp_typecheck.h" // icall_type_equals (delegated type identity)
 #include "il2cpp_typeext.h"   // il2cpp_type_get_type_from_handle (delegated)
 
@@ -175,6 +176,34 @@ int32_t il2cpp_rmethodhandle_get_hash_code(const Il2CppMethodInfo* handle)
     h = Djb2Fold(h, handle->name);
     return Djb2Fold(h, handle->signature);
 }
+
+// handle.GetFunctionPointer() -> the method ENTRY ADDRESS (the AOT static
+// function pointer, typeinfo.h fnPtr). net48 (RuntimeHandles.cs:1066,
+// GetFunctionPointer): a zero handle throws ArgumentNullException; otherwise
+// it returns the entry pointer. The entry pointer IS the AOT function address
+// the transpiler recorded in the typeinfo table (TypeEmitter.cs:2652 --
+// reinterpret_cast<void*>(&MethodSymbol)), so the value is a real callable
+// address in this runtime, not a stub. A null fnPtr (interface/abstract/
+// PInvoke/folded/delegate -- TypeEmitter.cs:2652) means the method has no
+// emitted function symbol: the net48 value for such a handle is the
+// pre-jit stub, which an AOT runtime does not materialise -- the address is
+// reported as 0 (documented AOT boundary, same as a trimmed method).
+intptr_t il2cpp_rmethodhandle_get_function_pointer(const Il2CppMethodInfo* handle)
+{
+    if (handle == nullptr)
+    {
+        il2cpp_throw_argument_null_exception(nullptr); // net48: Arg_InvalidHandle
+        return 0; // unreachable (the factory throws)
+    }
+    return reinterpret_cast<intptr_t>(handle->fnPtr);
+}
+
+intptr_t il2cpp_rmethodhandle_get_function_pointer_intptr(intptr_t handle)
+{
+    return il2cpp_rmethodhandle_get_function_pointer(
+        reinterpret_cast<const Il2CppMethodInfo*>(handle));
+}
+
 
 //------------------------------------------------------------------------------
 // RuntimeFieldHandle surface (handle = const Il2CppFieldInfo* entry)
