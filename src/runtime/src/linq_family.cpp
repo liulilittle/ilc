@@ -28,6 +28,7 @@
 //------------------------------------------------------------------------------
 
 #include "linq_family.h"
+#include "il2cpp_boxing_ext2.h" // icall_box_long (b5-gaps section 106)
 #include "linq_list.h"                 // il2cpp_linq_list_snapshot (List<int> inners)
 #include "listi4.h"                    // il2cpp_list_i4_class (List<int> inners)
 #include "dictgen.h"                   // b5-gaps section 78: the Dictionary`2 wrapper + gen table
@@ -4044,11 +4045,12 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
             "(b5-gaps section 78).");
         return nullptr;
     }
-    if (valueKind != kGenKind_Int32 && valueKind != kGenKind_String)
+    if (valueKind != kGenKind_Int32 && valueKind != kGenKind_Int64
+        && valueKind != kGenKind_String)
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.ToDictionary: this TValue family has no dictgen value "
-            "kind (b5-gaps section 78).");
+            "kind (b5-gaps section 78/106).");
         return nullptr;
     }
     Il2CppDelegate* kd = reinterpret_cast<Il2CppDelegate*>(keySel);
@@ -4061,7 +4063,8 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
         return nullptr;
     }
     const int32_t keySlot = keyKind == kGenKind_Int32 ? 0 : 3; // i4 / ref (o)
-    const int32_t valSlot = valueKind == kGenKind_Int32 ? 0 : 3;
+    const int32_t valSlot = valueKind == kGenKind_Int32 ? 0
+        : valueKind == kGenKind_Int64 ? 1 : 3;
     const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
     const Sel1Fn ival = vd != nullptr ? kSel1[(valSlot * 4 + srcSlot)] : nullptr;
     const int32_t n = src->length;
@@ -4104,13 +4107,30 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
         if (vd != nullptr)
         {
             const int64_t vc = ival(vd, a);
-            value = valueKind == kGenKind_Int32
-                ? il2cpp_dict_gen_box_int32(static_cast<int32_t>(vc))
-                : reinterpret_cast<Il2CppObject*>(vc);
+            if (valueKind == kGenKind_Int32)
+            {
+                value = il2cpp_dict_gen_box_int32(static_cast<int32_t>(vc));
+            }
+            else if (valueKind == kGenKind_Int64)
+            {
+                // b5-gaps section 106: the int64 value rides a boxed int64
+                // carrier (the same 8-byte payload slot as the boxed int32).
+                value = runtime::icall_box_long(vc);
+            }
+            else
+            {
+                value = reinterpret_cast<Il2CppObject*>(vc);
+            }
         }
         else if (valueKind == kGenKind_Int32)
         {
             value = il2cpp_dict_gen_box_int32(a.i4);
+        }
+        else if (valueKind == kGenKind_Int64)
+        {
+            // b5-gaps section 106: the 2-arg form's value IS the source
+            // element -- a long source element is a boxed int64 carrier.
+            value = runtime::icall_box_long(a.i8);
         }
         else
         {

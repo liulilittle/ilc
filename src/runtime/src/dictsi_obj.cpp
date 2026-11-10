@@ -259,6 +259,65 @@ int32_t icall_dict_si_get(Il2CppObject* self, Il2CppObject* key)
 }
 
 //------------------------------------------------------------------------------
+// b5-gaps section 106: the int64-value SI twins. The int64-value wrapper is a
+// DICTGEN wrapper (the int64 carrier is a boxed int64), so every arm forwards
+// to the gen table with (keyKind=0 string, valueKind=16 boxed int64).
+//------------------------------------------------------------------------------
+void icall_dict_si_add_l(Il2CppObject* self, Il2CppObject* key, int64_t value)
+{
+    ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        il2cpp::runtime::icall_dict_gen_add_l_o(self, key, value, 0, 16);
+        return;
+    }
+    // The SI wrapper itself never stores an int64 value; keep the loud
+    // contract rather than silently narrowing to int32.
+    il2cpp_throw_not_supported_exception(
+        "Dictionary<string,int> has no int64-value surface (b5-gaps section 106).");
+}
+
+void icall_dict_si_set_l(Il2CppObject* self, Il2CppObject* key, int64_t value)
+{
+    ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        il2cpp::runtime::icall_dict_gen_set_l_o(self, key, value, 0, 16);
+        return;
+    }
+    il2cpp_throw_not_supported_exception(
+        "Dictionary<string,int> has no int64-value surface (b5-gaps section 106).");
+}
+
+int64_t icall_dict_si_get_l(Il2CppObject* self, Il2CppObject* key)
+{
+    ThrowIfNullReceiver(self);
+    if (key == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("key");
+    }
+    if (IsDictGenWrapper(self))
+    {
+        return il2cpp::runtime::icall_dict_gen_get_l_o(self, key, 0, 16);
+    }
+    il2cpp_throw_not_supported_exception(
+        "Dictionary<string,int> has no int64-value surface (b5-gaps section 106).");
+    return 0; // unreachable (the factory throws)
+}
+
+bool icall_dict_si_try_get_value_l(Il2CppObject* self, Il2CppObject* key, int64_t* value)
+{
+    ThrowIfNullReceiver(self);
+    if (IsDictGenWrapper(self))
+    {
+        return il2cpp::runtime::icall_dict_gen_try_get_value_l_o(self, key, value, 0, 16);
+    }
+    il2cpp_throw_not_supported_exception(
+        "Dictionary<string,int> has no int64-value surface (b5-gaps section 106).");
+    return false; // unreachable (the factory throws)
+}
+
+//------------------------------------------------------------------------------
 // icall_dict_si_try_get_value -- TryGetValue(key, &value): true + the value
 // on a hit; false on a miss (the out-param is left untouched).
 //------------------------------------------------------------------------------

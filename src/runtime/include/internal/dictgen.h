@@ -152,6 +152,18 @@ Il2CppArray* il2cpp_dict_gen_get_values(Il2CppDictGen* d);
 // a managed pointer as a 4-byte cell).
 Il2CppArray* il2cpp_dict_gen_get_values_i(Il2CppDictGen* d);
 
+// b5-gaps section 106: the INT64-VALUE arms (a real int64[] snapshot, the
+// boxed int64 carrier). Same shared-table discipline as the int32 family.
+int64_t il2cpp_dict_gen_get_l(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind);
+void il2cpp_dict_gen_add_l(Il2CppObject* self, int32_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind);
+void il2cpp_dict_gen_set_l(Il2CppObject* self, int32_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind);
+bool il2cpp_dict_gen_try_get_value_l(Il2CppObject* self, int32_t key,
+    int64_t* value, int32_t keyKind, int32_t valueKind);
+Il2CppArray* il2cpp_dict_gen_get_values_l(Il2CppDictGen* d);
+
 //-----------------------------------------------------------------------------
 // Wrapper object + enumeration objects (Phase-1 int_string shape). The wrapper
 // is ONE shared class for every future kind combination (it holds only the
@@ -219,6 +231,27 @@ void icall_dict_gen_set_i(Il2CppObject* self, int32_t key, int32_t value,
 bool icall_dict_gen_try_get_value_i(Il2CppObject* self, int32_t key,
     int32_t* value, int32_t keyKind, int32_t valueKind);
 Il2CppArray* icall_dict_gen_get_values_i(Il2CppObject* self);
+
+// b5-gaps section 106: the int64-VALUE icall twins (a boxed int64 carrier).
+int64_t icall_dict_gen_get_l(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_add_l(Il2CppObject* self, int32_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_set_l(Il2CppObject* self, int32_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind);
+bool icall_dict_gen_try_get_value_l(Il2CppObject* self, int32_t key,
+    int64_t* value, int32_t keyKind, int32_t valueKind);
+Il2CppArray* icall_dict_gen_get_values_l(Il2CppObject* self);
+// The STRING-KEY twins (the LINQ ToDictionary string->int64 shape): the key is
+// a managed reference, so the value is passed alongside the object key.
+int64_t icall_dict_gen_get_l_o(Il2CppObject* self, Il2CppObject* key,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_add_l_o(Il2CppObject* self, Il2CppObject* key, int64_t value,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_set_l_o(Il2CppObject* self, Il2CppObject* key, int64_t value,
+    int32_t keyKind, int32_t valueKind);
+bool icall_dict_gen_try_get_value_l_o(Il2CppObject* self, Il2CppObject* key,
+    int64_t* value, int32_t keyKind, int32_t valueKind);
 
 // .ctor(capacity) -- allocate the table and store it in the wrapper slot.
 void icall_dict_gen_ctor(Il2CppObject* self, int32_t capacity);

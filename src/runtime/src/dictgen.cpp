@@ -13,6 +13,7 @@
 #include "il2cpp_metadata.h" // (array + class registration surface, dictsi precedent)
 #include "il2cpp_object.h"   // il2cpp_object_new / il2cpp_class_register
 #include "il2cpp_runtime.h"  // il2cpp_box_int32
+#include "il2cpp_boxing_ext2.h" // icall_box_long / icall_unbox_long (b5-gaps section 106)
 #include "il2cpp_string.h"
 #include "il2cpp_value_semantics.h" // (string-hash authority, dictsi precedent)
 #include "il2cpp_valuetuple.h" // il2cpp_tuple_box_hash / il2cpp_tuple_box_equals (tuple keys)
@@ -629,6 +630,82 @@ Il2CppArray* il2cpp_dict_gen_get_values_i(Il2CppDictGen* d)
     return result;
 }
 
+// b5-gaps section 106: the int64-value arms. The value carrier is a BOXED
+// int64 (icall_box_long) -- the same 8-byte payload slot as the boxed int32,
+// so the raw table fns are shared with the int32/reference forms.
+int64_t il2cpp_dict_gen_get_l(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* value = nullptr;
+    if (il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &value, keyKind, valueKind))
+    {
+        return value != nullptr ? runtime::icall_unbox_long(value) : 0;
+    }
+    il2cpp_throw_key_not_found_exception(nullptr);
+    return 0; // unreachable (the factory throws)
+}
+
+void il2cpp_dict_gen_add_l(Il2CppObject* self, int32_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_add(AsDict(self), key, nullptr,
+        runtime::icall_box_long(value), keyKind, valueKind);
+}
+
+void il2cpp_dict_gen_set_l(Il2CppObject* self, int32_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_set(AsDict(self), key, nullptr,
+        runtime::icall_box_long(value), keyKind, valueKind);
+}
+
+bool il2cpp_dict_gen_try_get_value_l(Il2CppObject* self, int32_t key,
+    int64_t* value, int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* boxed = nullptr;
+    if (!il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &boxed,
+                                       keyKind, valueKind))
+    {
+        // net48: out is default(TValue) on a miss.
+        if (value != nullptr)
+        {
+            *value = 0;
+        }
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = boxed != nullptr ? runtime::icall_unbox_long(boxed) : 0;
+    }
+    return true;
+}
+
+// b5-gaps section 106: the int64-value snapshot (a real int64[] -- net48's
+// Dictionary<int,long>.Values layout). Every value carrier is a boxed int64.
+Il2CppArray* il2cpp_dict_gen_get_values_l(Il2CppDictGen* d)
+{
+    const int32_t live = OccupiedCount(d);
+    Il2CppArray* result = il2cpp_array_new_typed(
+        static_cast<int32_t>(sizeof(int64_t)), kElemKindI8, live);
+    int64_t* dst = reinterpret_cast<int64_t*>(result->data);
+    int32_t n = 0;
+    for (int32_t i = d->seqHead; i >= 0 && n < live; i = d->entries[i].seqNext)
+    {
+        if (d->entries[i].hashCode < 0)
+        {
+            continue;
+        }
+        Il2CppObject* boxed = d->entries[i].value;
+        dst[n++] = boxed != nullptr
+            ? runtime::icall_unbox_long(boxed) : 0;
+    }
+    return result;
+}
+
 namespace runtime {
 
 // b5-gaps section 104: the int32-value icall arms. The value carrier is a
@@ -661,6 +738,37 @@ Il2CppArray* icall_dict_gen_get_values_i(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     return il2cpp_dict_gen_get_values_i(AsDict(self));
+}
+
+// b5-gaps section 106: the int64-value icall twins (int32-key form).
+int64_t icall_dict_gen_get_l(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    return il2cpp_dict_gen_get_l(self, key, keyKind, valueKind);
+}
+
+void icall_dict_gen_add_l(Il2CppObject* self, int32_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    il2cpp_dict_gen_add_l(self, key, value, keyKind, valueKind);
+}
+
+void icall_dict_gen_set_l(Il2CppObject* self, int32_t key, int64_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    il2cpp_dict_gen_set_l(self, key, value, keyKind, valueKind);
+}
+
+bool icall_dict_gen_try_get_value_l(Il2CppObject* self, int32_t key,
+    int64_t* value, int32_t keyKind, int32_t valueKind)
+{
+    return il2cpp_dict_gen_try_get_value_l(self, key, value, keyKind, valueKind);
+}
+
+Il2CppArray* icall_dict_gen_get_values_l(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return il2cpp_dict_gen_get_values_l(AsDict(self));
 }
 
 } // namespace il2cpp::runtime
@@ -933,6 +1041,80 @@ Il2CppArray* icall_dict_gen_get_values_o(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     return il2cpp_dict_gen_get_values(AsDict(self));
+}
+
+// b5-gaps section 106: the STRING-KEY int64-value twins (the LINQ
+// ToDictionary string->int64 shape). TwinKey/TwinKind are declared by the
+// anonymous namespace ABOVE this point in the TU (the gen o-form precedent).
+int64_t icall_dict_gen_get_l_o(Il2CppObject* self, Il2CppObject* key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    if (key == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("key");
+    }
+    Il2CppObject* norm = TwinKey(key, keyKind);
+    Il2CppObject* value = nullptr;
+    if (il2cpp_dict_gen_try_get_value(AsDict(self), 0, norm, &value,
+                                      TwinKind(keyKind), valueKind))
+    {
+        return value != nullptr ? runtime::icall_unbox_long(value) : 0;
+    }
+    il2cpp_throw_key_not_found_exception(nullptr);
+    return 0; // unreachable (the factory throws)
+}
+
+void icall_dict_gen_add_l_o(Il2CppObject* self, Il2CppObject* key, int64_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    if (key == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("key");
+    }
+    Il2CppObject* norm = TwinKey(key, keyKind);
+    il2cpp_dict_gen_add(AsDict(self), 0, norm, runtime::icall_box_long(value),
+                        TwinKind(keyKind), valueKind);
+}
+
+void icall_dict_gen_set_l_o(Il2CppObject* self, Il2CppObject* key, int64_t value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    if (key == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("key");
+    }
+    Il2CppObject* norm = TwinKey(key, keyKind);
+    il2cpp_dict_gen_set(AsDict(self), 0, norm, runtime::icall_box_long(value),
+                        TwinKind(keyKind), valueKind);
+}
+
+bool icall_dict_gen_try_get_value_l_o(Il2CppObject* self, Il2CppObject* key,
+    int64_t* value, int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    if (key == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("key");
+    }
+    Il2CppObject* norm = TwinKey(key, keyKind);
+    Il2CppObject* boxed = nullptr;
+    if (!il2cpp_dict_gen_try_get_value(AsDict(self), 0, norm, &boxed,
+                                       TwinKind(keyKind), valueKind))
+    {
+        if (value != nullptr)
+        {
+            *value = 0; // net48: out is default(TValue) on a miss
+        }
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = boxed != nullptr ? runtime::icall_unbox_long(boxed) : 0;
+    }
+    return true;
 }
 
 }} // namespace il2cpp::runtime

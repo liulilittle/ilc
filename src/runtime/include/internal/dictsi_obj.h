@@ -153,6 +153,14 @@ int32_t icall_dict_si_get(Il2CppObject* self, Il2CppObject* key);
 // TryGetValue(key, &value): true + value on a hit; false on a miss.
 bool icall_dict_si_try_get_value(Il2CppObject* self, Il2CppObject* key, int32_t* value);
 
+// b5-gaps section 106: the int64-VALUE twins (the LINQ ToDictionary
+// string->int64 wrapper forwards here; the SI wrapper itself has no int64
+// value surface and throws LOUD).
+void icall_dict_si_add_l(Il2CppObject* self, Il2CppObject* key, int64_t value);
+void icall_dict_si_set_l(Il2CppObject* self, Il2CppObject* key, int64_t value);
+int64_t icall_dict_si_get_l(Il2CppObject* self, Il2CppObject* key);
+bool icall_dict_si_try_get_value_l(Il2CppObject* self, Il2CppObject* key, int64_t* value);
+
 // ContainsKey / Remove / get_Count / Clear.
 bool icall_dict_si_contains_key(Il2CppObject* self, Il2CppObject* key);
 bool icall_dict_si_remove(Il2CppObject* self, Il2CppObject* key);

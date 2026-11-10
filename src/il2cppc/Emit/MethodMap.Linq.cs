@@ -2090,12 +2090,19 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             else if (tval is 0x08 or 0x09) { dictValueKind = "1"; dictValueSuffix = "int"; }
             else if (tval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.Int32")
             { dictValueKind = "1"; dictValueSuffix = "int"; }
+            // b5-gaps section 106: the int64 VALUE family. The runtime boxes an
+            // int64 value (icall_box_long -- the same 8-byte payload slot as the
+            // boxed int32); get_Item unboxes the boxed carrier and get_Values
+            // returns a real int64[] snapshot.
+            else if (tval is 0x0A or 0x0B) { dictValueKind = "16"; dictValueSuffix = "long"; }
+            else if (tval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.Int64")
+            { dictValueKind = "16"; dictValueSuffix = "long"; }
             else
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToDictionary with a {GenericArgTypeName(tval)} TValue is not wired: "
-                    + "only System.String and int32 values have a ToDictionary result surface "
-                    + "(b5-gaps section 83/104).");
+                    + "only System.String, int32, and int64 values have a ToDictionary result surface "
+                    + "(b5-gaps section 83/104/106).");
             }
             // b5-gaps section 104: a string KEY + an int32 VALUE is a LINQ-only
             // shape (the instance-path SI domain's own wrapper is a DIFFERENT
@@ -2106,6 +2113,12 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             if (dictKeySuffix == "string" && dictValueSuffix == "int")
             {
                 dictValueSuffix = "int_gen";
+            }
+            // b5-gaps section 106: the string KEY + int64 VALUE LINQ shape rides
+            // the gen wrapper too (the boxed int64 carrier).
+            if (dictKeySuffix == "string" && dictValueSuffix == "long")
+            {
+                dictValueSuffix = "long_gen";
             }
             string? srcCell = genArgs is { Length: >= 1 }
                 ? LinqCellCodeOfElemByte(genArgs[0]) ?? (genArgs[0] == 0x0E ? "15" : null)
@@ -6898,18 +6911,28 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             else if (dtval is 0x08 or 0x09) { dtValueKind = "1"; dtValueSuffix = "int"; }
             else if (dtval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.Int32")
             { dtValueKind = "1"; dtValueSuffix = "int"; }
+            // b5-gaps section 106: the int64 VALUE family over a List source.
+            else if (dtval is 0x0A or 0x0B) { dtValueKind = "16"; dtValueSuffix = "long"; }
+            else if (dtval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.Int64")
+            { dtValueKind = "16"; dtValueSuffix = "long"; }
             else
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToDictionary over a List with a {GenericArgTypeName(dtval)} TValue is not wired: "
-                    + "only System.String and int32 values have a ToDictionary result surface "
-                    + "(b5-gaps section 83/104).");
+                    + "only System.String, int32, and int64 values have a ToDictionary result surface "
+                    + "(b5-gaps section 83/104/106).");
             }
             // b5-gaps section 104: the string-key + int32-value LINQ shape rides
             // the gen wrapper (see the array kernel above).
             if (dtKeySuffix == "string" && dtValueSuffix == "int")
             {
                 dtValueSuffix = "int_gen";
+            }
+            // b5-gaps section 106: the string-key + int64-value LINQ shape rides
+            // the gen wrapper too.
+            if (dtKeySuffix == "string" && dtValueSuffix == "long")
+            {
+                dtValueSuffix = "long_gen";
             }
             // The delegated kernel's ARRAY cell code follows the List element
             // family: int32 list -> cell 7; reference list -> cell 15.
