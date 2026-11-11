@@ -28,6 +28,7 @@
 //------------------------------------------------------------------------------
 
 #include "linq_family.h"
+#include "il2cpp_boxing_ext.h"  // icall_box_double / icall_unbox_double (section 109)
 #include "il2cpp_boxing_ext2.h" // icall_box_long (b5-gaps section 106)
 #include "linq_list.h"                 // il2cpp_linq_list_snapshot (List<int> inners)
 #include "listi4.h"                    // il2cpp_list_i4_class (List<int> inners)
@@ -4047,11 +4048,11 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
         return nullptr;
     }
     if (valueKind != kGenKind_Int32 && valueKind != kGenKind_Int64
-        && valueKind != kGenKind_String)
+        && valueKind != kGenKind_String && valueKind != kGenKind_Double)
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.ToDictionary: this TValue family has no dictgen value "
-            "kind (b5-gaps section 78/106).");
+            "kind (b5-gaps section 78/106/109).");
         return nullptr;
     }
     Il2CppDelegate* kd = reinterpret_cast<Il2CppDelegate*>(keySel);
@@ -4067,7 +4068,8 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
         : keyKind == kGenKind_Int64Key ? 1
         : 3; // i4 / i8 / ref (o)
     const int32_t valSlot = valueKind == kGenKind_Int32 ? 0
-        : valueKind == kGenKind_Int64 ? 1 : 3;
+        : valueKind == kGenKind_Int64 ? 1
+        : valueKind == kGenKind_Double ? 2 : 3;
     const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
     const Sel1Fn ival = vd != nullptr ? kSel1[(valSlot * 4 + srcSlot)] : nullptr;
     const int32_t n = src->length;
@@ -4120,6 +4122,15 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
                 // carrier (the same 8-byte payload slot as the boxed int32).
                 value = runtime::icall_box_long(vc);
             }
+            else if (valueKind == kGenKind_Double)
+            {
+                // b5-gaps section 109: the element selector returns a double --
+                // its bits arrive as int64 through the Sel1 ABI; re-interpret,
+                // never convert (cf. section 107's key-double memcpy).
+                double vdVal;
+                std::memcpy(&vdVal, &vc, sizeof(vdVal));
+                value = runtime::icall_box_double(vdVal);
+            }
             else
             {
                 value = reinterpret_cast<Il2CppObject*>(vc);
@@ -4134,6 +4145,12 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
             // b5-gaps section 106: the 2-arg form's value IS the source
             // element -- a long source element is a boxed int64 carrier.
             value = runtime::icall_box_long(a.i8);
+        }
+        else if (valueKind == kGenKind_Double)
+        {
+            // b5-gaps section 109: the 2-arg form's value IS the source
+            // element -- a double source element is a boxed double carrier.
+            value = runtime::icall_box_double(a.d);
         }
         else
         {
@@ -4500,7 +4517,7 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
         return nullptr;
     }
     if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64
-        && keyKind != kGenKind_Double && keyKind != kGenKind_String)
+        && keyKind != kGenKind_String)
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.ToLookup: this TKey family has no lookup key kind "

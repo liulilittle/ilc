@@ -2100,6 +2100,16 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             else if (tval is 0x0A or 0x0B) { dictValueKind = "16"; dictValueSuffix = "long"; }
             else if (tval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.Int64")
             { dictValueKind = "16"; dictValueSuffix = "long"; }
+            // b5-gaps section 109: the double VALUE family. The value carrier is
+            // a BOXED double (icall_box_double -- the same 8-byte payload slot as
+            // the boxed int64/int32); get_Item unboxes the boxed carrier and
+            // get_Values returns a real double[] snapshot (net48's
+            // Dictionary<TKey,double>.Values layout). The selector ABI keeps the
+            // double in its own cell (slot 2), so no int64->double conversion
+            // occurs (cf. section 107's memcpy re-interpretation for keys).
+            else if (tval is 0x0C or 0x0D) { dictValueKind = "17"; dictValueSuffix = "double"; }
+            else if (tval == 0x11 && genArgNames is { Length: >= 3 } && genArgNames[2] == "System.Double")
+            { dictValueKind = "17"; dictValueSuffix = "double"; }
             else
             {
                 throw new NotSupportedException(

@@ -13,6 +13,7 @@
 #include "il2cpp_metadata.h" // (array + class registration surface, dictsi precedent)
 #include "il2cpp_object.h"   // il2cpp_object_new / il2cpp_class_register
 #include "il2cpp_runtime.h"  // il2cpp_box_int32
+#include "il2cpp_boxing_ext.h"  // icall_box_double / icall_unbox_double (section 109)
 #include "il2cpp_boxing_ext2.h" // icall_box_long / icall_unbox_long (b5-gaps section 106)
 #include "il2cpp_string.h"
 #include "il2cpp_value_semantics.h" // (string-hash authority, dictsi precedent)
@@ -316,6 +317,17 @@ int32_t il2cpp_dict_gen_hash_carrier(const Il2CppObject* carrier, int32_t kind)
     {
         return il2cpp_dict_gen_unbox_int32(carrier) & 0x7FFFFFFF;
     }
+    if (kind == kGenKind_Int64)
+    {
+        return static_cast<int32_t>(runtime::icall_unbox_long(const_cast<Il2CppObject*>(carrier)) & 0x7FFFFFFFLL);
+    }
+    if (kind == kGenKind_Double)
+    {
+        double v = runtime::icall_unbox_double(const_cast<Il2CppObject*>(carrier));
+        int64_t bits;
+        std::memcpy(&bits, &v, sizeof(bits));
+        return static_cast<int32_t>(bits & 0x7FFFFFFFLL);
+    }
     if (kind == kGenKind_String || kind == kGenKind_Uri)
     {
         return StringHash(reinterpret_cast<const Il2CppString*>(carrier));
@@ -332,6 +344,14 @@ bool il2cpp_dict_gen_carrier_equals(const Il2CppObject* a, const Il2CppObject* b
     if (kind == kGenKind_Int32)
     {
         return il2cpp_dict_gen_unbox_int32(a) == il2cpp_dict_gen_unbox_int32(b);
+    }
+    if (kind == kGenKind_Int64)
+    {
+        return runtime::icall_unbox_long(const_cast<Il2CppObject*>(a)) == runtime::icall_unbox_long(const_cast<Il2CppObject*>(b));
+    }
+    if (kind == kGenKind_Double)
+    {
+        return runtime::icall_unbox_double(const_cast<Il2CppObject*>(a)) == runtime::icall_unbox_double(const_cast<Il2CppObject*>(b));
     }
     if (kind == kGenKind_String || kind == kGenKind_Uri)
     {
@@ -353,6 +373,16 @@ Il2CppObject* il2cpp_dict_gen_box_int32(int32_t value)
 int32_t il2cpp_dict_gen_unbox_int32(const Il2CppObject* boxed)
 {
     return *reinterpret_cast<const int32_t*>(reinterpret_cast<const char*>(boxed) + 8);
+}
+
+Il2CppObject* il2cpp_dict_gen_box_double(double value)
+{
+    return runtime::icall_box_double(value);
+}
+
+double il2cpp_dict_gen_unbox_double(const Il2CppObject* boxed)
+{
+    return runtime::icall_unbox_double(const_cast<Il2CppObject*>(boxed));
 }
 
 //-----------------------------------------------------------------------------
@@ -941,6 +971,81 @@ Il2CppArray* il2cpp_dict_gen_get_values_l(Il2CppDictGen* d)
     return result;
 }
 
+// b5-gaps section 109: the double-value instance arms. The value carrier is a
+// BOXED double (icall_box_double) -- the same 8-byte payload slot as the boxed
+// int64/int32.
+double il2cpp_dict_gen_get_d(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* value = nullptr;
+    if (il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &value, keyKind, valueKind))
+    {
+        return value != nullptr ? runtime::icall_unbox_double(value) : 0.0;
+    }
+    il2cpp_throw_key_not_found_exception(nullptr);
+    return 0.0; // unreachable (the factory throws)
+}
+
+void il2cpp_dict_gen_add_d(Il2CppObject* self, int32_t key, double value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_add(AsDict(self), key, nullptr,
+        runtime::icall_box_double(value), keyKind, valueKind);
+}
+
+void il2cpp_dict_gen_set_d(Il2CppObject* self, int32_t key, double value,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    il2cpp_dict_gen_set(AsDict(self), key, nullptr,
+        runtime::icall_box_double(value), keyKind, valueKind);
+}
+
+bool il2cpp_dict_gen_try_get_value_d(Il2CppObject* self, int32_t key,
+    double* value, int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* boxed = nullptr;
+    if (!il2cpp_dict_gen_try_get_value(AsDict(self), key, nullptr, &boxed,
+                                       keyKind, valueKind))
+    {
+        if (value != nullptr)
+        {
+            *value = 0.0; // net48: out is default(TValue) on a miss
+        }
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = boxed != nullptr ? runtime::icall_unbox_double(boxed) : 0.0;
+    }
+    return true;
+}
+
+// b5-gaps section 109: the double-value snapshot (a real double[] -- net48's
+// Dictionary<TKey,double>.Values layout). Every value carrier is a boxed double.
+Il2CppArray* il2cpp_dict_gen_get_values_d(Il2CppDictGen* d)
+{
+    const int32_t live = OccupiedCount(d);
+    Il2CppArray* result = il2cpp_array_new_typed(
+        static_cast<int32_t>(sizeof(double)), kElemKindD, live);
+    double* dst = reinterpret_cast<double*>(result->data);
+    int32_t n = 0;
+    for (int32_t i = d->seqHead; i >= 0 && n < live; i = d->entries[i].seqNext)
+    {
+        if (d->entries[i].hashCode < 0)
+        {
+            continue;
+        }
+        Il2CppObject* boxed = d->entries[i].value;
+        dst[n++] = boxed != nullptr
+            ? runtime::icall_unbox_double(boxed) : 0.0;
+    }
+    return result;
+}
+
 namespace runtime {
 
 // b5-gaps section 104: the int32-value icall arms. The value carrier is a
@@ -1004,6 +1109,74 @@ Il2CppArray* icall_dict_gen_get_values_l(Il2CppObject* self)
 {
     ThrowIfNullReceiver(self);
     return il2cpp_dict_gen_get_values_l(AsDict(self));
+}
+
+// b5-gaps section 109: the double-value icall twins (int32-key form).
+double icall_dict_gen_get_d(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind)
+{
+    return il2cpp_dict_gen_get_d(self, key, keyKind, valueKind);
+}
+
+void icall_dict_gen_add_d(Il2CppObject* self, int32_t key, double value,
+    int32_t keyKind, int32_t valueKind)
+{
+    il2cpp_dict_gen_add_d(self, key, value, keyKind, valueKind);
+}
+
+void icall_dict_gen_set_d(Il2CppObject* self, int32_t key, double value,
+    int32_t keyKind, int32_t valueKind)
+{
+    il2cpp_dict_gen_set_d(self, key, value, keyKind, valueKind);
+}
+
+bool icall_dict_gen_try_get_value_d(Il2CppObject* self, int32_t key,
+    double* value, int32_t keyKind, int32_t valueKind)
+{
+    return il2cpp_dict_gen_try_get_value_d(self, key, value, keyKind, valueKind);
+}
+
+Il2CppArray* icall_dict_gen_get_values_d(Il2CppObject* self)
+{
+    ThrowIfNullReceiver(self);
+    return il2cpp_dict_gen_get_values_d(AsDict(self));
+}
+
+// b5-gaps section 109: the string-key + double-value twin.
+double icall_dict_gen_get_d_o(Il2CppObject* self, Il2CppObject* key,
+    int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* value = nullptr;
+    // b5-gaps section 109: string keys are reference carriers; pass keyInt=0 and
+    // keyRef=key (the int32 key slot is unused for reference keys).
+    if (il2cpp_dict_gen_try_get_value(AsDict(self), 0, key, &value, keyKind, valueKind))
+    {
+        return value != nullptr ? runtime::icall_unbox_double(value) : 0.0;
+    }
+    il2cpp_throw_key_not_found_exception(nullptr);
+    return 0.0; // unreachable (the factory throws)
+}
+
+bool icall_dict_gen_try_get_value_d_o(Il2CppObject* self, Il2CppObject* key,
+    double* value, int32_t keyKind, int32_t valueKind)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppObject* boxed = nullptr;
+    if (!il2cpp_dict_gen_try_get_value(AsDict(self), 0, key, &boxed,
+                                       keyKind, valueKind))
+    {
+        if (value != nullptr)
+        {
+            *value = 0.0;
+        }
+        return false;
+    }
+    if (value != nullptr)
+    {
+        *value = boxed != nullptr ? runtime::icall_unbox_double(boxed) : 0.0;
+    }
+    return true;
 }
 
 } // namespace il2cpp::runtime

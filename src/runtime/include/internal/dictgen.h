@@ -301,6 +301,25 @@ void icall_dict_gen_set_l(Il2CppObject* self, int32_t key, int64_t value,
 bool icall_dict_gen_try_get_value_l(Il2CppObject* self, int32_t key,
     int64_t* value, int32_t keyKind, int32_t valueKind);
 Il2CppArray* icall_dict_gen_get_values_l(Il2CppObject* self);
+
+// b5-gaps section 109: the double-VALUE icall twins (a boxed double carrier).
+double icall_dict_gen_get_d(Il2CppObject* self, int32_t key,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_add_d(Il2CppObject* self, int32_t key, double value,
+    int32_t keyKind, int32_t valueKind);
+void icall_dict_gen_set_d(Il2CppObject* self, int32_t key, double value,
+    int32_t keyKind, int32_t valueKind);
+bool icall_dict_gen_try_get_value_d(Il2CppObject* self, int32_t key,
+    double* value, int32_t keyKind, int32_t valueKind);
+Il2CppArray* icall_dict_gen_get_values_d(Il2CppObject* self);
+
+// b5-gaps section 109: the STRING-KEY + double-VALUE twin (the LINQ
+// ToDictionary string->double shape): the key is a managed reference, so
+// get_Item/TryGetValue take the object key and return/unbox a double leaf.
+double icall_dict_gen_get_d_o(Il2CppObject* self, Il2CppObject* key,
+    int32_t keyKind, int32_t valueKind);
+bool icall_dict_gen_try_get_value_d_o(Il2CppObject* self, Il2CppObject* key,
+    double* value, int32_t keyKind, int32_t valueKind);
 // The STRING-KEY twins (the LINQ ToDictionary string->int64 shape): the key is
 // a managed reference, so the value is passed alongside the object key.
 int64_t icall_dict_gen_get_l_o(Il2CppObject* self, Il2CppObject* key,
