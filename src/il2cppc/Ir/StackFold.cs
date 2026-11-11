@@ -3673,7 +3673,7 @@ public static class StackFold
                     if (TypeKindPredicateOf(md, (int)ins.Operand) is { } kindPred)
                     {
                         stack.Pop();
-                        Push(new IntConstExpr { Value = TypeKindFlag(md, memberToken, kindPred) ? 1 : 0 }, ins);
+                        Push(new IntConstExpr { Value = TypeKindFlag(md, memberToken, kindPred, types) ? 1 : 0 }, ins);
                         return;
                     }
                     if (IsTypeGetBaseType(md, (int)ins.Operand))
@@ -8431,7 +8431,8 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
         // real metadata shape; a TypeRef (BCL) from the curated core table
         // (documented boundary -- only the types the net48 probes reach are
         // pinned; anything else answers the conservative default).
-        static bool TypeKindFlag(MetadataReader md, int token, string pred)
+        static bool TypeKindFlag(MetadataReader md, int token, string pred,
+            IReadOnlyList<TypeDef>? types = null)
         {
             var handle = MetadataTokens.Handle(token);
             if (handle.Kind == HandleKind.TypeSpecification)
@@ -8458,6 +8459,30 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                                 _ => null,
                             };
                             return dn == "System.Nullable`1";
+                        }
+                        if (et == 0x13)
+                        {
+                            // VAR (generic type parameter T) -- resolve through the
+                            // enclosing clone's InstantiationSuffixHint, mirroring
+                            // TypeNameForReflection (:10126). The M3 single-instantiation
+                            // default is System.Int32, which IS a value type.
+                            var vIdx = sig.ReadCompressedInteger();
+                            var hint = MethodRefResolver.InstantiationSuffixHint;
+                            if (hint != null)
+                            {
+                                var part = MethodRefResolver.InstantiationSuffixHintParts
+                                    is { Length: > 1 }
+                                    ? MethodRefResolver.InstantiationVarSuffix(vIdx)
+                                    : hint.Split('_') is { } pp
+                                        && vIdx < pp.Length ? pp[vIdx] : null;
+                                if (part != null)
+                                {
+                                    var full = SuffixToManagedTypeName(part);
+                                    return BclTypeKindFlag(full, "valuetype")
+                                        || (types != null && IsValueTypeOwner(full, types));
+                                }
+                            }
+                            return BclTypeKindFlag("System.Int32", "valuetype");
                         }
                         return false;
                     case "class":
