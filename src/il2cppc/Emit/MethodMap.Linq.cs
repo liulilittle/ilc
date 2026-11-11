@@ -1016,10 +1016,10 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             lkElemArr = ep == "string" ? "System.String[]" : ep == "long" ? "System.Int64[]" : ep == "double" ? "System.Double[]" : "System.Int32[]";
         }
         else if (owner == "System.Linq.ILookup`2" && genArgs is { Length: >= 2 }
-            && (genArgs[0] is 0x08 or 0x09 or 0x0E or 0x0A or 0x0B)
+            && (genArgs[0] is 0x03 or 0x08 or 0x09 or 0x0E or 0x0A or 0x0B)
             && (genArgs[1] == 0x0E || LinqCellCodeOfElemByte(genArgs[1]) != null))
         {
-            lkKeyKind = genArgs[0] is 0x08 or 0x09 ? "1"
+            lkKeyKind = genArgs[0] is 0x03 or 0x08 or 0x09 ? "1"
                 : genArgs[0] is 0x0A or 0x0B ? "16"
                 : genArgs[0] == 0x0D ? "17"
                 : "0";
@@ -2197,14 +2197,17 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // b5-gaps section 107: the System.Double key (the raw 64-bit image;
             // the membership scan compares VALUES, never the bit pattern).
             else if (ltkey == 0x0D) { lookupKeyKind = "17"; lookupKeySuffix = "double"; }
+            // b5-gaps section 111: the System.Char key rides the int32 keyInt
+            // slot (slot 0) with dictgen kind "1" (int32 hash/equals).
+            else if (ltkey == 0x03) { lookupKeyKind = "1"; lookupKeySuffix = "int"; }
             else if (ltkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
             { lookupKeyKind = "0"; lookupKeySuffix = "string"; }
             else
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup<TKey={GenericArgTypeName(ltkey)}> is not wired: the " +
-                    "TKey family must be int32, a System.String, an int64/uint64, or a System.Double " +
-                    "(b5-gaps section 79/102/107).");
+                    "TKey family must be int32, a System.String, an int64/uint64, a System.Double, " +
+                    "or a System.Char (b5-gaps section 79/102/107/111).");
             }
             string? lsrcCell = genArgs is { Length: >= 1 }
                 ? LinqCellCodeOfElemByte(genArgs[0]) ?? (genArgs[0] == 0x0E ? "15" : null)
@@ -2213,12 +2216,12 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // "Int32[]"/"String[]" carrier; only those two ELEMENT families
             // have a type-accurate snapshot (a long[]/double[]/enum[] source
             // would be silently mis-typed if routed -- always LOUD instead).
-            if (lsrcCell != "7" && lsrcCell != "15" && lsrcCell != "8" && lsrcCell != "10")
+            if (lsrcCell != "7" && lsrcCell != "15" && lsrcCell != "8" && lsrcCell != "10" && lsrcCell != "5")
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup over a {GenericArgTypeName(genArgs[0])} source is not wired: " +
-                    "the source element family must be int32, a System.String, an int64, or a double " +
-                    "(b5-gaps section 79/102/107).");
+                    "the source element family must be int32, a System.String, an int64, a double, " +
+                    "or a char (b5-gaps section 79/102/107/111).");
             }
             // b5-gaps section 84: the ELEMENT family. The 3-generic form
             // (ToLookup<TKey,TElement> with an elementSelector) has the
