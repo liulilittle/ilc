@@ -245,6 +245,13 @@ struct Il2CppLookupGen
     // through the reflected IEqualityComparer<double>.Equals(double,double)
     // slot. kGenKind_Double = 17 (distinct from kGenKind_Int64 = 16).
     int64_t*  keyDbl;
+    // b5-gaps section 112: the System.DateTime key carrier. A DateTime key does
+    // not fit the int32 slot either. Equality compares the INTERNAL TICKS ONLY
+    // (net48 DateTime.Equals excludes Kind), so the membership scan compares
+    // tick values directly, or through the reflected
+    // IEqualityComparer<DateTime>.Equals(DateTime,DateTime) slot.
+    // kGenKind_DateTime = 19 (boxed via icall_box_date_time).
+    int64_t*  keyDt;
     int32_t*  groupLen;    // per-group element count
     int32_t*  groupOff;    // per-group start offset into srcIdx
     int32_t*  srcIdx;      // flat source indices, group-blocks (grows)
@@ -424,6 +431,19 @@ bool il2cpp_lookup_gen_comparer_equals_long(Il2CppObject* cmp, int64_t key,
 // slot (the floatgrp GroupBy key contract).
 bool il2cpp_lookup_gen_comparer_equals_dbl(Il2CppObject* cmp, double key,
                                            double existing);
+bool il2cpp_lookup_gen_comparer_equals_dt(Il2CppObject* cmp, int64_t key,
+                                          int64_t existing);
+
+// b5-gaps section 112: the System.DateTime key carrier (internal ticks;
+// the membership scan compares tick values directly or through the reflected
+// IEqualityComparer<DateTime>.Equals(DateTime,DateTime) slot).
+bool          il2cpp_lookup_gen_contains(Il2CppObject* self, runtime::Il2CppDateTime keyDt,
+                                         int32_t keyKind);
+int32_t       il2cpp_lookup_gen_find_or_add_dt(Il2CppObject* wObj, runtime::Il2CppDateTime keyDt,
+                                               int32_t keyKind, Il2CppObject* comparer);
+Il2CppArray*  il2cpp_lookup_gen_get_item(Il2CppObject* self, runtime::Il2CppDateTime keyDt,
+                                         int32_t keyKind, int32_t srcCell);
+
 
 // b5-gaps section 57: user-comparer twins over the VALUE cell families
 // (int32/uint/narrow/char/bool, int64, double/float). Each entry dispatches a

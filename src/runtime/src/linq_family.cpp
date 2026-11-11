@@ -30,6 +30,7 @@
 #include "linq_family.h"
 #include "il2cpp_boxing_ext.h"  // icall_box_double / icall_unbox_double (section 109)
 #include "il2cpp_boxing_ext2.h" // icall_box_long (b5-gaps section 106)
+#include "il2cpp_nullable.h"    // icall_box_date_time / icall_unbox_date_time (section 112)
 #include "linq_list.h"                 // il2cpp_linq_list_snapshot (List<int> inners)
 #include "listi4.h"                    // il2cpp_list_i4_class (List<int> inners)
 #include "dictgen.h"                   // b5-gaps section 78: the Dictionary`2 wrapper + gen table
@@ -2279,6 +2280,11 @@ template<> inline int64_t Sel2Erase<Il2CppObject*>(Il2CppObject* v)
 #define S2_RT_T_i8 int64_t
 #define S2_RT_T_d double
 #define S2_RT_T_o Il2CppObject*
+// b5-gaps section 112: DateTime rides the int64 carrier but crosses as a 16-byte
+// Il2CppDateTime struct (ticks in RAX, kind in RDX). Sel2Get<int64_t> reads the
+// low 62 bits as ticks; Sel1_dt_dt reconstructs the struct for the delegate call.
+#define S2_ARG_T_dt runtime::Il2CppDateTime
+#define S2_RT_T_dt runtime::Il2CppDateTime
 
 #define IL2CPP_SEL2_IMPL(RT, A1, A2)                                                \
     int64_t Sel2_##RT##_##A1##_##A2(Il2CppDelegate* d, Sel2Arg a1, Sel2Arg a2)      \
@@ -2354,6 +2360,7 @@ int32_t Sel2ArgSlotOf(int32_t cell)
         case IL2CPP_LINQ_CELL_I4:
             return 0;
         case IL2CPP_LINQ_CELL_I8:
+        case IL2CPP_LINQ_CELL_DATETIME:
             return 1;
         case IL2CPP_LINQ_CELL_F:
         case IL2CPP_LINQ_CELL_D:
@@ -2640,6 +2647,24 @@ struct JoinSlot
 
 typedef int64_t (*Sel1Fn)(Il2CppDelegate*, Sel2Arg);
 
+// b5-gaps section 112: DateTime selector ABI. Il2CppDateTime is a 16-byte
+// value (ticks + kind) passed/returned in two registers (RAX/RDX on x64).
+// Sel1_i8_i8 would pass int64_t in one register and drop the kind register --
+// wrong for Func<DateTime,DateTime>. We pass ticks in the int64 carrier and
+// kind=0 (net48 DateTime array cells strip the kind), then reconstruct the
+// 16-byte struct for the delegate call.
+int64_t Sel1_dt_dt(Il2CppDelegate* d, Sel2Arg a1)
+{
+    runtime::Il2CppDateTime arg(Sel2Get<int64_t>(a1));
+    runtime::Il2CppDateTime r = d->target != nullptr
+        ? (reinterpret_cast<runtime::Il2CppDateTime (*)(Il2CppObject*,
+                              runtime::Il2CppDateTime)>(d->methodPtr))
+              (d->target, arg)
+        : (reinterpret_cast<runtime::Il2CppDateTime (*)(runtime::Il2CppDateTime)>(
+              d->methodPtr))(arg);
+    return r.ticks;
+}
+
 #define IL2CPP_SEL1_IMPL(RT, A1)                                                \
     int64_t Sel1_##RT##_##A1(Il2CppDelegate* d, Sel2Arg a1)                     \
     {                                                                            \
@@ -2677,9 +2702,6 @@ static const Sel1Fn kSel1[16] = {
     S1R(d)
     S1R(o)
 };
-
-#undef S1K
-#undef S1R
 #undef S3_ARG_T_i4
 #undef S3_ARG_T_i8
 #undef S3_ARG_T_d
@@ -4000,7 +4022,7 @@ Il2CppArray* il2cpp_linq_group_join_cmp(Il2CppArray* outer, Il2CppArray* inner,
 // INSERTION order (the gen table's insertion-sequence -> the Keys snapshot the
 // instance get_Keys icall serves).
 //
-// REF-KEY ROOTING (the objective's "ref 键 rooting"): the dictgen table stores
+// REF-KEY ROOTING (the objective's "ref 閿?rooting"): the dictgen table stores
 // managed carriers in a RAW allocation the collector cannot see. The selector
 // returns NEW strings (NOT interned literals), so the wrapper owns a managed
 // `object[]` root pack (dictgen.h Il2CppDictGenObject::keysRoot, refFieldBitmap
@@ -4065,8 +4087,8 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
         return nullptr;
     }
     const int32_t keySlot = keyKind == kGenKind_Int32 ? 0
-        : keyKind == kGenKind_Int64Key ? 1
-        : 3; // i4 / i8 / ref (o)
+        : keyKind == kGenKind_Int64Key || keyKind == kGenKind_DateTime || keyKind == kGenKind_Double ? 1
+        : 3; // i4 / ref (o)
     const int32_t valSlot = valueKind == kGenKind_Int32 ? 0
         : valueKind == kGenKind_Int64 ? 1
         : valueKind == kGenKind_Double ? 2 : 3;
@@ -4100,6 +4122,8 @@ Il2CppObject* il2cpp_linq_to_dictionary(Il2CppArray* src, Il2CppObject* keySel,
         const int64_t kc = ikey(kd, a);
         int32_t keyInt = 0;
         Il2CppObject* keyRef = nullptr;
+        runtime::Il2CppDateTime keyDtVal{};
+        double keyDblVal = 0.0;
         if (keyKind == kGenKind_Int32)
         {
             keyInt = static_cast<int32_t>(kc);
@@ -4274,11 +4298,12 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
         return nullptr;
     }
     if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64
-        && keyKind != kGenKind_Double && keyKind != kGenKind_String)
+        && keyKind != kGenKind_Double && keyKind != kGenKind_String
+        && keyKind != kGenKind_DateTime)
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.ToLookup(elementSelector): this TKey family has no "
-            "lookup key kind (b5-gaps section 105/107).");
+            "lookup key kind (b5-gaps section 105/107/112).");
         return nullptr;
     }
     Il2CppDelegate* kd = reinterpret_cast<Il2CppDelegate*>(keySel);
@@ -4289,12 +4314,13 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
         return nullptr;
     }
     const int32_t keySlot = keyKind == kGenKind_Int32 ? 0
-        : keyKind == kGenKind_Int64 ? 1
+        : keyKind == kGenKind_Int64 || keyKind == kGenKind_DateTime ? 1
         : keyKind == kGenKind_Double ? 2
-        : 3; // i4 / i8 / f+d / ref (o)
+        : 3; // i4 / i8 / dt / f+d / ref (o)
     const int32_t elemSlot = elemCell == IL2CPP_LINQ_CELL_I4 ? 0
         : elemCell == IL2CPP_LINQ_CELL_I8 ? 1 : 3;
-    const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
+    const Sel1Fn ikey = keyKind == kGenKind_DateTime ? Sel1_dt_dt
+        : kSel1[(keySlot * 4 + srcSlot)];
     const Sel1Fn iele = kSel1[(elemSlot * 4 + srcSlot)];
     const int32_t n = src->length;
 
@@ -4353,11 +4379,28 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
         const int64_t kc = ikey(kd, a);
         int32_t keyInt = 0;
         Il2CppObject* keyRef = nullptr;
+        runtime::Il2CppDateTime keyDtVal{};
+        double keyDblVal = 0.0;
         if (keyKind == kGenKind_Int32)
         {
             keyInt = static_cast<int32_t>(kc);
         }
-        else if (keyKind != kGenKind_Double)
+        else if (keyKind == kGenKind_Double)
+        {
+            // b5-gaps section 107: the double key rides the int64 CARRIER (the
+            // selector ABI erases the 64-bit image); passing it to the double
+            // parameter would be an int64->double VALUE conversion (cvtsi2sd),
+            // so the bits must be re-interpreted, never converted.
+            std::memcpy(&keyDblVal, &kc, sizeof(keyDblVal));
+        }
+        else if (keyKind == kGenKind_DateTime)
+        {
+            // b5-gaps section 112: the DateTime key rides slot 1 as raw ticks
+            // (net48 DateTime array cells pack the kind in the top bits, but
+            // LinqCellReadI8 strips them -- the low 62 bits are the ticks).
+            keyDtVal = runtime::Il2CppDateTime(kc);
+        }
+        else
         {
             keyRef = reinterpret_cast<Il2CppObject*>(kc);
         }
@@ -4381,16 +4424,13 @@ Il2CppObject* il2cpp_linq_to_lookup_sel(Il2CppArray* src, Il2CppObject* keySel,
         // selector ABI erases the 64-bit image); passing it to the double
         // parameter would be an int64->double VALUE conversion (cvtsi2sd), so
         // the bits must be re-interpreted, never converted.
-        double keyDblVal = 0.0;
-        if (keyKind == kGenKind_Double)
-        {
-            std::memcpy(&keyDblVal, &kc, sizeof(keyDblVal));
-        }
         const int32_t group = keyKind == kGenKind_Int64
             ? il2cpp_lookup_gen_find_or_add_i64(wObj, kc, keyKind, comparer)
             : keyKind == kGenKind_Double
                 ? il2cpp_lookup_gen_find_or_add_dbl(wObj, keyDblVal, keyKind, comparer)
-                : il2cpp_lookup_gen_find_or_add(wObj, keyInt, keyRef, keyKind, comparer);
+                : keyKind == kGenKind_DateTime
+                    ? il2cpp_lookup_gen_find_or_add_dt(wObj, keyDtVal, keyKind, comparer)
+                    : il2cpp_lookup_gen_find_or_add(wObj, keyInt, keyRef, keyKind, comparer);
         srcGroup[i] = group;
         ++lk->groupLen[group];
     }
@@ -4517,11 +4557,11 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
         return nullptr;
     }
     if (keyKind != kGenKind_Int32 && keyKind != kGenKind_Int64
-        && keyKind != kGenKind_String)
+        && keyKind != kGenKind_String && keyKind != kGenKind_DateTime)
     {
         il2cpp_throw_not_supported_exception(
             "Enumerable.ToLookup: this TKey family has no lookup key kind "
-            "(b5-gaps section 79/107).");
+            "(b5-gaps section 79/107/112).");
         return nullptr;
     }
     Il2CppDelegate* kd = reinterpret_cast<Il2CppDelegate*>(keySel);
@@ -4531,10 +4571,11 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
         return nullptr;
     }
     const int32_t keySlot = keyKind == kGenKind_Int32 ? 0
-        : keyKind == kGenKind_Int64 ? 1
+        : keyKind == kGenKind_Int64 || keyKind == kGenKind_DateTime ? 1
         : keyKind == kGenKind_Double ? 2
-        : 3; // i4 / i8 / f+d / ref (o)
-    const Sel1Fn ikey = kSel1[(keySlot * 4 + srcSlot)];
+        : 3; // i4 / i8 / dt / f+d / ref (o)
+    const Sel1Fn ikey = keyKind == kGenKind_DateTime ? Sel1_dt_dt
+        : kSel1[(keySlot * 4 + srcSlot)];
     const int32_t n = src->length;
 
     Il2CppObject* wObj = il2cpp_object_new(il2cpp_lookup_gen_object_class());
@@ -4575,30 +4616,40 @@ Il2CppObject* il2cpp_linq_to_lookup(Il2CppArray* src, Il2CppObject* keySel,
         const int64_t kc = ikey(kd, a);
         int32_t keyInt = 0;
         Il2CppObject* keyRef = nullptr;
+        runtime::Il2CppDateTime keyDtVal{};
+        double keyDblVal = 0.0;
         if (keyKind == kGenKind_Int32)
         {
             keyInt = static_cast<int32_t>(kc);
         }
-        else if (keyKind != kGenKind_Double)
+        else if (keyKind == kGenKind_Double)
+        {
+            // b5-gaps section 107: the double key rides the int64 CARRIER (the
+            // selector ABI erases the 64-bit image); passing it to the double
+            // parameter would be an int64->double VALUE conversion (cvtsi2sd),
+            // so the bits must be re-interpreted, never converted.
+            std::memcpy(&keyDblVal, &kc, sizeof(keyDblVal));
+        }
+        else if (keyKind == kGenKind_DateTime)
+        {
+            // b5-gaps section 112: the DateTime key rides slot 1 as raw ticks
+            // (net48 DateTime array cells pack the kind in the top bits, but
+            // LinqCellReadI8 strips them -- the low 62 bits are the ticks).
+            keyDtVal = runtime::Il2CppDateTime(kc);
+        }
+        else
         {
             keyRef = reinterpret_cast<Il2CppObject*>(kc);
         }
         // The selector may allocate (t7's GC.Collect), compacting the heap;
         // re-derive every managed pointer from the roots before any barrier-write.
-        // b5-gaps section 107: the double key rides the int64 CARRIER (the selector
-        // ABI erases the 64-bit image); passing it to the double parameter would
-        // be an int64->double VALUE conversion (cvtsi2sd), so the bits must be
-        // re-interpreted, never converted.
-        double keyDblVal = 0.0;
-        if (keyKind == kGenKind_Double)
-        {
-            std::memcpy(&keyDblVal, &kc, sizeof(keyDblVal));
-        }
         const int32_t group = keyKind == kGenKind_Int64
             ? il2cpp_lookup_gen_find_or_add_i64(wObj, kc, keyKind, comparer)
             : keyKind == kGenKind_Double
                 ? il2cpp_lookup_gen_find_or_add_dbl(wObj, keyDblVal, keyKind, comparer)
-                : il2cpp_lookup_gen_find_or_add(wObj, keyInt, keyRef, keyKind, comparer);
+                : keyKind == kGenKind_DateTime
+                    ? il2cpp_lookup_gen_find_or_add_dt(wObj, keyDtVal, keyKind, comparer)
+                    : il2cpp_lookup_gen_find_or_add(wObj, keyInt, keyRef, keyKind, comparer);
         srcGroup[i] = group;
         ++lk->groupLen[group];
     }
@@ -4847,7 +4898,7 @@ Il2CppObject* il2cpp_lookup_gen_get_enumerator(Il2CppObject* self)
 // b5-gaps section 86: Enumerable.ToArray / ToList / Select / First /
 // FirstOrDefault over the ILookup result (IEnumerable<IGrouping>). All
 // materialize the grouping snapshot and apply the standard reference-element
-// kernels, exactly like the GroupBy-result arms (b5-gaps §55).
+// kernels, exactly like the GroupBy-result arms (b5-gaps 搂55).
 Il2CppArray* il2cpp_lookup_gen_to_array(Il2CppObject* self)
 {
     if (self == nullptr)
@@ -5635,6 +5686,71 @@ Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, double keyDbl,
     return reinterpret_cast<Il2CppArray*>(groups[hit]);
 }
 
+// b5-gaps section 112: the System.DateTime key membership scan. Equality
+// compares INTERNAL TICKS ONLY (net48 DateTime.Equals excludes Kind).
+bool il2cpp_lookup_gen_contains(Il2CppObject* self,
+                                runtime::Il2CppDateTime keyDt,
+                                int32_t keyKind)
+{
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    if (w == nullptr || w->lookup == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return false;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&self));
+    Il2CppLookupGenObject* wd = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    Il2CppLookupGen* lk = wd->lookup;
+    Il2CppObject* cmp = wd->comparer;
+    for (int32_t i = 0; i < lk->count; ++i)
+    {
+        const bool eq = cmp == nullptr
+            ? (lk->keyDt[i] == keyDt.ticks)
+            : il2cpp_lookup_gen_comparer_equals_dt(cmp, keyDt.ticks, lk->keyDt[i]);
+        if (eq) return true;
+        wd = reinterpret_cast<Il2CppLookupGenObject*>(self);
+        lk = wd->lookup;
+    }
+    return false;
+}
+
+// b5-gaps section 112: the System.DateTime key indexer. (v2) A missing key returns an
+// EMPTY sequence (net48's Lookup get_Item contract).
+Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self,
+                                        runtime::Il2CppDateTime keyDt,
+                                        int32_t keyKind, int32_t srcCell)
+{
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    if (w == nullptr || w->lookup == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+        return nullptr;
+    }
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&self));
+    Il2CppLookupGenObject* wd = reinterpret_cast<Il2CppLookupGenObject*>(self);
+    Il2CppLookupGen* lk = wd->lookup;
+    Il2CppObject* cmp = wd->comparer;
+    int32_t hit = -1;
+    for (int32_t i = 0; i < lk->count; ++i)
+    {
+        const bool eq = cmp == nullptr
+            ? (lk->keyDt[i] == keyDt.ticks)
+            : il2cpp_lookup_gen_comparer_equals_dt(cmp, keyDt.ticks, lk->keyDt[i]);
+        if (eq) { hit = i; break; }
+        wd = reinterpret_cast<Il2CppLookupGenObject*>(self);
+        lk = wd->lookup;
+    }
+    if (hit < 0)
+    {
+        return LinqNewArray(srcCell, 0);
+    }
+    Il2CppObject** groups = reinterpret_cast<Il2CppObject**>(
+        il2cpp_array_get_elem_ptr(wd->groupsRoot, 0));
+    return reinterpret_cast<Il2CppArray*>(groups[hit]);
+}
+
 Il2CppArray* il2cpp_lookup_gen_get_item(Il2CppObject* self, Il2CppObject* keyRef,
                                         int32_t keyKind, int32_t srcCell)
 {
@@ -5652,6 +5768,8 @@ Il2CppLookupGen* il2cpp_lookup_gen_create(int32_t capacity)
     lk->keyI64 = static_cast<int64_t*>(
         std::calloc(capacity, sizeof(int64_t)));
     lk->keyDbl = static_cast<int64_t*>(
+        std::calloc(capacity, sizeof(int64_t)));
+    lk->keyDt = static_cast<int64_t*>(
         std::calloc(capacity, sizeof(int64_t)));
     lk->groupLen = static_cast<int32_t*>(
         std::calloc(capacity, sizeof(int32_t)));
@@ -5714,6 +5832,11 @@ int32_t il2cpp_lookup_gen_find_or_add(Il2CppObject* wObj, int32_t keyInt,
         std::memcpy(nd, lk->keyDbl, sizeof(int64_t) * lk->capacity);
         std::free(lk->keyDbl);
         lk->keyDbl = nd;
+        int64_t* nq = static_cast<int64_t*>(
+            std::malloc(sizeof(int64_t) * ncap));
+        std::memcpy(nq, lk->keyDt, sizeof(int64_t) * lk->capacity);
+        std::free(lk->keyDt);
+        lk->keyDt = nq;
         int32_t* nl = static_cast<int32_t*>(
             std::malloc(sizeof(int32_t) * ncap));
         std::memcpy(nl, lk->groupLen, sizeof(int32_t) * lk->capacity);
@@ -5777,6 +5900,11 @@ int32_t il2cpp_lookup_gen_find_or_add_i64(Il2CppObject* wObj, int64_t keyI64,
         std::memcpy(nd, lk->keyDbl, sizeof(int64_t) * lk->capacity);
         std::free(lk->keyDbl);
         lk->keyDbl = nd;
+        int64_t* nq = static_cast<int64_t*>(
+            std::malloc(sizeof(int64_t) * ncap));
+        std::memcpy(nq, lk->keyDt, sizeof(int64_t) * lk->capacity);
+        std::free(lk->keyDt);
+        lk->keyDt = nq;
         int32_t* nl = static_cast<int32_t*>(
             std::malloc(sizeof(int32_t) * ncap));
         std::memcpy(nl, lk->groupLen, sizeof(int32_t) * lk->capacity);
@@ -5837,6 +5965,11 @@ int32_t il2cpp_lookup_gen_find_or_add_dbl(Il2CppObject* wObj, double keyDbl,
         std::memcpy(nd, lk->keyDbl, sizeof(int64_t) * lk->capacity);
         std::free(lk->keyDbl);
         lk->keyDbl = nd;
+        int64_t* nq = static_cast<int64_t*>(
+            std::malloc(sizeof(int64_t) * ncap));
+        std::memcpy(nq, lk->keyDt, sizeof(int64_t) * lk->capacity);
+        std::free(lk->keyDt);
+        lk->keyDt = nq;
         int32_t* nl = static_cast<int32_t*>(
             std::malloc(sizeof(int32_t) * ncap));
         std::memcpy(nl, lk->groupLen, sizeof(int32_t) * lk->capacity);
@@ -5854,6 +5987,96 @@ int32_t il2cpp_lookup_gen_find_or_add_dbl(Il2CppObject* wObj, double keyDbl,
     lk->groupLen[g] = 0;
     ++lk->count;
     return g;
+}
+
+// b5-gaps section 112: the System.DateTime key find-or-add. Equality compares
+// INTERNAL TICKS ONLY (net48 DateTime.Equals excludes Kind); default equality is
+// direct tick comparison, otherwise the reflected IEqualityComparer<DateTime>
+// .Equals(DateTime,DateTime) slot.
+int32_t il2cpp_lookup_gen_find_or_add_dt(Il2CppObject* wObj,
+                                         runtime::Il2CppDateTime keyDt,
+                                         int32_t keyKind,
+                                         Il2CppObject* comparer)
+{
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&wObj));
+    Il2CppLookupGenObject* w = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+    Il2CppLookupGen* lk = w->lookup;
+    const int32_t c = lk->count;
+    for (int32_t i = 0; i < c; ++i)
+    {
+        const bool match = comparer == nullptr
+            ? (lk->keyDt[i] == keyDt.ticks)
+            : il2cpp_lookup_gen_comparer_equals_dt(comparer, keyDt.ticks, lk->keyDt[i]);
+        if (match) return i;
+        w = reinterpret_cast<Il2CppLookupGenObject*>(wObj);
+        lk = w->lookup;
+    }
+    if (lk->count >= lk->capacity)
+    {
+        const int32_t ncap = lk->capacity * 2;
+        int32_t* nk = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * ncap));
+        std::memcpy(nk, lk->keyInt, sizeof(int32_t) * lk->capacity);
+        std::free(lk->keyInt);
+        lk->keyInt = nk;
+        int64_t* ni = static_cast<int64_t*>(
+            std::malloc(sizeof(int64_t) * ncap));
+        std::memcpy(ni, lk->keyI64, sizeof(int64_t) * lk->capacity);
+        std::free(lk->keyI64);
+        lk->keyI64 = ni;
+        int64_t* nd = static_cast<int64_t*>(
+            std::malloc(sizeof(int64_t) * ncap));
+        std::memcpy(nd, lk->keyDbl, sizeof(int64_t) * lk->capacity);
+        std::free(lk->keyDbl);
+        lk->keyDbl = nd;
+        int64_t* nq = static_cast<int64_t*>(
+            std::malloc(sizeof(int64_t) * ncap));
+        std::memcpy(nq, lk->keyDt, sizeof(int64_t) * lk->capacity);
+        std::free(lk->keyDt);
+        lk->keyDt = nq;
+        int32_t* nl = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * ncap));
+        std::memcpy(nl, lk->groupLen, sizeof(int32_t) * lk->capacity);
+        std::free(lk->groupLen);
+        lk->groupLen = nl;
+        int32_t* no = static_cast<int32_t*>(
+            std::malloc(sizeof(int32_t) * ncap));
+        std::memcpy(no, lk->groupOff, sizeof(int32_t) * lk->capacity);
+        std::free(lk->groupOff);
+        lk->groupOff = no;
+        lk->capacity = ncap;
+    }
+    const int32_t g = lk->count;
+    lk->keyDt[g] = keyDt.ticks;
+    lk->groupLen[g] = 0;
+    ++lk->count;
+    return g;
+}
+
+// b5-gaps section 112: the reflected IEqualityComparer<DateTime>.Equals(DateTime,
+// DateTime) slot.
+bool il2cpp_lookup_gen_comparer_equals_dt(Il2CppObject* cmp,
+                                          int64_t key,
+                                          int64_t existing)
+{
+    if (cmp == nullptr)
+    {
+        return key == existing;
+    }
+    int32_t slot = FindVirtualSlotByNameAndSignature(cmp, "Equals",
+        "(V:System.DateTime,V:System.DateTime)");
+    if (slot < 0 || cmp->klass == nullptr || cmp->klass->vtable == nullptr ||
+        slot >= cmp->klass->vtableSize || cmp->klass->vtable[slot] == nullptr)
+    {
+        // Fallback: net48 EqualityComparer<DateTime>.Default compares internal ticks only.
+        return key == existing;
+    }
+    runtime::Il2CppDateTime keyDt(key);
+    runtime::Il2CppDateTime existingDt(existing);
+    typedef bool (*EqualsFn)(Il2CppObject*, runtime::Il2CppDateTime,
+                             runtime::Il2CppDateTime);
+    return reinterpret_cast<EqualsFn>(cmp->klass->vtable[slot])(cmp, keyDt, existingDt);
 }
 
 } // namespace il2cpp

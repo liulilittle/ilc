@@ -76,6 +76,9 @@ constexpr int32_t kGenKind_Double = 17;
 // b5-gaps section 108: the INT64 KEY carrier. The entry's keyInt slot is only
 // 4 bytes, so a long key rides a parallel int64 array in the same entry slot.
 constexpr int32_t kGenKind_Int64Key = 18;
+// b5-gaps section 112: the System.DateTime key carrier (boxed via
+// icall_box_date_time; compared by internal ticks, kind excluded).
+constexpr int32_t kGenKind_DateTime = 19;
 // Phase-2: Uri keys normalize to their string form at the twin entry, then
 // ride the string-kind table path (the T4 uristr contract, no twin family).
 constexpr int32_t kGenKind_Uri = 2; // normalized to string on entry

@@ -1011,19 +1011,20 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             int us = rest.IndexOf('_');
             string kp = us > 0 ? rest.Substring(0, us) : rest;
             string ep = us > 0 ? rest.Substring(us + 1) : "";
-            lkKeyKind = kp == "int" ? "1" : kp == "long" ? "16" : kp == "double" ? "17" : "0";
-            lkElemCell = ep == "string" ? "15" : ep == "long" ? "8" : ep == "double" ? "10" : "7";
-            lkElemArr = ep == "string" ? "System.String[]" : ep == "long" ? "System.Int64[]" : ep == "double" ? "System.Double[]" : "System.Int32[]";
+            lkKeyKind = kp == "int" ? "1" : kp == "long" ? "16" : kp == "double" ? "17" : kp == "dt" ? "19" : "0";
+            lkElemCell = ep == "string" ? "15" : ep == "long" ? "8" : ep == "double" ? "10" : ep == "dt" ? "12" : "7";
+            lkElemArr = ep == "string" ? "System.String[]" : ep == "long" ? "System.Int64[]" : ep == "double" ? "System.Double[]" : ep == "dt" ? "System.DateTime[]" : "System.Int32[]";
         }
         else if (owner == "System.Linq.ILookup`2" && genArgs is { Length: >= 2 }
-            && (genArgs[0] is 0x03 or 0x08 or 0x09 or 0x0E or 0x0A or 0x0B)
+            && (genArgs[0] is 0x03 or 0x08 or 0x09 or 0x0E or 0x0A or 0x0B or 0x11)
             && (genArgs[1] == 0x0E || LinqCellCodeOfElemByte(genArgs[1]) != null))
         {
             lkKeyKind = genArgs[0] is 0x03 or 0x08 or 0x09 ? "1"
                 : genArgs[0] is 0x0A or 0x0B ? "16"
                 : genArgs[0] == 0x0D ? "17"
+                : genArgs[0] == 0x11 ? "19"
                 : "0";
-            lkElemCell = genArgs[1] == 0x0E ? "15" : LinqCellCodeOfElemByte(genArgs[1]);            lkElemArr = genArgs[1] == 0x0E ? "System.String[]" : genArgs[1] == 0x0D ? "System.Double[]" : "System.Int32[]";
+            lkElemCell = genArgs[1] == 0x0E ? "15" : genArgs[1] == 0x11 ? "12" : LinqCellCodeOfElemByte(genArgs[1]);            lkElemArr = genArgs[1] == 0x0E ? "System.String[]" : genArgs[1] == 0x0D ? "System.Double[]" : genArgs[1] == 0x11 ? "System.DateTime[]" : "System.Int32[]";
         }
         if (lkKeyKind != null && lkElemCell != null && lkElemArr != null)
         {
@@ -1034,17 +1035,17 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             }
             if (name == "Contains" && count == 1)
             {
-                // b5-gaps section 102: the int64 key rides the "l" cast (the
-                // int32 cast would bind the int32 overload, whose ref branch
-                // matches every null keysRoot entry).
-                string lkCast = lkKeyKind == "0" ? "" : lkKeyKind == "16" ? "l" : lkKeyKind == "17" ? "d" : "i";
+                // b5-gaps section 112: DateTime keys pass as Il2CppDateTime by value (no cast);
+                // int64 keys need "l" to bind the int64 overload.
+                string lkCast = lkKeyKind == "0" || lkKeyKind == "19" ? "" : lkKeyKind == "16" ? "l" : lkKeyKind == "17" ? "d" : "i";
                 return I("il2cpp::il2cpp_lookup_gen_contains", 1, true, false, true,
                     new[] { "", lkCast },
                     appendLiterals: new[] { lkKeyKind });
             }
             if (name == "get_Item" && count == 1)
             {
-                string lkCast = lkKeyKind == "0" ? "" : lkKeyKind == "16" ? "l" : lkKeyKind == "17" ? "d" : "i";
+                // b5-gaps section 112: DateTime keys pass as Il2CppDateTime by value (no cast).
+                string lkCast = lkKeyKind == "0" || lkKeyKind == "19" ? "" : lkKeyKind == "16" ? "l" : lkKeyKind == "17" ? "d" : "i";
                 return I("il2cpp::il2cpp_lookup_gen_get_item", 1, true, true, true,
                     new[] { "", lkCast },
                     appendLiterals: new[] { lkKeyKind, lkElemCell },
@@ -2200,14 +2201,18 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // b5-gaps section 111: the System.Char key rides the int32 keyInt
             // slot (slot 0) with dictgen kind "1" (int32 hash/equals).
             else if (ltkey == 0x03) { lookupKeyKind = "1"; lookupKeySuffix = "int"; }
+            // b5-gaps section 112: the System.DateTime key rides slot 1 (the
+            // int64 slot) as raw ticks and boxed via icall_box_date_time.
+            // A DateTimeOffset key normalized to string rides kind "0".
             else if (ltkey == 0x11 && genArgNames is { Length: >= 2 } && genArgNames[1] == "System.String")
-            { lookupKeyKind = "0"; lookupKeySuffix = "string"; }
+            { lookupKeyKind = "0"; lookupKeySuffix = "dt"; }
+            else if (ltkey == 0x11) { lookupKeyKind = "19"; lookupKeySuffix = "dt"; }
             else
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup<TKey={GenericArgTypeName(ltkey)}> is not wired: the " +
                     "TKey family must be int32, a System.String, an int64/uint64, a System.Double, " +
-                    "or a System.Char (b5-gaps section 79/102/107/111).");
+                    "a System.Char, or a System.DateTime (b5-gaps section 79/102/107/111/112).");
             }
             string? lsrcCell = genArgs is { Length: >= 1 }
                 ? LinqCellCodeOfElemByte(genArgs[0]) ?? (genArgs[0] == 0x0E ? "15" : null)
@@ -2216,12 +2221,12 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             // "Int32[]"/"String[]" carrier; only those two ELEMENT families
             // have a type-accurate snapshot (a long[]/double[]/enum[] source
             // would be silently mis-typed if routed -- always LOUD instead).
-            if (lsrcCell != "7" && lsrcCell != "15" && lsrcCell != "8" && lsrcCell != "10" && lsrcCell != "5")
+            if (lsrcCell != "7" && lsrcCell != "15" && lsrcCell != "8" && lsrcCell != "10" && lsrcCell != "5" && lsrcCell != "12")
             {
                 throw new NotSupportedException(
                     $"Enumerable.ToLookup over a {GenericArgTypeName(genArgs[0])} source is not wired: " +
                     "the source element family must be int32, a System.String, an int64, a double, " +
-                    "or a char (b5-gaps section 79/102/107/111).");
+                    "a char, or a System.DateTime (b5-gaps section 79/102/107/111/112).");
             }
             // b5-gaps section 84: the ELEMENT family. The 3-generic form
             // (ToLookup<TKey,TElement> with an elementSelector) has the
@@ -2245,7 +2250,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
                     "the TElement family must be int32, int64, or a System.String (b5-gaps section 105).");
             }
             bool hasElemSel = genArgs.Length >= 3;
-            string lelemSuffix = lelemCell == "15" ? "string" : lelemCell == "8" ? "long" : lelemCell == "10" ? "double" : "int";
+            string lelemSuffix = lelemCell == "15" ? "string" : lelemCell == "8" ? "long" : lelemCell == "10" ? "double" : lelemCell == "12" ? "dt" : "int";
             string lookupName = "System.Linq.ILookup`2_" + lookupKeySuffix + "_" + lelemSuffix;
             // b5-gaps section 80: the user-IEqualityComparer overloads ride the
             // SAME materializer -- the comparer object becomes the kernel's 3rd
@@ -6406,6 +6411,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
         0x0A or 0x0B => "8",  // int64 / uint64
         0x0C => "9",  // float
         0x0D => "10", // double
+        0x11 => "12", // DateTime
         _ => null,
     };
 
@@ -6856,7 +6862,7 @@ string? smListKind = LinqListKindOfElemByte(genArgs[0], genArgNames, 0)
             }
             bool hasLElemSel = genArgs.Length >= 3;
             string lkeySuffix = lookupKeyKind == "1" ? "int" : lookupKeyKind == "16" ? "long" : lookupKeyKind == "17" ? "double" : "string";
-            string lelemSuffix = lelemCell == "15" ? "string" : lelemCell == "8" ? "long" : lelemCell == "10" ? "double" : "int";
+            string lelemSuffix = lelemCell == "15" ? "string" : lelemCell == "8" ? "long" : lelemCell == "10" ? "double" : lelemCell == "12" ? "dt" : "int";
             string lookupName = "System.Linq.ILookup`2_" + lkeySuffix + "_" + lelemSuffix;
             if (hasLElemSel)
             {
