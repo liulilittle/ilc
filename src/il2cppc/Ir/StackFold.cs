@@ -6998,7 +6998,7 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                             $"shared byref arg {bArg.GetType().Name} over a VALUE slot has no write-back bridge " +
                             "(only a local address, an instance field address and a static field address are bridged)");
                     }
-                    AddSharedByrefBridge(bi, laB, laB, v => new AssignStmt
+                    AddSharedByrefBridge(bi, laB, new LocExpr { Name = laB.Name }, v => new AssignStmt
                     {
                         Target = laB.Name,
                         Value = v,
@@ -11853,6 +11853,11 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
         "l" or "ul" => new Int64ConstExpr { Value = 0 },
         "b" or "c" or "i" or "u1" or "u2" or "ui" => new IntConstExpr { Value = 0 },
         "r" => new NullExpr(),
+        var us when us.StartsWith("us:", StringComparison.Ordinal) => new ValueTypeNewExpr
+        {
+            TypeFullName = us.Substring(3),
+            CtorToken = 0,
+        },
         _ => new IntConstExpr { Value = 0 },
     };
 
