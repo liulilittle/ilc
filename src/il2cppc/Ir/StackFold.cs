@@ -5852,8 +5852,14 @@ public static class StackFold
                 // the LIST decimal primaries (list_order_by_key_dec_* -- they
                 // contain "order_by_key"). A `list_` name belongs to
                 // DecListPrimarySeed; the array chain entry has no way to take
-                // a List (the §49 mis-emission lesson).
+                // a List (the §49 mis-emission lesson). It also matches the
+                // GROUPING decimal primaries (grouping_order_by_key_dec_* -- a
+                // decimal GroupBy bucket): the array chain kernel has no way to
+                // take a bucket either; a grouping seed must fall through to
+                // the D-LO2-1 composite (grp_dec_* -> grouping_then_by_key_dec,
+                // b5-gaps section 50 loud-linq-decorderbygrp).
                 if (name.Contains("list_", StringComparison.Ordinal)) return false;
+                if (name.Contains("grouping_", StringComparison.Ordinal)) return false;
                 if (call.Args.Count != 2) return false;
                 string? body;
                 if (name.Contains("order_by_key_desc", StringComparison.Ordinal))
