@@ -117,7 +117,13 @@ comparison goes through `il2cpp_string_compare_culture` directly, which is why
 
 - Every `List<T>` / array operator materializes EAGERLY: `var q = l.Where(p);
   l.Add(x); foreach (q)` sees the snapshot, not the late mutation. This is the
-  stage-1 design deviation documented in `linq_map.h`.
+  stage-1 design deviation documented in `linq_map.h`. EXCEPTION (section 113,
+  DONE): an `Enumerable.GroupBy` RESULT (the rsKind == 0, no-resultSelector
+  form) is now a DEFERRED query -- it re-runs the grouping on every top-level
+  enumeration and observes late array-source mutations. The remaining
+  List/array operators (Where/Select/... over arrays or Lists) keep the stage-1
+  EAGER behaviour; chaining a deferred GroupBy result into one of them
+  (`GroupBy(...).Where(...)`) is a REGISTERED gap (section 113).
 - `string.Join(Array)` over a NARROW value array (`sbyte[]`/`byte[]`/`short[]`/
   `ushort[]`/`char[]`/`bool[]`) formats through `stringext2.cpp`
   `ValueArrayElement`, whose table has no signed/unsigned-narrow or bool entry
@@ -6868,11 +6874,12 @@ the tracked Dictionary`2 instantiation.
   M1-M7 red->green. CAVEAT: the Distinct(comparer) ARM is not value-discriminable
   (a single sequence of reference-distinct groupings is unchanged by any
   equality) -- u12 pins the arm's presence via the LOUD gate.
-* still LOUD / remaining: the GroupBy LAZINESS itself (the key selector
-  re-invocation per enumeration -- the identity semantics is what the set
-  operators observe and is now fixed; the selector re-run is a separate seat);
-  the dt/ts/guid/dec idx-select results; arbitrary concrete enumerables;
-  non-(int32|string) key/element families; ToDictionary int32 values.
+* still LOUD / remaining (post section 113): the GroupBy LAZINESS selector
+  re-invocation is now IMPLEMENTED (section 113 -- DONE); the RESIDUAL scope
+  gaps are listed in that section (resultSelector-deferred / List live source /
+  chained GroupBy.Where); the dt/ts/guid/dec idx-select results; arbitrary
+  concrete enumerables; non-(int32|string) key/element families; ToDictionary
+  int32 values.
 ## 90. The decimal-source (element, index) Where -- IMPLEMENTED (commit 1eea0292)
 
 * measured first with a PER-FAMILY probe (one method per family so one transpile
@@ -6889,8 +6896,8 @@ the tracked Dictionary`2 instantiation.
 * probe-idx-vt byte-exact 159B sha 554cda9b (d1-d11); mutations M1-M4 red->green.
   The corpus (i % 3 == 0 over 4 elements) makes predicate inversion {1,2} and
   an off-by-one index {2} DISTINCT, so the two mutations are not aliases.
-* still LOUD / remaining: the GroupBy LAZINESS (key-selector re-invocation per
-  enumeration); arbitrary concrete enumerables; non-(int32|string) key/element
+* still LOUD / remaining (post section 113): GroupBy LAZINESS DONE (section
+  113); arbitrary concrete enumerables; non-(int32|string) key/element
   families; ToDictionary int32 values.
 ## 91. The (element, index) Select/Where over a GroupBy result -- IMPLEMENTED (commit 72e73fc9)
 
@@ -6906,12 +6913,12 @@ the tracked Dictionary`2 instantiation.
 * transpiler: the IGroupingResult block binds the idx forms (Select + Where),
   replacing the two LOUD throws; the ILookup2_* arms updated to the new names.
 * probe-grp-idx byte-exact 80B sha 14638dd4 (g1-g6); mutations M1-M4 red->green.
-* still LOUD / remaining: ToLookup with an int64/double TKey; ToDictionary with
-  an int32 TValue; the GroupBy LAZINESS (key-selector re-invocation per
-  enumeration -- measured: net48 re-runs the selector 2 -> 4 calls and yields
-  fresh groupings, this runtime caches the buckets and yields 2 -> 2 with shared
-  references); arbitrary concrete enumerables beyond the array/List/HashSet
-  carriers.
+* still LOUD / remaining (post section 113): ToLookup with an int64/double TKey;
+  ToDictionary with an int32 TValue; the GroupBy LAZINESS (key-selector
+  re-invocation per enumeration) is now IMPLEMENTED (section 113 -- DONE: net48
+  re-runs 2 -> 4 calls and yields fresh groupings; this runtime re-runs the
+  grouping on every top-level enumeration with fresh buckets); arbitrary
+  concrete enumerables beyond the array/List/HashSet carriers.
 ## 92. SelectMany over a grouping-enumerable + a pre-existing List re-resolve regression -- IMPLEMENTED (commit d9cbd7cb)
 
 * gap (measured): SelectMany over an ILookup result AND a GroupBy result was a
@@ -6942,7 +6949,8 @@ the tracked Dictionary`2 instantiation.
   (e.g. g.Where(...)/g.Select(...) inside a SelectMany collection selector --
   the grouping is bound to the array/ref kernels and dies with "Object is not
   an array"); ToLookup with an int64/double TKey; ToDictionary with an
-  int32/int64 TValue; the GroupBy LAZINESS (key-selector re-invocation).
+  int32/int64 TValue; the GroupBy LAZINESS (key-selector re-invocation) is
+  DONE (section 113).
 ## 93. Single / SingleOrDefault / Aggregate over a GroupBy bucket -- IMPLEMENTED (commit a56ff069)
 
 * scan that found it (one method per shape, so a LOUD in one cannot mask the
@@ -6971,7 +6979,8 @@ the tracked Dictionary`2 instantiation.
   RequireI4GroupElements) / M3 (the aggregate wrapper seeds with 0) all
   red->green. 8 regression anchors byte-identical; unit 4164/0/0; C0 0/0.
 * remaining LOUD: Append / OfType / Cast over a bucket, OrderBy over a bucket,
-  ToLookup int64/double keys, ToDictionary int32 values, the GroupBy LAZINESS.
+  ToLookup int64/double keys, ToDictionary int32 values. (GroupBy LAZINESS:
+  DONE, section 113.)
 ## 94. Append / Prepend over ARRAY sources -- IMPLEMENTED (commit 39ef9bf2)
 
 * gap (measured): Append and Prepend had NO arm ANYWHERE in the resolver -- not
@@ -6992,7 +7001,8 @@ the tracked Dictionary`2 instantiation.
   unit 4164/0/0; C0 0/0.
 * remaining LOUD: Append/Prepend over a List source and over a GroupBy bucket
   (both still unmapped); OfType/Cast over a VALUE-element source; OrderBy over a
-  bucket; ToLookup int64/double keys; ToDictionary int32 values; GroupBy LAZINESS.
+  bucket; ToLookup int64/double keys; ToDictionary int32 values. (GroupBy
+  LAZINESS: DONE, section 113.)
 ## 95. Append / Prepend over a List<T> source -- IMPLEMENTED (commit 2de9e92b)
 
 * gap (measured): the List block had NO arm for Append/Prepend, so the call fell
@@ -7017,7 +7027,8 @@ the tracked Dictionary`2 instantiation.
 * remaining LOUD: Append/Prepend over a GroupBy bucket (the bucket probe is
   byte-exact already -- the section-93-style grouping path serves it);
   OfType/Cast over a value-element source; OrderBy over a bucket; ToLookup
-  int64/double keys; ToDictionary int32 values; GroupBy LAZINESS.
+  int64/double keys; ToDictionary int32 values. (GroupBy LAZINESS: DONE,
+  section 113.)
 ## 96. Cast<T> over a wrong box: the exception TYPE -- FIXED (commit c15baeae)
 
 * gap (measured): Cast<T> obeys unbox.any -- a boxed value whose klass is NOT
@@ -7066,7 +7077,7 @@ the tracked Dictionary`2 instantiation.
   (the key carrier is a separate gate); Append/Prepend over a GroupBy bucket;
   OfType/Cast over a value-element source; OrderBy over a bucket; ToLookup
   int64/double/char/DateTime keys; ToDictionary int32/int64/double values;
-  GroupBy LAZINESS; ToList over a single IGrouping (falls through to
+  (GroupBy LAZINESS: DONE, section 113); ToList over a single IGrouping (falls through to
   il2cpp_linq_to_list -> "Object is not an array.").
 ## 98. ToList over ONE GroupBy bucket -- FIXED (commit 28c6bb34)
 
@@ -7096,7 +7107,7 @@ the tracked Dictionary`2 instantiation.
 * remaining LOUD: ToLookup/GroupBy with a float TKey; Append/Prepend over a
   GroupBy bucket; OfType/Cast over a value-element source; OrderBy over a
   bucket; ToLookup int64/double/char/DateTime keys; ToDictionary
-  int32/int64/double values; GroupBy LAZINESS; string.Join over an
+  int32/int64/double values; (GroupBy LAZINESS: DONE, section 113); string.Join over an
   IGrouping-enumerable (probe-s100r4: oracle 3,3 vs runtime empty).
 ## section 99 (2026-11-09): string.Join over an IGrouping-enumerable (GroupBy bucket) -- commit e5c8d8ee
 
@@ -7133,7 +7144,8 @@ carrier and M1/M3 re-ran on the simplified code. 18 anchors byte-identical. C0
 
 **Remaining LOUD**: ToLookup/GroupBy with an int64/double/char/DateTime TKey;
 ToDictionary with int32/int64/double values; Append/Prepend over a GroupBy bucket;
-OfType/Cast over a value-element source; OrderBy over a bucket; GroupBy LAZINESS.
+OfType/Cast over a value-element source; OrderBy over a bucket. (GroupBy LAZINESS:
+DONE, section 113.)
 ## section 100 (2026-11-09): OrderBy/OrderByDescending over a System.Single GroupBy bucket -- commit 2401d834
 
 **Symptom**: `xs.GroupBy(x => (int)x).First().OrderBy(x => x)` was LOUD-rejected
@@ -7193,7 +7205,7 @@ C0 0/0; unit 4164/0/0.
 **Remaining LOUD**: Append/Prepend over a decimal/DateTime/Guid/TimeSpan/
 DateTimeOffset bucket (no cell ABI); OfType/Cast over a value-element source;
 ToLookup int64/double/char/DateTime keys; ToDictionary int32/int64/double
-values; GroupBy LAZINESS; a float TKey GroupBy.
+values; (GroupBy LAZINESS: DONE, section 113); a float TKey GroupBy.
 ## section 102 (2026-11-10): ToLookup with an int64 TKey -- commit e6c7d62b
 
 **Symptom**: `new[] { 3L, 1L, 2L }.ToLookup(x => x)` was LOUD-rejected ("the
@@ -7286,7 +7298,8 @@ GAPS (registered)
   it and never reaches d3.Values). A probe must call every forwarded member.
 - ToDictionary int64/double values stay LOUD (the gate accepts only int32).
 - ToLookup double/char/DateTime keys stay LOUD.
-- GroupBy LAZINESS (key-selector re-invocation per enumeration) is unwired.
+- GroupBy LAZINESS (key-selector re-invocation per enumeration) is DONE
+  (section 113); the residual scope gaps are listed there.
 - A float TKey GroupBy is LOUD (KeyKindFor returns -1 for 0x0C).
 - The int64-key lookup enumeration carrier and elementSelector are unwired.
 
@@ -7313,7 +7326,7 @@ GAPS (registered)
 - The int64 selected-value width is indistinguishable at 10/30 (the low 32
   bits coincide), so M2 cannot be made to red without a value >= 2^32.
 - ToLookup double/char/DateTime keys stay LOUD; ToDictionary int64/double
-  values stay LOUD; GroupBy LAZINESS is unwired; a float TKey GroupBy is
+  values stay LOUD; GroupBy LAZINESS is DONE (section 113); a float TKey GroupBy is
   LOUD; the int64 lookup enumeration carrier for a user-comparer form is
   untested.
 
@@ -7337,7 +7350,8 @@ DONE
 GAPS (registered)
 - The int64-KEY ToDictionary domain (long keys) is still LOUD.
 - ToDictionary double values stay LOUD.
-- ToLookup double/char/DateTime keys stay LOUD; GroupBy LAZINESS is unwired; a
+- ToLookup double/char/DateTime keys stay LOUD; GroupBy LAZINESS is DONE
+  (section 113); a
   float TKey GroupBy is LOUD.
 
 ## section 107 (2026-11-10): Enumerable.ToLookup with a System.Double TKey -- commit a004f20e
@@ -7356,7 +7370,7 @@ DONE
 GAPS (registered)
 - ToLookup char/DateTime keys stay LOUD.
 - ToDictionary int64 keys + double values stay LOUD.
-- GroupBy LAZINESS is unwired; a float TKey GroupBy is LOUD.
+- GroupBy LAZINESS is DONE (section 113); a float TKey GroupBy is LOUD.
 ## section 108 (2026-11-11): Enumerable.ToDictionary with an int64 TKey -- commit 90b27ac7
 
 DONE
@@ -7387,4 +7401,134 @@ DONE
 GAPS (registered)
 - ToDictionary double values stay LOUD.
 - ToLookup char/DateTime keys stay LOUD.
-- GroupBy LAZINESS is unwired; a float TKey GroupBy is LOUD.
+- a float TKey GroupBy is LOUD. (GroupBy LAZINESS itself: DONE, section 113.)
+
+## section 113 (2026-11-12): GroupBy LAZINESS (deferred) -- IMPLEMENTED (W11, uncommitted)
+
+DONE (W11 double-audit stamped plan A, auditA-grouplazy.md:212-213)
+- SPEC was measured first (net48 oracle): a GroupBy RESULT is a DEFERRED query --
+  `after_create=0`, `after_pass1=4`, `after_pass2=4` key-selector calls over a
+  4-element source; every enumeration re-runs the selectors against the LIVE
+  source and yields FRESH IGrouping objects (ReferenceEquals between two passes
+  is False). The stage-1 runtime bucketed at GroupBy() call time (4/0/0) and
+  cached the buckets. Red anchor: probe-grp-lazy ok=False oracle sha 426f1d4f
+  vs runtime 43be742f.
+- runtime: `Il2CppLinqGroupingResult` (linq_map.h:673) keeps `groups@slot1` /
+  `count@slot2` IN PLACE and appends 5 managed reference fields (src, keySel,
+  elemSel, cmp, resSel; slot3..7) + a packed-scalar `meta` (elemKind/rsKind/
+  keyKind/srcKind/srcCell/deferred; slot8). `g_groupingResultClass`
+  (linq_map.cpp:1183): instanceSize 72, refFieldBitmap `0b11111010` (bit 1 +
+  bit 3..7), refFieldCount 6; 6 new `static_assert(offsetof==N*sizeof(void*))`;
+  every new-ref store goes through `il2cpp_write_barrier`. Construction does
+  eager `RequireArray`/`RequireCallback` validation ONLY (selector not invoked).
+- `BeginView(result)` (linq_map.cpp:7340) is the SINGLE rebuild entry: it
+  unconditionally re-runs `BuildGroups` from the persisted fields into a FRESH
+  result object, then atomically publishes groups/count (fresh bucket identity
+  per enumeration, exception-safe: a throwing selector leaves the previous
+  complete view intact and re-throws on the next pass). Rebuild boundary =
+  ONE call per TOP-LEVEL enumeration entry (auditA §3 精化 1): get_enumerator,
+  to_array, to_list, get_count, any, first, first_or_default, count_object,
+  any_object. `select` / all `linq_family.cpp grouping_enumerable_*` operators
+  (Where/Distinct/Reverse/Take/Skip/SelectMany/select_idx/where_idx and the
+  two-sequence set operators) reuse `to_array` -> one rebuild each; the two
+  sequences `first`/`second` each trigger their own to_array (B10=8/B11=8).
+  `get_grouping` is an internal helper (no rebuild). klass dispatch is
+  UNCHANGED (arraysort.cpp:5276/5314, linq_map.cpp:9808-9830).
+- dec_key arm (group_by_dec_key): the decimal-source GroupBy has its OWN
+  transpiler binding (MethodMap.Linq.cs:3009) and is wired to deferred too:
+  construction persists the query state (meta kind=Decimal / srcKind=2 /
+  deferred=1), BeginView rebuilds through BuildGroups. A dedicated probe
+  probe-grp-lazy-dec proves it (create=0 / p1=4 / p2=4 / live source p2 shows
+  99m). This CLOSES the earlier "dec_key stays eager" deviation raised by the
+  W11 double-audit review: an experiment showed routing it through BuildGroups
+  does NOT regress p0grp / loud-linq-grpdec* (all ok=True), so the
+  "elemKind would regress" objection was empirically disproved.
+- LEGACY eager views: the remaining construction points group_by_i4 /
+  group_by_elem_i4 / BuildGroups-internal and the 6-arg C++-unit-test-only
+  `il2cpp_linq_group_by_full` shim produce a zero-initialized meta
+  (deferred == 0) -> BeginView is a no-op, so the C++ runtime unit test
+  (test_linq_map.cpp:1368-1385, 2238+) and the p0/floatgrp probes keep
+  reading their construction-time buckets byte-identically (no unit-test edit).
+- GREEN: `difftest.ps1 -Case probe-grp-lazy -Compiler mingw` ok=True, oracle =
+  runtime sha 426f1d4f3fe8..., `after_create=0 / after_pass1=4 / after_pass2=4`,
+  both sides exit 0, 5/5 records diff=0. New probes: probe-grp-lazy-identity
+  ok=True (foreach fresh identity over get_enumerator); probe-grp-lazy-sidefx
+  ok=True (live-source re-read xs[0]=99 -> sum 1020, throwing selector re-throws
+  on BOTH passes, elementSelector/comparer re-run every pass [rerun]=True/True/
+  True, ANY/ToArray full-enumeration counts, eager null-key ArgumentNullException,
+  GC.Collect() between passes); probe-grp-lazy-dec ok=True (decimal-source
+  deferred). C0: dotnet build 0/0, unit 4164/0/0 + B4* 21/21,
+  CMake test_object + test_gc + test_linq_map all EXIT=0 (static_assert + GC
+  bitmap verified). M1-M9 mutation testing: each mutation produced a RED
+  difftest/compile verdict, restore produced GREEN; per-mutation mutated-source
+  copy + harness output + verdict live in
+  `.opencode/tmp/dr-mutation/M1..M9/` (meta.txt / red-harness.txt /
+  mutated-linq_map.cpp|h). Brace count + MUTATION scan clean
+  (see .opencode/tmp/exec-grouplazy-report.md and dr-mutation/).
+
+GAPS (registered -- SCOPE of this seat, NOT claimed as full deferred)
+- resultSelector-deferred (rsKind != 0): net48 defers GroupBy(keySel,
+  resultSelector) too (create=0, key=4 + res=2 per pass). This seat keeps the
+  EXISTING eager materialized result ARRAY (the transpiler tracks it as an
+  array, so no GroupingResult object can carry deferred state). RED ANCHOR:
+  probe-grp-lazy-rs (ok=False: create 0/0 vs 4/2, p1/p2 4/2 vs 0/0), listed
+  in scripts/sweep-exclude.txt as an intentional scope-gap red anchor (SKIP in
+  the byte-exact sweep; remove when wired).
+- List live source: net48 sees a late `list.Add` between two enumerations; this
+  runtime's List domain snapshots at call time (linq_list.cpp:5399 SnapshotOf),
+  so only the ARRAY source observes late mutations. Holding the snapshot array
+  in the result object is NOT holding a live List.
+- chained `GroupBy(...).Where(...)` deferred tear: net48's Where is a deferred
+  iterator (call=0, GetEnumerator=0, first MoveNext=4, each pass=4); this
+  runtime's Where over a GroupBy result materializes via
+  LinqGroupingEnumerableArray -> to_array AT CALL TIME and returns a cached
+  array. Fixing GroupBy deferred does NOT fix the Where layer; aligning it is a
+  separate seat (auditA §3.6b C3/C4/B8/B9 red evidence).
+- group_by_i4 / group_by_elem_i4 LAZINESS: these two entries have NO transpiler
+  binding (only C++ unit-test direct calls) and stay LEGACY eager views
+  (deferred == 0). They are safe through every top-level consumer (BeginView
+  no-op) but their own selector-reinvocation is not wired. Registered as a
+  residual seat. dec_key is NOT in this gap -- it is wired deferred (above).
+
+INDEPENDENT SEAT (registered by the W11 double-audit review; NOT a W11
+regression, NOT accepted as passing) -- `loud-linq-decorderbygrp` ThenBy-over-
+decimal-bucket transpiler mis-binding:
+- symptom: `difftest -Case loud-linq-decorderbygrp -Compiler mingw` ok=False,
+  runtime exit 1 with `Unhandled managed exception: Object is not an array.`
+  (52B stdout, only bdt/bdtD/bg/bgD printed; crashes on the .cs:75-76
+  `OrderBy(...).ThenBy(...)` line). Historical GREEN anchor
+  [READ:b5-gaps.md:1621]: 10-30 sweep2 ok=True sha e8754117 / 403B.
+- ROOT CAUSE: the generated Main passes the BUCKET OBJECT (loc7 =
+  get_current_ref of the GroupBy result enumerator) as the source array to
+  `il2cpp_linq_then_by_chain_dec(Il2CppArray*,...)` (decorder-gen/
+  src/Cases_LoudLinqDecOrderByGrp.cpp:502). That entry calls
+  `RequireLinqArray(src)` [READ:linq_sort.cpp:1800-1807], which throws for a
+  non-array klass. The CORRECT binding for a decimal GroupBy bucket is
+  `il2cpp_linq_grouping_then_by_key_dec` (still present in the 11-02 static
+  gen/src/...cpp:502).
+- TIMELINE (proves non-W11): 10-30 sweep2 GREEN sha e8754117 ->
+  commit `c61cc7bd` (2026-11-05, "Fuse chained ThenBy over decimal[]/
+  List<decimal> sources", b5-gaps section 50, found via
+  `git log -S'then_by_chain_dec' -- src/il2cppc/`) folded the decimal
+  GroupBy-bucket ThenBy into the array `then_by_chain_dec` chain ->
+  11-02 static gen still used the correct binding -> 11-12 re-transpile
+  exposes the wrong binding. `87fc2864` (2026-10-28) introduced the CORRECT
+  `grouping_then_by_key_dec` and is NOT the regression.
+- EVIDENCE it is not introduced by W11 (four-fold, byte-level): W3 backup
+  `linq_map.cpp.20261112-044548` == HEAD (`git hash-object` ==
+  `git rev-parse HEAD:...` == a275a6e6); `git diff --name-only` never touched
+  MethodMap.Linq.cs / StackFold.cs / linq_sort.cpp / arraysort.cpp /
+  linq_family.cpp; dr / drBase / dr-A / drDecExp four runtime.err.bin are
+  identical (SHA256 C53D7501...) and runtime.out.bin identical (DF87C25C...);
+  dec_key deferred wiring leaves the case byte-identical (still 52B / same
+  sha). Expected GREEN sha when fixed: e8754117.
+- DISPOSITION: double-audit (A ses_e33eca26affemW4ERI3eojGsBw + B
+  ses_e33ec78bbffeiiI2351YKdhBUh) granted a SCOPE RELEASE -- this seat does
+  NOT fix it (fixing requires editing MethodMap.Linq.cs / StackFold.cs /
+  linq_sort.cpp, beyond the W11 stamped plan A "klass dispatch unchanged /
+  transpiler only the rsKind!=0 return type"). **RELEASE IS NOT A PASS.** It
+  is NOT added to scripts/sweep-exclude.txt (no SKIP silencing), the
+  historical GREEN sha e8754117 is NOT altered, and the case is explicitly
+  counted as "1 known historical RED (non-W11)" in the W11 closeout report.
+  Full fix requires a separate seat with explicit parent authorization to
+  touch the transpiler/sort domain.

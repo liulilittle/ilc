@@ -5,10 +5,12 @@
 // AOT FORM (docs/design/linq-domain.md section 1.3, scheme 3): System.Linq is
 // transpiled as runtime icalls that iterate an ARRAY and invoke a managed
 // DELEGATE callback per element through its methodPtr (the generated-code
-// delegate ABI, il2cpp_delegate.h). No iterators, no IEnumerable, no
-// deferred execution -- stage 1 is EAGER materialization: every op returns a
-// fresh array (il2cpp_array_new), so a where().select() chain is an
-// array -> array icall sequence with no intermediate enumerator objects.
+// delegate ABI, il2cpp_delegate.h). Most operators are stage-1 EAGER materialization:
+// they return a fresh array (il2cpp_array_new). EXCEPTION: an Enumerable.GroupBy
+// RESULT (rsKind == 0) is a DEFERRED query -- the Il2CppLinqGroupingResult holds
+// the source + delegates and re-runs the grouping on EVERY top-level enumeration
+// (net48 semantics; docs/audit/b5-gaps.md:6848-6873). See the GroupBy domain
+// block below.
 //
 // FAMILIES (element type -> entry, section 4.2): only i4 (int32) and ref
 // (Il2CppObject*) source families exist in stage 1 -- the transpiler's
@@ -608,11 +610,14 @@ Il2CppArray* il2cpp_linq_select_idx_ref_dec(Il2CppArray* src, Il2CppObject* sel)
 //------------------------------------------------------------------------------
 // LINQ GROUPING domain (D-LINQ-4) -- Enumerable.GroupBy, int32 family.
 //
-// Eager materialization (the stage-1 AOT form): GroupBy walks the source
-// ONCE, runs the key selector EXACTLY ONCE per element (net48 GroupBy caches
-// each element's key on first enumeration -- a second pass would re-run a
-// side-effecting selector, an observable deviation), and buckets the elements
-// by the int32 key. The buckets appear in FIRST-APPEARANCE order of the
+// DEFERRED result semantics (net48, docs/audit/b5-gaps.md:6848-6873): a GroupBy
+// RESULT walks the source and runs the key selector on EVERY enumeration, not
+// once at construction (net48 does NOT cache each element's key; a second pass
+// re-runs a side-effecting selector and observes late source mutations). The
+// stage-1 AOT form used an eager construction pass; the generalized GroupBy
+// entry (rsKind == 0) now defers that pass to each top-level consumer via
+// BeginView(result), which re-runs the bucketing and yields FRESH bucket objects
+// per enumeration. The buckets still appear in FIRST-APPEARANCE order of the
 // distinct keys (net48 Lookup semantics, probe-verified).
 //
 // Managed object model (GC-bitmap conventions, listi4.h precedent):
@@ -633,8 +638,20 @@ Il2CppArray* il2cpp_linq_select_idx_ref_dec(Il2CppArray* src, Il2CppObject* sel)
 //       Il2CppArray* groups;   // REFERENCE array of Il2CppLinqGrouping*
 //                              //   (bucket objects, first-appearance order)
 //       int32_t      count;    // number of buckets (distinct keys)
+//       // slot3..7: the DEFERRED query state (5 managed GC references)
+//       Il2CppObject* src;     // live source array
+//       Il2CppObject* keySel;  // key selector delegate
+//       Il2CppObject* elemSel; // element selector delegate (null if absent)
+//       Il2CppObject* cmp;     // comparer delegate (null if absent)
+//       Il2CppObject* resSel;  // result selector delegate (null if absent)
+//       // slot8: packed scalars (NOT a GC reference):
+//       //   elemKind/rsKind/keyKind/srcKind/srcCell/deferred
+//       int64_t      meta;
 //   };
-//   // instanceSize 24, refFieldBitmap bit 1 (groups)
+//   // instanceSize 72, refFieldBitmap bit 1 (groups) + bit 3..7 (5 new refs),
+//   // refFieldCount 6. A zero-initialized (deferred==0) object is a LEGACY
+//   // eager view (the C++ unit-test / dec_key constructors); BeginView skips
+//   // the rebuild for it, preserving those consumers exactly.
 //
 // The transpiler wires GroupBy(source, keySelector) -> il2cpp_linq_group_by_i4
 // and per-bucket Sum on an IGrouping receiver -> il2cpp_linq_grouping_sum
@@ -669,13 +686,45 @@ struct Il2CppLinqGrouping
     Il2CppObject* keyRef;
 };
 
-// Managed GroupBy() result: the buckets in first-appearance key order.
+// Managed GroupBy() result. groups@slot1 / count@slot2 keep their ORIGINAL
+// offsets (static_assert + GC bitmap compat). A DEFERRED query (the generalized
+// GroupBy entry, rsKind == 0) appends its state after count: 5 managed GC
+// reference fields (slot3..7) + a packed-scalar meta (slot8, NOT a reference).
+// A zero-initialized meta (deferred == 0) marks a LEGACY eager view and makes
+// BeginView(result) a no-op (the C++ unit-test / dec_key / i4 constructors).
 struct Il2CppLinqGroupingResult
 {
-    Il2CppObject obj;       // object header (klass pointer)
-    Il2CppArray* groups;    // REFERENCE array of Il2CppLinqGrouping*
-    int32_t      count;     // number of buckets (distinct keys)
+    Il2CppObject obj;       // object header (klass pointer)          slot 0
+    Il2CppArray* groups;    // REFERENCE array of Il2CppLinqGrouping*  slot 1 (bitmap bit 1)
+    int32_t      count;     // number of buckets (distinct keys)       slot 2 (scalar)
+    int32_t      pad0;      // explicit alignment padding (scalar)     slot 2 (high half)
+    Il2CppObject* src;      // live source array                       slot 3 (bitmap bit 3)
+    Il2CppObject* keySel;   // key selector delegate                   slot 4 (bitmap bit 4)
+    Il2CppObject* elemSel;  // element selector delegate (or null)    slot 5 (bitmap bit 5)
+    Il2CppObject* cmp;      // comparer delegate (or null)            slot 6 (bitmap bit 6)
+    Il2CppObject* resSel;   // result selector delegate (or null)     slot 7 (bitmap bit 7)
+    int64_t      meta;      // packed kind/rsKind/keyKind/srcKind/srcCell/deferred slot 8 (scalar)
 };
+
+// meta packing: each discriminant occupies one byte so BeginView can decode the
+// exact BuildGroups arguments without a side table (all values are small ints).
+constexpr int32_t kGrpMetaDeferredShift = 40; // deferred flag byte
+constexpr int32_t kGrpMetaDecKeyShift = 48;   // dec_key rebuild-path flag byte
+
+inline int64_t GrpPackMeta(int32_t kind, int32_t rsKind, int32_t keyKind,
+                           int32_t srcKind, int32_t srcCell, int32_t deferred)
+{
+    return (static_cast<int64_t>(kind & 0xFF))
+        | (static_cast<int64_t>(rsKind & 0xFF) << 8)
+        | (static_cast<int64_t>(keyKind & 0xFF) << 16)
+        | (static_cast<int64_t>(srcKind & 0xFF) << 24)
+        | (static_cast<int64_t>(srcCell & 0xFF) << 32)
+        | (static_cast<int64_t>(deferred & 0xFF) << kGrpMetaDeferredShift);
+}
+inline int32_t GrpMetaByte(int64_t meta, int32_t shift)
+{
+    return static_cast<int32_t>((static_cast<uint64_t>(meta) >> shift) & 0xFF);
+}
 
 // The managed descriptors (registered lazily on first use; create the
 // managed objects through the icalls below).

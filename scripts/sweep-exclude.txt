@@ -5,6 +5,12 @@
 # so the full-pool sweep must not count them as FAIL.
 #
 # Reasons (each documented in the case's own GAPS.md / source header):
+# W11 GroupBy LAZINESS: rsKind != 0 (resultSelector) deferred is a REGISTERED
+# SCOPE GAP (b5-gaps.md new seat). This probe is an intentional RED anchor
+# (net48 defers resultSelector too; this seat keeps the eager materialized
+# array), byte-exact difftest ok=False by design. Remove from this list when
+# the resultSelector-deferred seat is implemented and it turns green.
+probe-grp-lazy-rs   # W11 SCOPE GAP red anchor: rsKind != 0 resultSelector deferred unwired (expected ok=False)
 p-stacktrace      # W7 whitelist: net48 CLR internal frames cannot be statically reproduced (see GAPS.md)
 p-adb-loud        # RUNTIME-CONTRACT probe: net48 deliberately diverges (returns localized name); assertion is runtime-only [loud.tostring]=True
 

@@ -1127,6 +1127,20 @@ static_assert(offsetof(Il2CppLinqGroupingResult, groups) == 1 * sizeof(void*),
     "Il2CppLinqGroupingResult: groups must sit at slot 1 (bitmap bit 1)");
 static_assert(offsetof(Il2CppLinqGroupingResult, count) == 2 * sizeof(void*),
     "Il2CppLinqGroupingResult: count sits at slot 2 (NOT in the bitmap)");
+static_assert(offsetof(Il2CppLinqGroupingResult, src) == 3 * sizeof(void*),
+    "Il2CppLinqGroupingResult: src must sit at slot 3 (bitmap bit 3)");
+static_assert(offsetof(Il2CppLinqGroupingResult, keySel) == 4 * sizeof(void*),
+    "Il2CppLinqGroupingResult: keySel must sit at slot 4 (bitmap bit 4)");
+static_assert(offsetof(Il2CppLinqGroupingResult, elemSel) == 5 * sizeof(void*),
+    "Il2CppLinqGroupingResult: elemSel must sit at slot 5 (bitmap bit 5)");
+static_assert(offsetof(Il2CppLinqGroupingResult, cmp) == 6 * sizeof(void*),
+    "Il2CppLinqGroupingResult: cmp must sit at slot 6 (bitmap bit 6)");
+static_assert(offsetof(Il2CppLinqGroupingResult, resSel) == 7 * sizeof(void*),
+    "Il2CppLinqGroupingResult: resSel must sit at slot 7 (bitmap bit 7)");
+static_assert(offsetof(Il2CppLinqGroupingResult, meta) == 8 * sizeof(void*),
+    "Il2CppLinqGroupingResult: meta sits at slot 8 (scalar, NOT in the bitmap)");
+static_assert(sizeof(Il2CppLinqGroupingResult) == 9 * sizeof(void*),
+    "Il2CppLinqGroupingResult: instanceSize must cover every slot (GC slotLimit)");
 
 // The int32 key selector callback ABI is the select_i4_i4 family
 // (int32(*)(int32_t) / int32(*)(Il2CppObject*, int32_t)) -- InvokeSelI4I4
@@ -1182,9 +1196,10 @@ Il2CppClass g_groupingClass = {
 
 Il2CppClass g_groupingResultClass = {
     "System.Linq.GroupingResult",           // name (runtime-internal descriptor)
-    static_cast<int32_t>(sizeof(Il2CppLinqGroupingResult)), // instanceSize (24)
-    0b010u,                                 // refFieldBitmap: bit 1 = groups
-    1,                                      // refFieldCount
+    static_cast<int32_t>(sizeof(Il2CppLinqGroupingResult)), // instanceSize (72: 9 slots)
+    0b11111010u,                            // refFieldBitmap: bit 1 = groups,
+                                            //   bit 3..7 = src/keySel/elemSel/cmp/resSel
+    6,                                      // refFieldCount (groups + 5 new refs)
     nullptr,                                // baseClass
     nullptr,                                // vtable
     0,                                      // vtableSize
@@ -7322,6 +7337,72 @@ Il2CppArray* ApplyResultSelector(Il2CppObject* result, Il2CppObject* resSel, int
     return out;
 }
 
+// BeginView -- the single DEFERRED re-materialization entry (docs/audit/b5-gaps.md
+// :6848-6873; W11 plan A). A net48 GroupBy result is a lazy query: EVERY
+// top-level enumeration re-runs the key/element selectors against the LIVE
+// source and yields FRESH bucket objects. `result` (a GroupingResult) holds the
+// source + delegates + discriminants in its added slots (set at construction,
+// selector NOT invoked there). BeginView unconditionally re-runs BuildGroups
+// into a fresh, rooted result object, then ATOMICALLY publishes that view's
+// groups/count onto the caller's object. A selector exception leaves the
+// previous complete view intact (the fresh object is a local) and is re-thrown
+// on every enumeration. A zero-initialized meta (deferred == 0) marks a LEGACY
+// eager view (the C++ unit-test / dec_key / i4 constructors) -- BeginView is a
+// no-op, so those consumers keep reading their construction-time buckets.
+//
+// Boundary (auditA §3 精化 1): ONE call per TOP-LEVEL enumeration entry. The
+// entry reuses the published view for all its internal field reads; the next
+// top-level entry rebuilds again. Never place a rebuild at every field read
+// (a single ToArray would amplify into N selector passes).
+Il2CppObject* BeginView(Il2CppObject* result)
+{
+    if (result == nullptr)
+    {
+        return nullptr;
+    }
+    Il2CppLinqGroupingResult* res = AsGroupingResult(result);
+    const int64_t meta = res->meta;
+    if (GrpMetaByte(meta, kGrpMetaDeferredShift) == 0)
+    {
+        return result; // legacy eager view: construction-time buckets are authoritative
+    }
+
+    // Root the caller's object and every field local across BuildGroups (which
+    // allocates/compacts and invokes user code). The static roots are rewritten
+    // by the collector (gc.cpp:771-781), so the locals stay valid.
+    RootScope roots;
+    roots.Add(reinterpret_cast<void**>(&result));
+    Il2CppArray* src = reinterpret_cast<Il2CppArray*>(res->src);
+    Il2CppObject* keySel = res->keySel;
+    Il2CppObject* elemSel = res->elemSel;
+    Il2CppObject* cmp = res->cmp;
+    roots.Add(reinterpret_cast<void**>(&src));
+    roots.Add(reinterpret_cast<void**>(&keySel));
+    roots.Add(reinterpret_cast<void**>(&elemSel));
+    roots.Add(reinterpret_cast<void**>(&cmp));
+
+    const int32_t kind = GrpMetaByte(meta, 0);
+    const int32_t keyKind = GrpMetaByte(meta, 16);
+    const int32_t srcKind = GrpMetaByte(meta, 24);
+    const int32_t srcCell = GrpMetaByte(meta, 32);
+    Il2CppObject* fresh = BuildGroups(src, keySel, elemSel,
+                                      static_cast<GroupElemKind>(kind), cmp,
+                                      keyKind, srcKind, srcCell);
+    roots.Add(reinterpret_cast<void**>(&fresh));
+
+    // Atomic publish: only groups/count are replaced. A fresh result object is
+    // created by BuildGroups on every call, so all bucket identities are new
+    // (net48 fresh-grouping semantics / section 89 Except(ToArray()) == 2).
+    Il2CppLinqGroupingResult* dst = AsGroupingResult(result);
+    Il2CppLinqGroupingResult* f = AsGroupingResult(fresh);
+    Il2CppArray* g = f->groups;
+    dst->groups = g;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&dst->groups),
+                         reinterpret_cast<Il2CppObject*>(g));
+    dst->count = f->count;
+    return result;
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -7398,11 +7479,62 @@ Il2CppObject* il2cpp_linq_group_by_full_key_cell(Il2CppArray* src, Il2CppObject*
         default:
             il2cpp_throw_not_supported_exception("GroupBy: unsupported TElement family code.");
     }
-    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp, keyKind, srcKind, srcCell);
     if (rsKind == 0)
     {
+        // DEFERRED (W11 plan A): construction does NOT run BuildGroups, so the
+        // key selector is invoked 0 times here (net48 create=0). EAGER argument
+        // validation stays at call time (A18/A19/M8): a null source / key
+        // selector must throw NOW, not at the first enumeration.
+        RequireArray(src);
+        RequireCallback(keySel, "keySelector");
+        if (elemSel != nullptr)
+        {
+            RequireCallback(elemSel, "elementSelector");
+        }
+
+        EnsureGroupingClassesRegistered();
+        RootScope roots;
+        roots.Add(reinterpret_cast<void**>(&src));
+        roots.Add(reinterpret_cast<void**>(&keySel));
+        roots.Add(reinterpret_cast<void**>(&elemSel));
+        roots.Add(reinterpret_cast<void**>(&cmp));
+        roots.Add(reinterpret_cast<void**>(&resSel));
+        Il2CppObject* result = il2cpp_object_new(&g_groupingResultClass);
+        roots.Add(reinterpret_cast<void**>(&result));
+
+        // Zero-length initial view. The first top-level consumer calls
+        // BeginView -> BuildGroups -> atomic publish groups/count.
+        Il2CppArray* groups = il2cpp_array_new(
+            nullptr, static_cast<int32_t>(sizeof(void*)), true, 0);
+        Il2CppLinqGroupingResult* r = AsGroupingResult(result);
+        r->groups = groups;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&r->groups),
+                             reinterpret_cast<Il2CppObject*>(groups));
+        r->count = 0;
+        // Persist the query state as MANAGED references (bitmap bit 3..7) so
+        // the source + delegates survive between enumerations (D1/D6).
+        r->src = reinterpret_cast<Il2CppObject*>(src);
+        il2cpp_write_barrier(reinterpret_cast<void**>(&r->src),
+                             reinterpret_cast<Il2CppObject*>(src));
+        r->keySel = keySel;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&r->keySel), keySel);
+        r->elemSel = elemSel;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&r->elemSel), elemSel);
+        r->cmp = cmp;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&r->cmp), cmp);
+        r->resSel = resSel;
+        il2cpp_write_barrier(reinterpret_cast<void**>(&r->resSel), resSel);
+        // deferred=1 marks this object as a lazy query for BeginView.
+        r->meta = GrpPackMeta(static_cast<int32_t>(kind), rsKind, keyKind,
+                              srcKind, srcCell, /*deferred=*/1);
         return result;
     }
+    // rsKind != 0 (resultSelector): keep the EXISTING eager materialization.
+    // SCOPE GAP (registered, b5-gaps new seat): net48 also defers the
+    // result-selector form, but this runtime returns a plain result ARRAY that
+    // the transpiler tracks as an array -- there is no GroupingResult object
+    // to hold deferred state, so it stays eager in this seat.
+    Il2CppObject* result = BuildGroups(src, keySel, elemSel, kind, cmp, keyKind, srcKind, srcCell);
     if (rsKind < 1 || rsKind > 5)
     {
         il2cpp_throw_not_supported_exception("GroupBy: unsupported TResult family code.");
@@ -7412,12 +7544,26 @@ Il2CppObject* il2cpp_linq_group_by_full_key_cell(Il2CppArray* src, Il2CppObject*
 }
 
 // B4-1 (P0-04): the identity-key entry every pre-existing caller keeps using.
+// This 6-arg entry is a C++ UNIT-TEST-ONLY legacy shim (no transpiler binding:
+// MethodMap.Linq.cs binds il2cpp_linq_group_by_full_key / _cell directly).
+// Those tests read the buckets IMMEDIATELY after the call, so materialize the
+// FIRST view here and mark the object as a LEGACY eager view (meta deferred=0):
+// BeginView is then a no-op and get_grouping(0..n-1) keeps working unchanged.
+// The deferred query semantics live on the transpiler-bound entries above.
 Il2CppObject* il2cpp_linq_group_by_full(Il2CppArray* src, Il2CppObject* keySel,
                                         Il2CppObject* elemSel, Il2CppObject* cmp,
                                         Il2CppObject* resSel, int32_t elemKind, int32_t rsKind)
 {
-    return il2cpp_linq_group_by_full_key(src, keySel, elemSel, cmp, resSel,
-                                         elemKind, rsKind, /*keyKind=*/0);
+    if (rsKind != 0)
+    {
+        return il2cpp_linq_group_by_full_key(src, keySel, elemSel, cmp, resSel,
+                                             elemKind, rsKind, /*keyKind=*/0);
+    }
+    Il2CppObject* result = il2cpp_linq_group_by_full_key(src, keySel, elemSel, cmp, resSel,
+                                                         elemKind, rsKind, /*keyKind=*/0);
+    result = BeginView(result);          // materialize the first (and only) view
+    AsGroupingResult(result)->meta = 0; // legacy eager view: BeginView -> no-op
+    return result;
 }
 
 // floatgrp: GroupBy over a List<System.Single> source.
@@ -7476,104 +7622,38 @@ Il2CppObject* il2cpp_linq_list_float_group_by_full(Il2CppObject* list,
 // rooted result after an allocation (bucket growth).
 //------------------------------------------------------------------------------
 Il2CppObject* il2cpp_linq_group_by_dec_key(Il2CppArray* src, Il2CppObject* keySel,
-                                           int32_t keyKind)
+                                            int32_t keyKind)
 {
     RequireArray(src);
-    Il2CppDelegate* kd = RequireCallback(keySel, "keySelector");
+    RequireCallback(keySel, "keySelector");
     RequireDecimalFamily(src);
-
     EnsureGroupingClassesRegistered();
 
+    // DEFERRED (W11 plan A, dec_key arm): construction holds the query state,
+    // does NOT run the selector. BeginView rebuilds on every top-level
+    // enumeration through BuildGroups (decimal-source family, srcKind 2).
     RootScope roots;
-    roots.Add(reinterpret_cast<void**>(&kd));
     roots.Add(reinterpret_cast<void**>(&src));
-
+    roots.Add(reinterpret_cast<void**>(&keySel));
     Il2CppObject* result = il2cpp_object_new(&g_groupingResultClass);
     roots.Add(reinterpret_cast<void**>(&result));
-
     Il2CppArray* groups = il2cpp_array_new(
-        nullptr, static_cast<int32_t>(sizeof(void*)), true, src->length);
+        nullptr, static_cast<int32_t>(sizeof(void*)), true, 0);
     Il2CppLinqGroupingResult* res = AsGroupingResult(result);
     res->groups = groups;
     il2cpp_write_barrier(reinterpret_cast<void**>(&res->groups),
                          reinterpret_cast<Il2CppObject*>(groups));
     res->count = 0;
-
-    for (int32_t i = 0; i < src->length; ++i)
-    {
-        const runtime::Il2CppDecimal v = *DecAt(src, i);
-        // BATCH4: the key rides its real family carrier (int32 slot, int64, or a
-        // 16-byte struct). The callback may allocate -> collect, so every
-        // consumer re-derives its pointers from the rooted result.
-        // impl-groupbykey: the dispatch is the SHARED key-family kernel, so a
-        // decimal source accepts every key family (7 int64 / 8 decimal /
-        // 9 DateTime / 10 Guid / 11 reference / 12 TimeSpan / 13 DateTimeOffset
-        // / 14 user enum / 0..6 int32-slot) through the same leaf ABI.
-        int64_t keyLo = 0;
-        int64_t keyHi = 0;
-        Il2CppObject* keyRef = nullptr;
-        ComputeGroupKey<runtime::Il2CppDecimal>(kd, v, keyKind, keyLo, keyHi, keyRef);
-
-        res = AsGroupingResult(result);
-        const int32_t n = res->count;
-
-        int32_t found = -1;
-        for (int32_t j = 0; j < n; ++j)
-        {
-            Il2CppLinqGroupingResult* cur = AsGroupingResult(result);
-            Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(cur->groups->data);
-            if (GroupKeysEqual(nullptr, keyKind, keyLo, keyHi, keyRef, AsGrouping(slots[j])))
-            {
-                found = j;
-                break;
-            }
-        }
-
-        if (found >= 0)
-        {
-            res = AsGroupingResult(result);
-            Il2CppLinqGrouping* grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
-                res->groups->data + found * sizeof(void*)));
-            if (grp->count == grp->elements->length)
-            {
-                GrowGroupElements(&result, found);
-            }
-            grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
-                AsGroupingResult(result)->groups->data + found * sizeof(void*)));
-            const int32_t at = grp->count;
-            *reinterpret_cast<runtime::Il2CppDecimal*>(
-                il2cpp_array_get_elem_ptr(grp->elements, at)) = v;
-            ++grp->count;
-        }
-        else
-        {
-            Il2CppObject* ng = il2cpp_object_new(&g_groupingClass);
-            Il2CppLinqGrouping* grp = AsGrouping(ng);
-            grp->key = keyLo;
-            grp->keyHi = keyHi;
-            grp->keyRef = keyRef;
-            il2cpp_write_barrier(reinterpret_cast<void**>(&grp->keyRef), keyRef);
-            grp->elements = nullptr;
-            grp->count = 0;
-            res = AsGroupingResult(result);
-            Il2CppObject** groupSlots = reinterpret_cast<Il2CppObject**>(res->groups->data);
-            il2cpp_write_barrier(reinterpret_cast<void**>(&groupSlots[res->count]), ng);
-            groupSlots[res->count] = ng;
-            ++res->count;
-
-            Il2CppArray* elems = il2cpp_array_new(
-                nullptr, static_cast<int32_t>(sizeof(runtime::Il2CppDecimal)), false, kMinGroupItems);
-            res = AsGroupingResult(result); // re-derive after the allocation
-            grp = AsGrouping(*reinterpret_cast<Il2CppObject**>(
-                res->groups->data + (res->count - 1) * sizeof(void*)));
-            grp->elements = elems;
-            il2cpp_write_barrier(reinterpret_cast<void**>(&grp->elements),
-                                 reinterpret_cast<Il2CppObject*>(elems));
-            *reinterpret_cast<runtime::Il2CppDecimal*>(
-                il2cpp_array_get_elem_ptr(grp->elements, 0)) = v;
-            grp->count = 1;
-        }
-    }
+    res->src = reinterpret_cast<Il2CppObject*>(src);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&res->src),
+                         reinterpret_cast<Il2CppObject*>(src));
+    res->keySel = keySel;
+    il2cpp_write_barrier(reinterpret_cast<void**>(&res->keySel), keySel);
+    res->elemSel = nullptr;
+    res->cmp = nullptr;
+    res->resSel = nullptr;
+    res->meta = GrpPackMeta(static_cast<int32_t>(GroupElemKind::Decimal), /*rsKind=*/0,
+                            keyKind, /*srcKind=*/2, /*srcCell=*/0, /*deferred=*/1);
     return result;
 }
 
@@ -7612,6 +7692,7 @@ int32_t il2cpp_linq_grouping_sum(Il2CppObject* grouping)
 int32_t il2cpp_linq_grouping_result_get_count(Il2CppObject* result)
 {
     ThrowIfNullReceiver(result);
+    result = BeginView(result); // one rebuild per top-level enumeration (W11)
     return AsGroupingResult(result)->count;
 }
 
@@ -7799,6 +7880,7 @@ Il2CppObject* il2cpp_linq_grouping_result_get_enumerator(Il2CppObject* result)
 {
     ThrowIfNullReceiver(result);
     EnsureGroupingClassesRegistered();
+    result = BeginView(result); // one rebuild per top-level enumeration (W11)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&result));
     const int32_t n = AsGroupingResult(result)->count;
@@ -9808,7 +9890,10 @@ int32_t il2cpp_linq_count_object(Il2CppObject* obj)
     if (n != nullptr && std::strcmp(n, "System.Linq.Grouping") == 0)
         return AsGrouping(obj)->count;
     if (n != nullptr && std::strcmp(n, "System.Linq.GroupingResult") == 0)
+    {
+        obj = BeginView(obj); // one rebuild per top-level enumeration (W11)
         return AsGroupingResult(obj)->count;
+    }
     il2cpp_throw_not_supported_exception(
         "Enumerable.Count over this IEnumerable shape is not wired (the receiver "
         "is neither an array nor a GroupBy bucket/result).");
@@ -9827,7 +9912,10 @@ bool il2cpp_linq_any_object(Il2CppObject* obj)
     if (n != nullptr && std::strcmp(n, "System.Linq.Grouping") == 0)
         return AsGrouping(obj)->count > 0;
     if (n != nullptr && std::strcmp(n, "System.Linq.GroupingResult") == 0)
+    {
+        obj = BeginView(obj); // one rebuild per top-level enumeration (W11)
         return AsGroupingResult(obj)->count > 0;
+    }
     il2cpp_throw_not_supported_exception(
         "Enumerable.Any over this IEnumerable shape is not wired (the receiver "
         "is neither an array nor a GroupBy bucket/result).");
@@ -10499,17 +10587,17 @@ Il2CppArray* il2cpp_linq_grouping_to_array(Il2CppObject* grouping)
 Il2CppArray* il2cpp_linq_grouping_result_to_array(Il2CppObject* result)
 {
     ThrowIfNullReceiver(result);
+    result = BeginView(result); // one rebuild per top-level enumeration (W11)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&result));
     const int32_t n = AsGroupingResult(result)->count;
     Il2CppArray* out = il2cpp_array_new(nullptr, sizeof(void*), true, n);
     roots.Add(reinterpret_cast<void**>(&out));
     // b5-gaps section 89: net48's GroupBy is LAZY -- every enumeration re-runs
-    // the grouping and yields FRESH Grouping objects, so two materializations
-    // never share a reference (Except/SequenceEqual over a GroupBy result keep
-    // both sides). Clone each bucket per call instead of handing out the
-    // cached bucket objects. (The selector re-invocation itself is a separate
-    // registered gap -- the identity semantics is what the set operators see.)
+    // the grouping (BeginView above) and yields FRESH Grouping objects, so two
+    // materializations never share a reference (Except/SequenceEqual over a
+    // GroupBy result keep both sides). Clone each bucket per call on top of the
+    // fresh view so identity stays fresh even within one enumeration.
     Il2CppClass* groupingClass = il2cpp_linq_grouping_class();
     for (int32_t i = 0; i < n; ++i)
     {
@@ -10539,6 +10627,7 @@ Il2CppArray* il2cpp_linq_grouping_result_to_array(Il2CppObject* result)
 Il2CppObject* il2cpp_linq_grouping_result_first(Il2CppObject* result)
 {
     ThrowIfNullReceiver(result);
+    result = BeginView(result); // one rebuild per top-level enumeration (W11)
     if (AsGroupingResult(result)->count == 0)
     {
         il2cpp_throw_invalid_operation_exception("Sequence contains no elements");
@@ -10549,6 +10638,7 @@ Il2CppObject* il2cpp_linq_grouping_result_first(Il2CppObject* result)
 Il2CppObject* il2cpp_linq_grouping_result_first_or_default(Il2CppObject* result)
 {
     ThrowIfNullReceiver(result);
+    result = BeginView(result); // one rebuild per top-level enumeration (W11)
     if (AsGroupingResult(result)->count == 0)
     {
         return nullptr;
@@ -10559,6 +10649,7 @@ Il2CppObject* il2cpp_linq_grouping_result_first_or_default(Il2CppObject* result)
 bool il2cpp_linq_grouping_result_any(Il2CppObject* result)
 {
     ThrowIfNullReceiver(result);
+    result = BeginView(result); // one rebuild per top-level enumeration (W11)
     return AsGroupingResult(result)->count > 0;
 }
 
@@ -10568,6 +10659,7 @@ bool il2cpp_linq_grouping_result_any(Il2CppObject* result)
 Il2CppObject* il2cpp_linq_grouping_result_to_list(Il2CppObject* result)
 {
     ThrowIfNullReceiver(result);
+    result = BeginView(result); // one rebuild per top-level enumeration (W11)
     RootScope roots;
     roots.Add(reinterpret_cast<void**>(&result));
     Il2CppObject* list = il2cpp_list_obj_create();
