@@ -38,6 +38,19 @@ if ($LASTEXITCODE -ne 0) { throw "test_object failed" }
 if ($LASTEXITCODE -ne 0) { throw "test_gc failed" }
 Write-Host "runtime C++ tests passed (test_object + test_gc)"
 
+# W11 F1: LOUD contract gate. Placed AFTER the transpiler build (gate ->
+# difftest -> il2cppc.dll needs the transpiler) and BEFORE any e2e step.
+# Fixed -Compiler mingw: never reuse the fake msvc channel. Because this CI is
+# serial (every step throws on failure), a gate failure blocks the downstream
+# chain e2e mingw(:42)/e2e msvc(:46)/manifest(:56)/e2e wsl(:60)/capi(:64-68) --
+# fail-fast is the intended semantics (a lost contract must stop the pipeline).
+# The gate's controlled contract set (scripts/loud-contracts.txt) is always
+# non-empty, so exit 1 (contract lost) and exit 2 (INCONCLUSIVE/no active
+# contract) both block here.
+Write-Host "=== 3.6 LOUD contract gate (mingw) ==="
+powershell -NoProfile -ExecutionPolicy Bypass -File "$Root/scripts/loud-gate.ps1" -Compiler mingw
+if ($LASTEXITCODE -ne 0) { throw "LOUD contract gate failed (exit $LASTEXITCODE): see .opencode/tmp/loud-gate/*.log" }
+
 Write-Host "=== 4. e2e mingw ==="
 pwsh -NoProfile -File "$Root/scripts/run-tests.ps1" -Compiler mingw
 if ($LASTEXITCODE -ne 0) { throw "e2e mingw failed" }

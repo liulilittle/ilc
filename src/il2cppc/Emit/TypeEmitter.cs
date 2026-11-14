@@ -1128,15 +1128,16 @@ public static class TypeEmitter
             f.ByteOffset = slot * t.PointerSize;
             if (f.TypeKind == FieldTypeKind.Reference)
             {
-                // Audit H6: the 32-bit refFieldBitmap can only express slots
-                // 0..31 (1u << slot is UB for slot >= 32 and the collector
-                // scans slot < 32). A reference field beyond that would be
+                // W11 F4-a: the 32-bit refFieldBitmap can only express slots
+                // 0..31 (1u << slot is UB for slot >= 32 and gc.cpp:705/:844
+                // scan slot < 32 only). A reference field beyond that would be
                 // silently omitted from the GC scan -- objects reachable only
-                // through it would be collected. Warn and skip instead of rejecting.
+                // through it would be collected. Rejecting is strictly safer
+                // than emitting a silently-wrong bitmap (do not warn+skip).
                 if (slot >= 32)
                 {
-                    Console.Error.WriteLine($"warning: type {t.FullName}: reference field '{f.Name}' lands on slot {slot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (audit H6), skipping field from bitmap");
-                    continue;
+                    throw new NotSupportedException(
+                        $"type {t.FullName}: reference field '{f.Name}' lands on slot {slot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (W11 F4-a); widen the bitmap before translating this shape");
                 }
                 bitmap |= 1u << slot;
                 ++refCount;
@@ -1266,15 +1267,15 @@ public static class TypeEmitter
             f.SlotIndex = offset / t.PointerSize;
             if (f.TypeKind == FieldTypeKind.Reference)
             {
+                // W11 F4-a: see LayoutInstanceFields -- reject instead of
+                // silently omitting the slot from the 32-bit GC bitmap.
                 if (f.SlotIndex >= 32)
                 {
-                    Console.Error.WriteLine($"warning: type {t.FullName}: reference field '{f.Name}' lands on slot {f.SlotIndex} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (audit H6), skipping field from bitmap");
+                    throw new NotSupportedException(
+                        $"type {t.FullName}: reference field '{f.Name}' lands on slot {f.SlotIndex} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (W11 F4-a); widen the bitmap before translating this shape");
                 }
-                else
-                {
-                    bitmap |= 1u << f.SlotIndex;
-                    ++refCount;
-                }
+                bitmap |= 1u << f.SlotIndex;
+                ++refCount;
             }
             offset += size;
         }
@@ -1560,10 +1561,12 @@ public static class TypeEmitter
         {
             if ((innerBitmap & (1u << b)) == 0) continue;
             var absSlot = baseSlot + b;
+            // W11 F4-a: an embedded value's inner reference whose ABSOLUTE slot
+            // is >= 32 cannot be represented; reject rather than silently omit.
             if (absSlot >= 32)
             {
-                Console.Error.WriteLine($"warning: type {owner.FullName}: reference field '{f.Name}' lands on slot {absSlot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (audit H6), skipping field from bitmap");
-                continue;
+                throw new NotSupportedException(
+                    $"type {owner.FullName}: reference field '{f.Name}' embedded reference lands on slot {absSlot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (W11 F4-a); widen the bitmap before translating this shape");
             }
             bitmap |= 1u << absSlot;
             ++refCount;

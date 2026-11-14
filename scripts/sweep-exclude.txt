@@ -31,3 +31,8 @@ p-adb-loud        # RUNTIME-CONTRACT probe: net48 deliberately diverges (returns
 # BATCH4: loud-p0-grp-key-long (long/ulong/decimal/DateTime/Guid key carriers) and
 # loud-p0-grp-dec-op (decimal-bucket aggregate/Contains operators) are now WIRED
 # real cases, so they were removed from this list.
+#
+# W11 F1-b: fixed active sentinel (controlled set = scripts/loud-contracts.txt).
+# Kept here with a "LOUD contract" note so the byte-exact sweep excludes it and
+# difftest.ps1 does NOT take its SKIP early-return (it must run and reject).
+zz-loud-sentinel  # LOUD contract: W11 F1-b fixed sentinel, must throw NotSupportedException

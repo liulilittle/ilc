@@ -1,6 +1,13 @@
 param(
     [Parameter(Mandatory)][string]$Case,
-    [ValidateSet("mingw","msvc","clang")][string]$Compiler = "mingw",
+    # W11 F2-alpha (honest de-label): "msvc" is NOT a valid difftest channel.
+    # The build loop has only two arms (clang / else=MinGW Makefiles) and the
+    # top-level Resolve-ToolDir injection makes that else arm succeed, so the
+    # old "msvc" value produced a MinGW binary LABELED compiler=msvc -- a
+    # stable fake-label green. Reject it here rather than claim MSVC support.
+    # The REAL MSVC build lives in scripts/run-tests.ps1 (ci.ps1 uses it);
+    # this harness never had an MSVC arm. See docs/diffsweep-exclude-contract.md.
+    [ValidateSet("mingw","clang")][string]$Compiler = "mingw",
     [string]$ReportDir = "",
     [int]$TimeoutMs = 120000,
     [string]$AppArgs = ""

@@ -50,3 +50,35 @@ Removing `p-adb-loud` from the list makes `difftest.ps1 -Case p-adb-loud` return
 not by a broken harness. The six byte-exact anchors are unaffected
 (`probe-lasterror 86c8e322`, `probe-handleref a089ccbf`, `probe-intptr 2e1ae3f0`,
 `probe-typedref c978f5b3`, `probe-p0a 73083dbc`, `probe-listrange 8179a76a`).
+
+## W11 F2-alpha: honest de-label of `-Compiler msvc` (difftest)
+
+`scripts/difftest.ps1` used to accept `-Compiler msvc` (ValidateSet
+`"mingw","msvc","clang"`) even though its build loop has only two arms:
+`clang` (clang-mingw toolchain) and `else` (`-G "MinGW Makefiles"`). There is
+no vcvars/cl/VS-generator arm in this harness. Because the top-level
+`Resolve-ToolDir` PATH injection makes that `else` arm succeed, `-Compiler msvc`
+did NOT crash -- it built a **MinGW** binary and then wrote evidence/report
+files named `*.msvc.*` with `compiler=msvc` (both the JSON report and the txt
+report). That is a stable fake-label green, not a real MSVC comparison.
+
+- Fix: `difftest.ps1` now uses `ValidateSet("mingw","clang")`. `-Compiler msvc`
+  is rejected up front; no `.msvc.*` fake-label artifact can be written.
+  `scripts/diff-smoke.ps1` (which drives difftest and writes `smoke-summary.tsv`)
+  uses the same two-value set, so a batch smoke run cannot re-introduce the
+  fake `compiler=msvc` rows.
+- The **real MSVC channel is unaffected**: `scripts/ci.ps1` runs
+  `scripts/run-tests.ps1 -Compiler msvc`, which loads `scripts/vcvars.ps1` and
+  builds with `-G "Visual Studio 17 2022"`. That path never calls difftest.ps1.
+  `sweep-cases.ps1` and the other sweep scripts also drive run-tests.ps1, so
+  their `-Compiler msvc` handling is untouched.
+- `smoke-summary.tsv` has no committed instance in this tree (checked 2026-11-13);
+  the 6 historical `.opencode/tmp/dr-exec-msvc/loud-linq-decorderbygrp.msvc.*`
+  files (mtime 2026-11-12 20:31, `compiler=msvc ok=True`) are MinGW binaries
+  with a false label. They are untracked historical artifacts, NOT current-HEAD
+  green evidence; keep them only as forensic samples and do not cite them as
+  MSVC proof. A future real MSVC difftest channel (F2-beta, out of scope here)
+  must use distinct artifact names so new/old evidence cannot be confused.
+- Dynamic config preserved (J8): `-Compiler / -ReportDir / -TimeoutMs / -AppArgs`
+  parameters and the `IL2CPP_DIFFTEST_LOCK_MS` env override all remain;
+  `IL2CPP_MSVC_GENERATOR` (in build-app.ps1 / run-tests path) is untouched.

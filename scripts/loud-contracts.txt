@@ -1,0 +1,12 @@
+# W11 F1-b controlled active LOUD contract set.
+#
+# scripts/loud-gate.ps1 reads THIS file (not sweep-exclude.txt's note text) as
+# its protection object. It is a fixed, always-non-empty sentinel set: every
+# case here MUST exit non-zero from scripts/difftest.ps1 AND emit documented
+# exception evidence. Format: one case name per line, optional ' #' note.
+# The matching case directory lives under tests/cases/<name>/.
+#
+# The case is ALSO registered in scripts/sweep-exclude.txt with a "LOUD
+# contract" note so (a) the byte-exact full-pool sweep does not count it as a
+# permanent FAIL, and (b) difftest.ps1 does NOT take its SKIP early-return.
+zz-loud-sentinel  # LOUD contract: W11 F1-b fixed sentinel, must throw NotSupportedException

@@ -16,18 +16,23 @@
 #      "no cell ABI"                  (the Zip-result message)
 #
 # Exit code: 0 = every LOUD case threw as documented; 1 = at least one did not
-# (or the exclude list / difftest is missing).
+# (or the exclude list / difftest is missing); 2 = INCONCLUSIVE (no active
+# contract cases -- the controlled set must be non-empty).
 #
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/loud-gate.ps1
+#   ci.ps1 invokes it with -Compiler mingw (never the fake msvc channel).
 param(
     [string]$ExcludeList = "",
+    [string]$ContractList = "",
     [string]$CaseFilter = "",
+    [string]$Compiler = "mingw",
     [int]$TimeoutSec = 900
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 if ($ExcludeList -eq "") { $ExcludeList = Join-Path $PSScriptRoot "sweep-exclude.txt" }
+if ($ContractList -eq "") { $ContractList = Join-Path $PSScriptRoot "loud-contracts.txt" }
 $diffTest = Join-Path $PSScriptRoot "difftest.ps1"
 
 if (-not (Test-Path -LiteralPath $ExcludeList)) {
@@ -39,28 +44,39 @@ if (-not (Test-Path -LiteralPath $diffTest)) {
     exit 1
 }
 
+# W11 F1-b: the protection object is a CONTROLLED, always-active contract set
+# (scripts/loud-contracts.txt), NOT the note text of sweep-exclude.txt. Legacy
+# active 'LOUD contract' rows in the exclude list are merged in (deduped) so
+# existing registrations stay protected.
 $loudCases = New-Object System.Collections.Generic.List[string]
-foreach ($raw in [System.IO.File]::ReadAllLines($ExcludeList)) {
-    $line = $raw.Trim()
-    if ($line.Length -eq 0) { continue }
-    if ($line.StartsWith("#")) { continue }
-    if ($line -notmatch "LOUD contract") { continue }
-    $name = ($line -split "#")[0].Trim()
-    if ($name.Length -eq 0) { continue }
-    if ($CaseFilter -ne "" -and $name -ne $CaseFilter) { continue }
-    $loudCases.Add($name)
+$seen = New-Object System.Collections.Generic.HashSet[string]
+foreach ($src in @($ContractList, $ExcludeList)) {
+    if (-not (Test-Path -LiteralPath $src)) { continue }
+    foreach ($raw in [System.IO.File]::ReadAllLines($src)) {
+        $line = $raw.Trim()
+        if ($line.Length -eq 0) { continue }
+        if ($line.StartsWith("#")) { continue }
+        if ($src -eq $ExcludeList -and $line -notmatch "LOUD contract") { continue }
+        $name = ($line -split "#")[0].Trim()
+        if ($name.Length -eq 0) { continue }
+        if ($CaseFilter -ne "" -and $name -ne $CaseFilter) { continue }
+        if ($seen.Add($name)) { $loudCases.Add($name) }
+    }
 }
 
 if ($loudCases.Count -eq 0) {
-    # impl-collation: an EMPTY LOUD list is a PASS, not a failure. Every shape
-    # that used to be rejected here is now implemented for real (culture
-    # collation for string keys + string Min/Max), so the exclude list carries
-    # no active LOUD rows. Failing on zero entries would force a permanent
-    # dead row into the list just to keep this gate green -- the opposite of
-    # what the gate is for. The gate still verifies every row the list DOES
-    # carry, so a future LOUD case is protected the moment it is added.
-    Write-Output "loud-gate: PASS -- no active 'LOUD contract' entries in $ExcludeList (every listed shape is now wired byte-exact)"
-    exit 0
+    # W11 F1-a: an EMPTY active set is INCONCLUSIVE, never a vacuous PASS.
+    # The original exit-0-on-empty let a lost contract go unnoticed (the gate
+    # had NO execution-time caller in ci.ps1). We must NOT flip this straight
+    # to a hard FAIL: the old design note (:55-63) is right that failing on
+    # zero entries would force a permanent fake LOUD row just to keep the gate
+    # green. Instead emit an explicit INCONCLUSIVE status with a distinct exit
+    # code (2) and name the missing source. The controlled set (F1-b) makes
+    # this branch unreachable in normal operation: the fixed sentinel keeps
+    # $loudCases non-empty by construction, so an empty set here means a real
+    # misconfiguration (contract file gone) and the CI gate must block.
+    Write-Output "loud-gate: INCONCLUSIVE -- no active LOUD contract cases (no active contract to verify); controlled set '$ContractList' and exclude list '$ExcludeList' carry no active LOUD rows. A non-empty controlled contract set is required for this gate to protect anything."
+    exit 2
 }
 
 # Evidence that the case rejected the shape instead of returning a value.
@@ -81,7 +97,7 @@ foreach ($case in $loudCases) {
     $log = Join-Path $logDir "$case.log"
     $rc = 1
     try {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $diffTest -Case $case *> $log
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $diffTest -Case $case -Compiler $Compiler *> $log
         $rc = $LASTEXITCODE
     }
     catch {

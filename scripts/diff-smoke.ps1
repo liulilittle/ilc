@@ -1,5 +1,9 @@
 ﻿param(
-    [ValidateSet("mingw","msvc","clang")][string]$Compiler = "mingw",
+    # W11 F2-alpha: diff-smoke.ps1 drives scripts/difftest.ps1, which has no
+    # real MSVC channel (msvc used to label a MinGW binary). Keep the two
+    # ValidateSets consistent so a smoke run cannot emit fake compiler=msvc
+    # rows into smoke-summary.tsv. Real MSVC e2e is run-tests.ps1.
+    [ValidateSet("mingw","clang")][string]$Compiler = "mingw",
     [string]$Only = "",
     [string]$Skip = "",
     [string]$OutDir = "",
