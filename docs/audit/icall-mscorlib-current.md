@@ -1,15 +1,15 @@
 # mscorlib InternalCall 现状盘点（net48）
 
 > 只读审计。目标程序集：`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\mscorlib.dll`（net48）。
-> 本版数字由 `tools/audit/run-audit.ps1` 于源码提交 `7b04e079b2e713f468107fd26026f2f10053d963`（`git rev-list -1 HEAD -- src`）重新生成；五类之和必须等于 **908**，脚本内 `assert sum == 908`，不成立则渲染器直接失败退出。
+> 本版数字由 `tools/audit/run-audit.ps1` 于源码提交 `64f2eb7b28ac6f7605929c7feda33d2c66f97e5a`（`git rev-list -1 HEAD -- src`）重新生成；五类之和必须等于 **908**，脚本内 `assert sum == 908`，不成立则渲染器直接失败退出。
 
 ## 0. 结论摘要
 
 - net48 mscorlib InternalCall 总数：**908**（反射通道 908 / 元数据通道 908，逐条 join key 一致）
-- 判定分布（五类，部分影子单列）：已接 **194** + 半接 **30** + 缺 **594**（LOUD 拒绝 281 + 无接线 313）+ 影子 **74** + 部分影子 **16** = 194+30+594+74+16 = **908**，`assert sum == 908` 通过
-- 可达性分级（仅统计非「已接」的 714 条）：P0 **42**、P1 **290**、P2 **98**、P3 **284**
-- public API 面（类型 public 且方法 public）共 **141** 条，其中已接 **99**、半接 12、LOUD 25、无接线 5
-- **「已接」不等于语义等价 net48**：30 条「半接」全部是运行时占位实现（30 条空体/恒值桩，见 §3.8），不是真实计算。
+- 判定分布（五类，部分影子单列）：已接 **231** + 半接 **27** + 缺 **553**（LOUD 拒绝 247 + 无接线 306）+ 影子 **81** + 部分影子 **16** = 231+27+553+81+16 = **908**，`assert sum == 908` 通过
+- 可达性分级（仅统计非「已接」的 677 条）：P0 **10**、P1 **286**、P2 **98**、P3 **283**
+- public API 面（类型 public 且方法 public）共 **141** 条，其中已接 **131**、半接 10、LOUD 0、无接线 0
+- **「已接」不等于语义等价 net48**：27 条「半接」全部是运行时占位实现（27 条空体/恒值桩，见 §3.8），不是真实计算。
 
 ### 0.1 判定口径（逐条都在 §2/§3 给出 file:line）
 
@@ -52,487 +52,480 @@
 
 ## 2. 已接清单
 
-共 **194** 条。证据列是 dispatcher 的 `MethodMap.*.cs:<line>`，即 `BclResolveCore` 的 owner 分支最终命中的 `TryMap*` 里那个方法名分支。
+共 **231** 条。证据列是 dispatcher 的 `MethodMap.*.cs:<line>`，即 `BclResolveCore` 的 owner 分支最终命中的 `TryMap*` 里那个方法名分支。
 
 | # | 声明类型 | 方法 | 签名 | 可见性 | 运行时目标 | 证据 |
 |---|---|---|---|---|---|---|
-| 1 | `System.AppDomain` | `GetDefaultDomain` | `System.AppDomain ()` | public/internal/static | `icall_appdomain_get_default_domain` | `MethodMap.Legacy.cs:169` |
-| 2 | `System.AppDomain` | `GetFusionContext` | `System.IntPtr ()` | public/internal/instance | `icall_appdomain_get_fusion_context` | `MethodMap.Legacy.cs:175` |
-| 3 | `System.AppDomain` | `GetId` | `System.Int32 ()` | public/internal/instance | `icall_appdomain_get_id` | `MethodMap.Legacy.cs:167` |
-| 4 | `System.AppDomain` | `GetOrInternString` | `System.String (System.String)` | public/internal/instance | `icall_appdomain_get_or_intern_string` | `MethodMap.Legacy.cs:165` |
-| 5 | `System.AppDomain` | `GetSecurityDescriptor` | `System.IntPtr ()` | public/internal/instance | `icall_appdomain_get_security_descriptor` | `MethodMap.Legacy.cs:177` |
-| 6 | `System.AppDomain` | `IsDomainIdValid` | `System.Boolean (System.Int32)` | public/internal/static | `icall_appdomain_is_domain_id_valid` | `MethodMap.Legacy.cs:173` |
-| 7 | `System.AppDomain` | `IsFinalizingForUnload` | `System.Boolean ()` | public/public/instance | `icall_appdomain_is_finalizing_for_unload` | `MethodMap.Legacy.cs:157` |
-| 8 | `System.AppDomain` | `IsStringInterned` | `System.String (System.String)` | public/internal/instance | `icall_appdomain_is_string_interned` | `MethodMap.Legacy.cs:163` |
-| 9 | `System.AppDomain` | `IsUnloadingForcedFinalize` | `System.Boolean ()` | public/internal/instance | `icall_appdomain_is_unloading_forced_finalize` | `MethodMap.Legacy.cs:171` |
-| 10 | `System.AppDomain` | `PublishAnonymouslyHostedDynamicMethodsAssembly` | `System.Void (System.Reflection.RuntimeAssembly)` | public/internal/static | `icall_appdomain_publish_anonymously_hosted_dynamic_methods_assembly` | `MethodMap.Legacy.cs:159` |
-| 11 | `System.AppDomain` | `UpdateLoaderOptimization` | `System.Void (System.LoaderOptimization)` | public/internal/instance | `icall_appdomain_update_loader_optimization` | `MethodMap.Legacy.cs:183` |
-| 12 | `System.AppDomain` | `nCreateDomain` | `System.AppDomain (System.String, System.AppDomainSetup, System.Security.Policy.Evidence, System.Security.Policy.Evidence, System.IntPtr)` | public/internal/static | `icall_appdomain_n_create_domain` | `MethodMap.Legacy.cs:179` |
-| 13 | `System.AppDomain` | `nCreateInstance` | `System.Runtime.Remoting.ObjRef (System.String, System.AppDomainSetup, System.Security.Policy.Evidence, System.Security.Policy.Evidence, System.IntPtr)` | public/internal/static | `icall_appdomain_n_create_instance` | `MethodMap.Legacy.cs:181` |
-| 14 | `System.AppDomain` | `nUnload` | `System.Void (System.Int32)` | public/internal/static | `icall_appdomain_n_unload` | `MethodMap.Legacy.cs:185` |
-| 15 | `System.Array` | `Clear` | `System.Void (System.Array, System.Int32, System.Int32)` | public/public/static | `icall_array_clear_int32` | `MethodMap.Array.cs:525` |
-| 16 | `System.Array` | `Copy` | `System.Void (System.Array, System.Int32, System.Array, System.Int32, System.Int32, System.Boolean)` | public/internal/static | `icall_array_copy` | `MethodMap.Array.cs:607` |
-| 17 | `System.Array` | `GetDataPtrOffsetInternal` | `System.Int32 ()` | public/internal/instance | `icall_array_get_data_ptr_offset_internal` | `MethodMap.Array.cs:1190` |
-| 18 | `System.Array` | `GetLength` | `System.Int32 (System.Int32)` | public/public/instance | `icall_array_get_length` | `MethodMap.Array.cs:1083` |
-| 19 | `System.Array` | `GetLowerBound` | `System.Int32 (System.Int32)` | public/public/instance | `icall_array_get_lower_bound` | `MethodMap.Array.cs:1114` |
-| 20 | `System.Array` | `GetUpperBound` | `System.Int32 (System.Int32)` | public/public/instance | `icall_array_get_upper_bound` | `MethodMap.Array.cs:1085` |
-| 21 | `System.Array` | `Initialize` | `System.Void ()` | public/public/instance | `icall_array_initialize` | `MethodMap.Array.cs:1118` |
-| 22 | `System.Array` | `get_Length` | `System.Int32 ()` | public/public/instance | `il2cpp_array_get_length` | `MethodMap.Array.cs:1087` |
-| 23 | `System.Array` | `get_LongLength` | `System.Int64 ()` | public/public/instance | `icall_array_get_long_length` | `MethodMap.Array.cs:1110` |
-| 24 | `System.Array` | `get_Rank` | `System.Int32 ()` | public/public/instance | `icall_array_get_rank` | `MethodMap.Array.cs:1096` |
-| 25 | `System.BaseConfigHandler` | `RunParser` | `System.Void (System.String)` | internal/internal/instance | `icall_base_config_handler_run_parser` | `MethodMap.GC.cs:235` |
-| 26 | `System.Buffer` | `BlockCopy` | `System.Void (System.Array, System.Int32, System.Array, System.Int32, System.Int32)` | public/public/static | `il2cpp_buffer_block_copy` | `MethodMap.Buffer.cs:29` |
-| 27 | `System.Buffer` | `InternalBlockCopy` | `System.Void (System.Array, System.Int32, System.Array, System.Int32, System.Int32)` | public/internal/static | `il2cpp_buffer_block_copy` | `MethodMap.Buffer.cs:66` |
-| 28 | `System.CLRConfig` | `CheckLegacyManagedDeflateStream` | `System.Boolean ()` | internal/internal/static | `icall_clr_config_check_legacy_managed_deflate_stream` | `MethodMap.GC.cs:244` |
-| 29 | `System.CLRConfig` | `CheckThrowUnobservedTaskExceptions` | `System.Boolean ()` | internal/internal/static | `icall_clr_config_check_throw_unobserved_task_exceptions` | `MethodMap.GC.cs:245` |
-| 30 | `System.DateTime` | `GetSystemTimeAsFileTime` | `System.Int64 ()` | public/internal/static | `icall_datetime_get_system_time_as_file_time` | `MethodMap.DateTime.cs:220` |
-| 31 | `System.DateTime` | `GetSystemTimeWithLeapSecondsHandling` | `System.Void (System.DateTime+FullSystemTime&)` | public/internal/static | `icall_datetime_get_system_time_with_leap_seconds_handling` | `MethodMap.DateTime.cs:222` |
-| 32 | `System.DateTime` | `SystemFileTimeToSystemTime` | `System.Boolean (System.Int64, System.DateTime+FullSystemTime&)` | public/internal/static | `icall_datetime_system_file_time_to_system_time` | `MethodMap.DateTime.cs:223` |
-| 33 | `System.DateTime` | `SystemTimeToSystemFileTime` | `System.Boolean (System.DateTime+FullSystemTime&, System.Int64&)` | public/internal/static | `icall_datetime_system_time_to_system_file_time` | `MethodMap.DateTime.cs:224` |
-| 34 | `System.DateTime` | `ValidateSystemTime` | `System.Boolean (System.DateTime+FullSystemTime&, System.Boolean)` | public/internal/static | `icall_datetime_validate_system_time` | `MethodMap.DateTime.cs:221` |
-| 35 | `System.Decimal` | `.ctor` | `System.Void (System.Double)` | public/public/instance | `icall_decimal_ctor_double` | `MethodMap.Decimal.cs:337` |
-| 36 | `System.Decimal` | `.ctor` | `System.Void (System.Single)` | public/public/instance | `icall_decimal_ctor_float` | `MethodMap.Decimal.cs:337` |
-| 37 | `System.Decimal` | `FCallAddSub` | `System.Void (System.Decimal&, System.Decimal&, System.Byte)` | public/private/static | `icall_decimal_fcall_addsub` | `MethodMap.Decimal.cs:393` |
-| 38 | `System.Decimal` | `FCallAddSubOverflowed` | `System.Void (System.Decimal&, System.Decimal&, System.Byte, System.Boolean&)` | public/private/static | `icall_decimal_fcall_addsub` | `MethodMap.Decimal.cs:397` |
-| 39 | `System.Decimal` | `FCallDivide` | `System.Void (System.Decimal&, System.Decimal&)` | public/private/static | `icall_decimal_fcall_divide` | `MethodMap.Decimal.cs:409` |
-| 40 | `System.Decimal` | `FCallDivideOverflowed` | `System.Void (System.Decimal&, System.Decimal&, System.Boolean&)` | public/private/static | `icall_decimal_fcall_divide` | `MethodMap.Decimal.cs:413` |
-| 41 | `System.Decimal` | `FCallMultiply` | `System.Void (System.Decimal&, System.Decimal&)` | public/private/static | `icall_decimal_fcall_multiply` | `MethodMap.Decimal.cs:401` |
-| 42 | `System.Decimal` | `FCallMultiplyOverflowed` | `System.Void (System.Decimal&, System.Decimal&, System.Boolean&)` | public/private/static | `icall_decimal_fcall_multiply` | `MethodMap.Decimal.cs:405` |
-| 43 | `System.Decimal` | `FCallToInt32` | `System.Int32 (System.Decimal)` | public/internal/static | `icall_decimal_fcall_to_int32` | `MethodMap.Decimal.cs:389` |
-| 44 | `System.Decimal` | `GetHashCode` | `System.Int32 ()` | public/public/instance | `icall_decimal_get_hash_code` | `MethodMap.Decimal.cs:219` |
-| 45 | `System.Decimal` | `ToDouble` | `System.Double (System.Decimal)` | public/public/static | `icall_decimal_to_double` | `MethodMap.Decimal.cs:378` |
-| 46 | `System.Decimal` | `ToSingle` | `System.Single (System.Decimal)` | public/public/static | `icall_decimal_to_float` | `MethodMap.Decimal.cs:382` |
-| 47 | `System.Delegate` | `AdjustTarget` | `System.IntPtr (System.Object, System.IntPtr)` | public/internal/instance | `icall_delegate_adjust_target` | `MethodMap.Delegate.cs:109` |
-| 48 | `System.Delegate` | `CompareUnmanagedFunctionPtrs` | `System.Boolean (System.Delegate, System.Delegate)` | public/internal/static | `icall_delegate_compare_unmanaged_function_ptrs` | `MethodMap.Delegate.cs:113` |
-| 49 | `System.Delegate` | `GetCallStub` | `System.IntPtr (System.IntPtr)` | public/internal/instance | `icall_delegate_get_call_stub` | `MethodMap.Delegate.cs:110` |
-| 50 | `System.Delegate` | `GetInvokeMethod` | `System.IntPtr ()` | public/internal/instance | `icall_delegate_get_invoke_method` | `MethodMap.Delegate.cs:106` |
-| 51 | `System.Delegate` | `GetMulticastInvoke` | `System.IntPtr ()` | public/internal/instance | `icall_delegate_get_multicast_invoke` | `MethodMap.Delegate.cs:105` |
-| 52 | `System.Delegate` | `InternalAllocLike` | `System.MulticastDelegate (System.Delegate)` | public/internal/static | `icall_delegate_internal_alloc_like` | `MethodMap.Delegate.cs:104` |
-| 53 | `System.Delegate` | `InternalEqualMethodHandles` | `System.Boolean (System.Delegate, System.Delegate)` | public/internal/static | `icall_delegate_internal_equal_method_handles` | `MethodMap.Delegate.cs:108` |
-| 54 | `System.Delegate` | `InternalEqualTypes` | `System.Boolean (System.Object, System.Object)` | public/internal/static | `icall_delegate_internal_equal_types` | `MethodMap.Delegate.cs:112` |
-| 55 | `System.Diagnostics.Assert` | `ShowDefaultAssertDialog` | `System.Int32 (System.String, System.String, System.String, System.String)` | internal/internal/static | `icall_assert_show_default_assert_dialog` | `MethodMap.GC.cs:264` |
-| 56 | `System.Diagnostics.Debugger` | `Log` | `System.Void (System.Int32, System.String, System.String)` | public/public/static | `il2cpp_debugger_log` | `MethodMap.Debugger.cs:52` |
-| 57 | `System.Diagnostics.Log` | `AddLogSwitch` | `System.Void (System.Diagnostics.LogSwitch)` | internal/internal/static | `icall_log_add_log_switch` | `MethodMap.GC.cs:265` |
-| 58 | `System.Diagnostics.Log` | `ModifyLogSwitch` | `System.Void (System.Int32, System.String, System.String)` | internal/internal/static | `icall_log_modify_log_switch` | `MethodMap.GC.cs:266` |
-| 59 | `System.Enum` | `Equals` | `System.Boolean (System.Object)` | public/public/instance | `il2cpp_enum_equals` | `MethodMap.Enum.cs:363` |
-| 60 | `System.Enum` | `InternalGetUnderlyingType` | `System.RuntimeType (System.RuntimeType)` | public/internal/static | `icall_enum_internal_get_underlying_type` | `MethodMap.Enum.cs:425` |
-| 61 | `System.Environment` | `FailFast` | `System.Void (System.String)` | public/public/static | `icall_environment_fail_fast` | `MethodMap.Environment.cs:126` |
-| 62 | `System.Environment` | `FailFast` | `System.Void (System.String, System.Exception)` | public/public/static | `icall_environment_fail_fast` | `MethodMap.Environment.cs:126` |
-| 63 | `System.Environment` | `FailFast` | `System.Void (System.String, System.UInt32)` | public/internal/static | `icall_environment_fail_fast` | `MethodMap.Environment.cs:126` |
-| 64 | `System.Environment` | `GetCompatibilityFlag` | `System.Boolean (System.CompatibilityFlag)` | public/internal/static | `icall_environment_get_compatibility_flag` | `MethodMap.Environment.cs:155` |
-| 65 | `System.Environment` | `GetResourceFromDefault` | `System.String (System.String)` | public/internal/static | `icall_environment_get_resource_from_default` | `MethodMap.Environment.cs:154` |
-| 66 | `System.Environment` | `GetVersion` | `System.Boolean (Microsoft.Win32.Win32Native+OSVERSIONINFO)` | public/internal/static | `icall_environment_get_version` | `MethodMap.Environment.cs:152` |
-| 67 | `System.Environment` | `get_ExitCode` | `System.Int32 ()` | public/public/static | `icall_environment_get_exit_code` | `MethodMap.Environment.cs:117` |
-| 68 | `System.Environment` | `get_TickCount` | `System.Int32 ()` | public/public/static | `icall_environment_get_tick_count` | `MethodMap.Environment.cs:32` |
-| 69 | `System.Environment` | `get_TickCount64` | `System.Int64 ()` | public/internal/static | `icall_environment_get_tick_count64` | `MethodMap.Environment.cs:39` |
-| 70 | `System.Environment` | `nativeGetEnvironmentVariable` | `System.String (System.String)` | public/internal/static | `icall_environment_get_environment_variable_native` | `MethodMap.Environment.cs:139` |
-| 71 | `System.Environment` | `set_ExitCode` | `System.Void (System.Int32)` | public/public/static | `icall_environment_set_exit_code` | `MethodMap.Environment.cs:118` |
-| 72 | `System.GC` | `GetGCLatencyMode` | `System.Int32 ()` | public/internal/static | `icall_gc_get_latency_mode` | `MethodMap.GC.cs:79` |
-| 73 | `System.GC` | `GetGeneration` | `System.Int32 (System.Object)` | public/public/static | `icall_gc_get_generation` | `MethodMap.GC.cs:54` |
-| 74 | `System.GC` | `GetLOHCompactionMode` | `System.Int32 ()` | public/internal/static | `icall_gc_get_loh_compaction_mode` | `MethodMap.GC.cs:82` |
-| 75 | `System.GC` | `GetMaxGeneration` | `System.Int32 ()` | public/private/static | `il2cpp_gc_get_max_generation` | `MethodMap.GC.cs:117` |
-| 76 | `System.GC` | `SetGCLatencyMode` | `System.Int32 (System.Int32)` | public/internal/static | `icall_gc_set_latency_mode` | `MethodMap.GC.cs:81` |
-| 77 | `System.GC` | `SetLOHCompactionMode` | `System.Void (System.Int32)` | public/internal/static | `icall_gc_set_loh_compaction_mode` | `MethodMap.GC.cs:83` |
-| 78 | `System.Globalization.CultureInfo` | `nativeGetLocaleInfoEx` | `System.String (System.String, System.UInt32)` | public/internal/static | `icall_culture_info_native_get_locale_info_ex_int` | `MethodMap.CultureInfo.cs:96` |
-| 79 | `System.Globalization.CultureInfo` | `nativeGetLocaleInfoExInt` | `System.Int32 (System.String, System.UInt32)` | public/internal/static | `icall_culture_info_native_get_locale_info_ex_int` | `MethodMap.CultureInfo.cs:97` |
-| 80 | `System.Globalization.CultureInfo` | `nativeSetThreadLocale` | `System.Boolean (System.String)` | public/internal/static | `icall_culture_info_native_set_thread_locale` | `MethodMap.CultureInfo.cs:98` |
-| 81 | `System.Math` | `Abs` | `System.Double (System.Double)` | public/public/static | `icall_math_abs_d` | `MethodMap.Math.cs:19` |
-| 82 | `System.Math` | `Abs` | `System.Single (System.Single)` | public/public/static | `icall_math_abs_d` | `MethodMap.Math.cs:19` |
-| 83 | `System.Math` | `Acos` | `System.Double (System.Double)` | public/public/static | `icall_math_acos_d` | `MethodMap.Math.cs:140` |
-| 84 | `System.Math` | `Asin` | `System.Double (System.Double)` | public/public/static | `icall_math_asin_d` | `MethodMap.Math.cs:139` |
-| 85 | `System.Math` | `Atan` | `System.Double (System.Double)` | public/public/static | `icall_math_atan_d` | `MethodMap.Math.cs:141` |
-| 86 | `System.Math` | `Atan2` | `System.Double (System.Double, System.Double)` | public/public/static | `icall_math_atan2_d` | `MethodMap.Math.cs:142` |
-| 87 | `System.Math` | `Ceiling` | `System.Double (System.Double)` | public/public/static | `icall_math_ceiling_d` | `MethodMap.Math.cs:82` |
-| 88 | `System.Math` | `Cos` | `System.Double (System.Double)` | public/public/static | `icall_math_cos_d` | `MethodMap.Math.cs:137` |
-| 89 | `System.Math` | `Cosh` | `System.Double (System.Double)` | public/public/static | `icall_math_cosh_d` | `MethodMap.Math.cs:158` |
-| 90 | `System.Math` | `Exp` | `System.Double (System.Double)` | public/public/static | `icall_math_exp_d` | `MethodMap.Math.cs:153` |
-| 91 | `System.Math` | `Floor` | `System.Double (System.Double)` | public/public/static | `icall_math_floor_d` | `MethodMap.Math.cs:78` |
-| 92 | `System.Math` | `Log` | `System.Double (System.Double)` | public/public/static | `icall_math_log_d` | `MethodMap.Math.cs:154` |
-| 93 | `System.Math` | `Log10` | `System.Double (System.Double)` | public/public/static | `icall_math_log10_d` | `MethodMap.Math.cs:157` |
-| 94 | `System.Math` | `Pow` | `System.Double (System.Double, System.Double)` | public/public/static | `icall_math_pow_d` | `MethodMap.Math.cs:77` |
-| 95 | `System.Math` | `Round` | `System.Double (System.Double)` | public/public/static | `icall_math_round_d` | `MethodMap.Math.cs:86` |
-| 96 | `System.Math` | `Sin` | `System.Double (System.Double)` | public/public/static | `icall_math_sin_d` | `MethodMap.Math.cs:136` |
-| 97 | `System.Math` | `Sinh` | `System.Double (System.Double)` | public/public/static | `icall_math_sinh_d` | `MethodMap.Math.cs:159` |
-| 98 | `System.Math` | `Sqrt` | `System.Double (System.Double)` | public/public/static | `icall_math_sqrt_d` | `MethodMap.Math.cs:76` |
-| 99 | `System.Math` | `Tan` | `System.Double (System.Double)` | public/public/static | `icall_math_tan_d` | `MethodMap.Math.cs:138` |
-| 100 | `System.Math` | `Tanh` | `System.Double (System.Double)` | public/public/static | `icall_math_tanh_d` | `MethodMap.Math.cs:160` |
-| 101 | `System.Object` | `GetType` | `System.Type ()` | public/public/instance | `icall_object_get_type` | `MethodMap.Object.cs:35` |
-| 102 | `System.Object` | `MemberwiseClone` | `System.Object ()` | public/protected/instance | `icall_object_memberwise_clone` | `MethodMap.Object.cs:256` |
-| 103 | `System.Runtime.CompilerServices.DependentHandle` | `nFree` | `System.Void (System.IntPtr)` | internal/private/static | `icall_dependenthandle_free` | `MethodMap.DependentHandle.cs:85` |
-| 104 | `System.Runtime.CompilerServices.DependentHandle` | `nGetPrimary` | `System.Void (System.IntPtr, System.Object&)` | internal/private/static | `icall_dependenthandle_n_get_primary` | `MethodMap.DependentHandle.cs:73` |
-| 105 | `System.Runtime.CompilerServices.DependentHandle` | `nGetPrimaryAndSecondary` | `System.Void (System.IntPtr, System.Object&, System.Object&)` | internal/private/static | `icall_dependenthandle_n_get_primary_and_secondary` | `MethodMap.DependentHandle.cs:79` |
-| 106 | `System.Runtime.CompilerServices.DependentHandle` | `nInitialize` | `System.Void (System.Object, System.Object, System.IntPtr&)` | internal/private/static | `icall_dependenthandle_n_init` | `MethodMap.DependentHandle.cs:66` |
-| 107 | `System.Runtime.CompilerServices.RuntimeHelpers` | `Equals` | `System.Boolean (System.Object, System.Object)` | public/public/static | `::refeq::` | `MethodMap.RuntimeHelpers.cs:56` |
-| 108 | `System.Runtime.CompilerServices.RuntimeHelpers` | `GetHashCode` | `System.Int32 (System.Object)` | public/public/static | `icall_object_get_hash_code` | `MethodMap.RuntimeHelpers.cs:47` |
-| 109 | `System.Runtime.CompilerServices.RuntimeHelpers` | `GetObjectValue` | `System.Object (System.Object)` | public/public/static | `::identity::` | `MethodMap.RuntimeHelpers.cs:65` |
-| 110 | `System.Runtime.InteropServices.GCHandle` | `InternalGetHandleType` | `System.Runtime.InteropServices.GCHandleType (System.IntPtr)` | public/internal/static | `icall_gchandle_get_handle_type` | `MethodMap.GCHandle.cs:79` |
-| 111 | `System.Runtime.InteropServices.Marshal` | `DestroyStructure` | `System.Void (System.IntPtr, System.Type)` | public/public/static | `icall_marshal_destroy_structure` | `MethodMap.Marshal.cs:196` |
-| 112 | `System.Runtime.InteropServices.Marshal` | `GetHRForException` | `System.Int32 (System.Exception)` | public/public/static | `icall_marshal_get_hr_for_exception` | `MethodMap.Marshal.cs:431` |
-| 113 | `System.Runtime.InteropServices.Marshal` | `GetLastWin32Error` | `System.Int32 ()` | public/public/static | `il2cpp_pinvoke_get_last_error` | `MethodMap.Marshal.cs:95` |
-| 114 | `System.Runtime.InteropServices.Marshal` | `GetNativeVariantForObject` | `System.Void (System.Object, System.IntPtr)` | public/public/static | `icall_marshal_get_native_variant_for_object` | `MethodMap.Marshal.cs:447` |
-| 115 | `System.Runtime.InteropServices.Marshal` | `GetObjectForIUnknown` | `System.Object (System.IntPtr)` | public/public/static | `icall_com_get_object_for_iunknown` | `MethodMap.Marshal.cs:512` |
-| 116 | `System.Runtime.InteropServices.Marshal` | `GetObjectForNativeVariant` | `System.Object (System.IntPtr)` | public/public/static | `icall_marshal_get_object_for_native_variant` | `MethodMap.Marshal.cs:442` |
-| 117 | `System.Runtime.InteropServices.Marshal` | `GetObjectsForNativeVariants` | `System.Object[] (System.IntPtr, System.Int32)` | public/public/static | `icall_marshal_get_objects_for_native_variants` | `MethodMap.Marshal.cs:452` |
-| 118 | `System.Runtime.InteropServices.Marshal` | `IsComObject` | `System.Boolean (System.Object)` | public/public/static | `icall_marshal_is_com_object` | `MethodMap.Marshal.cs:457` |
-| 119 | `System.Runtime.InteropServices.Marshal` | `SetLastWin32Error` | `System.Void (System.Int32)` | public/internal/static | `il2cpp_marshal_set_last_win32_error` | `MethodMap.Marshal.cs:100` |
-| 120 | `System.Runtime.InteropServices.Marshal` | `StructureToPtr` | `System.Void (System.Object, System.IntPtr, System.Boolean)` | public/public/static | `il2cpp_marshal_struct_store` | `MethodMap.Marshal.cs:351` |
-| 121 | `System.Runtime.InteropServices.Marshal` | `UnsafeAddrOfPinnedArrayElement` | `System.IntPtr (System.Array, System.Int32)` | public/public/static | `icall_marshal_unsafe_addr_of_pinned_array_element` | `MethodMap.Marshal.cs:421` |
-| 122 | `System.Runtime.InteropServices.SafeHandle` | `DangerousAddRef` | `System.Void (System.Boolean&)` | public/public/instance | `icall_safehandle_dangerous_add_ref` | `MethodMap.SafeHandle.cs:40` |
-| 123 | `System.Runtime.InteropServices.SafeHandle` | `DangerousRelease` | `System.Void ()` | public/public/instance | `icall_safehandle_dangerous_release` | `MethodMap.SafeHandle.cs:48` |
-| 124 | `System.Runtime.InteropServices.SafeHandle` | `SetHandleAsInvalid` | `System.Void ()` | public/public/instance | `icall_safehandle_set_handle_as_invalid` | `MethodMap.SafeHandle.cs:52` |
-| 125 | `System.Security.Principal.Win32` | `OpenThreadToken` | `System.Int32 (System.Security.Principal.TokenAccessLevels, System.Security.Principal.WinSecurityContext, Microsoft.Win32.SafeHandles.SafeAccessTokenHandle&)` | internal/internal/static | `icall_security_principal_win32_open_thread_token` | `MethodMap.Emit.cs:75` |
-| 126 | `System.Security.SecurityContext` | `GetImpersonationFlowMode` | `System.Security.WindowsImpersonationFlowMode ()` | public/internal/static | `icall_security_context_get_impersonation_flow_mode` | `MethodMap.GC.cs:246` |
-| 127 | `System.Security.SecurityContext` | `IsDefaultThreadSecurityInfo` | `System.Boolean ()` | public/internal/static | `icall_security_context_is_default_thread_security_info` | `MethodMap.GC.cs:247` |
-| 128 | `System.Security.SecurityManager` | `_SetThreadSecurity` | `System.Boolean (System.Boolean)` | public/internal/static | `icall_security_manager_set_thread_security` | `MethodMap.GC.cs:248` |
-| 129 | `System.Security.SecurityRuntime` | `GetSecurityObjectForFrame` | `System.Security.FrameSecurityDescriptor (System.Threading.StackCrawlMark&, System.Boolean)` | internal/internal/static | `icall_security_runtime_get_security_object_for_frame` | `MethodMap.GC.cs:249` |
-| 130 | `System.String` | `.ctor` | `System.Void (System.Char*)` | public/public/instance | `icall_string_ctor_char_ptr` | `MethodMap.String.cs:15` |
-| 131 | `System.String` | `.ctor` | `System.Void (System.Char*, System.Int32, System.Int32)` | public/public/instance | `icall_string_ctor_char_ptr_range` | `MethodMap.String.cs:15` |
-| 132 | `System.String` | `.ctor` | `System.Void (System.Char, System.Int32)` | public/public/instance | `icall_string_ctor_repeat` | `MethodMap.String.cs:15` |
-| 133 | `System.String` | `.ctor` | `System.Void (System.Char[])` | public/public/instance | `icall_string_ctor_char_array` | `MethodMap.String.cs:15` |
-| 134 | `System.String` | `.ctor` | `System.Void (System.Char[], System.Int32, System.Int32)` | public/public/instance | `icall_string_ctor_char_array_range` | `MethodMap.String.cs:15` |
-| 135 | `System.String` | `.ctor` | `System.Void (System.SByte*)` | public/public/instance | `icall_string_ctor_sbyte_ptr` | `MethodMap.String.cs:15` |
-| 136 | `System.String` | `.ctor` | `System.Void (System.SByte*, System.Int32, System.Int32)` | public/public/instance | `icall_string_ctor_sbyte_ptr_range` | `MethodMap.String.cs:15` |
-| 137 | `System.String` | `.ctor` | `System.Void (System.SByte*, System.Int32, System.Int32, System.Text.Encoding)` | public/public/instance | `icall_string_ctor_sbyte_ptr_range_encoding` | `MethodMap.String.cs:15` |
-| 138 | `System.String` | `FastAllocateString` | `System.String (System.Int32)` | public/internal/static | `icall_string_fast_allocate` | `MethodMap.String.cs:733` |
-| 139 | `System.String` | `IndexOf` | `System.Int32 (System.Char, System.Int32, System.Int32)` | public/public/instance | `icall_string_index_of_c_range` | `MethodMap.String.cs:82` |
-| 140 | `System.String` | `IndexOfAny` | `System.Int32 (System.Char[], System.Int32, System.Int32)` | public/public/instance | `icall_string_index_of_any_range` | `MethodMap.String.cs:92` |
-| 141 | `System.String` | `InternalMarvin32HashString` | `System.Int32 (System.String, System.Int32, System.Int64)` | public/internal/static | `icall_string_internal_marvin32_hash_string` | `MethodMap.String.cs:748` |
-| 142 | `System.String` | `IsAscii` | `System.Boolean ()` | public/internal/instance | `icall_string_is_ascii` | `MethodMap.String.cs:750` |
-| 143 | `System.String` | `IsFastSort` | `System.Boolean ()` | public/internal/instance | `icall_string_is_fast_sort` | `MethodMap.String.cs:749` |
-| 144 | `System.String` | `LastIndexOf` | `System.Int32 (System.Char, System.Int32, System.Int32)` | public/public/instance | `icall_string_last_index_of_c_range` | `MethodMap.String.cs:132` |
-| 145 | `System.String` | `LastIndexOfAny` | `System.Int32 (System.Char[], System.Int32, System.Int32)` | public/public/instance | `icall_string_last_index_of_any_range` | `MethodMap.String.cs:114` |
-| 146 | `System.String` | `SetTrailByte` | `System.Void (System.Byte)` | public/internal/instance | `icall_string_set_trail_byte` | `MethodMap.String.cs:738` |
-| 147 | `System.String` | `TryGetTrailByte` | `System.Boolean (System.Byte&)` | public/internal/instance | `icall_string_try_get_trail_byte` | `MethodMap.String.cs:742` |
-| 148 | `System.String` | `get_Chars` | `System.Char (System.Int32)` | public/public/instance | `icall_string_get_chars` | `MethodMap.String.cs:723` |
-| 149 | `System.String` | `get_Length` | `System.Int32 ()` | public/public/instance | `il2cpp_string_get_length` | `MethodMap.String.cs:74` |
-| 150 | `System.String` | `nativeCompareOrdinalEx` | `System.Int32 (System.String, System.Int32, System.String, System.Int32, System.Int32)` | public/internal/static | `icall_string_native_compare_ordinal_ex` | `MethodMap.String.cs:746` |
-| 151 | `System.String` | `nativeCompareOrdinalIgnoreCaseWC` | `System.Int32 (System.String, System.SByte*)` | public/internal/static | `icall_string_native_compare_ordinal_ignore_case_wc` | `MethodMap.String.cs:747` |
-| 152 | `System.Text.StringBuilder` | `ReplaceBufferAnsiInternal` | `System.Void (System.SByte*, System.Int32)` | public/internal/instance | `icall_stringbuilder_replace_buffer_ansi_internal` | `MethodMap.StringBuilder.cs:384` |
-| 153 | `System.Text.StringBuilder` | `ReplaceBufferInternal` | `System.Void (System.Char*, System.Int32)` | public/internal/instance | `icall_stringbuilder_replace_buffer_internal` | `MethodMap.StringBuilder.cs:383` |
-| 154 | `System.Threading.HostExecutionContextManager` | `CloneHostSecurityContext` | `System.Int32 (System.Runtime.InteropServices.SafeHandle, System.Runtime.InteropServices.SafeHandle)` | public/internal/static | `icall_host_execution_context_manager_clone_host_security_context` | `MethodMap.Thread.cs:270` |
-| 155 | `System.Threading.HostExecutionContextManager` | `ReleaseHostSecurityContext` | `System.Int32 (System.IntPtr)` | public/internal/static | `icall_host_execution_context_manager_release_host_security_context` | `MethodMap.Thread.cs:269` |
-| 156 | `System.Threading.Interlocked` | `CompareExchange` | `System.Double (System.Double&, System.Double, System.Double)` | public/public/static | `il2cpp_interlocked_compare_exchange_double` | `MethodMap.Interlocked.cs:101` |
-| 157 | `System.Threading.Interlocked` | `CompareExchange` | `System.Int32 (System.Int32&, System.Int32, System.Int32)` | public/public/static | `il2cpp_interlocked_compare_exchange` | `MethodMap.Interlocked.cs:101` |
-| 158 | `System.Threading.Interlocked` | `CompareExchange` | `System.Int32 (System.Int32&, System.Int32, System.Int32, System.Boolean&)` | public/internal/static | `icall_interlocked_compare_exchange_found` | `MethodMap.Interlocked.cs:101` |
-| 159 | `System.Threading.Interlocked` | `CompareExchange` | `System.Int64 (System.Int64&, System.Int64, System.Int64)` | public/public/static | `il2cpp_interlocked_compare_exchange64` | `MethodMap.Interlocked.cs:101` |
-| 160 | `System.Threading.Interlocked` | `CompareExchange` | `System.IntPtr (System.IntPtr&, System.IntPtr, System.IntPtr)` | public/public/static | `il2cpp_interlocked_compare_exchange_pointer` | `MethodMap.Interlocked.cs:101` |
-| 161 | `System.Threading.Interlocked` | `CompareExchange` | `System.Object (System.Object&, System.Object, System.Object)` | public/public/static | `il2cpp_interlocked_compare_exchange_pointer` | `MethodMap.Interlocked.cs:101` |
-| 162 | `System.Threading.Interlocked` | `CompareExchange` | `System.Single (System.Single&, System.Single, System.Single)` | public/public/static | `il2cpp_interlocked_compare_exchange_double` | `MethodMap.Interlocked.cs:101` |
-| 163 | `System.Threading.Interlocked` | `Exchange` | `System.Double (System.Double&, System.Double)` | public/public/static | `il2cpp_interlocked_exchange_double` | `MethodMap.Interlocked.cs:63` |
-| 164 | `System.Threading.Interlocked` | `Exchange` | `System.Int32 (System.Int32&, System.Int32)` | public/public/static | `il2cpp_interlocked_exchange` | `MethodMap.Interlocked.cs:63` |
-| 165 | `System.Threading.Interlocked` | `Exchange` | `System.Int64 (System.Int64&, System.Int64)` | public/public/static | `il2cpp_interlocked_exchange64` | `MethodMap.Interlocked.cs:63` |
-| 166 | `System.Threading.Interlocked` | `Exchange` | `System.IntPtr (System.IntPtr&, System.IntPtr)` | public/public/static | `il2cpp_interlocked_exchange_pointer` | `MethodMap.Interlocked.cs:63` |
-| 167 | `System.Threading.Interlocked` | `Exchange` | `System.Object (System.Object&, System.Object)` | public/public/static | `il2cpp_interlocked_exchange_pointer` | `MethodMap.Interlocked.cs:63` |
-| 168 | `System.Threading.Interlocked` | `Exchange` | `System.Single (System.Single&, System.Single)` | public/public/static | `il2cpp_interlocked_exchange_double` | `MethodMap.Interlocked.cs:63` |
-| 169 | `System.Threading.Interlocked` | `ExchangeAdd` | `System.Int32 (System.Int32&, System.Int32)` | public/internal/static | `il2cpp_interlocked_add` | `MethodMap.Interlocked.cs:57` |
-| 170 | `System.Threading.Interlocked` | `ExchangeAdd` | `System.Int64 (System.Int64&, System.Int64)` | public/internal/static | `il2cpp_interlocked_add64` | `MethodMap.Interlocked.cs:57` |
-| 171 | `System.Threading.Monitor` | `Enter` | `System.Void (System.Object)` | public/public/static | `il2cpp_monitor_enter` | `MethodMap.Monitor.cs:45` |
-| 172 | `System.Threading.Monitor` | `Exit` | `System.Void (System.Object)` | public/public/static | `il2cpp_monitor_exit` | `MethodMap.Monitor.cs:59` |
-| 173 | `System.Threading.SynchronizationContext` | `WaitHelper` | `System.Int32 (System.IntPtr[], System.Boolean, System.Int32)` | public/protected/static | `icall_synchronization_context_wait_helper` | `MethodMap.Thread.cs:261` |
-| 174 | `System.Threading.Thread` | `GetCurrentProcessorNumber` | `System.Int32 ()` | public/private/static | `icall_thread_get_current_processor_number` | `MethodMap.Thread.cs:128` |
-| 175 | `System.Threading.Thread` | `MemoryBarrier` | `System.Void ()` | public/public/static | `icall_thread_memory_barrier` | `MethodMap.Thread.cs:63` |
-| 176 | `System.Threading.Thread` | `get_IsAlive` | `System.Boolean ()` | public/public/instance | `icall_threadobj_get_is_alive` | `MethodMap.Thread.cs:182` |
-| 177 | `System.Threading.Thread` | `get_IsThreadPoolThread` | `System.Boolean ()` | public/public/instance | `icall_thread_get_is_thread_pool_thread` | `MethodMap.Thread.cs:105` |
-| 178 | `System.Threading.Thread` | `get_ManagedThreadId` | `System.Int32 ()` | public/public/instance | `icall_threadobj_get_managed_thread_id` | `MethodMap.Thread.cs:186` |
-| 179 | `System.Threading.ThreadPool` | `IsThreadPoolHosted` | `System.Boolean ()` | public/internal/static | `icall_thread_pool_is_thread_pool_hosted` | `MethodMap.ThreadPool.cs:68` |
-| 180 | `System.Threading.ThreadPool` | `NotifyWorkItemComplete` | `System.Boolean ()` | public/internal/static | `icall_thread_pool_notify_work_item_complete` | `MethodMap.ThreadPool.cs:65` |
-| 181 | `System.Threading.ThreadPool` | `NotifyWorkItemProgressNative` | `System.Void ()` | public/internal/static | `icall_thread_pool_notify_work_item_progress_native` | `MethodMap.ThreadPool.cs:67` |
-| 182 | `System.Threading.ThreadPool` | `ReportThreadStatus` | `System.Void (System.Boolean)` | public/internal/static | `icall_thread_pool_report_thread_status` | `MethodMap.ThreadPool.cs:66` |
-| 183 | `System.Type` | `GetTypeFromHandle` | `System.Type (System.RuntimeTypeHandle)` | public/public/static | `il2cpp_type_get_type_from_handle_value` | `MethodMap.Type.cs:73` |
-| 184 | `System.Type` | `op_Equality` | `System.Boolean (System.Type, System.Type)` | public/public/static | `icall_string_equals_static` | `MethodMap.Type.cs:542` |
-| 185 | `System.Type` | `op_Inequality` | `System.Boolean (System.Type, System.Type)` | public/public/static | `icall_type_op_inequality` | `MethodMap.Type.cs:549` |
-| 186 | `System.ValueType` | `GetHashCode` | `System.Int32 ()` | public/public/instance | `icall_value_type_get_hash_code` | `MethodMap.ValueType.cs:495` |
-| 187 | `System.ValueType` | `GetHashCodeOfPtr` | `System.Int32 (System.IntPtr)` | public/internal/static | `icall_value_type_get_hash_code_of_ptr` | `MethodMap.ValueType.cs:468` |
-| 188 | `System.WeakReference` | `Finalize` | `System.Void ()` | public/protected/instance | `icall_weak_reference_finalize` | `MethodMap.WeakReference.cs:73` |
-| 189 | `System.WeakReference` | `get_IsAlive` | `System.Boolean ()` | public/public/instance | `icall_weakref_get_is_alive` | `MethodMap.WeakReference.cs:59` |
-| 190 | `System.WeakReference` | `get_Target` | `System.Object ()` | public/public/instance | `icall_weakref_get_target` | `MethodMap.WeakReference.cs:61` |
-| 191 | `System.WeakReference` | `set_Target` | `System.Void (System.Object)` | public/public/instance | `icall_weakref_set_target` | `MethodMap.WeakReference.cs:67` |
-| 192 | `System.WeakReference`1` | `Finalize` | `System.Void ()` | public/protected/instance | `icall_weak_reference_finalize` | `MethodMap.WeakReference.cs:73` |
-| 193 | `System.WeakReference`1` | `get_Target` | `!0 ()` | public/private/instance | `icall_weakref_get_target` | `MethodMap.WeakReference.cs:61` |
-| 194 | `System.WeakReference`1` | `set_Target` | `System.Void (!0)` | public/private/instance | `icall_weakref_set_target` | `MethodMap.WeakReference.cs:67` |
+| 1 | `System.AppDomain` | `GetDefaultDomain` | `System.AppDomain ()` | public/internal/static | `icall_appdomain_get_default_domain` | `MethodMap.Legacy.cs:234` |
+| 2 | `System.AppDomain` | `GetFusionContext` | `System.IntPtr ()` | public/internal/instance | `icall_appdomain_get_fusion_context` | `MethodMap.Legacy.cs:240` |
+| 3 | `System.AppDomain` | `GetId` | `System.Int32 ()` | public/internal/instance | `icall_appdomain_get_id` | `MethodMap.Legacy.cs:232` |
+| 4 | `System.AppDomain` | `GetOrInternString` | `System.String (System.String)` | public/internal/instance | `icall_appdomain_get_or_intern_string` | `MethodMap.Legacy.cs:230` |
+| 5 | `System.AppDomain` | `GetSecurityDescriptor` | `System.IntPtr ()` | public/internal/instance | `icall_appdomain_get_security_descriptor` | `MethodMap.Legacy.cs:242` |
+| 6 | `System.AppDomain` | `IsDomainIdValid` | `System.Boolean (System.Int32)` | public/internal/static | `icall_appdomain_is_domain_id_valid` | `MethodMap.Legacy.cs:238` |
+| 7 | `System.AppDomain` | `IsFinalizingForUnload` | `System.Boolean ()` | public/public/instance | `icall_appdomain_is_finalizing_for_unload` | `MethodMap.Legacy.cs:222` |
+| 8 | `System.AppDomain` | `IsStringInterned` | `System.String (System.String)` | public/internal/instance | `icall_appdomain_is_string_interned` | `MethodMap.Legacy.cs:228` |
+| 9 | `System.AppDomain` | `IsUnloadingForcedFinalize` | `System.Boolean ()` | public/internal/instance | `icall_appdomain_is_unloading_forced_finalize` | `MethodMap.Legacy.cs:236` |
+| 10 | `System.AppDomain` | `PublishAnonymouslyHostedDynamicMethodsAssembly` | `System.Void (System.Reflection.RuntimeAssembly)` | public/internal/static | `icall_appdomain_publish_anonymously_hosted_dynamic_methods_assembly` | `MethodMap.Legacy.cs:224` |
+| 11 | `System.AppDomain` | `UpdateLoaderOptimization` | `System.Void (System.LoaderOptimization)` | public/internal/instance | `icall_appdomain_update_loader_optimization` | `MethodMap.Legacy.cs:248` |
+| 12 | `System.AppDomain` | `nCreateDomain` | `System.AppDomain (System.String, System.AppDomainSetup, System.Security.Policy.Evidence, System.Security.Policy.Evidence, System.IntPtr)` | public/internal/static | `icall_appdomain_n_create_domain` | `MethodMap.Legacy.cs:244` |
+| 13 | `System.AppDomain` | `nCreateInstance` | `System.Runtime.Remoting.ObjRef (System.String, System.AppDomainSetup, System.Security.Policy.Evidence, System.Security.Policy.Evidence, System.IntPtr)` | public/internal/static | `icall_appdomain_n_create_instance` | `MethodMap.Legacy.cs:246` |
+| 14 | `System.AppDomain` | `nUnload` | `System.Void (System.Int32)` | public/internal/static | `icall_appdomain_n_unload` | `MethodMap.Legacy.cs:250` |
+| 15 | `System.ArgIterator` | `.ctor` | `System.Void (System.IntPtr)` | public/private/instance | `icall_argiterator_ctor` | `MethodMap.Legacy.cs:53` |
+| 16 | `System.ArgIterator` | `GetRemainingCount` | `System.Int32 ()` | public/public/instance | `icall_argiterator_get_remaining_count` | `MethodMap.Legacy.cs:323` |
+| 17 | `System.Array` | `Clear` | `System.Void (System.Array, System.Int32, System.Int32)` | public/public/static | `icall_array_clear_int32` | `MethodMap.Array.cs:525` |
+| 18 | `System.Array` | `Copy` | `System.Void (System.Array, System.Int32, System.Array, System.Int32, System.Int32, System.Boolean)` | public/internal/static | `icall_array_copy` | `MethodMap.Array.cs:607` |
+| 19 | `System.Array` | `GetDataPtrOffsetInternal` | `System.Int32 ()` | public/internal/instance | `icall_array_get_data_ptr_offset_internal` | `MethodMap.Array.cs:1190` |
+| 20 | `System.Array` | `GetLength` | `System.Int32 (System.Int32)` | public/public/instance | `icall_array_get_length` | `MethodMap.Array.cs:1083` |
+| 21 | `System.Array` | `GetLowerBound` | `System.Int32 (System.Int32)` | public/public/instance | `icall_array_get_lower_bound` | `MethodMap.Array.cs:1114` |
+| 22 | `System.Array` | `GetUpperBound` | `System.Int32 (System.Int32)` | public/public/instance | `icall_array_get_upper_bound` | `MethodMap.Array.cs:1085` |
+| 23 | `System.Array` | `Initialize` | `System.Void ()` | public/public/instance | `icall_array_initialize` | `MethodMap.Array.cs:1118` |
+| 24 | `System.Array` | `get_Length` | `System.Int32 ()` | public/public/instance | `il2cpp_array_get_length` | `MethodMap.Array.cs:1087` |
+| 25 | `System.Array` | `get_LongLength` | `System.Int64 ()` | public/public/instance | `icall_array_get_long_length` | `MethodMap.Array.cs:1110` |
+| 26 | `System.Array` | `get_Rank` | `System.Int32 ()` | public/public/instance | `icall_array_get_rank` | `MethodMap.Array.cs:1096` |
+| 27 | `System.BaseConfigHandler` | `RunParser` | `System.Void (System.String)` | internal/internal/instance | `icall_base_config_handler_run_parser` | `MethodMap.GC.cs:243` |
+| 28 | `System.Buffer` | `BlockCopy` | `System.Void (System.Array, System.Int32, System.Array, System.Int32, System.Int32)` | public/public/static | `il2cpp_buffer_block_copy` | `MethodMap.Buffer.cs:29` |
+| 29 | `System.Buffer` | `InternalBlockCopy` | `System.Void (System.Array, System.Int32, System.Array, System.Int32, System.Int32)` | public/internal/static | `il2cpp_buffer_block_copy` | `MethodMap.Buffer.cs:66` |
+| 30 | `System.CLRConfig` | `CheckLegacyManagedDeflateStream` | `System.Boolean ()` | internal/internal/static | `icall_clr_config_check_legacy_managed_deflate_stream` | `MethodMap.GC.cs:252` |
+| 31 | `System.CLRConfig` | `CheckThrowUnobservedTaskExceptions` | `System.Boolean ()` | internal/internal/static | `icall_clr_config_check_throw_unobserved_task_exceptions` | `MethodMap.GC.cs:253` |
+| 32 | `System.DateTime` | `GetSystemTimeAsFileTime` | `System.Int64 ()` | public/internal/static | `icall_datetime_get_system_time_as_file_time` | `MethodMap.DateTime.cs:220` |
+| 33 | `System.DateTime` | `GetSystemTimeWithLeapSecondsHandling` | `System.Void (System.DateTime+FullSystemTime&)` | public/internal/static | `icall_datetime_get_system_time_with_leap_seconds_handling` | `MethodMap.DateTime.cs:222` |
+| 34 | `System.DateTime` | `SystemFileTimeToSystemTime` | `System.Boolean (System.Int64, System.DateTime+FullSystemTime&)` | public/internal/static | `icall_datetime_system_file_time_to_system_time` | `MethodMap.DateTime.cs:223` |
+| 35 | `System.DateTime` | `SystemTimeToSystemFileTime` | `System.Boolean (System.DateTime+FullSystemTime&, System.Int64&)` | public/internal/static | `icall_datetime_system_time_to_system_file_time` | `MethodMap.DateTime.cs:224` |
+| 36 | `System.DateTime` | `ValidateSystemTime` | `System.Boolean (System.DateTime+FullSystemTime&, System.Boolean)` | public/internal/static | `icall_datetime_validate_system_time` | `MethodMap.DateTime.cs:221` |
+| 37 | `System.Decimal` | `.ctor` | `System.Void (System.Double)` | public/public/instance | `icall_decimal_ctor_double` | `MethodMap.Decimal.cs:337` |
+| 38 | `System.Decimal` | `.ctor` | `System.Void (System.Single)` | public/public/instance | `icall_decimal_ctor_float` | `MethodMap.Decimal.cs:337` |
+| 39 | `System.Decimal` | `FCallAddSub` | `System.Void (System.Decimal&, System.Decimal&, System.Byte)` | public/private/static | `icall_decimal_fcall_addsub` | `MethodMap.Decimal.cs:393` |
+| 40 | `System.Decimal` | `FCallAddSubOverflowed` | `System.Void (System.Decimal&, System.Decimal&, System.Byte, System.Boolean&)` | public/private/static | `icall_decimal_fcall_addsub` | `MethodMap.Decimal.cs:397` |
+| 41 | `System.Decimal` | `FCallDivide` | `System.Void (System.Decimal&, System.Decimal&)` | public/private/static | `icall_decimal_fcall_divide` | `MethodMap.Decimal.cs:409` |
+| 42 | `System.Decimal` | `FCallDivideOverflowed` | `System.Void (System.Decimal&, System.Decimal&, System.Boolean&)` | public/private/static | `icall_decimal_fcall_divide` | `MethodMap.Decimal.cs:413` |
+| 43 | `System.Decimal` | `FCallMultiply` | `System.Void (System.Decimal&, System.Decimal&)` | public/private/static | `icall_decimal_fcall_multiply` | `MethodMap.Decimal.cs:401` |
+| 44 | `System.Decimal` | `FCallMultiplyOverflowed` | `System.Void (System.Decimal&, System.Decimal&, System.Boolean&)` | public/private/static | `icall_decimal_fcall_multiply` | `MethodMap.Decimal.cs:405` |
+| 45 | `System.Decimal` | `FCallToInt32` | `System.Int32 (System.Decimal)` | public/internal/static | `icall_decimal_fcall_to_int32` | `MethodMap.Decimal.cs:389` |
+| 46 | `System.Decimal` | `GetHashCode` | `System.Int32 ()` | public/public/instance | `icall_decimal_get_hash_code` | `MethodMap.Decimal.cs:219` |
+| 47 | `System.Decimal` | `ToDouble` | `System.Double (System.Decimal)` | public/public/static | `icall_decimal_to_double` | `MethodMap.Decimal.cs:378` |
+| 48 | `System.Decimal` | `ToSingle` | `System.Single (System.Decimal)` | public/public/static | `icall_decimal_to_float` | `MethodMap.Decimal.cs:382` |
+| 49 | `System.Delegate` | `AdjustTarget` | `System.IntPtr (System.Object, System.IntPtr)` | public/internal/instance | `icall_delegate_adjust_target` | `MethodMap.Delegate.cs:109` |
+| 50 | `System.Delegate` | `CompareUnmanagedFunctionPtrs` | `System.Boolean (System.Delegate, System.Delegate)` | public/internal/static | `icall_delegate_compare_unmanaged_function_ptrs` | `MethodMap.Delegate.cs:113` |
+| 51 | `System.Delegate` | `GetCallStub` | `System.IntPtr (System.IntPtr)` | public/internal/instance | `icall_delegate_get_call_stub` | `MethodMap.Delegate.cs:110` |
+| 52 | `System.Delegate` | `GetInvokeMethod` | `System.IntPtr ()` | public/internal/instance | `icall_delegate_get_invoke_method` | `MethodMap.Delegate.cs:106` |
+| 53 | `System.Delegate` | `GetMulticastInvoke` | `System.IntPtr ()` | public/internal/instance | `icall_delegate_get_multicast_invoke` | `MethodMap.Delegate.cs:105` |
+| 54 | `System.Delegate` | `InternalAllocLike` | `System.MulticastDelegate (System.Delegate)` | public/internal/static | `icall_delegate_internal_alloc_like` | `MethodMap.Delegate.cs:104` |
+| 55 | `System.Delegate` | `InternalEqualMethodHandles` | `System.Boolean (System.Delegate, System.Delegate)` | public/internal/static | `icall_delegate_internal_equal_method_handles` | `MethodMap.Delegate.cs:108` |
+| 56 | `System.Delegate` | `InternalEqualTypes` | `System.Boolean (System.Object, System.Object)` | public/internal/static | `icall_delegate_internal_equal_types` | `MethodMap.Delegate.cs:112` |
+| 57 | `System.Diagnostics.Assert` | `ShowDefaultAssertDialog` | `System.Int32 (System.String, System.String, System.String, System.String)` | internal/internal/static | `icall_assert_show_default_assert_dialog` | `MethodMap.GC.cs:272` |
+| 58 | `System.Diagnostics.Debugger` | `IsLogging` | `System.Boolean ()` | public/public/static | `il2cpp_debugger_is_logging` | `MethodMap.Debugger.cs:44` |
+| 59 | `System.Diagnostics.Debugger` | `Log` | `System.Void (System.Int32, System.String, System.String)` | public/public/static | `il2cpp_debugger_log` | `MethodMap.Debugger.cs:52` |
+| 60 | `System.Diagnostics.Debugger` | `get_IsAttached` | `System.Boolean ()` | public/public/static | `il2cpp_debugger_is_attached` | `MethodMap.Debugger.cs:40` |
+| 61 | `System.Diagnostics.Log` | `AddLogSwitch` | `System.Void (System.Diagnostics.LogSwitch)` | internal/internal/static | `icall_log_add_log_switch` | `MethodMap.GC.cs:273` |
+| 62 | `System.Diagnostics.Log` | `ModifyLogSwitch` | `System.Void (System.Int32, System.String, System.String)` | internal/internal/static | `icall_log_modify_log_switch` | `MethodMap.GC.cs:274` |
+| 63 | `System.Enum` | `Equals` | `System.Boolean (System.Object)` | public/public/instance | `il2cpp_enum_equals` | `MethodMap.Enum.cs:363` |
+| 64 | `System.Enum` | `InternalGetUnderlyingType` | `System.RuntimeType (System.RuntimeType)` | public/internal/static | `icall_enum_internal_get_underlying_type` | `MethodMap.Enum.cs:425` |
+| 65 | `System.Environment` | `FailFast` | `System.Void (System.String)` | public/public/static | `icall_environment_fail_fast` | `MethodMap.Environment.cs:126` |
+| 66 | `System.Environment` | `FailFast` | `System.Void (System.String, System.Exception)` | public/public/static | `icall_environment_fail_fast` | `MethodMap.Environment.cs:126` |
+| 67 | `System.Environment` | `FailFast` | `System.Void (System.String, System.UInt32)` | public/internal/static | `icall_environment_fail_fast` | `MethodMap.Environment.cs:126` |
+| 68 | `System.Environment` | `GetCompatibilityFlag` | `System.Boolean (System.CompatibilityFlag)` | public/internal/static | `icall_environment_get_compatibility_flag` | `MethodMap.Environment.cs:155` |
+| 69 | `System.Environment` | `GetResourceFromDefault` | `System.String (System.String)` | public/internal/static | `icall_environment_get_resource_from_default` | `MethodMap.Environment.cs:154` |
+| 70 | `System.Environment` | `GetVersion` | `System.Boolean (Microsoft.Win32.Win32Native+OSVERSIONINFO)` | public/internal/static | `icall_environment_get_version` | `MethodMap.Environment.cs:152` |
+| 71 | `System.Environment` | `get_ExitCode` | `System.Int32 ()` | public/public/static | `icall_environment_get_exit_code` | `MethodMap.Environment.cs:117` |
+| 72 | `System.Environment` | `get_HasShutdownStarted` | `System.Boolean ()` | public/public/static | `icall_environment_get_has_shutdown_started` | `MethodMap.Environment.cs:36` |
+| 73 | `System.Environment` | `get_TickCount` | `System.Int32 ()` | public/public/static | `icall_environment_get_tick_count` | `MethodMap.Environment.cs:32` |
+| 74 | `System.Environment` | `get_TickCount64` | `System.Int64 ()` | public/internal/static | `icall_environment_get_tick_count64` | `MethodMap.Environment.cs:39` |
+| 75 | `System.Environment` | `nativeGetEnvironmentVariable` | `System.String (System.String)` | public/internal/static | `icall_environment_get_environment_variable_native` | `MethodMap.Environment.cs:139` |
+| 76 | `System.Environment` | `set_ExitCode` | `System.Void (System.Int32)` | public/public/static | `icall_environment_set_exit_code` | `MethodMap.Environment.cs:118` |
+| 77 | `System.GC` | `GetGCLatencyMode` | `System.Int32 ()` | public/internal/static | `icall_gc_get_latency_mode` | `MethodMap.GC.cs:87` |
+| 78 | `System.GC` | `GetGeneration` | `System.Int32 (System.Object)` | public/public/static | `icall_gc_get_generation` | `MethodMap.GC.cs:62` |
+| 79 | `System.GC` | `GetLOHCompactionMode` | `System.Int32 ()` | public/internal/static | `icall_gc_get_loh_compaction_mode` | `MethodMap.GC.cs:90` |
+| 80 | `System.GC` | `GetMaxGeneration` | `System.Int32 ()` | public/private/static | `il2cpp_gc_get_max_generation` | `MethodMap.GC.cs:125` |
+| 81 | `System.GC` | `SetGCLatencyMode` | `System.Int32 (System.Int32)` | public/internal/static | `icall_gc_set_latency_mode` | `MethodMap.GC.cs:89` |
+| 82 | `System.GC` | `SetLOHCompactionMode` | `System.Void (System.Int32)` | public/internal/static | `icall_gc_set_loh_compaction_mode` | `MethodMap.GC.cs:91` |
+| 83 | `System.GC` | `_CancelFullGCNotification` | `System.Boolean ()` | public/private/static | `il2cpp_gc_cancel_full_gc_notification` | `MethodMap.GC.cs:399` |
+| 84 | `System.GC` | `_CollectionCount` | `System.Int32 (System.Int32, System.Int32)` | public/private/static | `il2cpp_gc_get_collection_count` | `MethodMap.GC.cs:375` |
+| 85 | `System.GC` | `_RegisterForFullGCNotification` | `System.Boolean (System.Int32, System.Int32)` | public/private/static | `il2cpp_gc_register_for_full_gc_notification` | `MethodMap.GC.cs:392` |
+| 86 | `System.Globalization.CultureInfo` | `nativeGetLocaleInfoEx` | `System.String (System.String, System.UInt32)` | public/internal/static | `icall_culture_info_native_get_locale_info_ex_int` | `MethodMap.CultureInfo.cs:96` |
+| 87 | `System.Globalization.CultureInfo` | `nativeGetLocaleInfoExInt` | `System.Int32 (System.String, System.UInt32)` | public/internal/static | `icall_culture_info_native_get_locale_info_ex_int` | `MethodMap.CultureInfo.cs:97` |
+| 88 | `System.Globalization.CultureInfo` | `nativeSetThreadLocale` | `System.Boolean (System.String)` | public/internal/static | `icall_culture_info_native_set_thread_locale` | `MethodMap.CultureInfo.cs:98` |
+| 89 | `System.Math` | `Abs` | `System.Double (System.Double)` | public/public/static | `icall_math_abs_d` | `MethodMap.Math.cs:19` |
+| 90 | `System.Math` | `Abs` | `System.Single (System.Single)` | public/public/static | `icall_math_abs_d` | `MethodMap.Math.cs:19` |
+| 91 | `System.Math` | `Acos` | `System.Double (System.Double)` | public/public/static | `icall_math_acos_d` | `MethodMap.Math.cs:140` |
+| 92 | `System.Math` | `Asin` | `System.Double (System.Double)` | public/public/static | `icall_math_asin_d` | `MethodMap.Math.cs:139` |
+| 93 | `System.Math` | `Atan` | `System.Double (System.Double)` | public/public/static | `icall_math_atan_d` | `MethodMap.Math.cs:141` |
+| 94 | `System.Math` | `Atan2` | `System.Double (System.Double, System.Double)` | public/public/static | `icall_math_atan2_d` | `MethodMap.Math.cs:142` |
+| 95 | `System.Math` | `Ceiling` | `System.Double (System.Double)` | public/public/static | `icall_math_ceiling_d` | `MethodMap.Math.cs:82` |
+| 96 | `System.Math` | `Cos` | `System.Double (System.Double)` | public/public/static | `icall_math_cos_d` | `MethodMap.Math.cs:137` |
+| 97 | `System.Math` | `Cosh` | `System.Double (System.Double)` | public/public/static | `icall_math_cosh_d` | `MethodMap.Math.cs:158` |
+| 98 | `System.Math` | `Exp` | `System.Double (System.Double)` | public/public/static | `icall_math_exp_d` | `MethodMap.Math.cs:153` |
+| 99 | `System.Math` | `Floor` | `System.Double (System.Double)` | public/public/static | `icall_math_floor_d` | `MethodMap.Math.cs:78` |
+| 100 | `System.Math` | `Log` | `System.Double (System.Double)` | public/public/static | `icall_math_log_d` | `MethodMap.Math.cs:154` |
+| 101 | `System.Math` | `Log10` | `System.Double (System.Double)` | public/public/static | `icall_math_log10_d` | `MethodMap.Math.cs:157` |
+| 102 | `System.Math` | `Pow` | `System.Double (System.Double, System.Double)` | public/public/static | `icall_math_pow_d` | `MethodMap.Math.cs:77` |
+| 103 | `System.Math` | `Round` | `System.Double (System.Double)` | public/public/static | `icall_math_round_d` | `MethodMap.Math.cs:86` |
+| 104 | `System.Math` | `Sin` | `System.Double (System.Double)` | public/public/static | `icall_math_sin_d` | `MethodMap.Math.cs:136` |
+| 105 | `System.Math` | `Sinh` | `System.Double (System.Double)` | public/public/static | `icall_math_sinh_d` | `MethodMap.Math.cs:159` |
+| 106 | `System.Math` | `Sqrt` | `System.Double (System.Double)` | public/public/static | `icall_math_sqrt_d` | `MethodMap.Math.cs:76` |
+| 107 | `System.Math` | `Tan` | `System.Double (System.Double)` | public/public/static | `icall_math_tan_d` | `MethodMap.Math.cs:138` |
+| 108 | `System.Math` | `Tanh` | `System.Double (System.Double)` | public/public/static | `icall_math_tanh_d` | `MethodMap.Math.cs:160` |
+| 109 | `System.Object` | `GetType` | `System.Type ()` | public/public/instance | `icall_object_get_type` | `MethodMap.Object.cs:50` |
+| 110 | `System.Object` | `MemberwiseClone` | `System.Object ()` | public/protected/instance | `icall_object_memberwise_clone` | `MethodMap.Object.cs:289` |
+| 111 | `System.Runtime.CompilerServices.DependentHandle` | `nFree` | `System.Void (System.IntPtr)` | internal/private/static | `icall_dependenthandle_free` | `MethodMap.DependentHandle.cs:85` |
+| 112 | `System.Runtime.CompilerServices.DependentHandle` | `nGetPrimary` | `System.Void (System.IntPtr, System.Object&)` | internal/private/static | `icall_dependenthandle_n_get_primary` | `MethodMap.DependentHandle.cs:73` |
+| 113 | `System.Runtime.CompilerServices.DependentHandle` | `nGetPrimaryAndSecondary` | `System.Void (System.IntPtr, System.Object&, System.Object&)` | internal/private/static | `icall_dependenthandle_n_get_primary_and_secondary` | `MethodMap.DependentHandle.cs:79` |
+| 114 | `System.Runtime.CompilerServices.DependentHandle` | `nInitialize` | `System.Void (System.Object, System.Object, System.IntPtr&)` | internal/private/static | `icall_dependenthandle_n_init` | `MethodMap.DependentHandle.cs:66` |
+| 115 | `System.Runtime.CompilerServices.RuntimeHelpers` | `EnsureSufficientExecutionStack` | `System.Void ()` | public/public/static | `icall_runtime_helpers_ensure_sufficient_execution_stack` | `MethodMap.RuntimeHelpers.cs:88` |
+| 116 | `System.Runtime.CompilerServices.RuntimeHelpers` | `Equals` | `System.Boolean (System.Object, System.Object)` | public/public/static | `::refeq::` | `MethodMap.RuntimeHelpers.cs:62` |
+| 117 | `System.Runtime.CompilerServices.RuntimeHelpers` | `ExecuteCodeWithGuaranteedCleanup` | `System.Void (System.Runtime.CompilerServices.RuntimeHelpers+TryCode, System.Runtime.CompilerServices.RuntimeHelpers+CleanupCode, System.Object)` | public/public/static | `icall_runtime_helpers_execute_code_with_guaranteed_cleanup` | `MethodMap.RuntimeHelpers.cs:97` |
+| 118 | `System.Runtime.CompilerServices.RuntimeHelpers` | `GetHashCode` | `System.Int32 (System.Object)` | public/public/static | `icall_object_get_hash_code` | `MethodMap.RuntimeHelpers.cs:53` |
+| 119 | `System.Runtime.CompilerServices.RuntimeHelpers` | `GetObjectValue` | `System.Object (System.Object)` | public/public/static | `::identity::` | `MethodMap.RuntimeHelpers.cs:71` |
+| 120 | `System.Runtime.CompilerServices.RuntimeHelpers` | `InitializeArray` | `System.Void (System.Array, System.RuntimeFieldHandle)` | public/public/static | `icall_runtime_helpers_initialize_array` | `MethodMap.RuntimeHelpers.cs:195` |
+| 121 | `System.Runtime.InteropServices.ExtensibleClassFactory` | `RegisterObjectCreationCallback` | `System.Void (System.Runtime.InteropServices.ObjectCreationDelegate)` | public/public/static | `icall_extensible_class_factory_register` | `MethodMap.Legacy.cs:431` |
+| 122 | `System.Runtime.InteropServices.GCHandle` | `InternalGetHandleType` | `System.Runtime.InteropServices.GCHandleType (System.IntPtr)` | public/internal/static | `icall_gchandle_get_handle_type` | `MethodMap.GCHandle.cs:79` |
+| 123 | `System.Runtime.InteropServices.Marshal` | `AddRef` | `System.Int32 (System.IntPtr)` | public/public/static | `icall_com_add_ref` | `MethodMap.Marshal.cs:549` |
+| 124 | `System.Runtime.InteropServices.Marshal` | `AreComObjectsAvailableForCleanup` | `System.Boolean ()` | public/public/static | `icall_com_are_objects_available_for_cleanup` | `MethodMap.Marshal.cs:622` |
+| 125 | `System.Runtime.InteropServices.Marshal` | `ChangeWrapperHandleStrength` | `System.Void (System.Object, System.Boolean)` | public/public/static | `icall_com_change_wrapper_handle_strength` | `MethodMap.Marshal.cs:628` |
+| 126 | `System.Runtime.InteropServices.Marshal` | `CleanupUnusedObjectsInCurrentContext` | `System.Void ()` | public/public/static | `icall_com_cleanup_unused_objects_in_current_context` | `MethodMap.Marshal.cs:625` |
+| 127 | `System.Runtime.InteropServices.Marshal` | `CreateAggregatedObject` | `System.IntPtr (System.IntPtr, System.Object)` | public/public/static | `icall_com_create_aggregated_object` | `MethodMap.Marshal.cs:632` |
+| 128 | `System.Runtime.InteropServices.Marshal` | `DestroyStructure` | `System.Void (System.IntPtr, System.Type)` | public/public/static | `icall_marshal_destroy_structure` | `MethodMap.Marshal.cs:196` |
+| 129 | `System.Runtime.InteropServices.Marshal` | `GetEndComSlot` | `System.Int32 (System.Type)` | public/public/static | `::com_end_slot::` | `MethodMap.Marshal.cs:587` |
+| 130 | `System.Runtime.InteropServices.Marshal` | `GetHRForException` | `System.Int32 (System.Exception)` | public/public/static | `icall_marshal_get_hr_for_exception` | `MethodMap.Marshal.cs:431` |
+| 131 | `System.Runtime.InteropServices.Marshal` | `GetITypeInfoForType` | `System.IntPtr (System.Type)` | public/public/static | `icall_com_get_itypeinfo_for_type` | `MethodMap.Marshal.cs:657` |
+| 132 | `System.Runtime.InteropServices.Marshal` | `GetLastWin32Error` | `System.Int32 ()` | public/public/static | `il2cpp_pinvoke_get_last_error` | `MethodMap.Marshal.cs:95` |
+| 133 | `System.Runtime.InteropServices.Marshal` | `GetManagedThunkForUnmanagedMethodPtr` | `System.IntPtr (System.IntPtr, System.IntPtr, System.Int32)` | public/public/static | `icall_com_get_managed_thunk` | `MethodMap.Marshal.cs:665` |
+| 134 | `System.Runtime.InteropServices.Marshal` | `GetMethodInfoForComSlot` | `System.Reflection.MemberInfo (System.Type, System.Int32, System.Runtime.InteropServices.ComMemberType&)` | public/public/static | `::com_method_info::` | `MethodMap.Marshal.cs:673` |
+| 135 | `System.Runtime.InteropServices.Marshal` | `GetNativeVariantForObject` | `System.Void (System.Object, System.IntPtr)` | public/public/static | `icall_marshal_get_native_variant_for_object` | `MethodMap.Marshal.cs:447` |
+| 136 | `System.Runtime.InteropServices.Marshal` | `GetObjectForIUnknown` | `System.Object (System.IntPtr)` | public/public/static | `icall_com_get_object_for_iunknown` | `MethodMap.Marshal.cs:512` |
+| 137 | `System.Runtime.InteropServices.Marshal` | `GetObjectForNativeVariant` | `System.Object (System.IntPtr)` | public/public/static | `icall_marshal_get_object_for_native_variant` | `MethodMap.Marshal.cs:442` |
+| 138 | `System.Runtime.InteropServices.Marshal` | `GetObjectsForNativeVariants` | `System.Object[] (System.IntPtr, System.Int32)` | public/public/static | `icall_marshal_get_objects_for_native_variants` | `MethodMap.Marshal.cs:452` |
+| 139 | `System.Runtime.InteropServices.Marshal` | `GetStartComSlot` | `System.Int32 (System.Type)` | public/public/static | `::com_start_slot::` | `MethodMap.Marshal.cs:584` |
+| 140 | `System.Runtime.InteropServices.Marshal` | `GetTypeLibLcid` | `System.Int32 (System.Runtime.InteropServices.ComTypes.ITypeLib)` | public/public/static | `icall_com_get_typelib_lcid` | `MethodMap.Marshal.cs:661` |
+| 141 | `System.Runtime.InteropServices.Marshal` | `GetTypedObjectForIUnknown` | `System.Object (System.IntPtr, System.Type)` | public/public/static | `::com_typed_object::` | `MethodMap.Marshal.cs:614` |
+| 142 | `System.Runtime.InteropServices.Marshal` | `GetUniqueObjectForIUnknown` | `System.Object (System.IntPtr)` | public/public/static | `icall_com_get_unique_object_for_iunknown` | `MethodMap.Marshal.cs:618` |
+| 143 | `System.Runtime.InteropServices.Marshal` | `GetUnmanagedThunkForManagedMethodPtr` | `System.IntPtr (System.IntPtr, System.IntPtr, System.Int32)` | public/public/static | `icall_com_get_unmanaged_thunk` | `MethodMap.Marshal.cs:669` |
+| 144 | `System.Runtime.InteropServices.Marshal` | `IsComObject` | `System.Boolean (System.Object)` | public/public/static | `icall_marshal_is_com_object` | `MethodMap.Marshal.cs:457` |
+| 145 | `System.Runtime.InteropServices.Marshal` | `IsTypeVisibleFromCom` | `System.Boolean (System.Type)` | public/public/static | `::com_type_visible::` | `MethodMap.Marshal.cs:590` |
+| 146 | `System.Runtime.InteropServices.Marshal` | `QueryInterface` | `System.Int32 (System.IntPtr, System.Guid&, System.IntPtr&)` | public/public/static | `icall_com_query_interface` | `MethodMap.Marshal.cs:557` |
+| 147 | `System.Runtime.InteropServices.Marshal` | `Release` | `System.Int32 (System.IntPtr)` | public/public/static | `icall_com_release` | `MethodMap.Marshal.cs:553` |
+| 148 | `System.Runtime.InteropServices.Marshal` | `SetLastWin32Error` | `System.Void (System.Int32)` | public/internal/static | `il2cpp_marshal_set_last_win32_error` | `MethodMap.Marshal.cs:100` |
+| 149 | `System.Runtime.InteropServices.Marshal` | `StructureToPtr` | `System.Void (System.Object, System.IntPtr, System.Boolean)` | public/public/static | `il2cpp_marshal_struct_store` | `MethodMap.Marshal.cs:351` |
+| 150 | `System.Runtime.InteropServices.Marshal` | `UnsafeAddrOfPinnedArrayElement` | `System.IntPtr (System.Array, System.Int32)` | public/public/static | `icall_marshal_unsafe_addr_of_pinned_array_element` | `MethodMap.Marshal.cs:421` |
+| 151 | `System.Runtime.InteropServices.SafeHandle` | `DangerousAddRef` | `System.Void (System.Boolean&)` | public/public/instance | `icall_safehandle_dangerous_add_ref` | `MethodMap.SafeHandle.cs:40` |
+| 152 | `System.Runtime.InteropServices.SafeHandle` | `DangerousRelease` | `System.Void ()` | public/public/instance | `icall_safehandle_dangerous_release` | `MethodMap.SafeHandle.cs:48` |
+| 153 | `System.Runtime.InteropServices.SafeHandle` | `SetHandleAsInvalid` | `System.Void ()` | public/public/instance | `icall_safehandle_set_handle_as_invalid` | `MethodMap.SafeHandle.cs:52` |
+| 154 | `System.Runtime.Remoting.Proxies.RealProxy` | `GetProxiedType` | `System.Type ()` | public/public/instance | `icall_realproxy_get_proxied_type` | `MethodMap.Legacy.cs:63` |
+| 155 | `System.Runtime.Remoting.Proxies.RealProxy` | `GetStubData` | `System.Object (System.Runtime.Remoting.Proxies.RealProxy)` | public/public/static | `icall_realproxy_get_stub_data` | `MethodMap.Legacy.cs:72` |
+| 156 | `System.Runtime.Remoting.Proxies.RealProxy` | `SetStubData` | `System.Void (System.Runtime.Remoting.Proxies.RealProxy, System.Object)` | public/public/static | `icall_realproxy_set_stub_data` | `MethodMap.Legacy.cs:76` |
+| 157 | `System.Runtime.Remoting.RemotingServices` | `GetRealProxy` | `System.Runtime.Remoting.Proxies.RealProxy (System.Object)` | public/public/static | `icall_remoting_services_get_real_proxy` | `MethodMap.Legacy.cs:92` |
+| 158 | `System.Runtime.Remoting.RemotingServices` | `IsTransparentProxy` | `System.Boolean (System.Object)` | public/public/static | `icall_remoting_services_is_transparent_proxy` | `MethodMap.Legacy.cs:88` |
+| 159 | `System.Security.Principal.Win32` | `OpenThreadToken` | `System.Int32 (System.Security.Principal.TokenAccessLevels, System.Security.Principal.WinSecurityContext, Microsoft.Win32.SafeHandles.SafeAccessTokenHandle&)` | internal/internal/static | `icall_security_principal_win32_open_thread_token` | `MethodMap.Emit.cs:75` |
+| 160 | `System.Security.SecurityContext` | `GetImpersonationFlowMode` | `System.Security.WindowsImpersonationFlowMode ()` | public/internal/static | `icall_security_context_get_impersonation_flow_mode` | `MethodMap.GC.cs:254` |
+| 161 | `System.Security.SecurityContext` | `IsDefaultThreadSecurityInfo` | `System.Boolean ()` | public/internal/static | `icall_security_context_is_default_thread_security_info` | `MethodMap.GC.cs:255` |
+| 162 | `System.Security.SecurityManager` | `_SetThreadSecurity` | `System.Boolean (System.Boolean)` | public/internal/static | `icall_security_manager_set_thread_security` | `MethodMap.GC.cs:256` |
+| 163 | `System.Security.SecurityRuntime` | `GetSecurityObjectForFrame` | `System.Security.FrameSecurityDescriptor (System.Threading.StackCrawlMark&, System.Boolean)` | internal/internal/static | `icall_security_runtime_get_security_object_for_frame` | `MethodMap.GC.cs:257` |
+| 164 | `System.String` | `.ctor` | `System.Void (System.Char*)` | public/public/instance | `icall_string_ctor_char_ptr` | `MethodMap.String.cs:15` |
+| 165 | `System.String` | `.ctor` | `System.Void (System.Char*, System.Int32, System.Int32)` | public/public/instance | `icall_string_ctor_char_ptr_range` | `MethodMap.String.cs:15` |
+| 166 | `System.String` | `.ctor` | `System.Void (System.Char, System.Int32)` | public/public/instance | `icall_string_ctor_repeat` | `MethodMap.String.cs:15` |
+| 167 | `System.String` | `.ctor` | `System.Void (System.Char[])` | public/public/instance | `icall_string_ctor_char_array` | `MethodMap.String.cs:15` |
+| 168 | `System.String` | `.ctor` | `System.Void (System.Char[], System.Int32, System.Int32)` | public/public/instance | `icall_string_ctor_char_array_range` | `MethodMap.String.cs:15` |
+| 169 | `System.String` | `.ctor` | `System.Void (System.SByte*)` | public/public/instance | `icall_string_ctor_sbyte_ptr` | `MethodMap.String.cs:15` |
+| 170 | `System.String` | `.ctor` | `System.Void (System.SByte*, System.Int32, System.Int32)` | public/public/instance | `icall_string_ctor_sbyte_ptr_range` | `MethodMap.String.cs:15` |
+| 171 | `System.String` | `.ctor` | `System.Void (System.SByte*, System.Int32, System.Int32, System.Text.Encoding)` | public/public/instance | `icall_string_ctor_sbyte_ptr_range_encoding` | `MethodMap.String.cs:15` |
+| 172 | `System.String` | `FastAllocateString` | `System.String (System.Int32)` | public/internal/static | `icall_string_fast_allocate` | `MethodMap.String.cs:747` |
+| 173 | `System.String` | `IndexOf` | `System.Int32 (System.Char, System.Int32, System.Int32)` | public/public/instance | `icall_string_index_of_c_range` | `MethodMap.String.cs:82` |
+| 174 | `System.String` | `IndexOfAny` | `System.Int32 (System.Char[], System.Int32, System.Int32)` | public/public/instance | `icall_string_index_of_any_range` | `MethodMap.String.cs:92` |
+| 175 | `System.String` | `InternalMarvin32HashString` | `System.Int32 (System.String, System.Int32, System.Int64)` | public/internal/static | `icall_string_internal_marvin32_hash_string` | `MethodMap.String.cs:762` |
+| 176 | `System.String` | `IsAscii` | `System.Boolean ()` | public/internal/instance | `icall_string_is_ascii` | `MethodMap.String.cs:764` |
+| 177 | `System.String` | `IsFastSort` | `System.Boolean ()` | public/internal/instance | `icall_string_is_fast_sort` | `MethodMap.String.cs:763` |
+| 178 | `System.String` | `LastIndexOf` | `System.Int32 (System.Char, System.Int32, System.Int32)` | public/public/instance | `icall_string_last_index_of_c_range` | `MethodMap.String.cs:132` |
+| 179 | `System.String` | `LastIndexOfAny` | `System.Int32 (System.Char[], System.Int32, System.Int32)` | public/public/instance | `icall_string_last_index_of_any_range` | `MethodMap.String.cs:114` |
+| 180 | `System.String` | `SetTrailByte` | `System.Void (System.Byte)` | public/internal/instance | `icall_string_set_trail_byte` | `MethodMap.String.cs:752` |
+| 181 | `System.String` | `TryGetTrailByte` | `System.Boolean (System.Byte&)` | public/internal/instance | `icall_string_try_get_trail_byte` | `MethodMap.String.cs:756` |
+| 182 | `System.String` | `get_Chars` | `System.Char (System.Int32)` | public/public/instance | `icall_string_get_chars` | `MethodMap.String.cs:737` |
+| 183 | `System.String` | `get_Length` | `System.Int32 ()` | public/public/instance | `il2cpp_string_get_length` | `MethodMap.String.cs:74` |
+| 184 | `System.String` | `nativeCompareOrdinalEx` | `System.Int32 (System.String, System.Int32, System.String, System.Int32, System.Int32)` | public/internal/static | `icall_string_native_compare_ordinal_ex` | `MethodMap.String.cs:760` |
+| 185 | `System.String` | `nativeCompareOrdinalIgnoreCaseWC` | `System.Int32 (System.String, System.SByte*)` | public/internal/static | `icall_string_native_compare_ordinal_ignore_case_wc` | `MethodMap.String.cs:761` |
+| 186 | `System.Text.StringBuilder` | `ReplaceBufferAnsiInternal` | `System.Void (System.SByte*, System.Int32)` | public/internal/instance | `icall_stringbuilder_replace_buffer_ansi_internal` | `MethodMap.StringBuilder.cs:384` |
+| 187 | `System.Text.StringBuilder` | `ReplaceBufferInternal` | `System.Void (System.Char*, System.Int32)` | public/internal/instance | `icall_stringbuilder_replace_buffer_internal` | `MethodMap.StringBuilder.cs:383` |
+| 188 | `System.Threading.HostExecutionContextManager` | `CloneHostSecurityContext` | `System.Int32 (System.Runtime.InteropServices.SafeHandle, System.Runtime.InteropServices.SafeHandle)` | public/internal/static | `icall_host_execution_context_manager_clone_host_security_context` | `MethodMap.Thread.cs:270` |
+| 189 | `System.Threading.HostExecutionContextManager` | `ReleaseHostSecurityContext` | `System.Int32 (System.IntPtr)` | public/internal/static | `icall_host_execution_context_manager_release_host_security_context` | `MethodMap.Thread.cs:269` |
+| 190 | `System.Threading.Interlocked` | `CompareExchange` | `System.Double (System.Double&, System.Double, System.Double)` | public/public/static | `il2cpp_interlocked_compare_exchange_double` | `MethodMap.Interlocked.cs:101` |
+| 191 | `System.Threading.Interlocked` | `CompareExchange` | `System.Int32 (System.Int32&, System.Int32, System.Int32)` | public/public/static | `il2cpp_interlocked_compare_exchange` | `MethodMap.Interlocked.cs:101` |
+| 192 | `System.Threading.Interlocked` | `CompareExchange` | `System.Int32 (System.Int32&, System.Int32, System.Int32, System.Boolean&)` | public/internal/static | `icall_interlocked_compare_exchange_found` | `MethodMap.Interlocked.cs:101` |
+| 193 | `System.Threading.Interlocked` | `CompareExchange` | `System.Int64 (System.Int64&, System.Int64, System.Int64)` | public/public/static | `il2cpp_interlocked_compare_exchange64` | `MethodMap.Interlocked.cs:101` |
+| 194 | `System.Threading.Interlocked` | `CompareExchange` | `System.IntPtr (System.IntPtr&, System.IntPtr, System.IntPtr)` | public/public/static | `il2cpp_interlocked_compare_exchange_pointer` | `MethodMap.Interlocked.cs:101` |
+| 195 | `System.Threading.Interlocked` | `CompareExchange` | `System.Object (System.Object&, System.Object, System.Object)` | public/public/static | `il2cpp_interlocked_compare_exchange_pointer` | `MethodMap.Interlocked.cs:101` |
+| 196 | `System.Threading.Interlocked` | `CompareExchange` | `System.Single (System.Single&, System.Single, System.Single)` | public/public/static | `il2cpp_interlocked_compare_exchange_double` | `MethodMap.Interlocked.cs:101` |
+| 197 | `System.Threading.Interlocked` | `Exchange` | `System.Double (System.Double&, System.Double)` | public/public/static | `il2cpp_interlocked_exchange_double` | `MethodMap.Interlocked.cs:63` |
+| 198 | `System.Threading.Interlocked` | `Exchange` | `System.Int32 (System.Int32&, System.Int32)` | public/public/static | `il2cpp_interlocked_exchange` | `MethodMap.Interlocked.cs:63` |
+| 199 | `System.Threading.Interlocked` | `Exchange` | `System.Int64 (System.Int64&, System.Int64)` | public/public/static | `il2cpp_interlocked_exchange64` | `MethodMap.Interlocked.cs:63` |
+| 200 | `System.Threading.Interlocked` | `Exchange` | `System.IntPtr (System.IntPtr&, System.IntPtr)` | public/public/static | `il2cpp_interlocked_exchange_pointer` | `MethodMap.Interlocked.cs:63` |
+| 201 | `System.Threading.Interlocked` | `Exchange` | `System.Object (System.Object&, System.Object)` | public/public/static | `il2cpp_interlocked_exchange_pointer` | `MethodMap.Interlocked.cs:63` |
+| 202 | `System.Threading.Interlocked` | `Exchange` | `System.Single (System.Single&, System.Single)` | public/public/static | `il2cpp_interlocked_exchange_double` | `MethodMap.Interlocked.cs:63` |
+| 203 | `System.Threading.Interlocked` | `ExchangeAdd` | `System.Int32 (System.Int32&, System.Int32)` | public/internal/static | `il2cpp_interlocked_add` | `MethodMap.Interlocked.cs:57` |
+| 204 | `System.Threading.Interlocked` | `ExchangeAdd` | `System.Int64 (System.Int64&, System.Int64)` | public/internal/static | `il2cpp_interlocked_add64` | `MethodMap.Interlocked.cs:57` |
+| 205 | `System.Threading.Interlocked` | `SpeculationBarrier` | `System.Void ()` | public/public/static | `il2cpp_interlocked_speculation_barrier` | `MethodMap.Interlocked.cs:146` |
+| 206 | `System.Threading.Monitor` | `Enter` | `System.Void (System.Object)` | public/public/static | `il2cpp_monitor_enter` | `MethodMap.Monitor.cs:45` |
+| 207 | `System.Threading.Monitor` | `Exit` | `System.Void (System.Object)` | public/public/static | `il2cpp_monitor_exit` | `MethodMap.Monitor.cs:59` |
+| 208 | `System.Threading.ReaderWriterLock` | `AnyWritersSince` | `System.Boolean (System.Int32)` | public/public/instance | `icall_rwl_any_writers_since` | `MethodMap.Legacy.cs:407` |
+| 209 | `System.Threading.SynchronizationContext` | `WaitHelper` | `System.Int32 (System.IntPtr[], System.Boolean, System.Int32)` | public/protected/static | `icall_synchronization_context_wait_helper` | `MethodMap.Thread.cs:261` |
+| 210 | `System.Threading.Thread` | `GetCurrentProcessorNumber` | `System.Int32 ()` | public/private/static | `icall_thread_get_current_processor_number` | `MethodMap.Thread.cs:128` |
+| 211 | `System.Threading.Thread` | `InternalFinalize` | `System.Void ()` | public/private/instance | `il2cpp_object_ctor_nop` | `MethodMap.Thread.cs:280` |
+| 212 | `System.Threading.Thread` | `MemoryBarrier` | `System.Void ()` | public/public/static | `icall_thread_memory_barrier` | `MethodMap.Thread.cs:63` |
+| 213 | `System.Threading.Thread` | `get_IsAlive` | `System.Boolean ()` | public/public/instance | `icall_threadobj_get_is_alive` | `MethodMap.Thread.cs:182` |
+| 214 | `System.Threading.Thread` | `get_IsThreadPoolThread` | `System.Boolean ()` | public/public/instance | `icall_thread_get_is_thread_pool_thread` | `MethodMap.Thread.cs:105` |
+| 215 | `System.Threading.Thread` | `get_ManagedThreadId` | `System.Int32 ()` | public/public/instance | `icall_threadobj_get_managed_thread_id` | `MethodMap.Thread.cs:186` |
+| 216 | `System.Threading.ThreadPool` | `IsThreadPoolHosted` | `System.Boolean ()` | public/internal/static | `icall_thread_pool_is_thread_pool_hosted` | `MethodMap.ThreadPool.cs:68` |
+| 217 | `System.Threading.ThreadPool` | `NotifyWorkItemComplete` | `System.Boolean ()` | public/internal/static | `icall_thread_pool_notify_work_item_complete` | `MethodMap.ThreadPool.cs:65` |
+| 218 | `System.Threading.ThreadPool` | `NotifyWorkItemProgressNative` | `System.Void ()` | public/internal/static | `icall_thread_pool_notify_work_item_progress_native` | `MethodMap.ThreadPool.cs:67` |
+| 219 | `System.Threading.ThreadPool` | `ReportThreadStatus` | `System.Void (System.Boolean)` | public/internal/static | `icall_thread_pool_report_thread_status` | `MethodMap.ThreadPool.cs:66` |
+| 220 | `System.Type` | `GetTypeFromHandle` | `System.Type (System.RuntimeTypeHandle)` | public/public/static | `il2cpp_type_get_type_from_handle_value` | `MethodMap.Type.cs:73` |
+| 221 | `System.Type` | `op_Equality` | `System.Boolean (System.Type, System.Type)` | public/public/static | `icall_string_equals_static` | `MethodMap.Type.cs:542` |
+| 222 | `System.Type` | `op_Inequality` | `System.Boolean (System.Type, System.Type)` | public/public/static | `icall_type_op_inequality` | `MethodMap.Type.cs:549` |
+| 223 | `System.ValueType` | `GetHashCode` | `System.Int32 ()` | public/public/instance | `icall_value_type_get_hash_code_of_ptr` | `CodeGenerator.cs:1493` |
+| 224 | `System.ValueType` | `GetHashCodeOfPtr` | `System.Int32 (System.IntPtr)` | public/internal/static | `icall_value_type_get_hash_code_of_ptr` | `MethodMap.ValueType.cs:457` |
+| 225 | `System.WeakReference` | `Finalize` | `System.Void ()` | public/protected/instance | `icall_weak_reference_finalize` | `MethodMap.WeakReference.cs:73` |
+| 226 | `System.WeakReference` | `get_IsAlive` | `System.Boolean ()` | public/public/instance | `icall_weakref_get_is_alive` | `MethodMap.WeakReference.cs:59` |
+| 227 | `System.WeakReference` | `get_Target` | `System.Object ()` | public/public/instance | `icall_weakref_get_target` | `MethodMap.WeakReference.cs:61` |
+| 228 | `System.WeakReference` | `set_Target` | `System.Void (System.Object)` | public/public/instance | `icall_weakref_set_target` | `MethodMap.WeakReference.cs:67` |
+| 229 | `System.WeakReference`1` | `Finalize` | `System.Void ()` | public/protected/instance | `icall_weak_reference_finalize` | `MethodMap.WeakReference.cs:73` |
+| 230 | `System.WeakReference`1` | `get_Target` | `!0 ()` | public/private/instance | `icall_weakref_get_target` | `MethodMap.WeakReference.cs:61` |
+| 231 | `System.WeakReference`1` | `set_Target` | `System.Void (!0)` | public/private/instance | `icall_weakref_set_target` | `MethodMap.WeakReference.cs:67` |
 
 ## 3. 缺口清单（按 P0→P3）
 
-「缺口」= 非「已接」且非「影子」的全部行 = **640** 条（半接 / LOUD 拒绝 / 无接线 / 部分影子）。影子单列在 §3.6（结论是「无需接线」），部分影子单列在 §3.7（结论是「只部分覆盖」）。
+「缺口」= 非「已接」且非「影子」的全部行 = **596** 条（半接 / LOUD 拒绝 / 无接线 / 部分影子）。影子单列在 §3.6（结论是「无需接线」），部分影子单列在 §3.7（结论是「只部分覆盖」）。
 
-**本节行数与摘要优先级分布的对应关系**（避免把两套口径误读为互相矛盾）：本节 P0/P1/P2/P3 共 42+219+95+284 = **640** 行，即上段的「缺口」全体；摘要里的优先级分布 42+290+98+284 = **714** = 908−194（已接），即**把 §3.6 的 74 条影子也按优先级计入**。两套口径的差只落在 P1/P2：P0（42=42）与 P3（284=284）完全一致，故 74 条影子全部落在 P1∪P2，据此得 P1 影子 290−219=**71**、P2 影子 98−95=**3**（71+3=74 自洽）。**已知缺陷**：§3.6 未设「优先级」列，上述 71/3 拆分是算术推定而非逐行可查，需脚本补出该列后才能逐条核对。
-
-### P0（42 条）
+### P0（10 条）
 
 类型与方法均为 public，用户 IL 可以直接 call，属于**必须处理**的面。
 
 | # | 声明类型 | 方法 | 可见性 | 判定 | 说明 | 证据 |
 |---|---|---|---|---|---|---|
-| 1 | `System.ArgIterator` | `GetRemainingCount` | public/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetRemainingCount is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3): LOUD whitelist (runtime descriptor:  | `MethodMap.Legacy.cs:232` |
-| 2 | `System.Diagnostics.Debugger` | `IsLogging` | public/public/static | 半接 | 半接：dispatch 指向 `il2cpp_debugger_is_logging`，但运行时是空体/恒值桩（桩定义 `debuggerext.cpp:26`） | `debuggerext.cpp:26` |
-| 3 | `System.Diagnostics.Debugger` | `get_IsAttached` | public/public/static | 半接 | 半接：dispatch 指向 `il2cpp_debugger_is_attached`，但运行时是空体/恒值桩（桩定义 `debuggerext.cpp:21`） | `debuggerext.cpp:21` |
-| 4 | `System.Environment` | `get_HasShutdownStarted` | public/public/static | 半接 | 半接：dispatch 指向 `icall_environment_get_has_shutdown_started`，但运行时是空体/恒值桩（桩定义 `environment.cpp:531`） | `environment.cpp:531` |
-| 5 | `System.Runtime.CompilerServices.RuntimeHelpers` | `EnsureSufficientExecutionStack` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (① machine/JIT state): RuntimeHelpers.EnsureSufficientExecutionStack is a host stack-probe hint (the AOT runs on the host stack with no | `MethodMap.RuntimeHelpers.cs:81` |
-| 6 | `System.Runtime.CompilerServices.RuntimeHelpers` | `ExecuteCodeWithGuaranteedCleanup` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (③ no runtime descriptor): RuntimeHelpers.ExecuteCodeWithGuaranteedCleanup is a constrained-execution try/finally (TryCode/CleanupCode  | `MethodMap.RuntimeHelpers.cs:89` |
-| 7 | `System.Runtime.CompilerServices.RuntimeHelpers` | `InitializeArray` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (③ no runtime descriptor): RuntimeHelpers.InitializeArray is a StackFold fold (ldtoken<RVA field> + newarr); the call reached the resol | `MethodMap.RuntimeHelpers.cs:108` |
-| 8 | `System.Runtime.CompilerServices.RuntimeHelpers` | `PrepareContractedDelegate` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (① machine/JIT state): RuntimeHelpers.PrepareContractedDelegate is a constrained-execution JIT-prepare hint (no JIT to prepare) | `MethodMap.RuntimeHelpers.cs:77` |
-| 9 | `System.Runtime.CompilerServices.RuntimeHelpers` | `PrepareDelegate` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (① machine/JIT state): RuntimeHelpers.PrepareDelegate is a JIT-prepare hint (this AOT has no JIT to prepare the delegate) | `MethodMap.RuntimeHelpers.cs:73` |
-| 10 | `System.Runtime.CompilerServices.RuntimeHelpers` | `ProbeForSufficientStack` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (① machine/JIT state): RuntimeHelpers.ProbeForSufficientStack is a host stack-probe hint (no managed stack-limit checks) | `MethodMap.RuntimeHelpers.cs:85` |
-| 11 | `System.Runtime.InteropServices.ExtensibleClassFactory` | `RegisterObjectCreationCallback` | public/public/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 12 | `System.Runtime.InteropServices.Marshal` | `AddRef` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): AddRef belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conve | `MethodMap.Marshal.cs:86` |
-| 13 | `System.Runtime.InteropServices.Marshal` | `AreComObjectsAvailableForCleanup` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): AreComObjectsAvailableForCleanup belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library | `MethodMap.Marshal.cs:86` |
-| 14 | `System.Runtime.InteropServices.Marshal` | `ChangeWrapperHandleStrength` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): ChangeWrapperHandleStrength belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library mars | `MethodMap.Marshal.cs:86` |
-| 15 | `System.Runtime.InteropServices.Marshal` | `CleanupUnusedObjectsInCurrentContext` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): CleanupUnusedObjectsInCurrentContext belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-lib | `MethodMap.Marshal.cs:86` |
-| 16 | `System.Runtime.InteropServices.Marshal` | `CreateAggregatedObject` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): CreateAggregatedObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshalin | `MethodMap.Marshal.cs:86` |
-| 17 | `System.Runtime.InteropServices.Marshal` | `GetEndComSlot` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetEndComSlot belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIAN | `MethodMap.Marshal.cs:86` |
-| 18 | `System.Runtime.InteropServices.Marshal` | `GetExceptionCode` | public/public/static | 半接 | 半接：dispatch 指向 `icall_marshal_get_exception_code`，但运行时是空体/恒值桩（桩定义 `marshalext3.cpp:265`） | `marshalext3.cpp:265` |
-| 19 | `System.Runtime.InteropServices.Marshal` | `GetExceptionPointers` | public/public/static | 半接 | 半接：dispatch 指向 `icall_marshal_get_exception_pointers`，但运行时是空体/恒值桩（桩定义 `marshalext3.cpp:275`） | `marshalext3.cpp:275` |
-| 20 | `System.Runtime.InteropServices.Marshal` | `GetITypeInfoForType` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetITypeInfoForType belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling,  | `MethodMap.Marshal.cs:86` |
-| 21 | `System.Runtime.InteropServices.Marshal` | `GetManagedThunkForUnmanagedMethodPtr` | public/public/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 22 | `System.Runtime.InteropServices.Marshal` | `GetMethodInfoForComSlot` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetMethodInfoForComSlot belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshali | `MethodMap.Marshal.cs:86` |
-| 23 | `System.Runtime.InteropServices.Marshal` | `GetStartComSlot` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetStartComSlot belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARI | `MethodMap.Marshal.cs:86` |
-| 24 | `System.Runtime.InteropServices.Marshal` | `GetTypeLibLcid` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetTypeLibLcid belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIA | `MethodMap.Marshal.cs:86` |
-| 25 | `System.Runtime.InteropServices.Marshal` | `GetTypedObjectForIUnknown` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetTypedObjectForIUnknown belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marsha | `MethodMap.Marshal.cs:86` |
-| 26 | `System.Runtime.InteropServices.Marshal` | `GetUniqueObjectForIUnknown` | public/public/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 27 | `System.Runtime.InteropServices.Marshal` | `GetUnmanagedThunkForManagedMethodPtr` | public/public/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 28 | `System.Runtime.InteropServices.Marshal` | `IsTypeVisibleFromCom` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): IsTypeVisibleFromCom belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, | `MethodMap.Marshal.cs:86` |
-| 29 | `System.Runtime.InteropServices.Marshal` | `QueryInterface` | public/public/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 30 | `System.Runtime.InteropServices.Marshal` | `Release` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): Release belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VARIANT conv | `MethodMap.Marshal.cs:86` |
-| 31 | `System.Runtime.Remoting.Proxies.RealProxy` | `GetProxiedType` | public/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetProxiedType is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD r | `MethodMap.Legacy.cs:44` |
-| 32 | `System.Runtime.Remoting.Proxies.RealProxy` | `GetStubData` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：GetStubData is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reje | `MethodMap.Legacy.cs:44` |
-| 33 | `System.Runtime.Remoting.Proxies.RealProxy` | `SetStubData` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：SetStubData is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reje | `MethodMap.Legacy.cs:44` |
-| 34 | `System.Runtime.Remoting.RemotingServices` | `GetRealProxy` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：GetRealProxy is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD rej | `MethodMap.Legacy.cs:44` |
-| 35 | `System.Runtime.Remoting.RemotingServices` | `IsTransparentProxy` | public/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：IsTransparentProxy is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LO | `MethodMap.Legacy.cs:44` |
-| 36 | `System.Threading.Interlocked` | `SpeculationBarrier` | public/public/static | 半接 | 半接：dispatch 指向 `il2cpp_interlocked_speculation_barrier`，但运行时是空体/恒值桩（桩定义 `interlocked.cpp:186`） | `interlocked.cpp:186` |
-| 37 | `System.Threading.ReaderWriterLock` | `AnyWritersSince` | public/public/instance | 半接 | 半接：dispatch 指向 `icall_reader_writer_lock_any_writers_since`，但运行时是空体/恒值桩（桩定义 `stubs.cpp:1210`） | `stubs.cpp:1210` |
-| 38 | `System.Threading.Thread` | `BeginCriticalRegion` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_begin_critical_region`，但运行时是空体/恒值桩（桩定义 `thread.cpp:120`） | `thread.cpp:120` |
-| 39 | `System.Threading.Thread` | `BeginThreadAffinity` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_begin_thread_affinity`，但运行时是空体/恒值桩（桩定义 `thread.cpp:184`） | `thread.cpp:184` |
-| 40 | `System.Threading.Thread` | `DisableComObjectEagerCleanup` | public/public/instance | 半接 | 半接：dispatch 指向 `icall_thread_disable_com_object_eager_cleanup`，但运行时是空体/恒值桩（桩定义 `thread.cpp:199`） | `thread.cpp:199` |
-| 41 | `System.Threading.Thread` | `EndCriticalRegion` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_end_critical_region`，但运行时是空体/恒值桩（桩定义 `thread.cpp:124`） | `thread.cpp:124` |
-| 42 | `System.Threading.Thread` | `EndThreadAffinity` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_end_thread_affinity`，但运行时是空体/恒值桩（桩定义 `thread.cpp:188`） | `thread.cpp:188` |
+| 1 | `System.Runtime.CompilerServices.RuntimeHelpers` | `PrepareContractedDelegate` | public/public/static | 半接 | 半接：dispatch 指向 `icall_runtime_helpers_prepare_contracted_delegate`，但运行时是空体/恒值桩（桩定义 `runtimehelpers.cpp:178`） | `runtimehelpers.cpp:178` |
+| 2 | `System.Runtime.CompilerServices.RuntimeHelpers` | `PrepareDelegate` | public/public/static | 半接 | 半接：dispatch 指向 `icall_runtime_helpers_prepare_delegate`，但运行时是空体/恒值桩（桩定义 `runtimehelpers.cpp:172`） | `runtimehelpers.cpp:172` |
+| 3 | `System.Runtime.CompilerServices.RuntimeHelpers` | `ProbeForSufficientStack` | public/public/static | 半接 | 半接：dispatch 指向 `icall_runtime_helpers_probe_for_sufficient_stack`，但运行时是空体/恒值桩（桩定义 `runtimehelpers.cpp:208`） | `runtimehelpers.cpp:208` |
+| 4 | `System.Runtime.InteropServices.Marshal` | `GetExceptionCode` | public/public/static | 半接 | 半接：dispatch 指向 `icall_marshal_get_exception_code`，但运行时是空体/恒值桩（桩定义 `marshalext3.cpp:268`） | `marshalext3.cpp:268` |
+| 5 | `System.Runtime.InteropServices.Marshal` | `GetExceptionPointers` | public/public/static | 半接 | 半接：dispatch 指向 `icall_marshal_get_exception_pointers`，但运行时是空体/恒值桩（桩定义 `marshalext3.cpp:278`） | `marshalext3.cpp:278` |
+| 6 | `System.Threading.Thread` | `BeginCriticalRegion` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_begin_critical_region`，但运行时是空体/恒值桩（桩定义 `thread.cpp:157`） | `thread.cpp:157` |
+| 7 | `System.Threading.Thread` | `BeginThreadAffinity` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_begin_thread_affinity`，但运行时是空体/恒值桩（桩定义 `thread.cpp:225`） | `thread.cpp:225` |
+| 8 | `System.Threading.Thread` | `DisableComObjectEagerCleanup` | public/public/instance | 半接 | 半接：dispatch 指向 `icall_thread_disable_com_object_eager_cleanup`，但运行时是空体/恒值桩（桩定义 `thread.cpp:243`） | `thread.cpp:243` |
+| 9 | `System.Threading.Thread` | `EndCriticalRegion` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_end_critical_region`，但运行时是空体/恒值桩（桩定义 `thread.cpp:161`） | `thread.cpp:161` |
+| 10 | `System.Threading.Thread` | `EndThreadAffinity` | public/public/static | 半接 | 半接：dispatch 指向 `icall_thread_end_thread_affinity`，但运行时是空体/恒值桩（桩定义 `thread.cpp:229`） | `thread.cpp:229` |
 
-### P1（摘要 290 条 = 本节 219 条缺口 + §3.6 的 71 条影子）
+### P1（209 条）
 
 非 public 面，但经普通 BCL 内部路径可达（集合/字符串/LINQ/IO/格式化/数值等），或距离 public 入口只有 1 跳。
 
 | # | 声明类型 | 方法 | 可见性 | 判定 | 说明 | 证据 |
 |---|---|---|---|---|---|---|
-| 1 | `System.AppDomain` | `GetDynamicDir` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetDynamicDir is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT proces | `MethodMap.Legacy.cs:193` |
-| 2 | `System.AppDomain` | `nApplyPolicy` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nApplyPolicy is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT process | `MethodMap.Legacy.cs:193` |
-| 3 | `System.AppDomain` | `nChangeSecurityPolicy` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nChangeSecurityPolicy is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AO | `MethodMap.Legacy.cs:193` |
-| 4 | `System.AppDomain` | `nEnableMonitoring` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nEnableMonitoring is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT pr | `MethodMap.Legacy.cs:193` |
-| 5 | `System.AppDomain` | `nGetAssemblies` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nGetAssemblies is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT proce | `MethodMap.Legacy.cs:193` |
-| 6 | `System.AppDomain` | `nGetLastSurvivedMemorySize` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nGetLastSurvivedMemorySize is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: t | `MethodMap.Legacy.cs:193` |
-| 7 | `System.AppDomain` | `nGetLastSurvivedProcessMemorySize` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nGetLastSurvivedProcessMemorySize is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descri | `MethodMap.Legacy.cs:193` |
-| 8 | `System.AppDomain` | `nGetTotalAllocatedMemorySize` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nGetTotalAllocatedMemorySize is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: | `MethodMap.Legacy.cs:193` |
-| 9 | `System.AppDomain` | `nGetTotalProcessorTime` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nGetTotalProcessorTime is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the A | `MethodMap.Legacy.cs:193` |
-| 10 | `System.AppDomain` | `nMonitoringIsEnabled` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nMonitoringIsEnabled is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT | `MethodMap.Legacy.cs:193` |
-| 11 | `System.AppDomainSetup` | `UpdateContextProperty` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：UpdateContextProperty is part of System.AppDomainSetup -- only the probed ApplicationBase/ConfigurationFile rack-arms are wired in the adm1 closure: L | `MethodMap.Legacy.cs:216` |
-| 12 | `System.ArgIterator` | `.ctor` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：.ctor is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3): LOUD whitelist (runtime descriptor: __arglist is | `MethodMap.Legacy.cs:232` |
-| 13 | `System.ArgIterator` | `.ctor` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：.ctor is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3): LOUD whitelist (runtime descriptor: __arglist is | `MethodMap.Legacy.cs:232` |
-| 14 | `System.ArgIterator` | `FCallGetNextArg` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：FCallGetNextArg is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3): LOUD whitelist (runtime descriptor: __ | `MethodMap.Legacy.cs:232` |
-| 15 | `System.ArgIterator` | `InternalGetNextArg` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：InternalGetNextArg is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3): LOUD whitelist (runtime descriptor: | `MethodMap.Legacy.cs:232` |
-| 16 | `System.ArgIterator` | `_GetNextArgType` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：_GetNextArgType is part of System.ArgIterator -- a legacy varargs-reflection primitive (net48 audit section 3): LOUD whitelist (runtime descriptor: __ | `MethodMap.Legacy.cs:232` |
-| 17 | `System.Array` | `InternalCreate` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 18 | `System.BCLDebug` | `GetRegistryLoggingValues` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 19 | `System.Currency` | `FCallToDecimal` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 20 | `System.CurrentSystemTimeZone` | `nativeGetTimeZoneMinuteOffset` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 21 | `System.Decimal` | `FCallCompare` | public/private/static | 部分影子 | 部分影子：由 `System.Decimal::Compare` 直接承接（1 跳） | `MethodMap.Decimal.cs:170` |
-| 22 | `System.Decimal` | `FCallRound` | public/private/static | 部分影子 | 部分影子：由 `System.Decimal::Round` 直接承接（1 跳） | `MethodMap.Decimal.cs:290` |
-| 23 | `System.Decimal` | `FCallToCurrency` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 24 | `System.Delegate` | `BindToMethodInfo` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 25 | `System.Delegate` | `BindToMethodName` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 26 | `System.Delegate` | `FindMethodHandle` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_delegate_find_method_handle`，但运行时是空体/恒值桩（桩定义 `delegateext.cpp:694`） | `delegateext.cpp:694` |
-| 27 | `System.Delegate` | `InternalAlloc` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 28 | `System.Diagnostics.Debugger` | `BreakInternal` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 29 | `System.Diagnostics.Debugger` | `LaunchInternal` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 30 | `System.Enum` | `InternalGetCorElementType` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 31 | `System.Exception` | `CopyDynamicMethods` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 32 | `System.Exception` | `CopyStackTrace` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 33 | `System.Exception` | `GetMethodFromStackTrace` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 34 | `System.Exception` | `GetStackTracesDeepCopy` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 35 | `System.Exception` | `PrepareForForeignExceptionRaise` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 36 | `System.Exception` | `SaveStackTracesFromDeepCopy` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_exception_save_stack_traces_from_deep_copy`，但运行时是空体/恒值桩（桩定义 `stubs.cpp:47`） | `stubs.cpp:47` |
-| 37 | `System.Exception` | `StripFileInfo` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 38 | `System.Exception` | `nIsTransient` | public/private/static | 部分影子 | 部分影子：**3 跳**，链路 `System.Exception::get_IsTransient → System.Resources.ResourceManager::SetAppXConfiguration → System.Resources.ResourceManager::.ctor`，根入口 `System.Resources.ResourceManager::.ctor`；不是由 `System.Resources.ResourceManager::.ctor` 直接承接 | `MethodMap.Resource.cs:65` |
-| 39 | `System.GC` | `IsServerGC` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_gc_is_server_gc`，但运行时是空体/恒值桩（桩定义 `gcapi.cpp:167`） | `gcapi.cpp:167` |
-| 40 | `System.GC` | `_WaitForFullGCApproach` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 41 | `System.GC` | `_WaitForFullGCComplete` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 42 | `System.Globalization.CalendarData` | `nativeGetCalendars` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 43 | `System.Globalization.CalendarData` | `nativeGetTwoDigitYearMax` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 44 | `System.Globalization.CultureData` | `LCIDToLocaleName` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 45 | `System.Globalization.CultureData` | `LocaleNameToLCID` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 46 | `System.Globalization.CultureData` | `nativeGetNumberFormatInfoValues` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 47 | `System.Globalization.CultureData` | `nativeInitCultureData` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 48 | `System.Globalization.CultureInfo` | `InternalGetSystemDefaultUILanguage` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 49 | `System.Globalization.TextInfo` | `InternalGetCaseInsHash` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 50 | `System.MarshalByRefObject` | `GetComIUnknown` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 51 | `System.Math` | `SplitFractionDouble` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (net48 has no such overload): Math.SplitFractionDouble -- ModF/SplitFractionDouble is a .NET Core API (net48 has no public ModF member) | `MethodMap.Math.cs:128` |
-| 52 | `System.MissingMemberException` | `FormatSignature` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 53 | `System.ModuleHandle` | `GetDynamicMethod` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 54 | `System.ModuleHandle` | `GetMDStreamVersion` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 55 | `System.ModuleHandle` | `_GetMetadataImport` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 56 | `System.Number` | `NumberBufferToDecimal` | internal/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 57 | `System.Number` | `NumberBufferToDouble` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 58 | `System.ParseNumbers` | `IntToString` | internal/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 59 | `System.ParseNumbers` | `StringToInt` | internal/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 60 | `System.ParseNumbers` | `StringToLong` | internal/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 61 | `System.Reflection.AssemblyName` | `EscapeCodeBase` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 62 | `System.Reflection.AssemblyName` | `ReferenceMatchesDefinitionInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 63 | `System.Reflection.AssemblyName` | `nGetFileInformation` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 64 | `System.Reflection.AssemblyName` | `nGetPublicKeyToken` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 65 | `System.Reflection.RuntimeAssembly` | `nLoadFile` | internal/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 66 | `System.Reflection.RuntimeAssembly` | `nLoadImage` | internal/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 67 | `System.Runtime.CompilerServices.RuntimeHelpers` | `_PrepareMethod` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 68 | `System.Runtime.CompilerServices.RuntimeHelpers` | `_RunClassConstructor` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (③ no runtime descriptor): RuntimeHelpers._RunClassConstructor is a runtime type-init driver; the transpiler drives type-initialization | `MethodMap.RuntimeHelpers.cs:94` |
-| 69 | `System.Runtime.CompilerServices.RuntimeHelpers` | `_RunModuleConstructor` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (③ no runtime descriptor): RuntimeHelpers._RunModuleConstructor is a module-level constructor driver (module ctors are not in the M3 mo | `MethodMap.RuntimeHelpers.cs:99` |
-| 70 | `System.Runtime.InteropServices.ArrayWithOffset` | `CalculateCount` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 71 | `System.Runtime.InteropServices.Marshal` | `FCallGenerateGuidForType` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): FCallGenerateGuidForType belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshal | `MethodMap.Marshal.cs:86` |
-| 72 | `System.Runtime.InteropServices.Marshal` | `FCallGetTypeLibGuid` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): FCallGetTypeLibGuid belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling,  | `MethodMap.Marshal.cs:86` |
-| 73 | `System.Runtime.InteropServices.Marshal` | `FCallGetTypeLibGuidForAssembly` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): FCallGetTypeLibGuidForAssembly belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library m | `MethodMap.Marshal.cs:86` |
-| 74 | `System.Runtime.InteropServices.Marshal` | `GetComInterfaceForObjectNative` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetComInterfaceForObjectNative belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library m | `MethodMap.Marshal.cs:86` |
-| 75 | `System.Runtime.InteropServices.Marshal` | `GetDelegateForFunctionPointerInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 76 | `System.Runtime.InteropServices.Marshal` | `GetExceptionForHRInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 77 | `System.Runtime.InteropServices.Marshal` | `GetFunctionPointerForDelegateInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 78 | `System.Runtime.InteropServices.Marshal` | `GetIDispatchForObjectNative` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetIDispatchForObjectNative belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library mars | `MethodMap.Marshal.cs:86` |
-| 79 | `System.Runtime.InteropServices.Marshal` | `GetIUnknownForObjectNative` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetIUnknownForObjectNative belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marsh | `MethodMap.Marshal.cs:86` |
-| 80 | `System.Runtime.InteropServices.Marshal` | `GetLoadedTypeForGUID` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetLoadedTypeForGUID belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, | `MethodMap.Marshal.cs:86` |
-| 81 | `System.Runtime.InteropServices.Marshal` | `GetNativeActivationFactory` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 82 | `System.Runtime.InteropServices.Marshal` | `InternalCreateWrapperOfType` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalCreateWrapperOfType belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library mars | `MethodMap.Marshal.cs:86` |
-| 83 | `System.Runtime.InteropServices.Marshal` | `InternalGetComSlotForMethodInfo` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalGetComSlotForMethodInfo belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library  | `MethodMap.Marshal.cs:86` |
-| 84 | `System.Runtime.InteropServices.Marshal` | `InternalGetThreadFromFiberCookie` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 85 | `System.Runtime.InteropServices.Marshal` | `InternalSwitchCCW` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalSwitchCCW belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VA | `MethodMap.Marshal.cs:86` |
-| 86 | `System.Runtime.InteropServices.Marshal` | `InternalWrapIUnknownWithComObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalWrapIUnknownWithComObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-librar | `MethodMap.Marshal.cs:86` |
-| 87 | `System.Runtime.InteropServices.Marshal` | `OffsetOfHelper` | public/private/static | 部分影子 | 部分影子：由 `System.Runtime.InteropServices.Marshal::OffsetOf` 直接承接（1 跳） | `MethodMap.Marshal.cs:293` |
-| 88 | `System.Runtime.InteropServices.Marshal` | `PtrToStructureHelper` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 89 | `System.Runtime.InteropServices.Marshal` | `SizeOfHelper` | public/internal/static | 部分影子 | 部分影子：由 `System.Runtime.InteropServices.Marshal::SizeOf` 直接承接（1 跳） | `MethodMap.Marshal.cs:241` |
-| 90 | `System.Runtime.InteropServices.Marshal` | `SizeOfType` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 91 | `System.Runtime.InteropServices.Marshal` | `ThrowExceptionForHRInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 92 | `System.Runtime.InteropServices.Marshal` | `_GetTypeLibVersionForAssembly` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): _GetTypeLibVersionForAssembly belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library ma | `MethodMap.Marshal.cs:86` |
-| 93 | `System.Runtime.InteropServices.RegistrationServices` | `RegisterTypeForComClientsExNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 94 | `System.Runtime.InteropServices.RegistrationServices` | `RegisterTypeForComClientsNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 95 | `System.Runtime.InteropServices.RuntimeEnvironment` | `GetRuntimeDirectoryImpl` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 96 | `System.Runtime.InteropServices.TypeLibConverter` | `nConvertAssemblyToTypeLib` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 97 | `System.Runtime.InteropServices.TypeLibConverter` | `nConvertTypeLibToMetadata` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 98 | `System.Runtime.Remoting.Messaging.Message` | `OutToUnmanagedDebugger` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：OutToUnmanagedDebugger is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggeste | `MethodMap.Legacy.cs:44` |
-| 99 | `System.Runtime.Remoting.RemotingServices` | `CallDefaultCtor` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CallDefaultCtor is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD  | `MethodMap.Legacy.cs:44` |
-| 100 | `System.Runtime.Serialization.FormatterServices` | `nativeGetSafeUninitializedObject` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 101 | `System.Runtime.Serialization.FormatterServices` | `nativeGetUninitializedObject` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 102 | `System.Runtime.Versioning.CompatibilitySwitch` | `GetValueInternalCall` | public/private/static | 半接 | 半接：dispatch 指向 `icall_compatibility_switch_get_value`，但运行时是空体/恒值桩（桩定义 `appcontext.cpp:195`） | `appcontext.cpp:195` |
-| 103 | `System.Runtime.Versioning.CompatibilitySwitch` | `IsEnabledInternalCall` | public/private/static | 半接 | 半接：dispatch 指向 `icall_compatibility_switch_is_enabled`，但运行时是空体/恒值桩（桩定义 `appcontext.cpp:201`） | `appcontext.cpp:201` |
-| 104 | `System.Runtime.Versioning.VersioningHelper` | `GetRuntimeId` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 105 | `System.RuntimeFieldHandle` | `AcquiresContextFromThis` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::AcquiresContextFromThis not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType  | `MethodMap.ReflectHandle.cs:55` |
-| 106 | `System.RuntimeFieldHandle` | `GetApproxDeclaringType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::GetApproxDeclaringType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType o | `MethodMap.ReflectHandle.cs:55` |
-| 107 | `System.RuntimeFieldHandle` | `GetValue` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::GetValue not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
-| 108 | `System.RuntimeFieldHandle` | `SetValue` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::SetValue not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
-| 109 | `System.RuntimeMethodHandle` | `CheckLinktimeDemands` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::CheckLinktimeDemands not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on | `MethodMap.ReflectHandle.cs:55` |
-| 110 | `System.RuntimeMethodHandle` | `GetAttributes` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetAttributes not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the ty | `MethodMap.ReflectHandle.cs:55` |
-| 111 | `System.RuntimeMethodHandle` | `GetDeclaringType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetDeclaringType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the | `MethodMap.ReflectHandle.cs:55` |
-| 112 | `System.RuntimeMethodHandle` | `GetLoaderAllocator` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetLoaderAllocator not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on t | `MethodMap.ReflectHandle.cs:55` |
-| 113 | `System.RuntimeMethodHandle` | `GetMethodFromCanonical` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetMethodFromCanonical not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType  | `MethodMap.ReflectHandle.cs:55` |
-| 114 | `System.RuntimeMethodHandle` | `GetName` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetName not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
-| 115 | `System.RuntimeMethodHandle` | `GetResolver` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetResolver not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type | `MethodMap.ReflectHandle.cs:55` |
-| 116 | `System.RuntimeMethodHandle` | `GetStubIfNeeded` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetStubIfNeeded not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the  | `MethodMap.ReflectHandle.cs:55` |
-| 117 | `System.RuntimeMethodHandle` | `HasMethodInstantiation` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::HasMethodInstantiation not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType  | `MethodMap.ReflectHandle.cs:55` |
-| 118 | `System.RuntimeMethodHandle` | `InvokeMethod` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::InvokeMethod not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the typ | `MethodMap.ReflectHandle.cs:55` |
-| 119 | `System.RuntimeMethodHandle` | `IsConstructor` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::IsConstructor not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the ty | `MethodMap.ReflectHandle.cs:55` |
-| 120 | `System.RuntimeMethodHandle` | `IsDynamicMethod` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::IsDynamicMethod not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the  | `MethodMap.ReflectHandle.cs:55` |
-| 121 | `System.RuntimeMethodHandle` | `IsGenericMethodDefinition` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::IsGenericMethodDefinition not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeTy | `MethodMap.ReflectHandle.cs:55` |
-| 122 | `System.RuntimeMethodHandle` | `PerformSecurityCheck` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::PerformSecurityCheck not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on | `MethodMap.ReflectHandle.cs:55` |
-| 123 | `System.RuntimeMethodHandle` | `_GetCurrentMethod` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::_GetCurrentMethod not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on th | `MethodMap.ReflectHandle.cs:55` |
-| 124 | `System.RuntimeType` | `AllocateValueType` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 125 | `System.RuntimeType` | `CanValueSpecialCast` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 126 | `System.RuntimeType` | `GetTypeFromCLSIDImpl` | internal/internal/static | 部分影子 | 部分影子：由 `System.Type::GetTypeFromCLSID` 直接承接（1 跳） | `MethodMap.Type.cs:787` |
-| 127 | `System.RuntimeType` | `GetTypeFromProgIDImpl` | internal/internal/static | 部分影子 | 部分影子：由 `System.Type::GetTypeFromProgID` 直接承接（1 跳） | `MethodMap.Type.cs:782` |
-| 128 | `System.RuntimeTypeHandle` | `Allocate` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::Allocate not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type hand | `MethodMap.ReflectHandle.cs:55` |
-| 129 | `System.RuntimeTypeHandle` | `CompareCanonicalHandles` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::CompareCanonicalHandles not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType o | `MethodMap.ReflectHandle.cs:55` |
-| 130 | `System.RuntimeTypeHandle` | `CreateCaInstance` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::CreateCaInstance not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the t | `MethodMap.ReflectHandle.cs:55` |
-| 131 | `System.RuntimeTypeHandle` | `CreateInstance` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::CreateInstance not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the typ | `MethodMap.ReflectHandle.cs:55` |
-| 132 | `System.RuntimeTypeHandle` | `GetAssembly` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetAssembly not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
-| 133 | `System.RuntimeTypeHandle` | `GetBaseType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetBaseType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
-| 134 | `System.RuntimeTypeHandle` | `GetCorElementType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetCorElementType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the  | `MethodMap.ReflectHandle.cs:55` |
-| 135 | `System.RuntimeTypeHandle` | `GetElementType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetElementType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the typ | `MethodMap.ReflectHandle.cs:55` |
-| 136 | `System.RuntimeTypeHandle` | `GetModule` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetModule not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
-| 137 | `System.RuntimeTypeHandle` | `HasInstantiation` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::HasInstantiation not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the t | `MethodMap.ReflectHandle.cs:55` |
-| 138 | `System.RuntimeTypeHandle` | `IsComObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsComObject not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
-| 139 | `System.RuntimeTypeHandle` | `IsGenericTypeDefinition` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsGenericTypeDefinition not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType o | `MethodMap.ReflectHandle.cs:55` |
-| 140 | `System.RuntimeTypeHandle` | `IsGenericVariable` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsGenericVariable not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the  | `MethodMap.ReflectHandle.cs:55` |
-| 141 | `System.RuntimeTypeHandle` | `IsValueType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsValueType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
-| 142 | `System.Security.CodeAccessSecurityEngine` | `QuickCheckForAllDemands` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 143 | `System.Security.Cryptography.Utils` | `_DecryptData` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 144 | `System.Security.Cryptography.Utils` | `_EncryptData` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 145 | `System.Security.Cryptography.Utils` | `_ExportKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 146 | `System.Security.Cryptography.Utils` | `_GetEnforceFipsPolicySetting` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 147 | `System.Security.Cryptography.Utils` | `_GetKeyParameter` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 148 | `System.Security.Cryptography.Utils` | `_GetProviderParameter` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 149 | `System.Security.Cryptography.Utils` | `_ImportKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 150 | `System.Security.Cryptography.Utils` | `_OpenCSP` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 151 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetIssuerName` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 152 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetPublicKeyOid` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 153 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetPublicKeyParameters` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 154 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetPublicKeyValue` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 155 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetSerialNumber` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 156 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetSubjectInfo` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 157 | `System.Signature` | `GetSignature` | internal/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 158 | `System.Threading.CompressedStack` | `DestroyDCSList` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 159 | `System.Threading.CompressedStack` | `GetDCSCount` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 160 | `System.Threading.CompressedStack` | `GetDelayedCompressedStack` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 161 | `System.Threading.CompressedStack` | `GetDomainCompressedStack` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 162 | `System.Threading.CompressedStack` | `GetHomogeneousPLS` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 163 | `System.Threading.CompressedStack` | `IsImmediateCompletionCandidate` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 164 | `System.Threading.HostExecutionContextManager` | `CaptureHostSecurityContext` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 165 | `System.Threading.HostExecutionContextManager` | `HostSecurityManagerPresent` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 166 | `System.Threading.HostExecutionContextManager` | `SetHostSecurityContext` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 167 | `System.Threading.Interlocked` | `_CompareExchange` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Interlocked::CompareExchange` 直接承接（1 跳） | `MethodMap.Interlocked.cs:101` |
-| 168 | `System.Threading.Interlocked` | `_Exchange` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Interlocked::Exchange` 直接承接（1 跳） | `MethodMap.Interlocked.cs:63` |
-| 169 | `System.Threading.Monitor` | `IsEnteredNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 170 | `System.Threading.Monitor` | `ObjWait` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Monitor::Wait` 直接承接（1 跳） | `MethodMap.Monitor.cs:98` |
-| 171 | `System.Threading.Monitor` | `ReliableEnterTimeout` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Monitor::TryEnter` 直接承接（1 跳） | `MethodMap.Monitor.cs:63` |
-| 172 | `System.Threading.OverlappedData` | `AllocateNativeOverlapped` | internal/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 173 | `System.Threading.OverlappedData` | `FreeNativeOverlapped` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 174 | `System.Threading.OverlappedData` | `GetOverlappedFromNative` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 175 | `System.Threading.ReaderWriterLock` | `AcquireReaderLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：AcquireReaderLockInternal is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime | `MethodMap.Legacy.cs:242` |
-| 176 | `System.Threading.ReaderWriterLock` | `AcquireWriterLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：AcquireWriterLockInternal is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime | `MethodMap.Legacy.cs:242` |
-| 177 | `System.Threading.ReaderWriterLock` | `DowngradeFromWriterLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：DowngradeFromWriterLockInternal is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (r | `MethodMap.Legacy.cs:242` |
-| 178 | `System.Threading.ReaderWriterLock` | `FCallReleaseLock` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：FCallReleaseLock is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime descript | `MethodMap.Legacy.cs:242` |
-| 179 | `System.Threading.ReaderWriterLock` | `FCallUpgradeToWriterLock` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：FCallUpgradeToWriterLock is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime  | `MethodMap.Legacy.cs:242` |
-| 180 | `System.Threading.ReaderWriterLock` | `PrivateGetIsReaderLockHeld` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：PrivateGetIsReaderLockHeld is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtim | `MethodMap.Legacy.cs:242` |
-| 181 | `System.Threading.ReaderWriterLock` | `PrivateGetIsWriterLockHeld` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：PrivateGetIsWriterLockHeld is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtim | `MethodMap.Legacy.cs:242` |
-| 182 | `System.Threading.ReaderWriterLock` | `PrivateGetWriterSeqNum` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：PrivateGetWriterSeqNum is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime de | `MethodMap.Legacy.cs:242` |
-| 183 | `System.Threading.ReaderWriterLock` | `PrivateInitialize` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：PrivateInitialize is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime descrip | `MethodMap.Legacy.cs:242` |
-| 184 | `System.Threading.ReaderWriterLock` | `ReleaseReaderLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：ReleaseReaderLockInternal is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime | `MethodMap.Legacy.cs:242` |
-| 185 | `System.Threading.ReaderWriterLock` | `ReleaseWriterLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：ReleaseWriterLockInternal is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime | `MethodMap.Legacy.cs:242` |
-| 186 | `System.Threading.ReaderWriterLock` | `RestoreLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：RestoreLockInternal is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime descr | `MethodMap.Legacy.cs:242` |
-| 187 | `System.Threading.RegisteredWaitHandleSafe` | `UnregisterWaitNative` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 188 | `System.Threading.Thread` | `AbortInternal` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 189 | `System.Threading.Thread` | `ClearAbortReason` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_clear_abort_reason`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:735`） | `threadobj.cpp:735` |
-| 190 | `System.Threading.Thread` | `GetAbortReason` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_get_abort_reason`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:732`） | `threadobj.cpp:732` |
-| 191 | `System.Threading.Thread` | `GetApartmentStateNative` | public/private/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_get_apartment_state_native`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:752`） | `threadobj.cpp:752` |
-| 192 | `System.Threading.Thread` | `GetContextInternal` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_threadobj_get_context_internal`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:714`） | `threadobj.cpp:714` |
-| 193 | `System.Threading.Thread` | `GetDomainInternal` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 194 | `System.Threading.Thread` | `GetFastDomainInternal` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 195 | `System.Threading.Thread` | `InternalCrossContextCallback` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_internal_cross_context_callback`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:720`） | `threadobj.cpp:720` |
-| 196 | `System.Threading.Thread` | `InterruptInternal` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 197 | `System.Threading.Thread` | `JoinInternal` | public/private/instance | 部分影子 | 部分影子：由 `System.Threading.Thread::Join` 直接承接（1 跳） | `MethodMap.Thread.cs:169` |
-| 198 | `System.Threading.Thread` | `ResetAbortNative` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 199 | `System.Threading.Thread` | `ResumeInternal` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 200 | `System.Threading.Thread` | `SetAbortReason` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_set_abort_reason`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:723`） | `threadobj.cpp:723` |
-| 201 | `System.Threading.Thread` | `SetApartmentStateNative` | public/private/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_set_apartment_state_native`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:758`） | `threadobj.cpp:758` |
-| 202 | `System.Threading.Thread` | `SuspendInternal` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 203 | `System.Threading.Thread` | `nativeGetSafeCulture` | public/private/static | 部分影子 | 部分影子：**2 跳**，链路 `System.Threading.Thread::GetCurrentUICultureNoAppX → System.Resources.ResourceManager::GetString`，根入口 `System.Resources.ResourceManager::GetString`；不是由 `System.Resources.ResourceManager::GetString` 直接承接 | `MethodMap.Resources.cs:110` |
-| 204 | `System.Threading.Thread` | `nativeSetThreadUILocale` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 205 | `System.Threading.ThreadPool` | `BindIOCompletionCallbackNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 206 | `System.Threading.ThreadPool` | `PostQueuedCompletionStatus` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 207 | `System.Threading.ThreadPool` | `RegisterWaitForSingleObjectNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 208 | `System.Threading.ThreadPool` | `SetMaxThreadsNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 209 | `System.Threading.ThreadPool` | `SetMinThreadsNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 210 | `System.Threading.WaitHandle` | `SignalAndWaitOne` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 211 | `System.Threading.WaitHandle` | `WaitMultiple` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 212 | `System.Threading.WaitHandle` | `WaitOneNative` | public/private/static | 部分影子 | 部分影子：**2 跳**，链路 `System.Threading.WaitHandle::WaitOneWithoutFAS → System.Threading.Thread::Sleep`，根入口 `System.Threading.Thread::Sleep`；不是由 `System.Threading.Thread::Sleep` 直接承接 | `MethodMap.Thread.cs:47` |
-| 213 | `System.Type` | `GetTypeFromHandleUnsafe` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_type_get_type_from_handle_unsafe`，但运行时是空体/恒值桩（桩定义 `stubs.cpp:709`） | `stubs.cpp:709` |
-| 214 | `System.TypedReference` | `InternalMakeTypedReference` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 215 | `System.TypedReference` | `InternalSetTypedReference` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 216 | `System.TypedReference` | `InternalToObject` | public/internal/static | 部分影子 | 部分影子：由 `System.Array::GetValue` 直接承接（1 跳） | `MethodMap.Array.cs:1129` |
-| 217 | `System.ValueType` | `CanCompareBits` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 218 | `System.ValueType` | `FastEqualsCheck` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 219 | `System.WeakReference` | `IsTrackResurrection` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 1 | `System.AppDomain` | `GetDynamicDir` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetDynamicDir is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT proces | `MethodMap.Legacy.cs:258` |
+| 2 | `System.AppDomain` | `nApplyPolicy` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nApplyPolicy is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT process | `MethodMap.Legacy.cs:258` |
+| 3 | `System.AppDomain` | `nChangeSecurityPolicy` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nChangeSecurityPolicy is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AO | `MethodMap.Legacy.cs:258` |
+| 4 | `System.AppDomain` | `nEnableMonitoring` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nEnableMonitoring is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT pr | `MethodMap.Legacy.cs:258` |
+| 5 | `System.AppDomain` | `nGetAssemblies` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nGetAssemblies is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT proce | `MethodMap.Legacy.cs:258` |
+| 6 | `System.AppDomain` | `nGetLastSurvivedMemorySize` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nGetLastSurvivedMemorySize is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: t | `MethodMap.Legacy.cs:258` |
+| 7 | `System.AppDomain` | `nGetLastSurvivedProcessMemorySize` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nGetLastSurvivedProcessMemorySize is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descri | `MethodMap.Legacy.cs:258` |
+| 8 | `System.AppDomain` | `nGetTotalAllocatedMemorySize` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nGetTotalAllocatedMemorySize is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: | `MethodMap.Legacy.cs:258` |
+| 9 | `System.AppDomain` | `nGetTotalProcessorTime` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nGetTotalProcessorTime is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the A | `MethodMap.Legacy.cs:258` |
+| 10 | `System.AppDomain` | `nMonitoringIsEnabled` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nMonitoringIsEnabled is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT | `MethodMap.Legacy.cs:258` |
+| 11 | `System.AppDomainSetup` | `UpdateContextProperty` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：UpdateContextProperty is part of System.AppDomainSetup -- only the probed ApplicationBase/ConfigurationFile rack-arms are wired in the adm1 closure: L | `MethodMap.Legacy.cs:281` |
+| 12 | `System.ArgIterator` | `.ctor` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：.ctor is part of System.ArgIterator -- only the ArgIterator(RuntimeArgumentHandle) ctor is wired: LOUD whitelist (no runtime descriptor for the unmana | `MethodMap.Legacy.cs:321` |
+| 13 | `System.Array` | `InternalCreate` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 14 | `System.BCLDebug` | `GetRegistryLoggingValues` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 15 | `System.Currency` | `FCallToDecimal` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 16 | `System.CurrentSystemTimeZone` | `nativeGetTimeZoneMinuteOffset` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 17 | `System.Decimal` | `FCallCompare` | public/private/static | 部分影子 | 部分影子：由 `System.Decimal::Compare` 直接承接（1 跳） | `MethodMap.Decimal.cs:170` |
+| 18 | `System.Decimal` | `FCallRound` | public/private/static | 部分影子 | 部分影子：由 `System.Decimal::Round` 直接承接（1 跳） | `MethodMap.Decimal.cs:290` |
+| 19 | `System.Decimal` | `FCallToCurrency` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 20 | `System.Delegate` | `BindToMethodInfo` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 21 | `System.Delegate` | `BindToMethodName` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 22 | `System.Delegate` | `FindMethodHandle` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_delegate_find_method_handle`，但运行时是空体/恒值桩（桩定义 `delegateext.cpp:694`） | `delegateext.cpp:694` |
+| 23 | `System.Delegate` | `InternalAlloc` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 24 | `System.Diagnostics.Debugger` | `BreakInternal` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 25 | `System.Diagnostics.Debugger` | `LaunchInternal` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 26 | `System.Enum` | `InternalGetCorElementType` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 27 | `System.Exception` | `CopyDynamicMethods` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 28 | `System.Exception` | `CopyStackTrace` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 29 | `System.Exception` | `GetMethodFromStackTrace` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 30 | `System.Exception` | `GetStackTracesDeepCopy` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 31 | `System.Exception` | `PrepareForForeignExceptionRaise` | public/private/static | 半接 | 半接：dispatch 指向 `icall_exception_prepare_for_foreign_exception_raise`，但运行时是空体/恒值桩（桩定义 `exceptionext.cpp:338`） | `exceptionext.cpp:338` |
+| 32 | `System.Exception` | `SaveStackTracesFromDeepCopy` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_exception_save_stack_traces_from_deep_copy`，但运行时是空体/恒值桩（桩定义 `stubs.cpp:47`） | `stubs.cpp:47` |
+| 33 | `System.Exception` | `StripFileInfo` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 34 | `System.Exception` | `nIsTransient` | public/private/static | 部分影子 | 部分影子：**3 跳**，链路 `System.Exception::get_IsTransient → System.Resources.ResourceManager::SetAppXConfiguration → System.Resources.ResourceManager::.ctor`，根入口 `System.Resources.ResourceManager::.ctor`；不是由 `System.Resources.ResourceManager::.ctor` 直接承接 | `MethodMap.Resource.cs:65` |
+| 35 | `System.GC` | `IsServerGC` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_gc_is_server_gc`，但运行时是空体/恒值桩（桩定义 `gcapi.cpp:180`） | `gcapi.cpp:180` |
+| 36 | `System.GC` | `_WaitForFullGCApproach` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 37 | `System.GC` | `_WaitForFullGCComplete` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 38 | `System.Globalization.CalendarData` | `nativeGetCalendars` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 39 | `System.Globalization.CalendarData` | `nativeGetTwoDigitYearMax` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 40 | `System.Globalization.CultureData` | `LCIDToLocaleName` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 41 | `System.Globalization.CultureData` | `LocaleNameToLCID` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 42 | `System.Globalization.CultureData` | `nativeGetNumberFormatInfoValues` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 43 | `System.Globalization.CultureData` | `nativeInitCultureData` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 44 | `System.Globalization.CultureInfo` | `InternalGetSystemDefaultUILanguage` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 45 | `System.Globalization.TextInfo` | `InternalGetCaseInsHash` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 46 | `System.MarshalByRefObject` | `GetComIUnknown` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 47 | `System.Math` | `SplitFractionDouble` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (net48 has no such overload): Math.SplitFractionDouble -- SplitFractionDouble is the net48 private helper with a single in/out pointer  | `MethodMap.Math.cs:128` |
+| 48 | `System.MissingMemberException` | `FormatSignature` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 49 | `System.ModuleHandle` | `GetDynamicMethod` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 50 | `System.ModuleHandle` | `GetMDStreamVersion` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 51 | `System.ModuleHandle` | `_GetMetadataImport` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 52 | `System.Number` | `NumberBufferToDecimal` | internal/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 53 | `System.Number` | `NumberBufferToDouble` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 54 | `System.ParseNumbers` | `IntToString` | internal/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 55 | `System.ParseNumbers` | `StringToInt` | internal/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 56 | `System.ParseNumbers` | `StringToLong` | internal/public/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 57 | `System.Reflection.AssemblyName` | `EscapeCodeBase` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 58 | `System.Reflection.AssemblyName` | `ReferenceMatchesDefinitionInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 59 | `System.Reflection.AssemblyName` | `nGetFileInformation` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 60 | `System.Reflection.AssemblyName` | `nGetPublicKeyToken` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 61 | `System.Reflection.RuntimeAssembly` | `nLoadFile` | internal/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 62 | `System.Reflection.RuntimeAssembly` | `nLoadImage` | internal/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 63 | `System.Runtime.CompilerServices.RuntimeHelpers` | `_PrepareMethod` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 64 | `System.Runtime.CompilerServices.RuntimeHelpers` | `_RunClassConstructor` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (corelib-p0 gap): RuntimeHelpers._RunClassConstructor / RunClassConstructor is a type-init driver -- an Il2CppClass descriptor carries  | `MethodMap.RuntimeHelpers.cs:106` |
+| 65 | `System.Runtime.CompilerServices.RuntimeHelpers` | `_RunModuleConstructor` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (corelib-p0 gap): RuntimeHelpers._RunModuleConstructor / RunModuleConstructor is a module-level constructor driver -- module ctors are  | `MethodMap.RuntimeHelpers.cs:114` |
+| 66 | `System.Runtime.InteropServices.ArrayWithOffset` | `CalculateCount` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 67 | `System.Runtime.InteropServices.Marshal` | `FCallGenerateGuidForType` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): FCallGenerateGuidForType belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshal | `MethodMap.Marshal.cs:86` |
+| 68 | `System.Runtime.InteropServices.Marshal` | `FCallGetTypeLibGuid` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): FCallGetTypeLibGuid belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling,  | `MethodMap.Marshal.cs:86` |
+| 69 | `System.Runtime.InteropServices.Marshal` | `FCallGetTypeLibGuidForAssembly` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): FCallGetTypeLibGuidForAssembly belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library m | `MethodMap.Marshal.cs:86` |
+| 70 | `System.Runtime.InteropServices.Marshal` | `GetComInterfaceForObjectNative` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetComInterfaceForObjectNative belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library m | `MethodMap.Marshal.cs:86` |
+| 71 | `System.Runtime.InteropServices.Marshal` | `GetDelegateForFunctionPointerInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 72 | `System.Runtime.InteropServices.Marshal` | `GetExceptionForHRInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 73 | `System.Runtime.InteropServices.Marshal` | `GetFunctionPointerForDelegateInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 74 | `System.Runtime.InteropServices.Marshal` | `GetIDispatchForObjectNative` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetIDispatchForObjectNative belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library mars | `MethodMap.Marshal.cs:86` |
+| 75 | `System.Runtime.InteropServices.Marshal` | `GetIUnknownForObjectNative` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetIUnknownForObjectNative belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marsh | `MethodMap.Marshal.cs:86` |
+| 76 | `System.Runtime.InteropServices.Marshal` | `GetLoadedTypeForGUID` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetLoadedTypeForGUID belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, | `MethodMap.Marshal.cs:86` |
+| 77 | `System.Runtime.InteropServices.Marshal` | `GetNativeActivationFactory` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 78 | `System.Runtime.InteropServices.Marshal` | `InternalCreateWrapperOfType` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalCreateWrapperOfType belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library mars | `MethodMap.Marshal.cs:86` |
+| 79 | `System.Runtime.InteropServices.Marshal` | `InternalGetComSlotForMethodInfo` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalGetComSlotForMethodInfo belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library  | `MethodMap.Marshal.cs:86` |
+| 80 | `System.Runtime.InteropServices.Marshal` | `InternalGetThreadFromFiberCookie` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 81 | `System.Runtime.InteropServices.Marshal` | `InternalSwitchCCW` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalSwitchCCW belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VA | `MethodMap.Marshal.cs:86` |
+| 82 | `System.Runtime.InteropServices.Marshal` | `InternalWrapIUnknownWithComObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalWrapIUnknownWithComObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-librar | `MethodMap.Marshal.cs:86` |
+| 83 | `System.Runtime.InteropServices.Marshal` | `OffsetOfHelper` | public/private/static | 部分影子 | 部分影子：由 `System.Runtime.InteropServices.Marshal::OffsetOf` 直接承接（1 跳） | `MethodMap.Marshal.cs:293` |
+| 84 | `System.Runtime.InteropServices.Marshal` | `PtrToStructureHelper` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 85 | `System.Runtime.InteropServices.Marshal` | `SizeOfHelper` | public/internal/static | 部分影子 | 部分影子：由 `System.Runtime.InteropServices.Marshal::SizeOf` 直接承接（1 跳） | `MethodMap.Marshal.cs:241` |
+| 86 | `System.Runtime.InteropServices.Marshal` | `SizeOfType` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 87 | `System.Runtime.InteropServices.Marshal` | `ThrowExceptionForHRInternal` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 88 | `System.Runtime.InteropServices.Marshal` | `_GetTypeLibVersionForAssembly` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): _GetTypeLibVersionForAssembly belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library ma | `MethodMap.Marshal.cs:86` |
+| 89 | `System.Runtime.InteropServices.RegistrationServices` | `RegisterTypeForComClientsExNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 90 | `System.Runtime.InteropServices.RegistrationServices` | `RegisterTypeForComClientsNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 91 | `System.Runtime.InteropServices.RuntimeEnvironment` | `GetRuntimeDirectoryImpl` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 92 | `System.Runtime.InteropServices.TypeLibConverter` | `nConvertAssemblyToTypeLib` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 93 | `System.Runtime.InteropServices.TypeLibConverter` | `nConvertTypeLibToMetadata` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 94 | `System.Runtime.Remoting.Messaging.Message` | `OutToUnmanagedDebugger` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：OutToUnmanagedDebugger is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggeste | `MethodMap.Legacy.cs:109` |
+| 95 | `System.Runtime.Remoting.RemotingServices` | `CallDefaultCtor` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CallDefaultCtor is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2cpp_remoting. | `MethodMap.Legacy.cs:83` |
+| 96 | `System.Runtime.Serialization.FormatterServices` | `nativeGetSafeUninitializedObject` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 97 | `System.Runtime.Serialization.FormatterServices` | `nativeGetUninitializedObject` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 98 | `System.Runtime.Versioning.CompatibilitySwitch` | `GetValueInternalCall` | public/private/static | 半接 | 半接：dispatch 指向 `icall_compatibility_switch_get_value`，但运行时是空体/恒值桩（桩定义 `appcontext.cpp:195`） | `appcontext.cpp:195` |
+| 99 | `System.Runtime.Versioning.CompatibilitySwitch` | `IsEnabledInternalCall` | public/private/static | 半接 | 半接：dispatch 指向 `icall_compatibility_switch_is_enabled`，但运行时是空体/恒值桩（桩定义 `appcontext.cpp:201`） | `appcontext.cpp:201` |
+| 100 | `System.Runtime.Versioning.VersioningHelper` | `GetRuntimeId` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 101 | `System.RuntimeFieldHandle` | `AcquiresContextFromThis` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::AcquiresContextFromThis not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType  | `MethodMap.ReflectHandle.cs:55` |
+| 102 | `System.RuntimeFieldHandle` | `GetApproxDeclaringType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::GetApproxDeclaringType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType o | `MethodMap.ReflectHandle.cs:55` |
+| 103 | `System.RuntimeFieldHandle` | `GetValue` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::GetValue not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
+| 104 | `System.RuntimeFieldHandle` | `SetValue` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::SetValue not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
+| 105 | `System.RuntimeMethodHandle` | `CheckLinktimeDemands` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::CheckLinktimeDemands not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on | `MethodMap.ReflectHandle.cs:55` |
+| 106 | `System.RuntimeMethodHandle` | `GetAttributes` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetAttributes not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the ty | `MethodMap.ReflectHandle.cs:55` |
+| 107 | `System.RuntimeMethodHandle` | `GetDeclaringType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetDeclaringType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the | `MethodMap.ReflectHandle.cs:55` |
+| 108 | `System.RuntimeMethodHandle` | `GetLoaderAllocator` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetLoaderAllocator not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on t | `MethodMap.ReflectHandle.cs:55` |
+| 109 | `System.RuntimeMethodHandle` | `GetMethodFromCanonical` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetMethodFromCanonical not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType  | `MethodMap.ReflectHandle.cs:55` |
+| 110 | `System.RuntimeMethodHandle` | `GetName` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetName not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
+| 111 | `System.RuntimeMethodHandle` | `GetResolver` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetResolver not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type | `MethodMap.ReflectHandle.cs:55` |
+| 112 | `System.RuntimeMethodHandle` | `GetStubIfNeeded` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetStubIfNeeded not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the  | `MethodMap.ReflectHandle.cs:55` |
+| 113 | `System.RuntimeMethodHandle` | `HasMethodInstantiation` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::HasMethodInstantiation not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType  | `MethodMap.ReflectHandle.cs:55` |
+| 114 | `System.RuntimeMethodHandle` | `InvokeMethod` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::InvokeMethod not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the typ | `MethodMap.ReflectHandle.cs:55` |
+| 115 | `System.RuntimeMethodHandle` | `IsConstructor` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::IsConstructor not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the ty | `MethodMap.ReflectHandle.cs:55` |
+| 116 | `System.RuntimeMethodHandle` | `IsDynamicMethod` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::IsDynamicMethod not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the  | `MethodMap.ReflectHandle.cs:55` |
+| 117 | `System.RuntimeMethodHandle` | `IsGenericMethodDefinition` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::IsGenericMethodDefinition not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeTy | `MethodMap.ReflectHandle.cs:55` |
+| 118 | `System.RuntimeMethodHandle` | `PerformSecurityCheck` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::PerformSecurityCheck not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on | `MethodMap.ReflectHandle.cs:55` |
+| 119 | `System.RuntimeMethodHandle` | `_GetCurrentMethod` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::_GetCurrentMethod not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on th | `MethodMap.ReflectHandle.cs:55` |
+| 120 | `System.RuntimeType` | `AllocateValueType` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 121 | `System.RuntimeType` | `CanValueSpecialCast` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 122 | `System.RuntimeType` | `GetTypeFromCLSIDImpl` | internal/internal/static | 部分影子 | 部分影子：由 `System.Type::GetTypeFromCLSID` 直接承接（1 跳） | `MethodMap.Type.cs:787` |
+| 123 | `System.RuntimeType` | `GetTypeFromProgIDImpl` | internal/internal/static | 部分影子 | 部分影子：由 `System.Type::GetTypeFromProgID` 直接承接（1 跳） | `MethodMap.Type.cs:782` |
+| 124 | `System.RuntimeTypeHandle` | `Allocate` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::Allocate not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type hand | `MethodMap.ReflectHandle.cs:55` |
+| 125 | `System.RuntimeTypeHandle` | `CompareCanonicalHandles` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::CompareCanonicalHandles not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType o | `MethodMap.ReflectHandle.cs:55` |
+| 126 | `System.RuntimeTypeHandle` | `CreateCaInstance` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::CreateCaInstance not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the t | `MethodMap.ReflectHandle.cs:55` |
+| 127 | `System.RuntimeTypeHandle` | `CreateInstance` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::CreateInstance not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the typ | `MethodMap.ReflectHandle.cs:55` |
+| 128 | `System.RuntimeTypeHandle` | `GetAssembly` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetAssembly not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
+| 129 | `System.RuntimeTypeHandle` | `GetBaseType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetBaseType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
+| 130 | `System.RuntimeTypeHandle` | `GetCorElementType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetCorElementType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the  | `MethodMap.ReflectHandle.cs:55` |
+| 131 | `System.RuntimeTypeHandle` | `GetElementType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetElementType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the typ | `MethodMap.ReflectHandle.cs:55` |
+| 132 | `System.RuntimeTypeHandle` | `GetModule` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetModule not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
+| 133 | `System.RuntimeTypeHandle` | `HasInstantiation` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::HasInstantiation not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the t | `MethodMap.ReflectHandle.cs:55` |
+| 134 | `System.RuntimeTypeHandle` | `IsComObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsComObject not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
+| 135 | `System.RuntimeTypeHandle` | `IsGenericTypeDefinition` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsGenericTypeDefinition not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType o | `MethodMap.ReflectHandle.cs:55` |
+| 136 | `System.RuntimeTypeHandle` | `IsGenericVariable` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsGenericVariable not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the  | `MethodMap.ReflectHandle.cs:55` |
+| 137 | `System.RuntimeTypeHandle` | `IsValueType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsValueType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
+| 138 | `System.Security.CodeAccessSecurityEngine` | `QuickCheckForAllDemands` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 139 | `System.Security.Cryptography.Utils` | `_DecryptData` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 140 | `System.Security.Cryptography.Utils` | `_EncryptData` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 141 | `System.Security.Cryptography.Utils` | `_ExportKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 142 | `System.Security.Cryptography.Utils` | `_GetEnforceFipsPolicySetting` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 143 | `System.Security.Cryptography.Utils` | `_GetKeyParameter` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 144 | `System.Security.Cryptography.Utils` | `_GetProviderParameter` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 145 | `System.Security.Cryptography.Utils` | `_ImportKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 146 | `System.Security.Cryptography.Utils` | `_OpenCSP` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 147 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetIssuerName` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 148 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetPublicKeyOid` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 149 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetPublicKeyParameters` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 150 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetPublicKeyValue` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 151 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetSerialNumber` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 152 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetSubjectInfo` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 153 | `System.Signature` | `GetSignature` | internal/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 154 | `System.Threading.CompressedStack` | `DestroyDCSList` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 155 | `System.Threading.CompressedStack` | `GetDCSCount` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 156 | `System.Threading.CompressedStack` | `GetDelayedCompressedStack` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 157 | `System.Threading.CompressedStack` | `GetDomainCompressedStack` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 158 | `System.Threading.CompressedStack` | `GetHomogeneousPLS` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 159 | `System.Threading.CompressedStack` | `IsImmediateCompletionCandidate` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 160 | `System.Threading.HostExecutionContextManager` | `CaptureHostSecurityContext` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 161 | `System.Threading.HostExecutionContextManager` | `HostSecurityManagerPresent` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 162 | `System.Threading.HostExecutionContextManager` | `SetHostSecurityContext` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 163 | `System.Threading.Interlocked` | `_CompareExchange` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Interlocked::CompareExchange` 直接承接（1 跳） | `MethodMap.Interlocked.cs:101` |
+| 164 | `System.Threading.Interlocked` | `_Exchange` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Interlocked::Exchange` 直接承接（1 跳） | `MethodMap.Interlocked.cs:63` |
+| 165 | `System.Threading.Monitor` | `IsEnteredNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 166 | `System.Threading.Monitor` | `ObjWait` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Monitor::Wait` 直接承接（1 跳） | `MethodMap.Monitor.cs:98` |
+| 167 | `System.Threading.Monitor` | `ReliableEnterTimeout` | public/private/static | 部分影子 | 部分影子：由 `System.Threading.Monitor::TryEnter` 直接承接（1 跳） | `MethodMap.Monitor.cs:63` |
+| 168 | `System.Threading.OverlappedData` | `AllocateNativeOverlapped` | internal/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 169 | `System.Threading.OverlappedData` | `FreeNativeOverlapped` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 170 | `System.Threading.OverlappedData` | `GetOverlappedFromNative` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 171 | `System.Threading.ReaderWriterLock` | `AcquireReaderLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：AcquireReaderLockInternal is part of System.Threading.ReaderWriterLock -- the lock itself is wired (il2cpp_rwlock.h: ctor / AcquireLock+ReleaseLock fo | `MethodMap.Legacy.cs:420` |
+| 172 | `System.Threading.ReaderWriterLock` | `AcquireWriterLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：AcquireWriterLockInternal is part of System.Threading.ReaderWriterLock -- the lock itself is wired (il2cpp_rwlock.h: ctor / AcquireLock+ReleaseLock fo | `MethodMap.Legacy.cs:420` |
+| 173 | `System.Threading.ReaderWriterLock` | `DowngradeFromWriterLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：DowngradeFromWriterLockInternal is part of System.Threading.ReaderWriterLock -- the lock itself is wired (il2cpp_rwlock.h: ctor / AcquireLock+ReleaseL | `MethodMap.Legacy.cs:420` |
+| 174 | `System.Threading.ReaderWriterLock` | `FCallReleaseLock` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：FCallReleaseLock is part of System.Threading.ReaderWriterLock -- the lock itself is wired (il2cpp_rwlock.h: ctor / AcquireLock+ReleaseLock for reader  | `MethodMap.Legacy.cs:420` |
+| 175 | `System.Threading.ReaderWriterLock` | `FCallUpgradeToWriterLock` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：FCallUpgradeToWriterLock is part of System.Threading.ReaderWriterLock -- the lock itself is wired (il2cpp_rwlock.h: ctor / AcquireLock+ReleaseLock for | `MethodMap.Legacy.cs:420` |
+| 176 | `System.Threading.ReaderWriterLock` | `RestoreLockInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：RestoreLockInternal is part of System.Threading.ReaderWriterLock -- the lock itself is wired (il2cpp_rwlock.h: ctor / AcquireLock+ReleaseLock for read | `MethodMap.Legacy.cs:420` |
+| 177 | `System.Threading.RegisteredWaitHandleSafe` | `UnregisterWaitNative` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 178 | `System.Threading.Thread` | `AbortInternal` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 179 | `System.Threading.Thread` | `ClearAbortReason` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_clear_abort_reason`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:735`） | `threadobj.cpp:735` |
+| 180 | `System.Threading.Thread` | `GetAbortReason` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_get_abort_reason`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:732`） | `threadobj.cpp:732` |
+| 181 | `System.Threading.Thread` | `GetApartmentStateNative` | public/private/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_get_apartment_state_native`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:752`） | `threadobj.cpp:752` |
+| 182 | `System.Threading.Thread` | `GetContextInternal` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_threadobj_get_context_internal`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:714`） | `threadobj.cpp:714` |
+| 183 | `System.Threading.Thread` | `GetDomainInternal` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 184 | `System.Threading.Thread` | `GetFastDomainInternal` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 185 | `System.Threading.Thread` | `InternalCrossContextCallback` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_internal_cross_context_callback`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:720`） | `threadobj.cpp:720` |
+| 186 | `System.Threading.Thread` | `InterruptInternal` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 187 | `System.Threading.Thread` | `JoinInternal` | public/private/instance | 部分影子 | 部分影子：由 `System.Threading.Thread::Join` 直接承接（1 跳） | `MethodMap.Thread.cs:169` |
+| 188 | `System.Threading.Thread` | `ResetAbortNative` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 189 | `System.Threading.Thread` | `ResumeInternal` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 190 | `System.Threading.Thread` | `SetAbortReason` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_set_abort_reason`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:723`） | `threadobj.cpp:723` |
+| 191 | `System.Threading.Thread` | `SetApartmentStateNative` | public/private/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_set_apartment_state_native`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:758`） | `threadobj.cpp:758` |
+| 192 | `System.Threading.Thread` | `StartInternal` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (corelib-p0 gap): Thread.StartInternal takes the CoreLib-internal ThreadHandle wrapper struct (no C++ value model); the public Start su | `MethodMap.Thread.cs:314` |
+| 193 | `System.Threading.Thread` | `SuspendInternal` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 194 | `System.Threading.Thread` | `nativeGetSafeCulture` | public/private/static | 部分影子 | 部分影子：**2 跳**，链路 `System.Threading.Thread::GetCurrentUICultureNoAppX → System.Resources.ResourceManager::GetString`，根入口 `System.Resources.ResourceManager::GetString`；不是由 `System.Resources.ResourceManager::GetString` 直接承接 | `MethodMap.Resources.cs:110` |
+| 195 | `System.Threading.Thread` | `nativeSetThreadUILocale` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 196 | `System.Threading.ThreadPool` | `BindIOCompletionCallbackNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 197 | `System.Threading.ThreadPool` | `PostQueuedCompletionStatus` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 198 | `System.Threading.ThreadPool` | `RegisterWaitForSingleObjectNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 199 | `System.Threading.ThreadPool` | `SetMaxThreadsNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 200 | `System.Threading.ThreadPool` | `SetMinThreadsNative` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 201 | `System.Threading.WaitHandle` | `SignalAndWaitOne` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 202 | `System.Threading.WaitHandle` | `WaitMultiple` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 203 | `System.Threading.WaitHandle` | `WaitOneNative` | public/private/static | 部分影子 | 部分影子：**2 跳**，链路 `System.Threading.WaitHandle::WaitOneWithoutFAS → System.Threading.Thread::Sleep`，根入口 `System.Threading.Thread::Sleep`；不是由 `System.Threading.Thread::Sleep` 直接承接 | `MethodMap.Thread.cs:47` |
+| 204 | `System.TypedReference` | `InternalMakeTypedReference` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 205 | `System.TypedReference` | `InternalSetTypedReference` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 206 | `System.TypedReference` | `InternalToObject` | public/internal/static | 部分影子 | 部分影子：由 `System.Array::GetValue` 直接承接（1 跳） | `MethodMap.Array.cs:1129` |
+| 207 | `System.ValueType` | `CanCompareBits` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 208 | `System.ValueType` | `FastEqualsCheck` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 209 | `System.WeakReference` | `IsTrackResurrection` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
 
-### P2（摘要 98 条 = 本节 95 条缺口 + §3.6 的 3 条影子）
+### P2（94 条）
 
 仅经反射/序列化/调试器/COM 宿主/interop 路径可达，或链路深度 ≥4。
 
@@ -540,101 +533,100 @@
 |---|---|---|---|---|---|---|
 | 1 | `Microsoft.Runtime.Hosting.IClrStrongName` | `StrongNameGetPublicKey` | internal/public/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 2 | `Microsoft.Runtime.Hosting.IClrStrongNameUsingIntPtr` | `StrongNameFreeBuffer` | internal/public/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 3 | `System.AppDomain` | `_nExecuteAssembly` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：_nExecuteAssembly is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT pr | `MethodMap.Legacy.cs:193` |
-| 4 | `System.AppDomain` | `nIsDefaultAppDomainForEvidence` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nIsDefaultAppDomainForEvidence is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descripto | `MethodMap.Legacy.cs:193` |
+| 3 | `System.AppDomain` | `_nExecuteAssembly` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：_nExecuteAssembly is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT pr | `MethodMap.Legacy.cs:258` |
+| 4 | `System.AppDomain` | `nIsDefaultAppDomainForEvidence` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nIsDefaultAppDomainForEvidence is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descripto | `MethodMap.Legacy.cs:258` |
 | 5 | `System.Diagnostics.Debugger` | `CustomNotification` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 6 | `System.Diagnostics.StackTrace` | `GetStackFramesInternal` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_stack_trace_get_stack_frames_internal`，但运行时是空体/恒值桩（桩定义 `stubs.cpp:757`） | `stubs.cpp:757` |
-| 7 | `System.Globalization.CalendarData` | `nativeGetCalendarData` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 8 | `System.Globalization.CultureData` | `nativeEnumTimeFormats` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 9 | `System.Reflection.AssemblyName` | `nInit` | public/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 10 | `System.Reflection.CustomAttribute` | `_CreateCaObject` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 11 | `System.Reflection.CustomAttribute` | `_GetPropertyOrFieldData` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 12 | `System.Reflection.CustomAttribute` | `_ParseAttributeUsageAttribute` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 13 | `System.Reflection.Emit.AssemblyBuilder` | `GetInMemoryAssemblyModule` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 14 | `System.Reflection.Emit.AssemblyBuilder` | `GetOnDiskAssemblyModule` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 15 | `System.Reflection.Emit.AssemblyBuilder` | `nCreateDynamicAssembly` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 16 | `System.Reflection.Emit.ModuleBuilder` | `nCreateISymWriterForDynamicModule` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 17 | `System.Reflection.MetadataImport` | `_Enum` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 18 | `System.Reflection.MetadataImport` | `_GetCustomAttributeProps` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 19 | `System.Reflection.MetadataImport` | `_GetMemberRefProps` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 20 | `System.Reflection.MetadataImport` | `_GetParentToken` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 21 | `System.Reflection.MetadataImport` | `_GetPropertyProps` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 22 | `System.Reflection.MetadataImport` | `_GetSigOfMethodDef` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 23 | `System.Reflection.MetadataImport` | `_IsValidToken` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 24 | `System.Reflection.PseudoCustomAttribute` | `_GetSecurityAttributes` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 25 | `System.Reflection.RuntimeAssembly` | `AptcaCheck` | internal/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 26 | `System.Reflection.RuntimeAssembly` | `IsFrameworkAssembly` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 27 | `System.Reflection.RuntimeAssembly` | `_nLoad` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 28 | `System.Reflection.SecurityContextFrame` | `Pop` | internal/public/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 29 | `System.Reflection.SecurityContextFrame` | `Push` | internal/public/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 30 | `System.Runtime.InteropServices.CriticalHandle` | `FireCustomerDebugProbe` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 31 | `System.Runtime.InteropServices.GCHandle` | `InternalAlloc` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (net48 has no such member): System.Runtime.InteropServices.GCHandle::InternalAlloc -- the runtime surface covers Alloc/Free/Target/Addr | `MethodMap.GCHandle.cs:101` |
-| 32 | `System.Runtime.InteropServices.GCHandle` | `InternalCheckDomain` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (net48 has no such member): System.Runtime.InteropServices.GCHandle::InternalCheckDomain -- the runtime surface covers Alloc/Free/Targe | `MethodMap.GCHandle.cs:101` |
-| 33 | `System.Runtime.InteropServices.GCHandle` | `InternalCompareExchange` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (net48 has no such member): System.Runtime.InteropServices.GCHandle::InternalCompareExchange -- the runtime surface covers Alloc/Free/T | `MethodMap.GCHandle.cs:101` |
-| 34 | `System.Runtime.InteropServices.Marshal` | `FCallGetTypeInfoGuid` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): FCallGetTypeInfoGuid belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, | `MethodMap.Marshal.cs:86` |
-| 35 | `System.Runtime.InteropServices.Marshal` | `GetHRForException_WinRT` | public/internal/static | 部分影子 | 部分影子：**3 跳**，链路 `System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeMarshal::ReportUnhandledError → System.Runtime.CompilerServices.AsyncMethodBuilderCore::ThrowAsync → System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1::AwaitOnCompleted`，根入口 `System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1::AwaitUnsafeOnCompleted`；不是由 `System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1::AwaitUnsafeOnCompleted` 直接承接 | `MethodMap.Task.cs:222` |
-| 36 | `System.Runtime.InteropServices.Marshal` | `GetRawIUnknownForComObjectNoAddRef` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetRawIUnknownForComObjectNoAddRef belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-libra | `MethodMap.Marshal.cs:86` |
-| 37 | `System.Runtime.InteropServices.Marshal` | `GetTypeLibVersion` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetTypeLibVersion belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VA | `MethodMap.Marshal.cs:86` |
-| 38 | `System.Runtime.InteropServices.Marshal` | `InitializeManagedWinRTFactoryObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InitializeManagedWinRTFactoryObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-libr | `MethodMap.Marshal.cs:86` |
-| 39 | `System.Runtime.InteropServices.Marshal` | `InternalFinalReleaseComObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalFinalReleaseComObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library ma | `MethodMap.Marshal.cs:86` |
-| 40 | `System.Runtime.InteropServices.Marshal` | `InternalReleaseComObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalReleaseComObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshal | `MethodMap.Marshal.cs:86` |
-| 41 | `System.Runtime.InteropServices.SafeHandle` | `InternalDispose` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 42 | `System.Runtime.InteropServices.SafeHandle` | `InternalFinalize` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 43 | `System.Runtime.Remoting.Contexts.Context` | `SetupInternalContext` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：SetupInternalContext is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested  | `MethodMap.Legacy.cs:44` |
-| 44 | `System.Runtime.Remoting.Messaging.Message` | `Dispatch` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：Dispatch is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reject' | `MethodMap.Legacy.cs:44` |
-| 45 | `System.Runtime.Remoting.Messaging.Message` | `GetThisPtr` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetThisPtr is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD rejec | `MethodMap.Legacy.cs:44` |
-| 46 | `System.Runtime.Remoting.Messaging.StackBuilderSink` | `_PrivateProcessMessage` | internal/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：_PrivateProcessMessage is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggeste | `MethodMap.Legacy.cs:44` |
-| 47 | `System.Runtime.Remoting.Proxies.RealProxy` | `GetStub` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetStub is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reject') | `MethodMap.Legacy.cs:44` |
-| 48 | `System.Runtime.Remoting.RemotingServices` | `AllocateUninitializedObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：AllocateUninitializedObject is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'sug | `MethodMap.Legacy.cs:44` |
-| 49 | `System.Runtime.Remoting.RemotingServices` | `AlwaysUnwrap` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：AlwaysUnwrap is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD rej | `MethodMap.Legacy.cs:44` |
-| 50 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerRemotingServerReceivingMessage` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerRemotingServerReceivingMessage is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-f | `MethodMap.Legacy.cs:44` |
-| 51 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerRemotingServerSendingReply` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerRemotingServerSendingReply is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face  | `MethodMap.Legacy.cs:44` |
-| 52 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerTrackRemoting` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerTrackRemoting is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'sugges | `MethodMap.Legacy.cs:44` |
-| 53 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerTrackRemotingAsync` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerTrackRemotingAsync is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 's | `MethodMap.Legacy.cs:44` |
-| 54 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerTrackRemotingCookie` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerTrackRemotingCookie is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, ' | `MethodMap.Legacy.cs:44` |
-| 55 | `System.Runtime.Remoting.RemotingServices` | `CreateTransparentProxy` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CreateTransparentProxy is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggeste | `MethodMap.Legacy.cs:44` |
-| 56 | `System.Runtime.Remoting.RemotingServices` | `nSetRemoteActivationConfigured` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nSetRemoteActivationConfigured is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, ' | `MethodMap.Legacy.cs:44` |
-| 57 | `System.Runtime.Serialization.FormatterServices` | `GetEnableUnsafeTypeForwarders` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 58 | `System.Runtime.Versioning.CompatibilitySwitch` | `GetAppContextOverridesInternalCall` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_compatibility_switch_get_app_context_overrides`，但运行时是空体/恒值桩（桩定义 `appcontext.cpp:189`） | `appcontext.cpp:189` |
-| 59 | `System.RuntimeMethodHandle` | `GetSlot` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetSlot not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
-| 60 | `System.RuntimeMethodHandle` | `GetSpecialSecurityFlags` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetSpecialSecurityFlags not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType | `MethodMap.ReflectHandle.cs:55` |
-| 61 | `System.RuntimeMethodHandle` | `IsTypicalMethodDefinition` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::IsTypicalMethodDefinition not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeTy | `MethodMap.ReflectHandle.cs:55` |
-| 62 | `System.RuntimeMethodHandle` | `SerializationInvoke` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::SerializationInvoke not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on  | `MethodMap.ReflectHandle.cs:55` |
-| 63 | `System.RuntimeTypeHandle` | `GetMethodAt` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetMethodAt not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
-| 64 | `System.RuntimeTypeHandle` | `GetNumVirtuals` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetNumVirtuals not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the typ | `MethodMap.ReflectHandle.cs:55` |
-| 65 | `System.RuntimeTypeHandle` | `IsEquivalentType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsEquivalentType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the t | `MethodMap.ReflectHandle.cs:55` |
-| 66 | `System.Security.CodeAccessSecurityEngine` | `AllDomainsHomogeneousWithNoStackModifiers` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 67 | `System.Security.CodeAccessSecurityEngine` | `Check` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 68 | `System.Security.CodeAccessSecurityEngine` | `CheckNReturnSO` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 69 | `System.Security.CodeAccessSecurityEngine` | `GetZoneAndOriginInternal` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 70 | `System.Security.CodeAccessSecurityEngine` | `SpecialDemand` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 71 | `System.Security.Cryptography.Utils` | `_AcquireCSP` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 72 | `System.Security.Cryptography.Utils` | `_CreateCSP` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 73 | `System.Security.Cryptography.Utils` | `_GenerateKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 74 | `System.Security.Cryptography.Utils` | `_GetKeySetSecurityInfo` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 75 | `System.Security.Cryptography.Utils` | `_GetUserKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 76 | `System.Security.Cryptography.Utils` | `_ImportBulkKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 77 | `System.Security.Cryptography.Utils` | `_ImportCspBlob` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 78 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_AddCertificateToStore` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 79 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_DuplicateCertContext` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 80 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_ExportCertificatesToBlob` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 81 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetCertRawData` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 82 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetDateNotAfter` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 83 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetDateNotBefore` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 84 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetThumbprint` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 85 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_LoadCertFromBlob` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 86 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_LoadCertFromFile` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 87 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_OpenX509Store` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 88 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_QueryCertBlobType` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 89 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_QueryCertFileType` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 90 | `System.Security.FrameSecurityDescriptor` | `DecrementAssertCount` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 91 | `System.Security.FrameSecurityDescriptor` | `DecrementOverridesCount` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 92 | `System.Security.FrameSecurityDescriptor` | `IncrementAssertCount` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 93 | `System.Security.FrameSecurityDescriptor` | `IncrementOverridesCount` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 94 | `System.Threading.Thread` | `RestoreAppDomainStack` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_restore_app_domain_stack`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:700`） | `threadobj.cpp:700` |
-| 95 | `System.Threading.Thread` | `SetAppDomainStack` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_set_app_domain_stack`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:694`） | `threadobj.cpp:694` |
+| 6 | `System.Globalization.CalendarData` | `nativeGetCalendarData` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 7 | `System.Globalization.CultureData` | `nativeEnumTimeFormats` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 8 | `System.Reflection.AssemblyName` | `nInit` | public/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 9 | `System.Reflection.CustomAttribute` | `_CreateCaObject` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 10 | `System.Reflection.CustomAttribute` | `_GetPropertyOrFieldData` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 11 | `System.Reflection.CustomAttribute` | `_ParseAttributeUsageAttribute` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 12 | `System.Reflection.Emit.AssemblyBuilder` | `GetInMemoryAssemblyModule` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 13 | `System.Reflection.Emit.AssemblyBuilder` | `GetOnDiskAssemblyModule` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 14 | `System.Reflection.Emit.AssemblyBuilder` | `nCreateDynamicAssembly` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 15 | `System.Reflection.Emit.ModuleBuilder` | `nCreateISymWriterForDynamicModule` | public/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 16 | `System.Reflection.MetadataImport` | `_Enum` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 17 | `System.Reflection.MetadataImport` | `_GetCustomAttributeProps` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 18 | `System.Reflection.MetadataImport` | `_GetMemberRefProps` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 19 | `System.Reflection.MetadataImport` | `_GetParentToken` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 20 | `System.Reflection.MetadataImport` | `_GetPropertyProps` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 21 | `System.Reflection.MetadataImport` | `_GetSigOfMethodDef` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 22 | `System.Reflection.MetadataImport` | `_IsValidToken` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 23 | `System.Reflection.PseudoCustomAttribute` | `_GetSecurityAttributes` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 24 | `System.Reflection.RuntimeAssembly` | `AptcaCheck` | internal/internal/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 25 | `System.Reflection.RuntimeAssembly` | `IsFrameworkAssembly` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 26 | `System.Reflection.RuntimeAssembly` | `_nLoad` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 27 | `System.Reflection.SecurityContextFrame` | `Pop` | internal/public/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 28 | `System.Reflection.SecurityContextFrame` | `Push` | internal/public/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 29 | `System.Runtime.InteropServices.CriticalHandle` | `FireCustomerDebugProbe` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 30 | `System.Runtime.InteropServices.GCHandle` | `InternalAlloc` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.Runtime.InteropServices.GCHandle::InternalAlloc is not wired in this runtime yet -- the wired surface covers Alloc/Free/Target/AddrOfPinnedObje | `MethodMap.GCHandle.cs:106` |
+| 31 | `System.Runtime.InteropServices.GCHandle` | `InternalCheckDomain` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.Runtime.InteropServices.GCHandle::InternalCheckDomain is not wired in this runtime yet -- the wired surface covers Alloc/Free/Target/AddrOfPinn | `MethodMap.GCHandle.cs:106` |
+| 32 | `System.Runtime.InteropServices.GCHandle` | `InternalCompareExchange` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.Runtime.InteropServices.GCHandle::InternalCompareExchange is not wired in this runtime yet -- the wired surface covers Alloc/Free/Target/AddrOf | `MethodMap.GCHandle.cs:106` |
+| 33 | `System.Runtime.InteropServices.Marshal` | `FCallGetTypeInfoGuid` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): FCallGetTypeInfoGuid belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, | `MethodMap.Marshal.cs:86` |
+| 34 | `System.Runtime.InteropServices.Marshal` | `GetHRForException_WinRT` | public/internal/static | 部分影子 | 部分影子：**3 跳**，链路 `System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeMarshal::ReportUnhandledError → System.Runtime.CompilerServices.AsyncMethodBuilderCore::ThrowAsync → System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1::AwaitOnCompleted`，根入口 `System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1::AwaitUnsafeOnCompleted`；不是由 `System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1::AwaitUnsafeOnCompleted` 直接承接 | `MethodMap.Task.cs:222` |
+| 35 | `System.Runtime.InteropServices.Marshal` | `GetRawIUnknownForComObjectNoAddRef` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetRawIUnknownForComObjectNoAddRef belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-libra | `MethodMap.Marshal.cs:86` |
+| 36 | `System.Runtime.InteropServices.Marshal` | `GetTypeLibVersion` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): GetTypeLibVersion belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshaling, VA | `MethodMap.Marshal.cs:86` |
+| 37 | `System.Runtime.InteropServices.Marshal` | `InitializeManagedWinRTFactoryObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InitializeManagedWinRTFactoryObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-libr | `MethodMap.Marshal.cs:86` |
+| 38 | `System.Runtime.InteropServices.Marshal` | `InternalFinalReleaseComObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalFinalReleaseComObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library ma | `MethodMap.Marshal.cs:86` |
+| 39 | `System.Runtime.InteropServices.Marshal` | `InternalReleaseComObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (runtime-descriptor/COM): InternalReleaseComObject belongs to the COM interop domain (RCW/CCW, IUnknown/IDispatch, type-library marshal | `MethodMap.Marshal.cs:86` |
+| 40 | `System.Runtime.InteropServices.SafeHandle` | `InternalDispose` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 41 | `System.Runtime.InteropServices.SafeHandle` | `InternalFinalize` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 42 | `System.Runtime.Remoting.Contexts.Context` | `SetupInternalContext` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：SetupInternalContext is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested  | `MethodMap.Legacy.cs:109` |
+| 43 | `System.Runtime.Remoting.Messaging.Message` | `Dispatch` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：Dispatch is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reject' | `MethodMap.Legacy.cs:109` |
+| 44 | `System.Runtime.Remoting.Messaging.Message` | `GetThisPtr` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetThisPtr is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD rejec | `MethodMap.Legacy.cs:109` |
+| 45 | `System.Runtime.Remoting.Messaging.StackBuilderSink` | `_PrivateProcessMessage` | internal/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：_PrivateProcessMessage is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggeste | `MethodMap.Legacy.cs:109` |
+| 46 | `System.Runtime.Remoting.Proxies.RealProxy` | `GetStub` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetStub is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors (GetProxiedType / GetTransparentPro | `MethodMap.Legacy.cs:83` |
+| 47 | `System.Runtime.Remoting.RemotingServices` | `AllocateUninitializedObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：AllocateUninitializedObject is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2c | `MethodMap.Legacy.cs:83` |
+| 48 | `System.Runtime.Remoting.RemotingServices` | `AlwaysUnwrap` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：AlwaysUnwrap is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2cpp_remoting.h): | `MethodMap.Legacy.cs:83` |
+| 49 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerRemotingServerReceivingMessage` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerRemotingServerReceivingMessage is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors a | `MethodMap.Legacy.cs:83` |
+| 50 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerRemotingServerSendingReply` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerRemotingServerSendingReply is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are w | `MethodMap.Legacy.cs:83` |
+| 51 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerTrackRemoting` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerTrackRemoting is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2cpp_ | `MethodMap.Legacy.cs:83` |
+| 52 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerTrackRemotingAsync` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerTrackRemotingAsync is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il | `MethodMap.Legacy.cs:83` |
+| 53 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerTrackRemotingCookie` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerTrackRemotingCookie is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (i | `MethodMap.Legacy.cs:83` |
+| 54 | `System.Runtime.Remoting.RemotingServices` | `CreateTransparentProxy` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CreateTransparentProxy is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2cpp_re | `MethodMap.Legacy.cs:83` |
+| 55 | `System.Runtime.Remoting.RemotingServices` | `nSetRemoteActivationConfigured` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nSetRemoteActivationConfigured is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (i | `MethodMap.Legacy.cs:83` |
+| 56 | `System.Runtime.Serialization.FormatterServices` | `GetEnableUnsafeTypeForwarders` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 57 | `System.Runtime.Versioning.CompatibilitySwitch` | `GetAppContextOverridesInternalCall` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_compatibility_switch_get_app_context_overrides`，但运行时是空体/恒值桩（桩定义 `appcontext.cpp:189`） | `appcontext.cpp:189` |
+| 58 | `System.RuntimeMethodHandle` | `GetSlot` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetSlot not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type han | `MethodMap.ReflectHandle.cs:55` |
+| 59 | `System.RuntimeMethodHandle` | `GetSpecialSecurityFlags` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::GetSpecialSecurityFlags not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType | `MethodMap.ReflectHandle.cs:55` |
+| 60 | `System.RuntimeMethodHandle` | `IsTypicalMethodDefinition` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::IsTypicalMethodDefinition not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeTy | `MethodMap.ReflectHandle.cs:55` |
+| 61 | `System.RuntimeMethodHandle` | `SerializationInvoke` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeMethodHandle::SerializationInvoke not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on  | `MethodMap.ReflectHandle.cs:55` |
+| 62 | `System.RuntimeTypeHandle` | `GetMethodAt` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetMethodAt not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type h | `MethodMap.ReflectHandle.cs:55` |
+| 63 | `System.RuntimeTypeHandle` | `GetNumVirtuals` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::GetNumVirtuals not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the typ | `MethodMap.ReflectHandle.cs:55` |
+| 64 | `System.RuntimeTypeHandle` | `IsEquivalentType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeTypeHandle::IsEquivalentType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the t | `MethodMap.ReflectHandle.cs:55` |
+| 65 | `System.Security.CodeAccessSecurityEngine` | `AllDomainsHomogeneousWithNoStackModifiers` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 66 | `System.Security.CodeAccessSecurityEngine` | `Check` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 67 | `System.Security.CodeAccessSecurityEngine` | `CheckNReturnSO` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 68 | `System.Security.CodeAccessSecurityEngine` | `GetZoneAndOriginInternal` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 69 | `System.Security.CodeAccessSecurityEngine` | `SpecialDemand` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 70 | `System.Security.Cryptography.Utils` | `_AcquireCSP` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 71 | `System.Security.Cryptography.Utils` | `_CreateCSP` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 72 | `System.Security.Cryptography.Utils` | `_GenerateKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 73 | `System.Security.Cryptography.Utils` | `_GetKeySetSecurityInfo` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 74 | `System.Security.Cryptography.Utils` | `_GetUserKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 75 | `System.Security.Cryptography.Utils` | `_ImportBulkKey` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 76 | `System.Security.Cryptography.Utils` | `_ImportCspBlob` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 77 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_AddCertificateToStore` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 78 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_DuplicateCertContext` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 79 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_ExportCertificatesToBlob` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 80 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetCertRawData` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 81 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetDateNotAfter` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 82 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetDateNotBefore` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 83 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_GetThumbprint` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 84 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_LoadCertFromBlob` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 85 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_LoadCertFromFile` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 86 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_OpenX509Store` | internal/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 87 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_QueryCertBlobType` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 88 | `System.Security.Cryptography.X509Certificates.X509Utils` | `_QueryCertFileType` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 89 | `System.Security.FrameSecurityDescriptor` | `DecrementAssertCount` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 90 | `System.Security.FrameSecurityDescriptor` | `DecrementOverridesCount` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 91 | `System.Security.FrameSecurityDescriptor` | `IncrementAssertCount` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 92 | `System.Security.FrameSecurityDescriptor` | `IncrementOverridesCount` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 93 | `System.Threading.Thread` | `RestoreAppDomainStack` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_restore_app_domain_stack`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:700`） | `threadobj.cpp:700` |
+| 94 | `System.Threading.Thread` | `SetAppDomainStack` | public/internal/instance | 半接 | 半接：dispatch 指向 `icall_threadobj_set_app_domain_stack`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:694`） | `threadobj.cpp:694` |
 
-### P3（284 条）
+### P3（283 条）
 
 mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 
@@ -689,9 +681,9 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 47 | `Microsoft.Runtime.Hosting.IClrStrongNameUsingIntPtr` | `StrongNameTokenFromAssemblyEx` | internal/public/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 48 | `Microsoft.Runtime.Hosting.IClrStrongNameUsingIntPtr` | `StrongNameTokenFromPublicKey` | internal/public/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 49 | `Microsoft.Win32.OAVariantLib` | `ChangeTypeEx` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 50 | `System.AppDomain` | `nSetDisableInterfaceCache` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nSetDisableInterfaceCache is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: th | `MethodMap.Legacy.cs:193` |
-| 51 | `System.AppDomain` | `nSetHostSecurityManagerFlags` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nSetHostSecurityManagerFlags is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: | `MethodMap.Legacy.cs:193` |
-| 52 | `System.AppDomain` | `nSetupFriendlyName` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nSetupFriendlyName is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT p | `MethodMap.Legacy.cs:193` |
+| 50 | `System.AppDomain` | `nSetDisableInterfaceCache` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nSetDisableInterfaceCache is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: th | `MethodMap.Legacy.cs:258` |
+| 51 | `System.AppDomain` | `nSetHostSecurityManagerFlags` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：nSetHostSecurityManagerFlags is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: | `MethodMap.Legacy.cs:258` |
+| 52 | `System.AppDomain` | `nSetupFriendlyName` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：nSetupFriendlyName is part of System.AppDomain -- a legacy/low-frequency domain (net48 audit section 3): LOUD whitelist (runtime descriptor: the AOT p | `MethodMap.Legacy.cs:258` |
 | 53 | `System.AppDomainManager` | `HasHost` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 54 | `System.CurrentSystemTimeZone` | `nativeGetDaylightChanges` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
 | 55 | `System.CurrentSystemTimeZone` | `nativeGetDaylightName` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
@@ -754,24 +746,24 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 112 | `System.Runtime.InteropServices.WindowsRuntime.RuntimeClass` | `RedirectGetHashCode` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 113 | `System.Runtime.InteropServices.WindowsRuntime.RuntimeClass` | `RedirectToString` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 114 | `System.Runtime.MemoryFailPoint` | `GetMemorySettings` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 115 | `System.Runtime.Remoting.Channels.ChannelServices` | `GetPrivateContextsPerfCounters` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：GetPrivateContextsPerfCounters is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, ' | `MethodMap.Legacy.cs:44` |
-| 116 | `System.Runtime.Remoting.Contexts.Context` | `CleanupInternalContext` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：CleanupInternalContext is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggeste | `MethodMap.Legacy.cs:44` |
-| 117 | `System.Runtime.Remoting.Contexts.Context` | `ExecuteCallBackInEE` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：ExecuteCallBackInEE is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested L | `MethodMap.Legacy.cs:44` |
-| 118 | `System.Runtime.Remoting.Messaging.Message` | `GetAsyncBeginInfo` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetAsyncBeginInfo is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOU | `MethodMap.Legacy.cs:44` |
-| 119 | `System.Runtime.Remoting.Messaging.Message` | `GetAsyncResult` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetAsyncResult is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD r | `MethodMap.Legacy.cs:44` |
-| 120 | `System.Runtime.Remoting.Messaging.Message` | `GetReturnValue` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetReturnValue is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD r | `MethodMap.Legacy.cs:44` |
-| 121 | `System.Runtime.Remoting.Messaging.Message` | `InternalGetArg` | internal/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：InternalGetArg is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD r | `MethodMap.Legacy.cs:44` |
-| 122 | `System.Runtime.Remoting.Messaging.Message` | `InternalGetArgCount` | internal/internal/instance | 缺（LOUD 拒绝） | LOUD 拒绝：InternalGetArgCount is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested L | `MethodMap.Legacy.cs:44` |
-| 123 | `System.Runtime.Remoting.Messaging.Message` | `InternalGetArgs` | internal/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：InternalGetArgs is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD  | `MethodMap.Legacy.cs:44` |
-| 124 | `System.Runtime.Remoting.Messaging.Message` | `InternalHasVarArgs` | internal/internal/instance | 缺（LOUD 拒绝） | LOUD 拒绝：InternalHasVarArgs is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LO | `MethodMap.Legacy.cs:44` |
-| 125 | `System.Runtime.Remoting.Messaging.Message` | `PropagateOutParameters` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：PropagateOutParameters is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggeste | `MethodMap.Legacy.cs:44` |
-| 126 | `System.Runtime.Remoting.Proxies.RealProxy` | `GetDefaultStub` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：GetDefaultStub is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD r | `MethodMap.Legacy.cs:44` |
-| 127 | `System.Runtime.Remoting.RemotingServices` | `AllocateInitializedObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：AllocateInitializedObject is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'sugge | `MethodMap.Legacy.cs:44` |
-| 128 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerRemotingClientReceivingReply` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerRemotingClientReceivingReply is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-fac | `MethodMap.Legacy.cs:44` |
-| 129 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerRemotingClientSendingMessage` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerRemotingClientSendingMessage is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-fac | `MethodMap.Legacy.cs:44` |
-| 130 | `System.Runtime.Remoting.RemotingServices` | `CheckCast` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CheckCast is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reject | `MethodMap.Legacy.cs:44` |
-| 131 | `System.Runtime.Remoting.RemotingServices` | `ResetInterfaceCache` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：ResetInterfaceCache is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested L | `MethodMap.Legacy.cs:44` |
-| 132 | `System.Runtime.Remoting.RemotingServices` | `Unwrap` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：Unwrap is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD reject'): | `MethodMap.Legacy.cs:44` |
+| 115 | `System.Runtime.Remoting.Channels.ChannelServices` | `GetPrivateContextsPerfCounters` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：GetPrivateContextsPerfCounters is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, ' | `MethodMap.Legacy.cs:109` |
+| 116 | `System.Runtime.Remoting.Contexts.Context` | `CleanupInternalContext` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：CleanupInternalContext is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggeste | `MethodMap.Legacy.cs:109` |
+| 117 | `System.Runtime.Remoting.Contexts.Context` | `ExecuteCallBackInEE` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：ExecuteCallBackInEE is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested L | `MethodMap.Legacy.cs:109` |
+| 118 | `System.Runtime.Remoting.Messaging.Message` | `GetAsyncBeginInfo` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetAsyncBeginInfo is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOU | `MethodMap.Legacy.cs:109` |
+| 119 | `System.Runtime.Remoting.Messaging.Message` | `GetAsyncResult` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetAsyncResult is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD r | `MethodMap.Legacy.cs:109` |
+| 120 | `System.Runtime.Remoting.Messaging.Message` | `GetReturnValue` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：GetReturnValue is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD r | `MethodMap.Legacy.cs:109` |
+| 121 | `System.Runtime.Remoting.Messaging.Message` | `InternalGetArg` | internal/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：InternalGetArg is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD r | `MethodMap.Legacy.cs:109` |
+| 122 | `System.Runtime.Remoting.Messaging.Message` | `InternalGetArgCount` | internal/internal/instance | 缺（LOUD 拒绝） | LOUD 拒绝：InternalGetArgCount is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested L | `MethodMap.Legacy.cs:109` |
+| 123 | `System.Runtime.Remoting.Messaging.Message` | `InternalGetArgs` | internal/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：InternalGetArgs is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LOUD  | `MethodMap.Legacy.cs:109` |
+| 124 | `System.Runtime.Remoting.Messaging.Message` | `InternalHasVarArgs` | internal/internal/instance | 缺（LOUD 拒绝） | LOUD 拒绝：InternalHasVarArgs is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggested LO | `MethodMap.Legacy.cs:109` |
+| 125 | `System.Runtime.Remoting.Messaging.Message` | `PropagateOutParameters` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：PropagateOutParameters is part of System.Runtime.Remoting -- a legacy technology rejected per the net48 audit section 3 (6 public-face gaps, 'suggeste | `MethodMap.Legacy.cs:109` |
+| 126 | `System.Runtime.Remoting.Proxies.RealProxy` | `GetDefaultStub` | public/private/static | 缺（LOUD 拒绝） | LOUD 拒绝：GetDefaultStub is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors (GetProxiedType / GetTranspa | `MethodMap.Legacy.cs:83` |
+| 127 | `System.Runtime.Remoting.RemotingServices` | `AllocateInitializedObject` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：AllocateInitializedObject is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2cpp | `MethodMap.Legacy.cs:83` |
+| 128 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerRemotingClientReceivingReply` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerRemotingClientReceivingReply is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are | `MethodMap.Legacy.cs:83` |
+| 129 | `System.Runtime.Remoting.RemotingServices` | `CORProfilerRemotingClientSendingMessage` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CORProfilerRemotingClientSendingMessage is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are | `MethodMap.Legacy.cs:83` |
+| 130 | `System.Runtime.Remoting.RemotingServices` | `CheckCast` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：CheckCast is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2cpp_remoting.h): LO | `MethodMap.Legacy.cs:83` |
+| 131 | `System.Runtime.Remoting.RemotingServices` | `ResetInterfaceCache` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：ResetInterfaceCache is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2cpp_remot | `MethodMap.Legacy.cs:83` |
+| 132 | `System.Runtime.Remoting.RemotingServices` | `Unwrap` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：Unwrap is part of System.Runtime.Remoting -- only the five public-face RealProxy/RemotingServices state accessors are wired (il2cpp_remoting.h): LOUD  | `MethodMap.Legacy.cs:83` |
 | 133 | `System.RuntimeFieldHandle` | `GetAttributes` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::GetAttributes not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the typ | `MethodMap.ReflectHandle.cs:55` |
 | 134 | `System.RuntimeFieldHandle` | `GetName` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::GetName not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntimeType on the type hand | `MethodMap.ReflectHandle.cs:55` |
 | 135 | `System.RuntimeFieldHandle` | `GetStaticFieldForGenericType` | public/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：System.RuntimeFieldHandle::GetStaticFieldForGenericType not wired: the reflect-handle surface covers get_Value / Equals / GetHashCode (plus GetRuntime | `MethodMap.ReflectHandle.cs:55` |
@@ -908,105 +900,111 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 266 | `System.Threading.DomainCompressedStack` | `GetDomainPermissionSets` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
 | 267 | `System.Threading.DomainCompressedStack` | `IgnoreDomain` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
 | 268 | `System.Threading.OverlappedData` | `CheckVMForIOPacket` | internal/internal/static | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 269 | `System.Threading.ReaderWriterLock` | `PrivateDestruct` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：PrivateDestruct is part of System.Threading.ReaderWriterLock -- a legacy low-frequency lock (net48 audit section 3): LOUD whitelist (runtime descripto | `MethodMap.Legacy.cs:242` |
+| 269 | `System.Threading.ReaderWriterLock` | `PrivateDestruct` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：PrivateDestruct is part of System.Threading.ReaderWriterLock -- the lock itself is wired (il2cpp_rwlock.h: ctor / AcquireLock+ReleaseLock for reader a | `MethodMap.Legacy.cs:420` |
 | 270 | `System.Threading.RegisteredWaitHandleSafe` | `WaitHandleCleanupNative` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 271 | `System.Threading.Thread` | `InternalFinalize` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 272 | `System.Threading.Thread` | `InternalGetCurrentThread` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_threadobj_internal_get_current_thread`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:708`） | `threadobj.cpp:708` |
-| 273 | `System.Utf8String` | `EqualsCaseSensitive` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 274 | `System.Variant` | `BoxEnum` | internal/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 275 | `System.Variant` | `GetR4FromVar` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 276 | `System.Variant` | `GetR8FromVar` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 277 | `System.Variant` | `SetFieldsObject` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 278 | `System.Variant` | `SetFieldsR4` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 279 | `System.Variant` | `SetFieldsR8` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 280 | `System.WeakReference`1` | `Create` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 281 | `System.WeakReference`1` | `IsTrackResurrection` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 282 | `Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs` | `.ctor` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (net48 has no such overload): WeakReference ctor arity 0 -- net48 has only WeakReference(object) and WeakReference(object, bool) | `MethodMap.WeakReference.cs:44` |
-| 283 | `Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs` | `get_Enabled` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
-| 284 | `Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs` | `get_TraceLevel` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 271 | `System.Threading.Thread` | `InternalGetCurrentThread` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_threadobj_internal_get_current_thread`，但运行时是空体/恒值桩（桩定义 `threadobj.cpp:708`） | `threadobj.cpp:708` |
+| 272 | `System.Utf8String` | `EqualsCaseSensitive` | internal/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 273 | `System.Variant` | `BoxEnum` | internal/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 274 | `System.Variant` | `GetR4FromVar` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 275 | `System.Variant` | `GetR8FromVar` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 276 | `System.Variant` | `SetFieldsObject` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 277 | `System.Variant` | `SetFieldsR4` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 278 | `System.Variant` | `SetFieldsR8` | internal/internal/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
+| 279 | `System.WeakReference`1` | `Create` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 280 | `System.WeakReference`1` | `IsTrackResurrection` | public/private/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 281 | `Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs` | `.ctor` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (net48 has no such overload): WeakReference ctor arity 0 -- net48 has only WeakReference(object) and WeakReference(object, bool) | `MethodMap.WeakReference.cs:44` |
+| 282 | `Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs` | `get_Enabled` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
+| 283 | `Windows.Foundation.Diagnostics.TracingStatusChangedEventArgs` | `get_TraceLevel` | internal/public/instance | 缺（LOUD 拒绝） | LOUD 拒绝：LOUD whitelist (no runtime descriptor/model): System.WeakReference member not wired -- the il2cpp_gc_ext.h object icalls cover .ctor(object)/IsAlive/T | `MethodMap.WeakReference.cs:76` |
 
 ### 3.6 影子清单
 
-共 **74** 条。判定依据：icall 自身没有任何接线，但用户可见的入口方法已接线；mscorlib 的方法体不会被转译，用户 IL 只发出对入口的那一次调用，因此这条 icall 不在生成的 C++ 走到的路径上。
+共 **81** 条。判定依据：icall 自身没有任何接线，但用户可见的入口方法已接线；mscorlib 的方法体不会被转译，用户 IL 只发出对入口的那一次调用，因此这条 icall 不在生成的 C++ 走到的路径上。
 
-**跳数必须写清楚。** 文档旧版把 `System.Threading.Thread::StartInternal` 写成「由 `Start()` 直接承接」，实际链路是 public `Start()` → internal `Start(StackCrawlMark&)` → `StartInternal`，**2 跳**，中间那一跳的 mscorlib 方法体同样不会被转译，所以这个结论仍然成立，但「直接承接」的表述不成立。本表 `跳数` 列给出实测 IL 边数：1 跳才是直接承接；≥2 跳列出完整链路。（本版 65 条 1 跳、9 条 ≥2 跳。）
+**跳数必须写清楚。** 文档旧版把 `System.Threading.Thread::StartInternal` 写成「由 `Start()` 直接承接」，实际链路是 public `Start()` → internal `Start(StackCrawlMark&)` → `StartInternal`，**2 跳**，中间那一跳的 mscorlib 方法体同样不会被转译，所以这个结论仍然成立，但「直接承接」的表述不成立。本表 `跳数` 列给出实测 IL 边数：1 跳才是直接承接；≥2 跳列出完整链路。（本版 72 条 1 跳、9 条 ≥2 跳。）
 
 | # | 声明类型 | 方法 | 可见性 | 承接的 public 入口 | 跳数 | 完整链路 | 承接者接线证据 |
 |---|---|---|---|---|---|---|---|
-| 1 | `System.AppDomain` | `nGetFriendlyName` | public/private/instance | `System.AppDomain::ToString` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:153` |
-| 2 | `System.Array` | `InternalGetReference` | public/private/instance | `System.Array::GetValue` | 1 | `（直接调用）` | `MethodMap.Array.cs:1129` |
-| 3 | `System.Array` | `InternalSetValue` | public/private/static | `System.Array::SetValue` | 1 | `（直接调用）` | `MethodMap.Array.cs:1158` |
-| 4 | `System.Array` | `TrySZBinarySearch` | public/private/static | `System.Array::BinarySearch` | 1 | `（直接调用）` | `MethodMap.Array.cs:378` |
-| 5 | `System.Array` | `TrySZIndexOf` | public/private/static | `System.Array::IndexOf` | 1 | `（直接调用）` | `MethodMap.Array.cs:428` |
-| 6 | `System.Array` | `TrySZLastIndexOf` | public/private/static | `System.Array::LastIndexOf` | 1 | `（直接调用）` | `MethodMap.Array.cs:448` |
-| 7 | `System.Array` | `TrySZReverse` | public/private/static | `System.Array::Reverse` | 1 | `（直接调用）` | `MethodMap.Array.cs:527` |
-| 8 | `System.Array` | `TrySZSort` | public/private/static | `System.Array::Sort` | 1 | `（直接调用）` | `MethodMap.Array.cs:145` |
-| 9 | `System.Buffer` | `IsPrimitiveTypeArray` | public/private/static | `System.Buffer::ByteLength` | 1 | `（直接调用）` | `MethodMap.Buffer.cs:38` |
-| 10 | `System.Buffer` | `_ByteLength` | public/private/static | `System.Buffer::ByteLength` | 1 | `（直接调用）` | `MethodMap.Buffer.cs:38` |
-| 11 | `System.Buffer` | `_GetByte` | public/private/static | `System.Buffer::GetByte` | 1 | `（直接调用）` | `MethodMap.Buffer.cs:71` |
-| 12 | `System.Buffer` | `_SetByte` | public/private/static | `System.Buffer::SetByte` | 1 | `（直接调用）` | `MethodMap.Buffer.cs:81` |
-| 13 | `System.Decimal` | `FCallFloor` | public/private/static | `System.Decimal::Floor` | 1 | `（直接调用）` | `MethodMap.Decimal.cs:305` |
-| 14 | `System.Decimal` | `FCallTruncate` | public/private/static | `System.Decimal::ToInt32` | 1 | `（直接调用）` | `MethodMap.Decimal.cs:316` |
-| 15 | `System.Enum` | `InternalBoxEnum` | public/private/static | `System.Enum::ToObject` | 1 | `（直接调用）` | `MethodMap.Enum.cs:398` |
-| 16 | `System.Enum` | `InternalCompareTo` | public/private/static | `System.Enum::CompareTo` | 1 | `（直接调用）` | `MethodMap.Enum.cs:416` |
-| 17 | `System.Enum` | `InternalHasFlag` | public/private/instance | `System.Enum::HasFlag` | 1 | `（直接调用）` | `MethodMap.Enum.cs:404` |
-| 18 | `System.Environment` | `GetCommandLineArgsNative` | public/private/static | `System.Environment::GetCommandLineArgs` | 1 | `（直接调用）` | `MethodMap.Environment.cs:76` |
-| 19 | `System.Environment` | `GetVersionEx` | public/internal/static | `System.Environment::get_OSVersion` | 1 | `（直接调用）` | `MethodMap.Environment.cs:48` |
-| 20 | `System.Exception` | `IsImmutableAgileException` | public/private/static | `System.Exception::get_Data` | 1 | `（直接调用）` | `MethodMap.Exception.cs:215` |
-| 21 | `System.GC` | `GetGenerationWR` | public/private/static | `System.GC::GetGeneration` | 1 | `（直接调用）` | `MethodMap.GC.cs:54` |
-| 22 | `System.GC` | `_CancelFullGCNotification` | public/private/static | `System.GC::CancelFullGCNotification` | 1 | `（直接调用）` | `MethodMap.GC.cs:107` |
-| 23 | `System.GC` | `_CollectionCount` | public/private/static | `System.GC::CollectionCount` | 1 | `（直接调用）` | `MethodMap.GC.cs:96` |
-| 24 | `System.GC` | `_GetAllocatedBytesForCurrentThread` | public/private/static | `System.GC::GetAllocatedBytesForCurrentThread` | 1 | `（直接调用）` | `MethodMap.GC.cs:118` |
-| 25 | `System.GC` | `_ReRegisterForFinalize` | public/private/static | `System.GC::ReRegisterForFinalize` | 1 | `（直接调用）` | `MethodMap.GC.cs:57` |
-| 26 | `System.GC` | `_RegisterForFullGCNotification` | public/private/static | `System.GC::RegisterForFullGCNotification` | 1 | `（直接调用）` | `MethodMap.GC.cs:102` |
-| 27 | `System.GC` | `_SuppressFinalize` | public/private/static | `System.GC::SuppressFinalize` | 1 | `（直接调用）` | `MethodMap.GC.cs:56` |
-| 28 | `System.Globalization.TextInfo` | `InternalChangeCaseChar` | public/private/static | `System.Globalization.TextInfo::ToLower` | 1 | `（直接调用）` | `MethodMap.NumberFormat.cs:166` |
-| 29 | `System.Globalization.TextInfo` | `InternalChangeCaseString` | public/private/static | `System.Globalization.TextInfo::ToLower` | 1 | `（直接调用）` | `MethodMap.NumberFormat.cs:166` |
-| 30 | `System.Mda` | `DateTimeInvalidLocalFormat` | internal/internal/static | `System.DateTimeOffset::ToString` | 5 | `System.DateTimeFormat::InvalidFormatForUtc → System.DateTimeFormat::FormatCustomizedTimeZone → System.DateTimeFormat::FormatCustomized → System.DateTimeFormat::Format → System.DateTimeOffset::ToString` | `MethodMap.Dtoffset.cs:200` |
-| 31 | `System.Mda` | `FireInvalidGCHandleCookieProbe` | internal/internal/static | `System.Runtime.InteropServices.GCHandle::FromIntPtr` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:83` |
-| 32 | `System.Mda` | `IsStreamWriterBufferedDataLostCaptureAllocatedCallStack` | internal/internal/static | `System.IO.StreamWriter::.ctor` | 3 | `System.Mda+StreamWriterBufferedDataLost::get_CaptureAllocatedCallStack → System.IO.StreamWriter::Init → System.IO.StreamWriter::.ctor` | `MethodMap.Deflate.cs:45` |
-| 33 | `System.Mda` | `IsStreamWriterBufferedDataLostEnabled` | internal/internal/static | `System.IO.StreamWriter::.ctor` | 3 | `System.Mda+StreamWriterBufferedDataLost::get_Enabled → System.IO.StreamWriter::Init → System.IO.StreamWriter::.ctor` | `MethodMap.Deflate.cs:45` |
-| 34 | `System.Number` | `FormatDecimal` | internal/public/static | `System.Decimal::ToString` | 1 | `（直接调用）` | `MethodMap.Decimal.cs:227` |
-| 35 | `System.Number` | `FormatDouble` | internal/public/static | `System.Double::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
-| 36 | `System.Number` | `FormatInt32` | internal/public/static | `System.Byte::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
-| 37 | `System.Number` | `FormatInt64` | internal/public/static | `System.Int64::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
-| 38 | `System.Number` | `FormatSingle` | internal/public/static | `System.Single::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
-| 39 | `System.Number` | `FormatUInt32` | internal/public/static | `System.UInt16::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
-| 40 | `System.Number` | `FormatUInt64` | internal/public/static | `System.UInt64::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
-| 41 | `System.ParseNumbers` | `LongToString` | internal/public/static | `System.Convert::ToString` | 1 | `（直接调用）` | `MethodMap.Convert.cs:237` |
-| 42 | `System.Reflection.AssemblyName` | `nToString` | public/private/instance | `System.Reflection.AssemblyName::get_FullName` | 1 | `（直接调用）` | `MethodMap.Type.cs:985` |
-| 43 | `System.Runtime.InteropServices.GCHandle` | `InternalAddrOfPinnedObject` | public/internal/static | `System.Runtime.InteropServices.GCHandle::AddrOfPinnedObject` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:65` |
-| 44 | `System.Runtime.InteropServices.GCHandle` | `InternalFree` | public/internal/static | `System.Runtime.InteropServices.GCHandle::Free` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:53` |
-| 45 | `System.Runtime.InteropServices.GCHandle` | `InternalGet` | public/internal/static | `System.Runtime.InteropServices.GCHandle::get_Target` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:57` |
-| 46 | `System.Runtime.InteropServices.GCHandle` | `InternalSet` | public/internal/static | `System.Runtime.InteropServices.GCHandle::set_Target` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:61` |
-| 47 | `System.Runtime.InteropServices.Marshal` | `CopyToManaged` | public/private/static | `System.Runtime.InteropServices.Marshal::Copy` | 1 | `（直接调用）` | `MethodMap.Marshal.cs:182` |
-| 48 | `System.Runtime.InteropServices.Marshal` | `CopyToNative` | public/private/static | `System.Runtime.InteropServices.Marshal::Copy` | 1 | `（直接调用）` | `MethodMap.Marshal.cs:182` |
-| 49 | `System.RuntimeTypeHandle` | `IsInterface` | public/internal/static | `System.Type::get_IsInterface` | 1 | `（直接调用）` | `MethodMap.Type.cs:719` |
-| 50 | `System.Security.Cryptography.Utils` | `_ProduceLegacyHmacValues` | internal/internal/static | `System.Security.Cryptography.HMACSHA384::.ctor` | 1 | `（直接调用）` | `MethodMap.Crypto.cs:91` |
-| 51 | `System.String` | `PadHelper` | public/private/instance | `System.String::PadLeft` | 1 | `（直接调用）` | `MethodMap.String.cs:243` |
-| 52 | `System.String` | `ReplaceInternal` | public/private/instance | `System.String::Replace` | 1 | `（直接调用）` | `MethodMap.String.cs:137` |
+| 1 | `System.AppDomain` | `nGetFriendlyName` | public/private/instance | `System.AppDomain::ToString` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:218` |
+| 2 | `System.ArgIterator` | `FCallGetNextArg` | public/private/instance | `System.ArgIterator::GetNextArg` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:328` |
+| 3 | `System.ArgIterator` | `InternalGetNextArg` | public/private/instance | `System.ArgIterator::GetNextArg` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:328` |
+| 4 | `System.ArgIterator` | `_GetNextArgType` | public/private/instance | `System.ArgIterator::GetNextArgType` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:336` |
+| 5 | `System.Array` | `InternalGetReference` | public/private/instance | `System.Array::GetValue` | 1 | `（直接调用）` | `MethodMap.Array.cs:1129` |
+| 6 | `System.Array` | `InternalSetValue` | public/private/static | `System.Array::SetValue` | 1 | `（直接调用）` | `MethodMap.Array.cs:1158` |
+| 7 | `System.Array` | `TrySZBinarySearch` | public/private/static | `System.Array::BinarySearch` | 1 | `（直接调用）` | `MethodMap.Array.cs:378` |
+| 8 | `System.Array` | `TrySZIndexOf` | public/private/static | `System.Array::IndexOf` | 1 | `（直接调用）` | `MethodMap.Array.cs:428` |
+| 9 | `System.Array` | `TrySZLastIndexOf` | public/private/static | `System.Array::LastIndexOf` | 1 | `（直接调用）` | `MethodMap.Array.cs:448` |
+| 10 | `System.Array` | `TrySZReverse` | public/private/static | `System.Array::Reverse` | 1 | `（直接调用）` | `MethodMap.Array.cs:527` |
+| 11 | `System.Array` | `TrySZSort` | public/private/static | `System.Array::Sort` | 1 | `（直接调用）` | `MethodMap.Array.cs:145` |
+| 12 | `System.Buffer` | `IsPrimitiveTypeArray` | public/private/static | `System.Buffer::ByteLength` | 1 | `（直接调用）` | `MethodMap.Buffer.cs:38` |
+| 13 | `System.Buffer` | `_ByteLength` | public/private/static | `System.Buffer::ByteLength` | 1 | `（直接调用）` | `MethodMap.Buffer.cs:38` |
+| 14 | `System.Buffer` | `_GetByte` | public/private/static | `System.Buffer::GetByte` | 1 | `（直接调用）` | `MethodMap.Buffer.cs:71` |
+| 15 | `System.Buffer` | `_SetByte` | public/private/static | `System.Buffer::SetByte` | 1 | `（直接调用）` | `MethodMap.Buffer.cs:81` |
+| 16 | `System.Decimal` | `FCallFloor` | public/private/static | `System.Decimal::Floor` | 1 | `（直接调用）` | `MethodMap.Decimal.cs:305` |
+| 17 | `System.Decimal` | `FCallTruncate` | public/private/static | `System.Decimal::ToInt32` | 1 | `（直接调用）` | `MethodMap.Decimal.cs:316` |
+| 18 | `System.Diagnostics.StackTrace` | `GetStackFramesInternal` | public/internal/static | `System.Diagnostics.StackFrame::.ctor` | 3 | `System.Diagnostics.StackFrameHelper::InitializeSourceInfo → System.Diagnostics.StackFrame::BuildStackFrame → System.Diagnostics.StackFrame::.ctor` | `MethodMap.GC.cs:340` |
+| 19 | `System.Enum` | `InternalBoxEnum` | public/private/static | `System.Enum::ToObject` | 1 | `（直接调用）` | `MethodMap.Enum.cs:398` |
+| 20 | `System.Enum` | `InternalCompareTo` | public/private/static | `System.Enum::CompareTo` | 1 | `（直接调用）` | `MethodMap.Enum.cs:416` |
+| 21 | `System.Enum` | `InternalHasFlag` | public/private/instance | `System.Enum::HasFlag` | 1 | `（直接调用）` | `MethodMap.Enum.cs:404` |
+| 22 | `System.Environment` | `GetCommandLineArgsNative` | public/private/static | `System.Environment::GetCommandLineArgs` | 1 | `（直接调用）` | `MethodMap.Environment.cs:76` |
+| 23 | `System.Environment` | `GetVersionEx` | public/internal/static | `System.Environment::get_OSVersion` | 1 | `（直接调用）` | `MethodMap.Environment.cs:48` |
+| 24 | `System.Exception` | `IsImmutableAgileException` | public/private/static | `System.Exception::get_Data` | 1 | `（直接调用）` | `MethodMap.Exception.cs:215` |
+| 25 | `System.GC` | `GetGenerationWR` | public/private/static | `System.GC::GetGeneration` | 1 | `（直接调用）` | `MethodMap.GC.cs:62` |
+| 26 | `System.GC` | `_GetAllocatedBytesForCurrentThread` | public/private/static | `System.GC::GetAllocatedBytesForCurrentThread` | 1 | `（直接调用）` | `MethodMap.GC.cs:126` |
+| 27 | `System.GC` | `_ReRegisterForFinalize` | public/private/static | `System.GC::ReRegisterForFinalize` | 1 | `（直接调用）` | `MethodMap.GC.cs:65` |
+| 28 | `System.GC` | `_SuppressFinalize` | public/private/static | `System.GC::SuppressFinalize` | 1 | `（直接调用）` | `MethodMap.GC.cs:64` |
+| 29 | `System.Globalization.TextInfo` | `InternalChangeCaseChar` | public/private/static | `System.Globalization.TextInfo::ToLower` | 1 | `（直接调用）` | `MethodMap.NumberFormat.cs:166` |
+| 30 | `System.Globalization.TextInfo` | `InternalChangeCaseString` | public/private/static | `System.Globalization.TextInfo::ToLower` | 1 | `（直接调用）` | `MethodMap.NumberFormat.cs:166` |
+| 31 | `System.Mda` | `DateTimeInvalidLocalFormat` | internal/internal/static | `System.DateTimeOffset::ToString` | 5 | `System.DateTimeFormat::InvalidFormatForUtc → System.DateTimeFormat::FormatCustomizedTimeZone → System.DateTimeFormat::FormatCustomized → System.DateTimeFormat::Format → System.DateTimeOffset::ToString` | `MethodMap.Dtoffset.cs:213` |
+| 32 | `System.Mda` | `FireInvalidGCHandleCookieProbe` | internal/internal/static | `System.Runtime.InteropServices.GCHandle::FromIntPtr` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:83` |
+| 33 | `System.Mda` | `IsStreamWriterBufferedDataLostCaptureAllocatedCallStack` | internal/internal/static | `System.IO.StreamWriter::.ctor` | 3 | `System.Mda+StreamWriterBufferedDataLost::get_CaptureAllocatedCallStack → System.IO.StreamWriter::Init → System.IO.StreamWriter::.ctor` | `MethodMap.Deflate.cs:45` |
+| 34 | `System.Mda` | `IsStreamWriterBufferedDataLostEnabled` | internal/internal/static | `System.IO.StreamWriter::.ctor` | 3 | `System.Mda+StreamWriterBufferedDataLost::get_Enabled → System.IO.StreamWriter::Init → System.IO.StreamWriter::.ctor` | `MethodMap.Deflate.cs:45` |
+| 35 | `System.Number` | `FormatDecimal` | internal/public/static | `System.Decimal::ToString` | 1 | `（直接调用）` | `MethodMap.Decimal.cs:227` |
+| 36 | `System.Number` | `FormatDouble` | internal/public/static | `System.Double::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
+| 37 | `System.Number` | `FormatInt32` | internal/public/static | `System.Byte::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
+| 38 | `System.Number` | `FormatInt64` | internal/public/static | `System.Int64::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
+| 39 | `System.Number` | `FormatSingle` | internal/public/static | `System.Single::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
+| 40 | `System.Number` | `FormatUInt32` | internal/public/static | `System.UInt16::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
+| 41 | `System.Number` | `FormatUInt64` | internal/public/static | `System.UInt64::ToString` | 1 | `（直接调用）` | `MethodMap.ValueType.cs:25` |
+| 42 | `System.ParseNumbers` | `LongToString` | internal/public/static | `System.Convert::ToString` | 1 | `（直接调用）` | `MethodMap.Convert.cs:250` |
+| 43 | `System.Reflection.AssemblyName` | `nToString` | public/private/instance | `System.Reflection.AssemblyName::get_FullName` | 1 | `（直接调用）` | `MethodMap.Type.cs:985` |
+| 44 | `System.Runtime.InteropServices.GCHandle` | `InternalAddrOfPinnedObject` | public/internal/static | `System.Runtime.InteropServices.GCHandle::AddrOfPinnedObject` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:65` |
+| 45 | `System.Runtime.InteropServices.GCHandle` | `InternalFree` | public/internal/static | `System.Runtime.InteropServices.GCHandle::Free` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:53` |
+| 46 | `System.Runtime.InteropServices.GCHandle` | `InternalGet` | public/internal/static | `System.Runtime.InteropServices.GCHandle::get_Target` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:57` |
+| 47 | `System.Runtime.InteropServices.GCHandle` | `InternalSet` | public/internal/static | `System.Runtime.InteropServices.GCHandle::set_Target` | 1 | `（直接调用）` | `MethodMap.GCHandle.cs:61` |
+| 48 | `System.Runtime.InteropServices.Marshal` | `CopyToManaged` | public/private/static | `System.Runtime.InteropServices.Marshal::Copy` | 1 | `（直接调用）` | `MethodMap.Marshal.cs:182` |
+| 49 | `System.Runtime.InteropServices.Marshal` | `CopyToNative` | public/private/static | `System.Runtime.InteropServices.Marshal::Copy` | 1 | `（直接调用）` | `MethodMap.Marshal.cs:182` |
+| 50 | `System.RuntimeTypeHandle` | `IsInterface` | public/internal/static | `System.Type::get_IsInterface` | 1 | `（直接调用）` | `MethodMap.Type.cs:719` |
+| 51 | `System.Security.Cryptography.Utils` | `_ProduceLegacyHmacValues` | internal/internal/static | `System.Security.Cryptography.HMACSHA384::.ctor` | 1 | `（直接调用）` | `MethodMap.Crypto.cs:91` |
+| 52 | `System.String` | `PadHelper` | public/private/instance | `System.String::PadLeft` | 1 | `（直接调用）` | `MethodMap.String.cs:243` |
 | 53 | `System.String` | `ReplaceInternal` | public/private/instance | `System.String::Replace` | 1 | `（直接调用）` | `MethodMap.String.cs:137` |
-| 54 | `System.Text.Normalization` | `nativeNormalizationIsNormalizedString` | internal/private/static | `System.String::IsNormalized` | 2 | `System.Text.Normalization::IsNormalized → System.String::IsNormalized` | `MethodMap.String.cs:306` |
-| 55 | `System.Text.Normalization` | `nativeNormalizationNormalizeString` | internal/private/static | `System.String::Normalize` | 2 | `System.Text.Normalization::Normalize → System.String::Normalize` | `MethodMap.String.cs:298` |
-| 56 | `System.Threading.Monitor` | `ObjPulse` | public/private/static | `System.Threading.Monitor::Pulse` | 1 | `（直接调用）` | `MethodMap.Monitor.cs:91` |
-| 57 | `System.Threading.Monitor` | `ObjPulseAll` | public/private/static | `System.Threading.Monitor::PulseAll` | 1 | `（直接调用）` | `MethodMap.Monitor.cs:92` |
-| 58 | `System.Threading.Monitor` | `ReliableEnter` | public/private/static | `System.Threading.Monitor::Enter` | 1 | `（直接调用）` | `MethodMap.Monitor.cs:45` |
-| 59 | `System.Threading.Thread` | `GetCurrentThreadNative` | public/private/static | `System.Threading.Thread::get_CurrentThread` | 1 | `（直接调用）` | `MethodMap.Thread.cs:212` |
-| 60 | `System.Threading.Thread` | `GetPriorityNative` | public/private/instance | `System.Threading.Thread::get_Priority` | 1 | `（直接调用）` | `MethodMap.Thread.cs:190` |
-| 61 | `System.Threading.Thread` | `GetThreadStateNative` | public/private/instance | `System.Threading.Thread::get_ThreadState` | 1 | `（直接调用）` | `MethodMap.Thread.cs:217` |
-| 62 | `System.Threading.Thread` | `IsBackgroundNative` | public/private/instance | `System.Threading.Thread::get_IsBackground` | 1 | `（直接调用）` | `MethodMap.Thread.cs:204` |
-| 63 | `System.Threading.Thread` | `SetBackgroundNative` | public/private/instance | `System.Threading.Thread::set_IsBackground` | 1 | `（直接调用）` | `MethodMap.Thread.cs:208` |
-| 64 | `System.Threading.Thread` | `SetPriorityNative` | public/private/instance | `System.Threading.Thread::set_Priority` | 1 | `（直接调用）` | `MethodMap.Thread.cs:194` |
-| 65 | `System.Threading.Thread` | `SetStart` | public/private/instance | `System.Threading.Thread::.ctor` | 2 | `System.Threading.Thread::SetStartHelper → System.Threading.Thread::.ctor` | `MethodMap.Thread.cs:139` |
-| 66 | `System.Threading.Thread` | `SleepInternal` | public/private/static | `System.Threading.Thread::Sleep` | 1 | `（直接调用）` | `MethodMap.Thread.cs:47` |
-| 67 | `System.Threading.Thread` | `SpinWaitInternal` | public/private/static | `System.Threading.Thread::SpinWait` | 1 | `（直接调用）` | `MethodMap.Thread.cs:52` |
-| 68 | `System.Threading.Thread` | `StartInternal` | public/private/instance | `System.Threading.Thread::Start` | 2 | `System.Threading.Thread::Start → System.Threading.Thread::Start` | `MethodMap.Thread.cs:152` |
-| 69 | `System.Threading.Thread` | `StartupSetApartmentStateInternal` | public/private/instance | `System.Threading.Thread::Start` | 2 | `System.Threading.Thread::Start → System.Threading.Thread::Start` | `MethodMap.Thread.cs:152` |
-| 70 | `System.Threading.ThreadPool` | `GetAvailableThreadsNative` | public/private/static | `System.Threading.ThreadPool::GetAvailableThreads` | 1 | `（直接调用）` | `MethodMap.ThreadPool.cs:51` |
-| 71 | `System.Threading.ThreadPool` | `GetMaxThreadsNative` | public/private/static | `System.Threading.ThreadPool::GetMaxThreads` | 1 | `（直接调用）` | `MethodMap.ThreadPool.cs:50` |
-| 72 | `System.Threading.ThreadPool` | `GetMinThreadsNative` | public/private/static | `System.Threading.ThreadPool::GetMinThreads` | 1 | `（直接调用）` | `MethodMap.ThreadPool.cs:49` |
-| 73 | `System.TimeSpan` | `LegacyFormatMode` | public/private/static | `System.TimeSpan::ToString` | 3 | `System.TimeSpan::GetLegacyFormatMode → System.TimeSpan::get_LegacyMode → System.TimeSpan::ToString` | `MethodMap.TimeSpan.cs:98` |
-| 74 | `System.WeakReference` | `Create` | public/private/instance | `System.WeakReference::.ctor` | 1 | `（直接调用）` | `MethodMap.WeakReference.cs:33` |
+| 54 | `System.String` | `ReplaceInternal` | public/private/instance | `System.String::Replace` | 1 | `（直接调用）` | `MethodMap.String.cs:137` |
+| 55 | `System.Text.Normalization` | `nativeNormalizationIsNormalizedString` | internal/private/static | `System.String::IsNormalized` | 2 | `System.Text.Normalization::IsNormalized → System.String::IsNormalized` | `MethodMap.String.cs:306` |
+| 56 | `System.Text.Normalization` | `nativeNormalizationNormalizeString` | internal/private/static | `System.String::Normalize` | 2 | `System.Text.Normalization::Normalize → System.String::Normalize` | `MethodMap.String.cs:298` |
+| 57 | `System.Threading.Monitor` | `ObjPulse` | public/private/static | `System.Threading.Monitor::Pulse` | 1 | `（直接调用）` | `MethodMap.Monitor.cs:91` |
+| 58 | `System.Threading.Monitor` | `ObjPulseAll` | public/private/static | `System.Threading.Monitor::PulseAll` | 1 | `（直接调用）` | `MethodMap.Monitor.cs:92` |
+| 59 | `System.Threading.Monitor` | `ReliableEnter` | public/private/static | `System.Threading.Monitor::Enter` | 1 | `（直接调用）` | `MethodMap.Monitor.cs:45` |
+| 60 | `System.Threading.ReaderWriterLock` | `PrivateGetIsReaderLockHeld` | public/private/instance | `System.Threading.ReaderWriterLock::get_IsReaderLockHeld` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:395` |
+| 61 | `System.Threading.ReaderWriterLock` | `PrivateGetIsWriterLockHeld` | public/private/instance | `System.Threading.ReaderWriterLock::get_IsWriterLockHeld` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:399` |
+| 62 | `System.Threading.ReaderWriterLock` | `PrivateGetWriterSeqNum` | public/private/instance | `System.Threading.ReaderWriterLock::get_WriterSeqNum` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:403` |
+| 63 | `System.Threading.ReaderWriterLock` | `PrivateInitialize` | public/private/instance | `System.Threading.ReaderWriterLock::.ctor` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:53` |
+| 64 | `System.Threading.ReaderWriterLock` | `ReleaseReaderLockInternal` | public/private/instance | `System.Threading.ReaderWriterLock::ReleaseReaderLock` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:382` |
+| 65 | `System.Threading.ReaderWriterLock` | `ReleaseWriterLockInternal` | public/private/instance | `System.Threading.ReaderWriterLock::ReleaseWriterLock` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:391` |
+| 66 | `System.Threading.Thread` | `GetCurrentThreadNative` | public/private/static | `System.Threading.Thread::get_CurrentThread` | 1 | `（直接调用）` | `MethodMap.Thread.cs:212` |
+| 67 | `System.Threading.Thread` | `GetPriorityNative` | public/private/instance | `System.Threading.Thread::get_Priority` | 1 | `（直接调用）` | `MethodMap.Thread.cs:190` |
+| 68 | `System.Threading.Thread` | `GetThreadStateNative` | public/private/instance | `System.Threading.Thread::get_ThreadState` | 1 | `（直接调用）` | `MethodMap.Thread.cs:217` |
+| 69 | `System.Threading.Thread` | `IsBackgroundNative` | public/private/instance | `System.Threading.Thread::get_IsBackground` | 1 | `（直接调用）` | `MethodMap.Thread.cs:204` |
+| 70 | `System.Threading.Thread` | `SetBackgroundNative` | public/private/instance | `System.Threading.Thread::set_IsBackground` | 1 | `（直接调用）` | `MethodMap.Thread.cs:208` |
+| 71 | `System.Threading.Thread` | `SetPriorityNative` | public/private/instance | `System.Threading.Thread::set_Priority` | 1 | `（直接调用）` | `MethodMap.Thread.cs:194` |
+| 72 | `System.Threading.Thread` | `SetStart` | public/private/instance | `System.Threading.Thread::.ctor` | 2 | `System.Threading.Thread::SetStartHelper → System.Threading.Thread::.ctor` | `MethodMap.Thread.cs:139` |
+| 73 | `System.Threading.Thread` | `SleepInternal` | public/private/static | `System.Threading.Thread::Sleep` | 1 | `（直接调用）` | `MethodMap.Thread.cs:47` |
+| 74 | `System.Threading.Thread` | `SpinWaitInternal` | public/private/static | `System.Threading.Thread::SpinWait` | 1 | `（直接调用）` | `MethodMap.Thread.cs:52` |
+| 75 | `System.Threading.Thread` | `StartupSetApartmentStateInternal` | public/private/instance | `System.Threading.Thread::Start` | 2 | `System.Threading.Thread::Start → System.Threading.Thread::Start` | `MethodMap.Thread.cs:152` |
+| 76 | `System.Threading.ThreadPool` | `GetAvailableThreadsNative` | public/private/static | `System.Threading.ThreadPool::GetAvailableThreads` | 1 | `（直接调用）` | `MethodMap.ThreadPool.cs:51` |
+| 77 | `System.Threading.ThreadPool` | `GetMaxThreadsNative` | public/private/static | `System.Threading.ThreadPool::GetMaxThreads` | 1 | `（直接调用）` | `MethodMap.ThreadPool.cs:50` |
+| 78 | `System.Threading.ThreadPool` | `GetMinThreadsNative` | public/private/static | `System.Threading.ThreadPool::GetMinThreads` | 1 | `（直接调用）` | `MethodMap.ThreadPool.cs:49` |
+| 79 | `System.TimeSpan` | `LegacyFormatMode` | public/private/static | `System.TimeSpan::ToString` | 3 | `System.TimeSpan::GetLegacyFormatMode → System.TimeSpan::get_LegacyMode → System.TimeSpan::ToString` | `MethodMap.TimeSpan.cs:98` |
+| 80 | `System.Type` | `GetTypeFromHandleUnsafe` | public/internal/static | `System.ArgIterator::GetNextArgType` | 1 | `（直接调用）` | `MethodMap.Legacy.cs:336` |
+| 81 | `System.WeakReference` | `Create` | public/private/instance | `System.WeakReference::.ctor` | 1 | `（直接调用）` | `MethodMap.WeakReference.cs:33` |
 
 ### 3.7 部分影子清单
 
@@ -1037,7 +1035,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 
 下面这些运行时实现是**空体或单一 `return <常量>;`**：它永远返回同一个字面量、完全不看参数，或者干脆什么都不做。它们不是「LOUD 拒绝」（不是明确抛异常），也不是「无接线」（能编译能链接），而是**能跑但答案恒定的静默偏差** —— 对 net48 byte-exact 来说等价于「编译通过、行为恒定」，不能算语义等价。
 
-扫描器（`tools/audit/parse_runtime_syms.py` 的 `is_constant_stub`）在 `src/runtime/src` 全表命中**80** 个恒值/空体桩。其中 **30** 个正好是 908 条 icall 的 dispatch 目标，所以那 30 条 icall 从「已接」改判为「半接」；其余是没有 icall 引用的运行时辅助符号，不在本审计的 908 条范围内，但同样是净偏差（一并列出，便于后续排查）。
+扫描器（`tools/audit/parse_runtime_syms.py` 的 `is_constant_stub`）在 `src/runtime/src` 全表命中**89** 个恒值/空体桩。其中 **27** 个正好是 908 条 icall 的 dispatch 目标，所以那 30 条 icall 从「已接」改判为「半接」；其余是没有 icall 引用的运行时辅助符号，不在本审计的 908 条范围内，但同样是净偏差（一并列出，便于后续排查）。
 
 | # | 运行时实现 | 源码位置 | 实现体 | 被 N 条 icall 命中 |
 |---|---|---|---|---|
@@ -1051,76 +1049,85 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 8 | `icall_compatibility_switch_is_enabled` | `src/runtime/src/appcontext.cpp:201` | `return 0;` | 1 |
 | 9 | `icall_datetime_get_type_code` | `src/runtime/src/time.cpp:1075` | `return 16; // TypeCode.DateTime (referencesource mscorlib/system/typecode.cs:44).` | 0 |
 | 10 | `icall_delegate_find_method_handle` | `src/runtime/src/delegateext.cpp:694` | `return nullptr; // no method handle in the simplified model` | 1 |
-| 11 | `icall_environment_get_has_shutdown_started` | `src/runtime/src/environment.cpp:531` | `return 0;` | 1 |
-| 12 | `icall_environment_get_is_64bit_operating_system` | `src/runtime/src/stubs.cpp:963` | `return 1; // all supported targets are 64-bit operating systems` | 0 |
-| 13 | `icall_environment_get_user_interactive` | `src/runtime/src/environment.cpp:1142` | `return 1;` | 0 |
-| 14 | `icall_exception_get_exception_count` | `src/runtime/src/stubs.cpp:703` | `return 0;` | 0 |
-| 15 | `icall_exception_get_null_ref` | `src/runtime/src/stubs.cpp:697` | `return nullptr;` | 0 |
-| 16 | `icall_exception_save_stack_traces_from_deep_copy` | `src/runtime/src/stubs.cpp:47` | `void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject*)` | 1 |
-| 17 | `icall_gc_add_memory_pressure` | `src/runtime/src/gcapi.cpp:177` | `void icall_gc_add_memory_pressure(int64_t bytesAllocated)` | 0 |
-| 18 | `icall_gc_allocate_new_array` | `src/runtime/src/stubs.cpp:37` | `return nullptr; // stub` | 0 |
-| 19 | `icall_gc_is_server_gc` | `src/runtime/src/gcapi.cpp:167` | `return 0; // workstation collector model` | 1 |
-| 20 | `icall_gc_keep_alive` | `src/runtime/src/gcapi.cpp:63` | `void icall_gc_keep_alive(Il2CppObject* obj)` | 0 |
-| 21 | `icall_gc_register_for_gc_reporting` | `src/runtime/src/gcapi.cpp:189` | `void icall_gc_register_for_gc_reporting()` | 0 |
-| 22 | `icall_gc_remove_memory_pressure` | `src/runtime/src/gcapi.cpp:182` | `void icall_gc_remove_memory_pressure(int64_t bytesAllocated)` | 0 |
-| 23 | `icall_gc_unregister_for_gc_reporting` | `src/runtime/src/gcapi.cpp:194` | `void icall_gc_unregister_for_gc_reporting()` | 0 |
-| 24 | `icall_jit_info_get_compiled_il_bytes` | `src/runtime/src/stubs.cpp:715` | `return 0;` | 0 |
-| 25 | `icall_jit_info_get_compiled_method_count` | `src/runtime/src/stubs.cpp:721` | `return 0;` | 0 |
-| 26 | `icall_marshal_get_exception_code` | `src/runtime/src/marshalext3.cpp:265` | `return 0;` | 1 |
-| 27 | `icall_marshal_get_exception_pointers` | `src/runtime/src/marshalext3.cpp:275` | `return 0;` | 1 |
-| 28 | `icall_reader_writer_lock_any_writers_since` | `src/runtime/src/stubs.cpp:1210` | `return 0;` | 1 |
-| 29 | `icall_stack_trace_get_stack_frames_internal` | `src/runtime/src/stubs.cpp:757` | `void icall_stack_trace_get_stack_frames_internal(Il2CppObject*, int32_t, int32_t, Il2CppObject*)` | 1 |
-| 30 | `icall_stacktrace_ctor` | `src/runtime/src/stubs.cpp:744` | `void icall_stacktrace_ctor(Il2CppObject*)` | 0 |
-| 31 | `icall_thread_begin_critical_region` | `src/runtime/src/thread.cpp:120` | `void icall_thread_begin_critical_region()` | 1 |
-| 32 | `icall_thread_begin_thread_affinity` | `src/runtime/src/thread.cpp:184` | `void icall_thread_begin_thread_affinity()` | 1 |
-| 33 | `icall_thread_disable_com_object_eager_cleanup` | `src/runtime/src/thread.cpp:199` | `void icall_thread_disable_com_object_eager_cleanup(Il2CppObject* /*self*/)` | 1 |
-| 34 | `icall_thread_end_critical_region` | `src/runtime/src/thread.cpp:124` | `void icall_thread_end_critical_region()` | 1 |
-| 35 | `icall_thread_end_thread_affinity` | `src/runtime/src/thread.cpp:188` | `void icall_thread_end_thread_affinity()` | 1 |
-| 36 | `icall_thread_get_priority` | `src/runtime/src/thread.cpp:114` | `return 0; // ThreadPriority.Normal (the single-threaded model)` | 0 |
-| 37 | `icall_threadobj_clear_abort_reason` | `src/runtime/src/threadobj.cpp:735` | `void icall_threadobj_clear_abort_reason(Il2CppObject* self)` | 1 |
-| 38 | `icall_threadobj_get_abort_reason` | `src/runtime/src/threadobj.cpp:732` | `return nullptr; // no abort reason in simplified model` | 1 |
-| 39 | `icall_threadobj_get_apartment_state_native` | `src/runtime/src/threadobj.cpp:752` | `return 0; // MTA` | 1 |
-| 40 | `icall_threadobj_get_context_internal` | `src/runtime/src/threadobj.cpp:714` | `return nullptr; // no context in simplified model` | 1 |
-| 41 | `icall_threadobj_get_optimal_max_spin_waits` | `src/runtime/src/threadobj.cpp:770` | `return 1; // default spin count` | 0 |
-| 42 | `icall_threadobj_internal_cross_context_callback` | `src/runtime/src/threadobj.cpp:720` | `return nullptr; // no cross-context callback in simplified model` | 1 |
-| 43 | `icall_threadobj_internal_get_current_thread` | `src/runtime/src/threadobj.cpp:708` | `return nullptr; // no current thread in simplified model` | 1 |
-| 44 | `icall_threadobj_interrupt` | `src/runtime/src/threadobj.cpp:761` | `void icall_threadobj_interrupt(Il2CppObject* self)` | 0 |
-| 45 | `icall_threadobj_restore_app_domain_stack` | `src/runtime/src/threadobj.cpp:700` | `void icall_threadobj_restore_app_domain_stack(Il2CppObject* self)` | 1 |
-| 46 | `icall_threadobj_set_abort_reason` | `src/runtime/src/threadobj.cpp:723` | `void icall_threadobj_set_abort_reason(Il2CppObject* self, Il2CppObject* reason)` | 1 |
-| 47 | `icall_threadobj_set_apartment_state_native` | `src/runtime/src/threadobj.cpp:758` | `return true; // always succeeds` | 1 |
-| 48 | `icall_threadobj_set_app_domain_stack` | `src/runtime/src/threadobj.cpp:694` | `void icall_threadobj_set_app_domain_stack(Il2CppObject* self, int32_t stackSize)` | 1 |
-| 49 | `icall_threadobj_set_is_thread_pool_thread` | `src/runtime/src/threadobj.cpp:743` | `void icall_threadobj_set_is_thread_pool_thread(Il2CppObject* self, bool value)` | 0 |
-| 50 | `icall_type_get_type_from_handle_unsafe` | `src/runtime/src/stubs.cpp:709` | `return nullptr; // stub` | 1 |
-| 51 | `icall_web_client_ctor` | `src/runtime/src/http.cpp:637` | `void icall_web_client_ctor(Il2CppObject* self)` | 0 |
-| 52 | `il2cpp_assembly_get_is_collectible` | `src/runtime/src/icallb.cpp:48` | `return 0; // AOT static assembly: never collectible` | 0 |
-| 53 | `il2cpp_assembly_get_is_dynamic` | `src/runtime/src/icallb.cpp:43` | `return 0; // AOT static assembly: never dynamic (net48 Assembly.IsDynamic)` | 0 |
-| 54 | `il2cpp_bitconverter_get_is_little_endian` | `src/runtime/src/bitconverter.cpp:377` | `return 1;` | 0 |
-| 55 | `il2cpp_culture_get_invariant_lcid` | `src/runtime/src/cultureinfo.cpp:143` | `return 127;` | 0 |
-| 56 | `il2cpp_debugger_break` | `src/runtime/src/debuggerext.cpp:29` | `void il2cpp_debugger_break()` | 0 |
-| 57 | `il2cpp_debugger_is_attached` | `src/runtime/src/debuggerext.cpp:21` | `return 0;` | 1 |
-| 58 | `il2cpp_debugger_is_logging` | `src/runtime/src/debuggerext.cpp:26` | `return 0;` | 1 |
-| 59 | `il2cpp_dict_gen_enumerator_dispose` | `src/runtime/src/dictgen.cpp:894` | `void il2cpp_dict_gen_enumerator_dispose(Il2CppObject* self)` | 0 |
-| 60 | `il2cpp_dict_si_enumerator_dispose` | `src/runtime/src/dictsi_obj.cpp:371` | `void il2cpp_dict_si_enumerator_dispose(Il2CppObject* self)` | 0 |
-| 61 | `il2cpp_dict_si_keycollection_enumerator_dispose` | `src/runtime/src/dictsi_obj.cpp:433` | `void il2cpp_dict_si_keycollection_enumerator_dispose(Il2CppObject* self)` | 0 |
-| 62 | `il2cpp_dict_si_valuecollection_enumerator_dispose` | `src/runtime/src/dictsi_obj.cpp:473` | `void il2cpp_dict_si_valuecollection_enumerator_dispose(Il2CppObject* self)` | 0 |
-| 63 | `il2cpp_gc_get_is_server_gc` | `src/runtime/src/gc.cpp:2159` | `return false;` | 0 |
-| 64 | `il2cpp_interlocked_speculation_barrier` | `src/runtime/src/interlocked.cpp:186` | `void il2cpp_interlocked_speculation_barrier()` | 1 |
-| 65 | `il2cpp_list_i4_enumerator_dispose` | `src/runtime/src/listi4.cpp:1523` | `void il2cpp_list_i4_enumerator_dispose(Il2CppObject* self)` | 0 |
-| 66 | `il2cpp_number_format_currency_decimal_digits` | `src/runtime/src/numberformat.cpp:1189` | `return 2;` | 0 |
-| 67 | `il2cpp_number_format_currency_positive_pattern` | `src/runtime/src/numberformat.cpp:1194` | `return 0; // zh-CN && invariant: "¥n" (symbol precedes the value)` | 0 |
-| 68 | `il2cpp_number_format_digit_substitution` | `src/runtime/src/numberformat.cpp:1262` | `return 1;` | 0 |
-| 69 | `il2cpp_number_format_is_read_only` | `src/runtime/src/numberformat.cpp:1270` | `return true;` | 0 |
-| 70 | `il2cpp_number_format_number_decimal_digits` | `src/runtime/src/numberformat.cpp:1184` | `return 2;` | 0 |
-| 71 | `il2cpp_number_format_number_negative_pattern` | `src/runtime/src/numberformat.cpp:1179` | `return 1; // zh-CN && invariant: "-n" (leading minus)` | 0 |
-| 72 | `il2cpp_number_format_percent_decimal_digits` | `src/runtime/src/numberformat.cpp:1217` | `return 2;` | 0 |
-| 73 | `il2cpp_process_flush_stdin` | `src/runtime/src/pathproc.cpp:1247` | `void il2cpp_process_flush_stdin(int32_t pid)` | 0 |
-| 74 | `il2cpp_process_get_stdin_autofush` | `src/runtime/src/pathproc.cpp:1257` | `return 1; // writes always flush (documented deviation from net48 default)` | 0 |
-| 75 | `il2cpp_process_set_stdin_autofush` | `src/runtime/src/pathproc.cpp:1260` | `void il2cpp_process_set_stdin_autofush(int32_t pid, int32_t value)` | 0 |
-| 76 | `il2cpp_sortedlist_enumerator_dispose` | `src/runtime/src/sortedlist.cpp:1037` | `void il2cpp_sortedlist_enumerator_dispose(Il2CppObject* self)` | 0 |
-| 77 | `il2cpp_thread_join` | `src/runtime/src/threadext.cpp:26` | `void il2cpp_thread_join(int32_t thread_id)` | 0 |
-| 78 | `il2cpp_thread_set_priority` | `src/runtime/src/threadext.cpp:34` | `void il2cpp_thread_set_priority(int32_t priority)` | 0 |
-| 79 | `il2cpp_threadpool_set_max_threads` | `src/runtime/src/threadpool.cpp:312` | `void il2cpp_threadpool_set_max_threads(int32_t maxThreads)` | 0 |
-| 80 | `il2cpp_typeinfo_is_contains_generic_params` | `src/runtime/src/typeinfo.cpp:2791` | `return 0;` | 0 |
+| 11 | `icall_environment_get_is_64bit_operating_system` | `src/runtime/src/stubs.cpp:952` | `return 1; // all supported targets are 64-bit operating systems` | 0 |
+| 12 | `icall_environment_get_user_interactive` | `src/runtime/src/environment.cpp:1190` | `return 1;` | 0 |
+| 13 | `icall_exception_get_exception_count` | `src/runtime/src/stubs.cpp:703` | `return 0;` | 0 |
+| 14 | `icall_exception_get_null_ref` | `src/runtime/src/stubs.cpp:697` | `return nullptr;` | 0 |
+| 15 | `icall_exception_is_immutable_agile_exception` | `src/runtime/src/exceptionext.cpp:328` | `return false;` | 0 |
+| 16 | `icall_exception_prepare_for_foreign_exception_raise` | `src/runtime/src/exceptionext.cpp:338` | `void icall_exception_prepare_for_foreign_exception_raise()` | 1 |
+| 17 | `icall_exception_save_stack_traces_from_deep_copy` | `src/runtime/src/stubs.cpp:47` | `void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject*)` | 1 |
+| 18 | `icall_gc_add_memory_pressure` | `src/runtime/src/gcapi.cpp:190` | `void icall_gc_add_memory_pressure(int64_t bytesAllocated)` | 0 |
+| 19 | `icall_gc_allocate_new_array` | `src/runtime/src/stubs.cpp:37` | `return nullptr; // stub` | 0 |
+| 20 | `icall_gc_enable_no_gc_region_callback` | `src/runtime/src/gcapi.cpp:234` | `return 1;` | 0 |
+| 21 | `icall_gc_end_no_gc_region` | `src/runtime/src/gcapi.cpp:225` | `return 1;` | 0 |
+| 22 | `icall_gc_enumerate_configuration_values` | `src/runtime/src/gcapi.cpp:238` | `void icall_gc_enumerate_configuration_values(void* configurationDictionary, void* callback)` | 0 |
+| 23 | `icall_gc_is_server_gc` | `src/runtime/src/gcapi.cpp:180` | `return 0; // workstation collector model` | 1 |
+| 24 | `icall_gc_keep_alive` | `src/runtime/src/gcapi.cpp:79` | `void icall_gc_keep_alive(Il2CppObject* obj)` | 0 |
+| 25 | `icall_gc_refresh_memory_limit` | `src/runtime/src/gcapi.cpp:311` | `// call completes without changing anything (measured: normal return).` | 0 |
+| 26 | `icall_gc_refresh_memory_limit_internal` | `src/runtime/src/gcapi.cpp:319` | `return 0;` | 0 |
+| 27 | `icall_gc_register_for_gc_reporting` | `src/runtime/src/gcapi.cpp:202` | `void icall_gc_register_for_gc_reporting()` | 0 |
+| 28 | `icall_gc_remove_memory_pressure` | `src/runtime/src/gcapi.cpp:195` | `void icall_gc_remove_memory_pressure(int64_t bytesAllocated)` | 0 |
+| 29 | `icall_gc_unregister_for_gc_reporting` | `src/runtime/src/gcapi.cpp:207` | `void icall_gc_unregister_for_gc_reporting()` | 0 |
+| 30 | `icall_gc_unregister_frozen_segment` | `src/runtime/src/gcapi.cpp:266` | `void icall_gc_unregister_frozen_segment(intptr_t segmentHandle)` | 0 |
+| 31 | `icall_jit_info_get_compiled_il_bytes` | `src/runtime/src/stubs.cpp:715` | `return 0;` | 0 |
+| 32 | `icall_jit_info_get_compiled_method_count` | `src/runtime/src/stubs.cpp:721` | `return 0;` | 0 |
+| 33 | `icall_marshal_get_exception_code` | `src/runtime/src/marshalext3.cpp:268` | `return 0;` | 1 |
+| 34 | `icall_marshal_get_exception_pointers` | `src/runtime/src/marshalext3.cpp:278` | `return 0;` | 1 |
+| 35 | `icall_runtime_helpers_compile_method` | `src/runtime/src/runtimehelpers.cpp:274` | `void icall_runtime_helpers_compile_method(intptr_t methodHandle)` | 0 |
+| 36 | `icall_runtime_helpers_prepare_contracted_delegate` | `src/runtime/src/runtimehelpers.cpp:178` | `void icall_runtime_helpers_prepare_contracted_delegate(Il2CppObject* d)` | 1 |
+| 37 | `icall_runtime_helpers_prepare_delegate` | `src/runtime/src/runtimehelpers.cpp:172` | `// return without throwing and without observable side effects -- it is a` | 1 |
+| 38 | `icall_runtime_helpers_prepare_method` | `src/runtime/src/runtimehelpers.cpp:283` | `void icall_runtime_helpers_prepare_method(intptr_t methodHandle, void* instantiation,` | 0 |
+| 39 | `icall_runtime_helpers_probe_for_sufficient_stack` | `src/runtime/src/runtimehelpers.cpp:208` | `void icall_runtime_helpers_probe_for_sufficient_stack()` | 1 |
+| 40 | `icall_stack_trace_get_stack_frames_internal` | `src/runtime/src/stubs.cpp:746` | `void icall_stack_trace_get_stack_frames_internal(Il2CppObject*, int32_t, int32_t, Il2CppObject*)` | 0 |
+| 41 | `icall_stackframe_get_file_name` | `src/runtime/src/stacktrace.cpp:378` | `return nullptr;` | 0 |
+| 42 | `icall_stackframe_get_unknown_offset` | `src/runtime/src/stacktrace.cpp:394` | `return -1;           // net48: no offset information on this frame` | 0 |
+| 43 | `icall_thread_begin_critical_region` | `src/runtime/src/thread.cpp:157` | `void icall_thread_begin_critical_region()` | 1 |
+| 44 | `icall_thread_begin_thread_affinity` | `src/runtime/src/thread.cpp:225` | `void icall_thread_begin_thread_affinity()` | 1 |
+| 45 | `icall_thread_disable_com_object_eager_cleanup` | `src/runtime/src/thread.cpp:243` | `void icall_thread_disable_com_object_eager_cleanup(Il2CppObject* /*self*/)` | 1 |
+| 46 | `icall_thread_end_critical_region` | `src/runtime/src/thread.cpp:161` | `void icall_thread_end_critical_region()` | 1 |
+| 47 | `icall_thread_end_thread_affinity` | `src/runtime/src/thread.cpp:229` | `void icall_thread_end_thread_affinity()` | 1 |
+| 48 | `icall_thread_get_priority` | `src/runtime/src/thread.cpp:145` | `return 0; // ThreadPriority.Normal (the single-threaded model)` | 0 |
+| 49 | `icall_threadobj_clear_abort_reason` | `src/runtime/src/threadobj.cpp:735` | `void icall_threadobj_clear_abort_reason(Il2CppObject* self)` | 1 |
+| 50 | `icall_threadobj_get_abort_reason` | `src/runtime/src/threadobj.cpp:732` | `return nullptr; // no abort reason in simplified model` | 1 |
+| 51 | `icall_threadobj_get_apartment_state_native` | `src/runtime/src/threadobj.cpp:752` | `return 0; // MTA` | 1 |
+| 52 | `icall_threadobj_get_context_internal` | `src/runtime/src/threadobj.cpp:714` | `return nullptr; // no context in simplified model` | 1 |
+| 53 | `icall_threadobj_get_optimal_max_spin_waits` | `src/runtime/src/threadobj.cpp:770` | `return 1; // default spin count` | 0 |
+| 54 | `icall_threadobj_internal_cross_context_callback` | `src/runtime/src/threadobj.cpp:720` | `return nullptr; // no cross-context callback in simplified model` | 1 |
+| 55 | `icall_threadobj_internal_get_current_thread` | `src/runtime/src/threadobj.cpp:708` | `return nullptr; // no current thread in simplified model` | 1 |
+| 56 | `icall_threadobj_interrupt` | `src/runtime/src/threadobj.cpp:761` | `void icall_threadobj_interrupt(Il2CppObject* self)` | 0 |
+| 57 | `icall_threadobj_restore_app_domain_stack` | `src/runtime/src/threadobj.cpp:700` | `void icall_threadobj_restore_app_domain_stack(Il2CppObject* self)` | 1 |
+| 58 | `icall_threadobj_set_abort_reason` | `src/runtime/src/threadobj.cpp:723` | `void icall_threadobj_set_abort_reason(Il2CppObject* self, Il2CppObject* reason)` | 1 |
+| 59 | `icall_threadobj_set_apartment_state_native` | `src/runtime/src/threadobj.cpp:758` | `return true; // always succeeds` | 1 |
+| 60 | `icall_threadobj_set_app_domain_stack` | `src/runtime/src/threadobj.cpp:694` | `void icall_threadobj_set_app_domain_stack(Il2CppObject* self, int32_t stackSize)` | 1 |
+| 61 | `icall_threadobj_set_is_thread_pool_thread` | `src/runtime/src/threadobj.cpp:743` | `void icall_threadobj_set_is_thread_pool_thread(Il2CppObject* self, bool value)` | 0 |
+| 62 | `icall_type_get_type_from_handle_unsafe` | `src/runtime/src/stubs.cpp:709` | `return nullptr; // stub` | 0 |
+| 63 | `icall_web_client_ctor` | `src/runtime/src/http.cpp:637` | `void icall_web_client_ctor(Il2CppObject* self)` | 0 |
+| 64 | `il2cpp_assembly_get_is_collectible` | `src/runtime/src/icallb.cpp:48` | `return 0; // AOT static assembly: never collectible` | 0 |
+| 65 | `il2cpp_assembly_get_is_dynamic` | `src/runtime/src/icallb.cpp:43` | `return 0; // AOT static assembly: never dynamic (net48 Assembly.IsDynamic)` | 0 |
+| 66 | `il2cpp_bitconverter_get_is_little_endian` | `src/runtime/src/bitconverter.cpp:377` | `return 1;` | 0 |
+| 67 | `il2cpp_culture_get_invariant_lcid` | `src/runtime/src/cultureinfo.cpp:143` | `return 127;` | 0 |
+| 68 | `il2cpp_debugger_break` | `src/runtime/src/debuggerext.cpp:95` | `void il2cpp_debugger_break()` | 0 |
+| 69 | `il2cpp_dict_gen_enumerator_dispose` | `src/runtime/src/dictgen.cpp:1767` | `void il2cpp_dict_gen_enumerator_dispose(Il2CppObject* self)` | 0 |
+| 70 | `il2cpp_dict_si_enumerator_dispose` | `src/runtime/src/dictsi_obj.cpp:503` | `void il2cpp_dict_si_enumerator_dispose(Il2CppObject* self)` | 0 |
+| 71 | `il2cpp_dict_si_keycollection_enumerator_dispose` | `src/runtime/src/dictsi_obj.cpp:565` | `void il2cpp_dict_si_keycollection_enumerator_dispose(Il2CppObject* self)` | 0 |
+| 72 | `il2cpp_dict_si_valuecollection_enumerator_dispose` | `src/runtime/src/dictsi_obj.cpp:605` | `void il2cpp_dict_si_valuecollection_enumerator_dispose(Il2CppObject* self)` | 0 |
+| 73 | `il2cpp_gc_get_is_server_gc` | `src/runtime/src/gc.cpp:2426` | `return false;` | 0 |
+| 74 | `il2cpp_list_i4_enumerator_dispose` | `src/runtime/src/listi4.cpp:1523` | `void il2cpp_list_i4_enumerator_dispose(Il2CppObject* self)` | 0 |
+| 75 | `il2cpp_number_format_currency_decimal_digits` | `src/runtime/src/numberformat.cpp:1189` | `return 2;` | 0 |
+| 76 | `il2cpp_number_format_currency_positive_pattern` | `src/runtime/src/numberformat.cpp:1194` | `return 0; // zh-CN && invariant: "¥n" (symbol precedes the value)` | 0 |
+| 77 | `il2cpp_number_format_digit_substitution` | `src/runtime/src/numberformat.cpp:1262` | `return 1;` | 0 |
+| 78 | `il2cpp_number_format_is_read_only` | `src/runtime/src/numberformat.cpp:1270` | `return true;` | 0 |
+| 79 | `il2cpp_number_format_number_decimal_digits` | `src/runtime/src/numberformat.cpp:1184` | `return 2;` | 0 |
+| 80 | `il2cpp_number_format_number_negative_pattern` | `src/runtime/src/numberformat.cpp:1179` | `return 1; // zh-CN && invariant: "-n" (leading minus)` | 0 |
+| 81 | `il2cpp_number_format_percent_decimal_digits` | `src/runtime/src/numberformat.cpp:1217` | `return 2;` | 0 |
+| 82 | `il2cpp_process_flush_stdin` | `src/runtime/src/pathproc.cpp:1247` | `void il2cpp_process_flush_stdin(int32_t pid)` | 0 |
+| 83 | `il2cpp_process_get_stdin_autofush` | `src/runtime/src/pathproc.cpp:1257` | `return 1; // writes always flush (documented deviation from net48 default)` | 0 |
+| 84 | `il2cpp_process_set_stdin_autofush` | `src/runtime/src/pathproc.cpp:1260` | `void il2cpp_process_set_stdin_autofush(int32_t pid, int32_t value)` | 0 |
+| 85 | `il2cpp_sortedlist_enumerator_dispose` | `src/runtime/src/sortedlist.cpp:1037` | `void il2cpp_sortedlist_enumerator_dispose(Il2CppObject* self)` | 0 |
+| 86 | `il2cpp_thread_join` | `src/runtime/src/threadext.cpp:26` | `void il2cpp_thread_join(int32_t thread_id)` | 0 |
+| 87 | `il2cpp_thread_set_priority` | `src/runtime/src/threadext.cpp:34` | `void il2cpp_thread_set_priority(int32_t priority)` | 0 |
+| 88 | `il2cpp_threadpool_set_max_threads` | `src/runtime/src/threadpool.cpp:312` | `void il2cpp_threadpool_set_max_threads(int32_t maxThreads)` | 0 |
+| 89 | `il2cpp_typeinfo_is_contains_generic_params` | `src/runtime/src/typeinfo.cpp:2791` | `return 0;` | 0 |
 
 逐条影响（命中 icall 的那些）：任何**依赖真值**的 net48 程序都会静默走错分支 ——
 `Debugger.IsAttached`/`IsLogging` 恒 false、`GC.IsServerGC` 恒 false、
@@ -1146,11 +1153,11 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 项目 | 旧结论 | 本次实测 | 结论 |
 |---|---|---|---|
 | public 面键数（owner+name 折叠，旧文档口径） | 121 | **121** | 保持（口径一致，可对齐比较：20 个键是同名重载折叠） |
-| public 面键级已接（折叠口径） | 54 | **79** | **推翻**：增加 25 个键 |
-| public 面键级缺口（折叠口径） | 67 | **42**（LOUD 25 + 半接 12 + 无接线 5） | **推翻**：减少 25 个键；但注意其中 12 个键是**恒值桩**（§3.8） |
+| public 面键级已接（折叠口径） | 54 | **111** | **推翻**：增加 57 个键 |
+| public 面键级缺口（折叠口径） | 67 | **10**（LOUD 0 + 半接 10 + 无接线 0） | **推翻**：减少 57 个键；但注意其中 10 个键是**恒值桩**（§3.8） |
 | public 面行数（owner+name+签名，本版口径） | — | **141** | 同名重载各自成行，判定不再互相污染 |
-| public 面行级已接（签名精确） | — | **99** | 与上面的键级数字不可直接相减 |
-| public 面行级缺口（签名精确） | — | **42**（半接 12 + LOUD 25 + 无接线 5） | 剩余缺口的绝大多数是显式 LOUD 拒绝，不再是静默幽灵调用 |
+| public 面行级已接（签名精确） | — | **131** | 与上面的键级数字不可直接相减 |
+| public 面行级缺口（签名精确） | — | **10**（半接 10 + LOUD 0 + 无接线 0） | 剩余缺口的绝大多数是显式 LOUD 拒绝，不再是静默幽灵调用 |
 
 ### 4.3 被推翻的具体旧结论
 
@@ -1162,11 +1169,11 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 2 | `System.String.IndexOfAny` 缺 | 已接 — → `icall_string_index_of_any_range` | `MethodMap.String.cs:92` |
 | 3 | `System.String.LastIndexOfAny` 缺 | 已接 — → `icall_string_last_index_of_any_range` | `MethodMap.String.cs:114` |
 | 4 | `System.Array.get_Rank` 缺 | 已接 — → `icall_array_get_rank` | `MethodMap.Array.cs:1096` |
-| 5 | `System.ValueType.GetHashCode` 缺 | 已接 — → `icall_value_type_get_hash_code`（首字段分类） | `MethodMap.ValueType.cs:495` |
+| 5 | `System.ValueType.GetHashCode` 缺 | 已接 — → `icall_value_type_get_hash_code`（首字段分类） | `CodeGenerator.cs:1493` |
 | 6 | `System.Runtime.InteropServices.Marshal.UnsafeAddrOfPinnedArrayElement` 缺 | 已接 — → `icall_marshal_unsafe_addr_of_pinned_array_element` | `MethodMap.Marshal.cs:421` |
-| 7 | `System.Diagnostics.Debugger.get_IsAttached` 缺 | 半接 — → `il2cpp_debugger_is_attached`（**运行时是 `return 0;` 恒值桩，见 §3.8**） | `debuggerext.cpp:21` |
+| 7 | `System.Diagnostics.Debugger.get_IsAttached` 缺 | 已接 — → `il2cpp_debugger_is_attached`（**运行时是 `return 0;` 恒值桩，见 §3.8**） | `MethodMap.Debugger.cs:40` |
 | 8 | `System.Runtime.InteropServices.Marshal.GetHRForException` 缺 | 已接 — → `icall_marshal_get_hr_for_exception` | `MethodMap.Marshal.cs:431` |
-| 9 | `System.Runtime.InteropServices.Marshal.GetExceptionPointers` 缺 | 半接 — → `icall_marshal_get_exception_pointers`（**运行时是 `return 0;` 恒值桩，见 §3.8**） | `marshalext3.cpp:275` |
+| 9 | `System.Runtime.InteropServices.Marshal.GetExceptionPointers` 缺 | 半接 — → `icall_marshal_get_exception_pointers`（**运行时是 `return 0;` 恒值桩，见 §3.8**） | `marshalext3.cpp:278` |
 | 10 | `System.Runtime.InteropServices.SafeHandle.DangerousAddRef` 缺 | 已接 — SafeHandle 三项 → `icall_safehandle_dangerous_add_ref` 等 | `MethodMap.SafeHandle.cs:40` |
 
 **B. 旧文档 §4 分域缺口表 —— 11 条具体条目被推翻**：
@@ -1178,7 +1185,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | `System.Runtime.InteropServices.SafeHandle.SetHandleAsInvalid` 称缺口 | 已接 | `MethodMap.SafeHandle.cs:52` |
 | `System.Enum.Equals` 称缺口 | 已接 | `MethodMap.Enum.cs:363` |
 | `System.Type.op_Inequality` 称缺口 | 已接 | `MethodMap.Type.cs:549` |
-| `System.Threading.Interlocked.SpeculationBarrier` 称缺口 | 半接 | `interlocked.cpp:186` |
+| `System.Threading.Interlocked.SpeculationBarrier` 称缺口 | 已接 | `MethodMap.Interlocked.cs:146` |
 | `System.Threading.Thread.MemoryBarrier` 称缺口 | 已接 | `MethodMap.Thread.cs:63` |
 | `System.Threading.Thread.get_IsThreadPoolThread` 称缺口 | 已接 | `MethodMap.Thread.cs:105` |
 | `System.Array.get_LongLength` 称缺口 | 已接 | `MethodMap.Array.cs:1110` |
@@ -1188,12 +1195,12 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 **C. 旧文档 §6(b)「JIT/转译器已有语义，不算缺口」—— 2 条被推翻、4 条成立**：
 
 - `Thread.MemoryBarrier` / `Interlocked.SpeculationBarrier`：旧文档称「空实现即可」——**推翻**，两者都已是真实运行时 icall（`icall_thread_memory_barrier`、`il2cpp_interlocked_speculation_barrier`）。但 `SpeculationBarrier` 的实现本身是空体，按本版口径是**半接**（§3.8），所以「不算缺口」这个结论仍然不成立。
-- `RuntimeHelpers.InitializeArray`：旧文档称折叠即可、不算缺口 —— **部分推翻**。折叠路径存在（`StackFold.FoldInitializeArray`），但未折叠的形状现在被显式 LOUD 拒绝（`MethodMap.RuntimeHelpers.cs:108`）。
+- `RuntimeHelpers.InitializeArray`：旧文档称折叠即可、不算缺口 —— **部分推翻**。折叠路径存在（`StackFold.FoldInitializeArray`），但未折叠的形状现在被显式 LOUD 拒绝（`MethodMap.RuntimeHelpers.cs:195`）。
 - `Type.GetTypeFromHandle`：旧文档称已接 —— **成立**（`MethodMap.Type.cs:73`）。
 - `RuntimeHelpers.GetHashCode` / `Equals` / `GetObjectValue`：旧文档称可折叠 —— **成立**（`Equals`/`GetObjectValue` 走 `::refeq::` / `::identity::` 折叠标记，`GetHashCode` 走真实 icall）。
 
 **D. 旧文档 §7「内部 icall 764 个键由 public 包装承接」—— 口径被推翻**：
-严格按「icall 自身无接线、且最短 public 入口已接线且其重载组全部已接线」验证，只有 **74** 条成立（另有 16 条只部分成立），而不是按 owner 类型一概而论的 764。其余内部 icall 要么自身被接线，要么就是真缺口。
+严格按「icall 自身无接线、且最短 public 入口已接线且其重载组全部已接线」验证，只有 **81** 条成立（另有 16 条只部分成立），而不是按 owner 类型一概而论的 764。其余内部 icall 要么自身被接线，要么就是真缺口。
 
 ### 4.4 仍成立的旧结论（未被推翻）
 
@@ -1218,77 +1225,44 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 
 | 修订 | 旧值 | 新值 | 根因 |
 |---|---|---|---|
-| Q1 影子口径 | 影子 65（把 publicRoot 也塞进 public_faces，得 507 个假 public 面） | 影子 74 + 部分影子 16 | public face 必须只含真 public-face icall；影子必须标注跳数；泛型重载未映射的判部分影子 |
-| M1 恒值桩 | 已接 224 | 已接 194 / 半接 30 | 空体与 `return <常量>;` 也是桩，全表重扫出 30 条（远超点名的 4 条） |
-| M2 loud/half→shadow | LOUD 297 | LOUD 281 | 17 条 loud/half 的运行时分支实为死代码（depth-1 public 调用者全部检出真实实现） |
+| Q1 影子口径 | 影子 65（把 publicRoot 也塞进 public_faces，得 507 个假 public 面） | 影子 81 + 部分影子 16 | public face 必须只含真 public-face icall；影子必须标注跳数；泛型重载未映射的判部分影子 |
+| M1 恒值桩 | 已接 224 | 已接 231 / 半接 27 | 空体与 `return <常量>;` 也是桩，全表重扫出 27 条（远超点名的 4 条） |
+| M2 loud/half→shadow | LOUD 297 | LOUD 247 | 17 条 loud/half 的运行时分支实为死代码（depth-1 public 调用者全部检出真实实现） |
 | Q3 P2 降级 | P2 173 | P2 98 | 命名空间不得压过 `publicDistance == 1`；前缀匹配必须按类型全名 |
 
 ## 5. 下一步建议（P0/P1 优先队列）
 
-### 5.1 P0（42 条，用户可直接调用）
+### 5.1 P0（10 条，用户可直接调用）
 
 | 声明类型 | 方法 | 判定 | 建议 | 证据 |
 |---|---|---|---|---|
-| `System.ArgIterator` | `GetRemainingCount` | 缺（LOUD 拒绝） | vararg 语义，保持 LOUD | `MethodMap.Legacy.cs:232` |
-| `System.Diagnostics.Debugger` | `IsLogging` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `debuggerext.cpp:26` |
-| `System.Diagnostics.Debugger` | `get_IsAttached` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `debuggerext.cpp:21` |
-| `System.Environment` | `get_HasShutdownStarted` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `environment.cpp:531` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `EnsureSufficientExecutionStack` | 缺（LOUD 拒绝） | AOT 无托管栈上限，保持 LOUD 即可；若要「可跑」可返回空实现 | `MethodMap.RuntimeHelpers.cs:81` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `ExecuteCodeWithGuaranteedCleanup` | 缺（LOUD 拒绝） | CER 无语义，保持 LOUD；或在 try/finally 上做等价降级 | `MethodMap.RuntimeHelpers.cs:89` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `InitializeArray` | 缺（LOUD 拒绝） | 折叠已覆盖常见形状；剩余形状保持 LOUD（不要改成幽灵调用） | `MethodMap.RuntimeHelpers.cs:108` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `PrepareContractedDelegate` | 缺（LOUD 拒绝） | JIT 提示，AOT 下空实现即可（可降级为 wired） | `MethodMap.RuntimeHelpers.cs:77` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `PrepareDelegate` | 缺（LOUD 拒绝） | 同上，JIT 提示，空实现即可 | `MethodMap.RuntimeHelpers.cs:73` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `ProbeForSufficientStack` | 缺（LOUD 拒绝） | 同上，空实现即可 | `MethodMap.RuntimeHelpers.cs:85` |
-| `System.Runtime.InteropServices.ExtensibleClassFactory` | `RegisterObjectCreationCallback` | 缺（无接线） | 需单独评估 | `no wiring` |
-| `System.Runtime.InteropServices.Marshal` | `AddRef` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `AreComObjectsAvailableForCleanup` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `ChangeWrapperHandleStrength` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `CleanupUnusedObjectsInCurrentContext` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `CreateAggregatedObject` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `GetEndComSlot` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `GetExceptionCode` | 半接 | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `marshalext3.cpp:265` |
-| `System.Runtime.InteropServices.Marshal` | `GetExceptionPointers` | 半接 | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `marshalext3.cpp:275` |
-| `System.Runtime.InteropServices.Marshal` | `GetITypeInfoForType` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `GetManagedThunkForUnmanagedMethodPtr` | 缺（无接线） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `no wiring` |
-| `System.Runtime.InteropServices.Marshal` | `GetMethodInfoForComSlot` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `GetStartComSlot` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `GetTypeLibLcid` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `GetTypedObjectForIUnknown` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `GetUniqueObjectForIUnknown` | 缺（无接线） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `no wiring` |
-| `System.Runtime.InteropServices.Marshal` | `GetUnmanagedThunkForManagedMethodPtr` | 缺（无接线） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `no wiring` |
-| `System.Runtime.InteropServices.Marshal` | `IsTypeVisibleFromCom` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.InteropServices.Marshal` | `QueryInterface` | 缺（无接线） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `no wiring` |
-| `System.Runtime.InteropServices.Marshal` | `Release` | 缺（LOUD 拒绝） | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `MethodMap.Marshal.cs:86` |
-| `System.Runtime.Remoting.Proxies.RealProxy` | `GetProxiedType` | 缺（LOUD 拒绝） | legacy remoting，保持 LOUD | `MethodMap.Legacy.cs:44` |
-| `System.Runtime.Remoting.Proxies.RealProxy` | `GetStubData` | 缺（LOUD 拒绝） | legacy remoting，保持 LOUD | `MethodMap.Legacy.cs:44` |
-| `System.Runtime.Remoting.Proxies.RealProxy` | `SetStubData` | 缺（LOUD 拒绝） | legacy remoting，保持 LOUD | `MethodMap.Legacy.cs:44` |
-| `System.Runtime.Remoting.RemotingServices` | `GetRealProxy` | 缺（LOUD 拒绝） | legacy remoting，保持 LOUD | `MethodMap.Legacy.cs:44` |
-| `System.Runtime.Remoting.RemotingServices` | `IsTransparentProxy` | 缺（LOUD 拒绝） | legacy remoting，保持 LOUD | `MethodMap.Legacy.cs:44` |
-| `System.Threading.Interlocked` | `SpeculationBarrier` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `interlocked.cpp:186` |
-| `System.Threading.ReaderWriterLock` | `AnyWritersSince` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `stubs.cpp:1210` |
-| `System.Threading.Thread` | `BeginCriticalRegion` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:120` |
-| `System.Threading.Thread` | `BeginThreadAffinity` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:184` |
-| `System.Threading.Thread` | `DisableComObjectEagerCleanup` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:199` |
-| `System.Threading.Thread` | `EndCriticalRegion` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:124` |
-| `System.Threading.Thread` | `EndThreadAffinity` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:188` |
+| `System.Runtime.CompilerServices.RuntimeHelpers` | `PrepareContractedDelegate` | 半接 | JIT 提示，AOT 下空实现即可（可降级为 wired） | `runtimehelpers.cpp:178` |
+| `System.Runtime.CompilerServices.RuntimeHelpers` | `PrepareDelegate` | 半接 | 同上，JIT 提示，空实现即可 | `runtimehelpers.cpp:172` |
+| `System.Runtime.CompilerServices.RuntimeHelpers` | `ProbeForSufficientStack` | 半接 | 同上，空实现即可 | `runtimehelpers.cpp:208` |
+| `System.Runtime.InteropServices.Marshal` | `GetExceptionCode` | 半接 | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `marshalext3.cpp:268` |
+| `System.Runtime.InteropServices.Marshal` | `GetExceptionPointers` | 半接 | COM/interop 面，保持 LOUD（明确不支持优于幽灵调用） | `marshalext3.cpp:278` |
+| `System.Threading.Thread` | `BeginCriticalRegion` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:157` |
+| `System.Threading.Thread` | `BeginThreadAffinity` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:225` |
+| `System.Threading.Thread` | `DisableComObjectEagerCleanup` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:243` |
+| `System.Threading.Thread` | `EndCriticalRegion` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:161` |
+| `System.Threading.Thread` | `EndThreadAffinity` | 半接 | 替换恒值桩为真实实现（当前静默返回常量） | `thread.cpp:229` |
 
-### 5.2 P1（219 条，常见 BCL API 间接可达）
+### 5.2 P1（209 条，常见 BCL API 间接可达）
 
 按属主聚合，优先处理「用户高频 API 会走到的内部 icall」：
 
 | 属主 | 条数 | 说明 |
 |---|---|---|
 | `System.Runtime.InteropServices.Marshal` | 22 | FCallGenerateGuidForType, FCallGetTypeLibGuid, FCallGetTypeLibGuidForAssembly, GetComInterfaceForObjectNative … |
-| `System.Threading.Thread` | 17 | AbortInternal, ClearAbortReason, GetAbortReason, GetApartmentStateNative … |
+| `System.Threading.Thread` | 18 | AbortInternal, ClearAbortReason, GetAbortReason, GetApartmentStateNative … |
 | `System.RuntimeMethodHandle` | 15 | CheckLinktimeDemands, GetAttributes, GetDeclaringType, GetLoaderAllocator … |
 | `System.RuntimeTypeHandle` | 14 | Allocate, CompareCanonicalHandles, CreateCaInstance, CreateInstance … |
-| `System.Threading.ReaderWriterLock` | 12 | AcquireReaderLockInternal, AcquireWriterLockInternal, DowngradeFromWriterLockInternal, FCallReleaseLock … |
 | `System.AppDomain` | 10 | GetDynamicDir, nApplyPolicy, nChangeSecurityPolicy, nEnableMonitoring … |
 | `System.Exception` | 8 | CopyDynamicMethods, CopyStackTrace, GetMethodFromStackTrace, GetStackTracesDeepCopy … |
 | `System.Security.Cryptography.Utils` | 8 | _DecryptData, _EncryptData, _ExportKey, _GetEnforceFipsPolicySetting … |
 | `System.Security.Cryptography.X509Certificates.X509Utils` | 6 | _GetIssuerName, _GetPublicKeyOid, _GetPublicKeyParameters, _GetPublicKeyValue … |
 | `System.Threading.CompressedStack` | 6 | DestroyDCSList, GetDCSCount, GetDelayedCompressedStack, GetDomainCompressedStack … |
-| `System.ArgIterator` | 5 | .ctor, .ctor, FCallGetNextArg, InternalGetNextArg … |
+| `System.Threading.ReaderWriterLock` | 6 | AcquireReaderLockInternal, AcquireWriterLockInternal, DowngradeFromWriterLockInternal, FCallReleaseLock … |
 | `System.Threading.ThreadPool` | 5 | BindIOCompletionCallbackNative, PostQueuedCompletionStatus, RegisterWaitForSingleObjectNative, SetMaxThreadsNative … |
 | `System.Delegate` | 4 | BindToMethodInfo, BindToMethodName, FindMethodHandle, InternalAlloc |
 | `System.Globalization.CultureData` | 4 | LCIDToLocaleName, LocaleNameToLCID, nativeGetNumberFormatInfoValues, nativeInitCultureData |
@@ -1316,6 +1290,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | `System.Threading.Interlocked` | 2 | _CompareExchange, _Exchange |
 | `System.ValueType` | 2 | CanCompareBits, FastEqualsCheck |
 | `System.AppDomainSetup` | 1 | UpdateContextProperty |
+| `System.ArgIterator` | 1 | .ctor |
 | `System.Array` | 1 | InternalCreate |
 | `System.BCLDebug` | 1 | GetRegistryLoggingValues |
 | `System.Currency` | 1 | FCallToDecimal |
@@ -1334,7 +1309,6 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | `System.Security.CodeAccessSecurityEngine` | 1 | QuickCheckForAllDemands |
 | `System.Signature` | 1 | GetSignature |
 | `System.Threading.RegisteredWaitHandleSafe` | 1 | UnregisterWaitNative |
-| `System.Type` | 1 | GetTypeFromHandleUnsafe |
 | `System.WeakReference` | 1 | IsTrackResurrection |
 
 ### 5.3 处理原则
@@ -1343,7 +1317,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 2. **P0 里的 COM/remoting 保持 LOUD**：设计上就不支持，转译期失败远好于编译期幽灵符号。
 3. **恒值桩单独列一类**（§3.8）：它们不是「缺口」也不是「已接」，而是静默偏差。按 net48 byte-exact 的要求，`Debugger.IsAttached` / `GC.IsServerGC` / `Marshal.GetExceptionPointers` 这类必须给出真实语义（或至少让偏差可观测），不能永远返回常量。
 4. **P1 按属主成批推进**：同一 `MethodMap.*.cs` 域的分支集中加，避免反复触碰同一文件。
-5. **`缺（无接线）` 的 313 条里 P3 占 202 条**，多数是 CLR 内部（`System.StubHelpers.*`、`System.Reflection.MetadataImport`、`System.Signature`）或 legacy（`System.Mda`、`System.Variant`），不建议排期。
+5. **`缺（无接线）` 的 306 条里 P3 占 201 条**，多数是 CLR 内部（`System.StubHelpers.*`、`System.Reflection.MetadataImport`、`System.Signature`）或 legacy（`System.Mda`、`System.Variant`），不建议排期。
 
 ## 6. 红证（可执行复现）
 
@@ -1453,7 +1427,7 @@ warning: method fold failed -> skipped (Q2Probe::Main: System.Runtime.InteropSer
 warning: 1 method(s) were not transpiled (see --stub-report)
 ```
 
-**结论**：§3 的 313 条「无接线」不是「最晚才炸」的一类，而是**最早**就炸的一类 —— 要么在转译期被 LOUD 拦下（带接收者提示的形状），要么在 C++ 编译期以 `was not declared in this scope` 失败（无提示的形状，实测 rc=2、转译零 warning）。两种形态都不会跑到链接期，更不会静默产出可执行文件。
+**结论**：§3 的 306 条「无接线」不是「最晚才炸」的一类，而是**最早**就炸的一类 —— 要么在转译期被 LOUD 拦下（带接收者提示的形状），要么在 C++ 编译期以 `was not declared in this scope` 失败（无提示的形状，实测 rc=2、转译零 warning）。两种形态都不会跑到链接期，更不会静默产出可执行文件。
 
 ## 7. 复现方式
 
