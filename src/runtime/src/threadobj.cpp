@@ -784,21 +784,29 @@ bool icall_threadobj_set_apartment_state_native(Il2CppObject* self, int32_t stat
 {
     ThrowIfNullReceiver(self);
     Il2CppThreadObject* t = AsThread(self);
-    // TrySetApartmentState: answers false on a started thread instead of
-    // throwing, so the caller can branch on it. Only MTA (1) is available --
-    // the runtime never initialises an STA apartment, so an STA request is
-    // refused the way net48 refuses it on a platform without an STA pump.
+    // TrySetApartmentState. Despite the Try* name this method is NOT a
+    // swallowing variant of SetApartmentState: measured on net48 it THROWS
+    // ThreadStateException on a started thread and ArgumentOutOfRangeException
+    // for a value outside the enum. It only returns true/false for a valid
+    // request on a thread that has not started, and false for an STA request
+    // this runtime cannot honour. Its only difference from SetApartmentState is
+    // that a REFUSED BUT WELL-FORMED request answers false instead of throwing.
     if (t->state != 0)
-        return false;
-    if (state != 1)
-        return false;
+        ThrowThreadState("Thread is running or terminated; it cannot restart.");
+    if (state != 1 && state != 0)
+        il2cpp_throw_new(
+            "System.ArgumentOutOfRangeException,"
+            "System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception",
+            "The apartment state is invalid.");
+    if (state == 0)
+        return false; // STA: no STA pump exists in this runtime
     t->apartmentState = 1;
     return true;
 }
 
-// SetApartmentState (the void public wrapper): net48 raises
-// ThreadStateException when the thread has already started, rather than
-// answering false. Same predicate as the Try form, different failure channel.
+// SetApartmentState (the void public wrapper). net48 raises the same two
+// exceptions, plus PlatformNotSupportedException for an STA request on a
+// platform without an STA pump.
 void icall_threadobj_set_apartment_state_public(Il2CppObject* self, int32_t state)
 {
     ThrowIfNullReceiver(self);
@@ -807,13 +815,17 @@ void icall_threadobj_set_apartment_state_public(Il2CppObject* self, int32_t stat
     {
         ThrowThreadState("Thread is running or terminated; it cannot restart.");
     }
-    if (!icall_threadobj_set_apartment_state_native(self, state))
-    {
+    if (state != 1 && state != 0)
+        il2cpp_throw_new(
+            "System.ArgumentOutOfRangeException,"
+            "System.ArgumentOutOfRangeException,System.ArgumentException,System.SystemException,System.Exception",
+            "The apartment state is invalid.");
+    if (state == 0)
         il2cpp_throw_new(
             "System.PlatformNotSupportedException,"
             "System.PlatformNotSupportedException,System.NotSupportedException,System.SystemException,System.Exception",
             "Only the MTA apartment is supported by this runtime.");
-    }
+    t->apartmentState = 1;
 }
 
 void icall_threadobj_interrupt(Il2CppObject* self)

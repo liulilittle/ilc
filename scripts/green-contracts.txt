@@ -41,3 +41,12 @@ w11probe-linqgrpdec  # GREEN anchor: P0-D decimal GroupBy bucket First/Last must
 # the transpiled assembly -- an external TypeRef (e.g. typeof(int)) is rejected
 # by the folder, see docs/audit/qcall-gap-tiers.md section 2.
 comslot  # GREEN anchor: Marshal COM slot + visibility fold must stay byte-exact
+
+# ProbeApartmentFail: the REFUSAL half of the Thread apartment surface.
+# Net48 throws ThreadStateException from BOTH SetApartmentState and
+# (surprisingly) TrySetApartmentState on a started thread, and
+# ArgumentOutOfRangeException for a value outside the enum. The 5 lines must
+# stay byte-exact. NOTE the scope limit recorded in the case header: the
+# STA-ACCEPTING paths are excluded because the net48 oracle cannot format
+# exceptions after accepting an STA request on this host (no STA pump).
+probe-apartment-fail  # GREEN anchor: apartment refusal channels must stay byte-exact

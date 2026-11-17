@@ -63,14 +63,24 @@ warning: method fold failed -> skipped (System.Threading.Thread::SetApartmentSta
 `MethodMap.Thread.cs` 原来只有 `TrySetApartmentState`，没有 `SetApartmentState`。
 两者失败通道不同，必须分开：
 
-| 入口 | 已启动线程 | 未启动线程 |
+**实测的 net48 契约**（`tests/cases/probe-apartment-fail`，逐字节对比）：
+
+| 情形 | `TrySetApartmentState` | `SetApartmentState` |
 |---|---|---|
-| `TrySetApartmentState` (bool) | 返回 `false` | 返回是否接受 |
-| `SetApartmentState` (void) | 抛 `ThreadStateException` | 静默成功 / 抛 PNSE |
+| 已启动线程 | **抛 `ThreadStateException`** | 抛 `ThreadStateException` |
+| 已终止线程 | （仅 `Set` 可测，同样抛） | 抛 `ThreadStateException` |
+| 未启动 + 合法值 | 接受 / 拒绝 | 成功 / 抛 |
+| 未启动 + 枚举外值 | 抛 `ArgumentOutOfRangeException` | 抛 `ArgumentOutOfRangeException` |
+
+**关键纠正**：`Try*` 前缀容易让人以为它在失败时返回 `false`。实测**不是**——
+已启动线程上它照样抛 `ThreadStateException`，枚举外值照样抛
+`ArgumentOutOfRangeException`。它与 `SetApartmentState` 的唯一差别是
+「良构但被拒绝的请求」返回 `false` 而不是抛异常。本运行时初版按「返回 false」
+实现，被探针判红后改正。
 
 修法：新增运行时入口 `icall_threadobj_set_apartment_state_public`（void，抛），
-与 `..._native`（bool，不抛）并存；`MethodMap.Thread.cs` 的 `SetApartmentState`
-arm 指向新入口。
+与 `..._native`（bool，仅对良构拒绝返回 false）并存；`MethodMap.Thread.cs` 的
+`SetApartmentState` arm 指向新入口。
 
 ### 2.3 `ApartmentState` 枚举未生成到 TU（**已修复**）
 
@@ -146,10 +156,40 @@ threadpooldeep2 PASS
 - 10 条内部 icall 无公共路径，**未验证**（也不构成用户可见缺口）。
 - 子线程的 `CurrentThread` 单例性由 `threadcase`/`threadcase2`/`diffthread001` 间接覆盖，
   **未写**专门的子线程 `ReferenceEquals` 断言（**未验证**）。
-- `SetApartmentState` 在**已启动线程**上抛 `ThreadStateException` 的分支
-  **未探针验证**（探针只覆盖未启动路径）。同理 STA 请求抛
-  `PlatformNotSupportedException` 的分支**未验证**。
-- `TrySetApartmentState` 的返回值语义**未加探针**（只有 `SetApartmentState` 被覆盖）。
+- **STA 接受路径未验证**：net48 在本机（无 STA 消息泵）**接受**未启动线程的 STA 请求
+  （`TrySetApartmentState(STA)` 返回 `True`，随后 `GetApartmentState()` 为 `STA(0)`），
+  但接受之后该进程**再也无法格式化异常**（stderr: "由于 Exception.ToString() 失败，
+  因此无法打印异常字符串"），oracle 因此不可信。本运行时对 STA 请求返回 `false` /
+  抛 `PlatformNotSupportedException`。**这是一处已知的行为差异**，不是已对齐项。
+
+### 4.1 新发现：catch 变量跨方法边界后 `GetType()` 退化为 `System.String`
+
+与 apartment 无关，但探针过程中实证：
+
+```
+idx.inline=System.IndexOutOfRangeException     <- 正确
+idx.param =System.String                        <- 错误
+user.inline=System.InvalidOperationException    <- 正确
+user.param =System.String                       <- 错误
+apa.inline=System.Threading.ThreadStateException<- 正确
+apa.param =System.String                        <- 错误
+```
+
+`[READ:src/il2cppc/Ir/StackFold.cs:328-335]` 记载 catch handler 压入的是
+`ExceptionEntryExpr`——**异常短类型名的一个 interned 字符串**，不是异常对象：
+「Push a synthetic entry (ExceptionEntryExpr -- the exception's SHORT type name as
+an interned string)」。因此：
+
+- 内联 `ex.GetType()` 命中的是 `MethodMap.Exception.cs:118` 的
+  `receiverType == "System.Type"` identity arm，看起来正确
+- 一旦把 catch 变量作为参数传给形参类型为 `System.Exception` 的方法，
+  `receiverType` 变成 `System.Exception`，走 `:126` 的
+  `icall_object_get_type`，读到的真实描述符是 `System.String`
+
+影响面：**所有把 catch 变量传给辅助方法的代码**（常见写法，如统一的
+`Log(Exception ex)`）。这不是 apartment 的问题，是 M5 异常 carrier 的表达力上限。
+**未修复**，需单独立项（要么让 catch 变量成为真对象，要么让形参传递保留
+「它是类型名载体」这一信息）。
 
 ## 5. 复现
 
