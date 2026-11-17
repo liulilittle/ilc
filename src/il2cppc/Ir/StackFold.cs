@@ -7460,9 +7460,19 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
             // constructed instance is an observable value (ParamName/Message/
             // GetType). SystemException is the shared base (never thrown
             // directly by user code, but keep the identity consistent).
+            //
+            // Every OTHER exception type allocates too. The null model was
+            // legitimate while a constructed exception could only be thrown
+            // immediately -- the throw site reads the chain, not the object. But
+            // the null model sends `nullptr` to the ctor, so `new
+            // InvalidOperationException("boom")` had no instance to capture its
+            // message into: loc0 stayed null and .Message answered the base
+            // default. The runtime side table keys by object identity, so the
+            // capture needs a real object no matter which exception type it is.
             var isModelledException = typeFullName is "System.ArgumentException"
                 or "System.ArgumentNullException" or "System.ArgumentOutOfRangeException"
-                or "System.SystemException";
+                or "System.SystemException"
+                || (isBclException && typeFullName.StartsWith("System.", StringComparison.Ordinal));
             // ilistException: a System.Exception built with a message
             // (`new Exception("a")`) and USED as a value (added to a list,
             // .Message read) needs a REAL object identity -- the message

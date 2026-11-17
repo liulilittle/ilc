@@ -50,9 +50,19 @@ public static partial class MethodRefResolver
     // Any receiver whose managed type is a System.Exception subclass -- these
     // are the CONSTRUCTED-instance shapes backed by the runtime side table
     // (message / paramName / inner keyed by object pointer).
-    public static bool IsExceptionReceiverType(string? typeName) => typeName is
-        "System.Exception" or "System.SystemException" or "System.ArgumentException"
-        or "System.ArgumentNullException" or "System.ArgumentOutOfRangeException";
+    //
+    // The test is structural, not a name list. A list of the modelled types
+    // rejected every OTHER exception -- `new InvalidOperationException("boom")
+    // .Message` was a LOUD compile-time gap even though the runtime has carried
+    // such messages all along (the side table is keyed by object identity, so
+    // the concrete type never mattered). Any System.*Exception now resolves;
+    // an unrelated type whose name merely ends in "Exception" cannot appear
+    // under the System namespace.
+    public static bool IsExceptionReceiverType(string? typeName) =>
+        typeName != null
+        && (typeName == "System.Exception"
+            || (typeName.StartsWith("System.", StringComparison.Ordinal)
+                && typeName.EndsWith("Exception", StringComparison.Ordinal)));
 
     public static int ArgExceptionKind(string typeName) => typeName switch
     {

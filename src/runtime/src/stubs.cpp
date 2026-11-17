@@ -82,9 +82,74 @@ struct ExceptionMessageEntry
     // by icall_exception_get_hresult.
     int32_t hresult;
 };
-constexpr int32_t kMaxExceptionMessages = 64;
-ExceptionMessageEntry g_exceptionMessages[kMaxExceptionMessages];
+// Entries live in chained blocks that are allocated on demand and never
+// moved or freed. The old single 64-entry array dropped the capture silently
+// once it filled, so an exception constructed after the 64th reported the
+// type-based default text instead of the message its ctor was given -- net48
+// has no such limit, because there the message lives on the instance.
+//
+// A block never moves: every &entry.field address handed to
+// il2cpp_gc_add_static_root stays valid for the life of the process, which a
+// growable ARRAY of entries could not promise (a realloc would strand the
+// registered roots pointing at freed memory).
+constexpr int32_t kExceptionMessagesPerBlock = 64;
+
+struct ExceptionMessageBlock
+{
+    ExceptionMessageEntry entries[kExceptionMessagesPerBlock];
+    ExceptionMessageBlock* next;
+};
+
+ExceptionMessageBlock g_firstMessageBlock;
+ExceptionMessageBlock* g_lastMessageBlock = &g_firstMessageBlock;
 int32_t g_exceptionMessageCount = 0;
+
+// Address of entry 'index'; nullptr when the block chain is shorter (only
+// reachable through an allocation failure, which the caller treats as a
+// missing capture rather than corrupting an unrelated slot).
+ExceptionMessageEntry* MessageEntryAt(int32_t index)
+{
+    ExceptionMessageBlock* block = &g_firstMessageBlock;
+    while (index >= kExceptionMessagesPerBlock)
+    {
+        index -= kExceptionMessagesPerBlock;
+        block = block->next;
+        if (block == nullptr)
+        {
+            return nullptr;
+        }
+    }
+    return &block->entries[index];
+}
+
+// Reserve the next entry and register its GC roots. Returns nullptr only when
+// a block cannot be allocated.
+ExceptionMessageEntry* NewExceptionEntry()
+{
+    const int32_t index = g_exceptionMessageCount;
+    if (index > 0 && index % kExceptionMessagesPerBlock == 0)
+    {
+        ExceptionMessageBlock* block = static_cast<ExceptionMessageBlock*>(
+            std::calloc(1, sizeof(ExceptionMessageBlock)));
+        if (block == nullptr)
+        {
+            return nullptr;
+        }
+        g_lastMessageBlock->next = block;
+        g_lastMessageBlock = block;
+    }
+    ExceptionMessageEntry* slot = MessageEntryAt(index);
+    if (slot == nullptr)
+    {
+        return nullptr;
+    }
+    g_exceptionMessageCount = index + 1;
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot->obj));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot->msg));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot->inner));
+    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot->paramName));
+    return slot;
+}
 
 // excapi1: System.Exception.Data -- the per-exception key/value store. net48
 // exposes an IDictionary; the runtime models it as a Hashtable object created
@@ -109,9 +174,10 @@ ExceptionMessageEntry* FindExceptionEntry(Il2CppObject* obj)
     }
     for (int32_t i = 0; i < g_exceptionMessageCount; ++i)
     {
-        if (g_exceptionMessages[i].obj == obj)
+        ExceptionMessageEntry* entry = MessageEntryAt(i);
+        if (entry != nullptr && entry->obj == obj)
         {
-            return &g_exceptionMessages[i];
+            return entry;
         }
     }
     return nullptr;
@@ -418,18 +484,13 @@ void icall_exception_ctor_message_inner(Il2CppObject* self, Il2CppString* messag
         e->hresult = kCorEException; // System.Exception default _HResult
         return;
     }
-    if (g_exceptionMessageCount >= kMaxExceptionMessages) return;
-    const int32_t i = g_exceptionMessageCount++;
-    ExceptionMessageEntry& slot = g_exceptionMessages[i];
-    slot.obj = self;
-    slot.msg = message;
-    slot.inner = inner;
-    slot.paramName = nullptr;
-    slot.hresult = kCorEException; // System.Exception default _HResult
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.obj));
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.msg));
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.inner));
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.paramName));
+    ExceptionMessageEntry* entry = NewExceptionEntry();
+    if (entry == nullptr) return;
+    entry->obj = self;
+    entry->msg = message;
+    entry->inner = inner;
+    entry->paramName = nullptr;
+    entry->hresult = kCorEException; // System.Exception default _HResult
 }
 void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message)
 {
@@ -596,18 +657,13 @@ void icall_exception_ctor_arg(Il2CppObject* self, Il2CppString* message, Il2CppS
         e->hresult = hr;
         return;
     }
-    if (g_exceptionMessageCount >= kMaxExceptionMessages) return;
-    const int32_t i = g_exceptionMessageCount++;
-    ExceptionMessageEntry& slot = g_exceptionMessages[i];
-    slot.obj = self;
-    slot.msg = composed;
-    slot.inner = inner;
-    slot.paramName = paramName;
-    slot.hresult = hr;
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.obj));
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.msg));
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.inner));
-    il2cpp_gc_add_static_root(reinterpret_cast<void**>(&slot.paramName));
+    ExceptionMessageEntry* entry = NewExceptionEntry();
+    if (entry == nullptr) return;
+    entry->obj = self;
+    entry->msg = composed;
+    entry->inner = inner;
+    entry->paramName = paramName;
+    entry->hresult = hr;
 }
 
 // get_ParamName on a CONSTRUCTED exception: the instance value stored by the

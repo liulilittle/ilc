@@ -6692,6 +6692,25 @@ public static class CodeGenerator
     }
     private static string? BclAllocExpr(string typeFullName)
     {
+        // Every System.* exception type allocates through the exception
+        // descriptor lookup. The five modelled types keep their static
+        // descriptors (the lookup answers those directly); any other
+        // exception has no static descriptor at all, and the old fallback
+        // emitted &System_InvalidOperationException_class -- an undefined
+        // symbol. The lookup never creates a descriptor, so a type the
+        // program never threw yields a nullptr klass; il2cpp_object_new
+        // falls back to System.Object there, which is still a real object
+        // (the ctor needs an identity to key its message on).
+        if (typeFullName.StartsWith("System.", StringComparison.Ordinal)
+            && typeFullName.EndsWith("Exception", StringComparison.Ordinal)
+            && !typeFullName.Contains('`'))
+        {
+            // The lookup answers nullptr for a type the program never threw;
+            // allocating on nullptr would yield a null object (the very defect
+            // this replaces), so fall back to the universal exception descriptor.
+            var excKlass = $"il2cpp::il2cpp_exception_class_lookup(\"{typeFullName}\")";
+            return $"il2cpp_object_new({excKlass} != nullptr ? {excKlass} : &System_Exception_class)";
+        }
         // WeakReference<T> (unbounded instantiations) folds onto the
         // non-generic descriptor (same object model: header + int32 handle).
         if (typeFullName.StartsWith("System.WeakReference`1", StringComparison.Ordinal))

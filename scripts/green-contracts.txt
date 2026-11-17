@@ -91,3 +91,13 @@ probe-userexcmsg  # GREEN anchor: user-exception message must stay byte-exact
 # arithmetic exception, a ThreadStateException (no static descriptor), and a
 # user-thrown InvalidOperationException with a ctor message.
 probe-catchcarrier  # GREEN anchor: catch carrier must be a real exception object
+
+# ProbeExcMsgCap: an exception's message must survive construction of MANY other
+# exceptions. The runtime keeps messages in a fixed 64-entry side table keyed by
+# object identity; once it filled, the capture was silently skipped and an
+# exception constructed afterwards reported the type-based default text. net48
+# has no such limit -- the message lives on the instance. Entries now live in
+# chained blocks that never move (the GC roots registered per entry stay valid).
+# The lines cover the first exception (message intact), one constructed after
+# 128 more (the overflow evidence), and the first again.
+probe-excmsgcap  # GREEN anchor: message capture must not have a capacity limit

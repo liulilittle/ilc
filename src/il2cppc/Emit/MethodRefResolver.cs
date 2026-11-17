@@ -1694,7 +1694,17 @@ public static partial class MethodRefResolver
         // which is a phantom outside a catch block and a silent wrong value on
         // a constructed instance.
         if (owner is "System.ArgumentException" or "System.ArgumentNullException"
-            or "System.ArgumentOutOfRangeException" or "System.SystemException")
+            or "System.ArgumentOutOfRangeException" or "System.SystemException"
+            // Every OTHER exception type too: the runtime models the message,
+            // the inner exception and HResult by OBJECT IDENTITY on a side
+            // table, so the concrete type never mattered to it -- only this
+            // dispatch did. Without this, `new InvalidOperationException(
+            // "boom").Message` fell through to the external-BCL LOUD guard,
+            // because the input assembly never defines System.* types and the
+            // phantom {Type}_get_Message symbol cannot link. A System.* name
+            // ending in "Exception" is in this domain by construction.
+            || (owner.Length > 7 && owner.StartsWith("System.", StringComparison.Ordinal)
+                && owner.EndsWith("Exception", StringComparison.Ordinal)))
         {
             return TryMapException(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type,
                 MethodSignatureCoder.Decode(md, sigHandle).ParamTypes);
