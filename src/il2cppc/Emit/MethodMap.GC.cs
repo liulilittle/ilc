@@ -429,6 +429,19 @@ public static partial class MethodRefResolver
                 if (count == 0)
                     return I("il2cpp::runtime::icall_gc_end_no_gc_region", 0, true, false, false);
                 return null;
+            case "_StartNoGCRegion":
+                // private int _StartNoGCRegion(long totalSize, bool
+                // lohSizeKnown, long lohSize, bool disallowFullBlockingGC):
+                // the counterpart of _EndNoGCRegion above. This collector never
+                // grants a NoGC region, so there is no success status to
+                // return; the public StartNoGCRegion wrapper cannot be
+                // satisfied either way. Registered as a gap instead of
+                // inventing a status -- falling through to the generated-name
+                // path would emit a call to a symbol nothing defines.
+                throw new NotSupportedException(
+                    "LOUD whitelist (corelib-p0 gap): GC._StartNoGCRegion starts a NoGC region this " +
+                    "collector never grants (its twin _EndNoGCRegion always answers NotInProgress) -- " +
+                    "see docs/audit/b5-gaps.md");
             case "_EnableNoGCRegionCallback":
                 // private EnableNoGCRegionCallbackStatus
                 // _EnableNoGCRegionCallback(NoGCRegionCallbackFinalizerWorkItem*,

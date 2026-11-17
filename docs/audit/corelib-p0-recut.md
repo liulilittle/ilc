@@ -82,20 +82,20 @@ P0 段（gap = missing + half-wired + stub + no-decl）：
 | `System.Runtime.CompilerServices.RuntimeHelpers` | `RunModuleConstructor` | QCall | LOUD throw | `src/il2cppc/Emit/MethodMap.RuntimeHelpers.cs:113` |
 | `System.Threading.Thread` | `StartInternal` | QCall | LOUD throw | `src/il2cppc/Emit/MethodMap.Thread.cs:314` |
 | `System.Exception` | `GetMessageFromNativeResources` | QCall | LOUD throw | `src/il2cppc/Emit/MethodMap.Exception.cs:295` |
-| `System.GC` | `_StartNoGCRegion` | QCall | **未接线（落 `default: return null`）** — 见 §3.1.2 | `MethodMap.GC.cs:207` 无 arm |
+| `System.GC` | `_StartNoGCRegion` | QCall | LOUD throw（轮149 补齐，见 §3.1.2） | `src/il2cppc/Emit/MethodMap.GC.cs:432` |
 | `System.Threading.Thread` | `Initialize` | FCall | 公共面替代 | `MethodMap.Thread.cs` `case "Start"` / `".ctor"` |
 | `System.Threading.Thread` | `InformThreadNameChange` | QCall | 公共面替代（`set_Name` → `icall_threadobj_set_name`） | `MethodMap.Thread.cs:226-232` |
 | `System.Delegate` | `BindToMethodName` | FCall | 公共面替代（`CreateDelegate` → `il2cpp_createdelegate_loud`） | `src/il2cppc/Emit/MethodMap.Delegate.cs:92-100` |
 | `System.Delegate` | `BindToMethodInfo` | FCall | 同上（`CreateDelegate` LOUD） | `src/il2cppc/Emit/MethodMap.Delegate.cs:92` |
 | `System.Array` | `InternalCreate` | FCall | 公共面替代（`CreateInstance` 已映射） | `MethodMap.Legacy.cs:165` / `MethodMap.Reflect.cs:405` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `AreTypesEquivalent` | QCall | **未接线（落 `default: return null`）** — 见 §3.1.2 | `MethodMap.RuntimeHelpers.cs:207` 无 arm |
+| `System.Runtime.CompilerServices.RuntimeHelpers` | `AreTypesEquivalent` | QCall | LOUD throw（轮149 补齐，见 §3.1.2） | `src/il2cppc/Emit/MethodMap.RuntimeHelpers.cs:195` |
 
 判据说明：12 条里 5 条是显式 `NotSupportedException`（LOUD，不会静默错值）；
 5 条是 CoreLib 内部 helper（`public/private` 或 `public/assembly`：类型 public、
 方法 private/internal），用户代码不可直接触达，其公共入口均已映射；
-**2 条未接线，走 `default: return null`（幻影路径）**，见下节。
+**2 条曾未接线、现已补显式 LOUD**（轮149），见下节。
 
-### 3.1.2 两条未接线项的定性（不是 LOUD，是幻影）
+### 3.1.2 两条曾被漏掉的项（轮149 已补显式 LOUD）
 
 `System.GC._StartNoGCRegion` 与 `RuntimeHelpers.AreTypesEquivalent` 在 `src/il2cppc/Emit/` 下
 **没有任何 `case` arm**（`grep '"(_StartNoGCRegion|AreTypesEquivalent)"'` 命中 0），
@@ -110,9 +110,18 @@ P0 段（gap = missing + half-wired + stub + no-decl）：
   在 AOT 下由 CLR 类型系统覆盖，CoreLib 侧无调用点。
 
 **结论**：这两条**不改变「P0 段无用户可见静默缺口」的结论**，但它们的处置方式与另外 10 条不同
-（10 条是显式拒绝或公共面替代，这 2 条是隐式 null）。按 C6 与 F4-a 的既有原则，
-**建议后续给这两条补显式 LOUD arm**，与其它 `corelib-p0 gap` 条目保持一致——
-本轮只做审计定性，不改生产代码（未验证运行期影响，需单独探针）。
+（10 条是显式拒绝或公共面替代，这 2 条曾是隐式 null）。
+
+**轮149 已修复**：两条都补了显式 `NotSupportedException` arm，与其它 `corelib-p0 gap` 条目一致。
+TDD 证据（`tests/unit/MethodMapTests.CoreLibP0.cs`）：
+
+| 步骤 | 命令 | 结果 |
+|---|---|---|
+| 红证 | 先加 2 个 `IsLoudGap` 测试，未改实现 | `EXIT=1`，2 个 `[FAIL]` |
+| 绿证 | 补 arm 后重跑 | `EXIT=0`，`测试总数: 46 / 通过: 46` |
+| 变异红 | 把 2 处 throw 改回 `return null` | `MUT_EXIT=1`，2 个 `[FAIL]` |
+| 恢复绿 | 字节级恢复（sha16 回 `98379837652671B2` / `307896159CCAF325`） | `GREEN_EXIT=0`，46/46 |
+| C0 | `dotnet build src/il2cppc -warnaserror` | `warnings=0 errors=0` |
 
 ### 3.1.1 仅 9.0.20 存在的 2 条（目标为 8.0.31，不在范围内）
 
@@ -140,7 +149,7 @@ P0 段（gap = missing + half-wired + stub + no-decl）：
 | `Thread.GetIsBackground` | `IsBackgroundNative` | `MethodMap.Thread.cs` `case "get_IsBackground"` |
 | `Thread.GetThreadState` | `GetThreadStateNative` | `MethodMap.Thread.cs` `case "get_ThreadState"` |
 | `Thread.SetApartmentState` | `SetApartmentStateNative` | `MethodMap.Thread.cs:316` |
-| `RuntimeHelpers.AreTypesEquivalent` | 仍是 QCall，仅入口名带 `g____PInvoke` 后缀 | 未接线（无公共面） |
+| `RuntimeHelpers.AreTypesEquivalent` | 仍是 QCall，仅入口名带 `g____PInvoke` 后缀 | 见 §3.1（轮149 补显式 LOUD） |
 | `RuntimeHelpers.GetHashCodeSlow` | `GetHashCode` | `MethodMap.RuntimeHelpers.cs` `case "GetHashCode"` |
 | `RuntimeHelpers.AllocTailCallArgBufferInternal` | `AllocTailCallArgBuffer` | `MethodMap.RuntimeHelpers.cs` |
 | `Array.InternalCreate` | 见 §3.1（已按公共面替代） | — |

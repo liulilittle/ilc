@@ -192,6 +192,17 @@ public static partial class MethodRefResolver
                 throw new NotSupportedException(
                     "LOUD whitelist (corelib-p0 gap): RuntimeHelpers.GetTailCallInfo reads the JIT tailcall TLS " +
                     "buffer (TailCallTls); an AOT image has no such buffer -- see docs/audit/b5-gaps.md");
+            case "AreTypesEquivalent":
+                // internal static bool AreTypesEquivalent(MethodTable* pMTa,
+                // MethodTable* pMTb): compares two raw method tables. The only
+                // callers are CoreLib's own cast helpers (CastHelpers.cs), which
+                // are never transpiled -- user assemblies cannot name the
+                // member. Registered as a gap rather than inventing a table
+                // identity comparison. See docs/audit/b5-gaps.md.
+                throw new NotSupportedException(
+                    "LOUD whitelist (corelib-p0 gap): RuntimeHelpers.AreTypesEquivalent compares raw " +
+                    "MethodTable pointers, which an AOT image does not hand out; the callers are CoreLib's " +
+                    "own cast helpers -- see docs/audit/b5-gaps.md");
             case "InitializeArray":
                 // StackFold.FoldInitializeArray intercepts the canonical
                 // `newarr + dup + ldtoken<RVA field> + InitializeArray`

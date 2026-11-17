@@ -85,6 +85,23 @@ public class MethodMapTestsCoreLibP0
         Assert.Equal(new[] { "drop", "drop" }, resolved.ParamTypeNames);
     }
 
+    // _StartNoGCRegion(long, bool, long, bool) -> int: this collector never
+    // grants a NoGC region (the _EndNoGCRegion arm returns NotInProgress for
+    // that reason), so the start request can never succeed. Because there is no
+    // arm to return that honest status the member is a registered gap and must
+    // reject LOUDLY rather than fall through to a phantom symbol.
+    [Fact]
+    public void Resolve_GcStartNoGCRegion_IsLoudGap()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember("System", "GC",
+                Synthesize("System", "GC", "_StartNoGCRegion", Sig(4, 0x08, 0x0A, 0x02, 0x0A, 0x02)),
+                "_StartNoGCRegion"));
+
+        Assert.Contains("System.GC::_StartNoGCRegion", ex.Message);
+        Assert.Contains("b5-gaps.md", ex.Message);
+    }
+
     // _EnumerateConfigurationValues(void*, callback*): no configuration values
     // exist, so the callback is never invoked -> both arguments dropped.
     [Fact]
@@ -353,6 +370,24 @@ public class MethodMapTestsCoreLibP0
                     Sig(2, 0x18, 0x1C, 0x18, 0x0F, 0x18)),
                 "GetTailCallInfo"));
 
+        Assert.Contains("b5-gaps.md", ex.Message);
+    }
+
+    // AreTypesEquivalent(MethodTable*, MethodTable*) -> bool: a raw method-table
+    // comparison. An AOT image has no method tables to hand out, and the only
+    // caller is CoreLib's own cast helpers (never transpiled), so the member is
+    // a registered gap. It must reject LOUDLY -- falling through to the
+    // generated-name path would emit a call to a symbol nothing defines.
+    [Fact]
+    public void Resolve_RuntimeHelpersAreTypesEquivalent_IsLoudGap()
+    {
+        var ex = Assert.Throws<NotSupportedException>(() =>
+            ResolveMember("System.Runtime.CompilerServices", "RuntimeHelpers",
+                Synthesize("System.Runtime.CompilerServices", "RuntimeHelpers", "AreTypesEquivalent",
+                    Sig(2, 0x02, 0x0F, 0x18, 0x0F, 0x18)),
+                "AreTypesEquivalent"));
+
+        Assert.Contains("System.Runtime.CompilerServices.RuntimeHelpers::AreTypesEquivalent", ex.Message);
         Assert.Contains("b5-gaps.md", ex.Message);
     }
 
