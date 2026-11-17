@@ -101,3 +101,16 @@ probe-catchcarrier  # GREEN anchor: catch carrier must be a real exception objec
 # The lines cover the first exception (message intact), one constructed after
 # 128 more (the overflow evidence), and the first again.
 probe-excmsgcap  # GREEN anchor: message capture must not have a capacity limit
+
+# ProbeExcParamName: an exception's ParamName belongs to THAT exception. The
+# constructed-instance path was already right; the CATCH CARRIER was not -- the
+# carrier created its own side-table entry with a null paramName, so the entry
+# existed and get_ParamName returned its null instead of falling back to the
+# throw-time snapshot. Every `catch (ArgumentException ex) { ex.ParamName }`
+# answered "" for a throw that carried a name. The carrier now records the
+# ParamName of the throw that raised it. Lines cover: a constructed name read
+# before/after an unrelated throw, an exception with no name (must be null, not
+# leftover state), two live instances not interfering, and two consecutive
+# caught exceptions each answering their own name both inline and through a
+# method boundary.
+probe-excparamname  # GREEN anchor: ParamName must be per-exception, carrier included

@@ -548,6 +548,17 @@ Il2CppObject* il2cpp_exception_carrier_new(const char* chain, const char* messag
     {
         icall_exception_ctor_message(obj, il2cpp_string_new_from_cs(message));
     }
+    // The carrier IS this exception, so its ParamName comes from the throw that
+    // raised it. Without this the side-table entry created above records a null
+    // paramName, and get_ParamName returns that null instead of falling back to
+    // the throw-time snapshot (the entry exists, so the fallback never runs) --
+    // `catch (ArgumentException ex) { ex.ParamName }` answered "" for every
+    // throw that carried a name.
+    ExceptionMessageEntry* entry = FindExceptionEntry(obj);
+    if (entry != nullptr && entry->paramName == nullptr)
+    {
+        entry->paramName = icall_exception_param_name_current();
+    }
     return obj;
 }
 // excapi1: net48's default Exception.Message for a parameterless ctor --
