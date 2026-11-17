@@ -41,4 +41,29 @@ public static class TypeLookup
            && (t.FullName == metadataFullName
                || (t.IsNested && t.DeclaringTypeName.Length > 0
                    && t.DeclaringTypeName + "+" + t.Name == metadataFullName));
+
+    // Is 'metadataFullName' a TRANSLATED type that derives from System.Exception?
+    //
+    // Walks the metadata base-name chain (the same shape TypeEmitter.IsDelegateType
+    // uses) because the base of a user exception normally lives in the BCL and is
+    // not part of the translated set, so the BaseType link stops at the immediate
+    // name. Stops at System.Object: a type that is not in the exception subtree
+    // must keep its normal allocation model.
+    public static bool AnyExceptionSubclass(IReadOnlyList<TypeDef> types, string? metadataFullName)
+    {
+        var cur = Find(types, metadataFullName);
+        var guard = 0;
+        while (cur != null && cur.BaseTypeName.Length > 0 && guard++ < 64)
+        {
+            if (cur.BaseTypeName == "System.Exception"
+                || cur.BaseTypeName == "System.SystemException")
+                return true;
+            // Any other BCL base ends the walk: a translated chain reaching a
+            // BCL name that is not an exception root is not an exception.
+            if (cur.BaseTypeName.StartsWith("System.", StringComparison.Ordinal))
+                return cur.BaseTypeName.EndsWith("Exception", StringComparison.Ordinal);
+            cur = Find(types, cur.BaseTypeName);
+        }
+        return false;
+    }
 }

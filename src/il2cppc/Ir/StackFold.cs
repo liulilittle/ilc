@@ -7501,7 +7501,15 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
             // single string is a paramName on ArgumentNullException but a
             // message on ArgumentException, and (string, Exception) is always
             // (message, inner)).
-            if (isBclException)
+            // A USER-DEFINED exception carries its message the same way. The
+            // isBclException test above deliberately excludes user types (they
+            // are really allocated rather than null-modelled), so the question
+            // "is this in the exception subtree" has to be asked separately --
+            // otherwise every `throw new MyError("detail")` carried the
+            // placeholder text instead of the caller's message.
+            var isUserException = !isBclException
+                && TypeLookup.AnyExceptionSubclass(types ?? Array.Empty<TypeDef>(), typeFullName);
+            if (isBclException || isUserException)
             {
                 exceptionMessages[name] = new List<Expr>(args);
                 var ctorParamTypes = md != null

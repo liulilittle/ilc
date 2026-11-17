@@ -68,3 +68,15 @@ probe-excbase  # GREEN anchor: exception base chain must stay byte-exact
 # transpile ("Stack empty."). The two lines below cover both as-only and
 # is-only shapes.
 probe-catchf6a  # GREEN anchor: catch entry consumed by a leading branch must fold
+
+# ProbeUserExcMsg: a user-defined exception keeps the message its ctor was given.
+# The throw-site carrier is populated from the ctor arguments captured at the
+# allocation, but that capture was gated on "is this a BCL exception name",
+# which a user type can never satisfy -- every throw carried the placeholder
+# text. The three lines below cover a direct subclass, a two-level chain, and a
+# non-exception class (the guard against over-broadening the capture).
+#
+# SCOPE: this pins the INLINE throw/catch path only. Reading the message after
+# the exception crossed a method boundary still answers the carrier's own type
+# name (the open catch-carrier defect, docs/audit/half-wired-nonp0.md).
+probe-userexcmsg  # GREEN anchor: user-exception message must stay byte-exact
