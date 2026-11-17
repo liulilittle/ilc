@@ -1,4 +1,4 @@
-# W11 green contract set: cases that MUST stay byte-exact GREEN.
+﻿# W11 green contract set: cases that MUST stay byte-exact GREEN.
 #
 # This is the mirror image of scripts/loud-contracts.txt:
 #   loud-contracts.txt  -> every case MUST exit non-zero (a documented rejection)
@@ -26,3 +26,18 @@
 # NEVER become a LOUD reject and must NEVER fail to compile: either outcome
 # means the declaration gap came back.
 w11probe-linqgrpdec  # GREEN anchor: P0-D decimal GroupBy bucket First/Last must compile and stay ok=True
+
+# --- QCall P2 public surface: Marshal COM slot / visibility markers ---
+# The four public QCalls in the P2 gap set (Marshal.GetStartComSlot,
+# GetEndComSlot, IsTypeVisibleFromCom, GetTypedObjectForIUnknown) are not
+# "missing": each has a MethodMap arm that emits a transpile-time marker,
+# and StackFold resolves it to a constant (StackFold.cs ComStartSlotMarker /
+# ComEndSlotMarker / ComTypeVisibleMarker). This case pins the answers:
+#   IUnknown interfaces start at slot 3; a 2-method interface ends at 4;
+#   a derived 5-method interface ends at 5; a non-interface answers -1;
+#   [ComVisible(false)] answers False, the default answers True.
+#
+# Every typeof argument must be a compile-time constant AND a type defined in
+# the transpiled assembly -- an external TypeRef (e.g. typeof(int)) is rejected
+# by the folder, see docs/audit/qcall-gap-tiers.md section 2.
+comslot  # GREEN anchor: Marshal COM slot + visibility fold must stay byte-exact
