@@ -11337,6 +11337,14 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 or ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Pop
                 or ILOpCode.Stfld or ILOpCode.Stsfld or ILOpCode.Throw
                 or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_ref
+                // A catch handler's first instruction may be isinst/castclass:
+                // when the caught object is used only by an `as`/cast expression,
+                // Roslyn fuses the test into the entry itself instead of storing
+                // to a local first. Both opcodes POP the entry, so the handler
+                // must receive it or the whole method fails to fold. FILTER
+                // blocks are unaffected (they push unconditionally at
+                // StackFold.cs:350-351, never through this predicate).
+                or ILOpCode.Isinst or ILOpCode.Castclass
                 // IL gap batch b23: the pointer-deref / value-type / block /
                 // checked-op families all POP stack values -- a catch handler
                 // whose first instruction is one of these must get the catch

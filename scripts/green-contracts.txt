@@ -50,3 +50,12 @@ comslot  # GREEN anchor: Marshal COM slot + visibility fold must stay byte-exact
 # STA-ACCEPTING paths are excluded because the net48 oracle cannot format
 # exceptions after accepting an STA request on this host (no STA pump).
 probe-apartment-fail  # GREEN anchor: apartment refusal channels must stay byte-exact
+
+# ProbeExcBase: a user-defined exception must sit in the exception subtree.
+# A user exception's base lives in the BCL, which the loader does not link, so
+# the descriptor used to say baseClass = nullptr and is Exception answered
+# False. The 13 lines below pin the whole matrix: direct subclass, two-level
+# user chain, modelled BCL base (ArgumentException), unmodelled BCL base
+# (InvalidOperationException -> falls back to System.Exception), a plain class
+# keeping its null root, and the catch path.
+probe-excbase  # GREEN anchor: exception base chain must stay byte-exact

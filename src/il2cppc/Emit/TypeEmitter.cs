@@ -1885,12 +1885,23 @@ public static class TypeEmitter
         // il2cpp_unbox_user_struct's ValueType-chain check accepts the box.
         // User classes keep their resolved user base; enums (BaseTypeName
         // System.Enum, not IsValueType) keep nullptr -- unchanged.
+        //
+        // BCL-exception base: a user exception's base lives in the BCL, so the
+        // loader never links it (`t.BaseType` is null) and the descriptor used
+        // to say baseClass = nullptr. il2cpp_is_instance walks that pointer, so
+        // `(object)new MyEx() is Exception` answered False. Point the descriptor
+        // at the runtime's own exception descriptor instead -- the same shape as
+        // the ValueType arm above. The descriptor chain supplies the rest
+        // (ArgumentException -> SystemException -> Exception -> Object,
+        // metadata.cpp:531-590); an unrecognised BCL exception base falls back
+        // to System.Exception, which is the universal root and therefore always
+        // a true answer for `is Exception`.
         var baseClassRef = t.IsValueType
             ? "&System_ValueType_class"
             : t.BaseType != null
                 ? $"&{TypeCppName(t.BaseType)}_class"
-                : "nullptr";
-        w.Line($"    {baseClassRef},                                                // baseClass ({(t.IsValueType ? "System.ValueType (P25b box base)" : t.BaseType != null ? "user inheritance: " + t.BaseType.FullName : "null (System.Object root)")})");
+                : BclExceptionBaseDescriptor(t);
+        w.Line($"    {baseClassRef},                                                // baseClass ({(t.IsValueType ? "System.ValueType (P25b box base)" : t.BaseType != null ? "user inheritance: " + t.BaseType.FullName : baseClassRef != "nullptr" ? "BCL exception base: " + t.BaseTypeName : "null (System.Object root)")})");
         w.Line(vtableArrayName == null
             ? $"    nullptr,                                                // vtable (no virtual methods in this type)"
             : $"    reinterpret_cast<void**>({vtableArrayName}),            // vtable: {vtableSize} virtual slot(s)");
@@ -2954,6 +2965,51 @@ public static class TypeEmitter
                 return true;
         return false;
     }
+
+    // The runtime descriptor to use as a user type's baseClass when its real
+    // base is a BCL type (the loader only links types inside the translated
+    // set, so t.BaseType is null there). Walks the metadata base NAME chain --
+    // the same shape as IsDelegateType above, and the same reason: a name table
+    // cannot enumerate every exception a user assembly might derive from.
+    //
+    // Only the DIRECT base is wired; the runtime descriptors already chain upward
+    // (ArgumentNullException -> ArgumentException -> SystemException ->
+    // Exception -> Object, metadata.cpp:531-590). An unrecognised BCL exception
+    // base answers System.Exception: it is the universal root, so `is Exception`
+    // is right even when a more precise descriptor does not exist yet. Types that
+    // are not exceptions keep nullptr (System.Object roots and enums).
+    private static string BclExceptionBaseDescriptor(TypeDef t)
+    {
+        for (var cur = t; cur != null; cur = cur.BaseType)
+        {
+            if (cur.BaseTypeName == "System.Exception")
+                return "&System_Exception_class";
+            if (cur.BaseTypeName == "System.SystemException")
+                return "&System_SystemException_class";
+            if (cur.BaseTypeName == "System.ArgumentException")
+                return "&System_ArgumentException_class";
+            if (cur.BaseTypeName == "System.ArgumentNullException")
+                return "&System_ArgumentNullException_class";
+            if (cur.BaseTypeName == "System.ArgumentOutOfRangeException")
+                return "&System_ArgumentOutOfRangeException_class";
+        }
+        // An exception whose precise BCL descriptor is not modelled (e.g.
+        // InvalidOperationException, ThreadStateException) still needs a base
+        // that is an exception: System.Exception is the universal root, so
+        // `is Exception` stays correct while the exact descriptor stays out of
+        // reach. Anything that is not an exception keeps the null root.
+        if (IsBclExceptionName(t.BaseTypeName))
+            return "&System_Exception_class";
+        return "nullptr";
+    }
+
+    // A BCL type name in the exception subtree: System.*Exception. Deliberately
+    // name-based -- the metadata base chain for an untranslated BCL type stops
+    // at its immediate name, so there is nothing further to walk.
+    private static bool IsBclExceptionName(string baseTypeName) =>
+        baseTypeName.Length > "System.".Length
+        && baseTypeName.StartsWith("System.", StringComparison.Ordinal)
+        && baseTypeName.EndsWith("Exception", StringComparison.Ordinal);
 
     // The transpiler-emitted C++ function name of a method -- the SAME
     // symbol call sites resolve (CodeGenerator.MethodCppName; the prefix is
