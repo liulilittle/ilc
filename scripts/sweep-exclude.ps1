@@ -48,3 +48,26 @@ function Find-SweepExcludeEntry {
     }
     return $null
 }
+
+# An exclusion entry is an instruction to SILENCE a case, so a name that does not
+# correspond to a real tests/cases/<name>/ directory silences nothing while making
+# the list look authoritative. A typo, a renamed case, or a case that was deleted
+# after being excluded all land here. Throwing (rather than warning) is deliberate:
+# the list is a gate input, and a gate that silently accepts garbage is not a gate.
+function Assert-SweepExcludeEntriesExist {
+    param(
+        [string]$Path = $script:SweepExcludePath,
+        [Parameter(Mandatory = $true)][string]$CasesRoot
+    )
+    $missing = New-Object System.Collections.Generic.List[string]
+    foreach ($e in (Get-SweepExcludeEntries -Path $Path)) {
+        $dir = Join-Path $CasesRoot $e.Case
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
+            $missing.Add($e.Case)
+        }
+    }
+    if ($missing.Count -gt 0) {
+        throw ("sweep-exclude.txt lists case(s) with no tests/cases/ directory: " +
+            ($missing -join ', ') + " -- fix the name or drop the entry (" + $Path + ")")
+    }
+}

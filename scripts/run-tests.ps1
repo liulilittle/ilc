@@ -213,6 +213,10 @@ $total = $caseDirs.Count
 # scripts/sweep-exclude.ps1 parser (the same one sweep-cases.ps1 and difftest.ps1 use).
 . (Join-Path $PSScriptRoot "sweep-exclude.ps1")
 $excludePath = Join-Path $PSScriptRoot "sweep-exclude.txt"
+# Every exclusion entry must name a real tests/cases/ directory: a typo or a renamed
+# case would otherwise leave a dead instruction that silences nothing while making
+# the list look authoritative. Fail before the sweep rather than after.
+Assert-SweepExcludeEntriesExist -Path $excludePath -CasesRoot (Join-Path $Root "tests/cases")
 $skipped = 0
 
 foreach ($caseDir in $caseDirs) {
@@ -527,4 +531,11 @@ if ($ResultsFile) {
     Write-Host "results written to $ResultsFile"
 }
 [Console]::OutputEncoding = $origOutputEncoding
+# An all-SKIP run proves nothing: every case was excused, so the harness exercised
+# no comparison at all. Exiting 0 there is the same defect as an empty test suite
+# reporting success. Once at least one case actually runs, skips are fine.
+if ($total -gt 0 -and $passed -eq 0 -and $failures -eq 0) {
+    Write-Host "ERROR: every case was skipped ($skipped/$total) -- nothing was actually verified"
+    exit 1
+}
 exit $(if ($failures -gt 0) { 1 } else { 0 })

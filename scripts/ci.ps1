@@ -122,6 +122,14 @@ Write-Host "=== 3.8 GREEN contract gate (mingw) ==="
 powershell -NoProfile -ExecutionPolicy Bypass -File "$Root/scripts/green-gate.ps1" -Compiler mingw
 if ($LASTEXITCODE -ne 0) { throw "GREEN contract gate failed (exit $LASTEXITCODE): see .opencode/tmp/green-gate/*.log" }
 
+# Gate inputs must be well-formed before the sweep trusts them: every name in
+# sweep-exclude.txt has to resolve to a real tests/cases/ directory, and a run in
+# which every case was excused must not report success. Both properties are
+# asserted by this probe (it is cheap -- no compilation).
+Write-Host "=== 3.9 sweep-exclude strictness ==="
+powershell -NoProfile -ExecutionPolicy Bypass -File "$Root/scripts/probe-sweep-exclude-strict.ps1"
+if ($LASTEXITCODE -ne 0) { throw "sweep-exclude strictness probe failed (exit $LASTEXITCODE)" }
+
 Write-Host "=== 4. e2e mingw ==="
 pwsh -NoProfile -File "$Root/scripts/run-tests.ps1" -Compiler mingw
 if ($LASTEXITCODE -ne 0) { throw "e2e mingw failed" }
