@@ -61,74 +61,89 @@ P0 段（gap = missing + half-wired + stub + no-decl）：
 
 **求交前必须归一化源生成器方法名。** .NET 7+ 的 `[LibraryImport]` 由源生成器展开，发布程序集里
 方法名形如 `<RealName>g____PInvoke|N_0`（192 条 QCall 中 64 条如此）。不归一化会漏掉 33%，
-详见 `qcall-scope-recut.md` §2.1。本轮首次计算即因此把 12 条错算成 9 条。
+详见 `qcall-scope-recut.md` §2.1。本轮首次计算即因此把 17 条错算成 12 条、再错算成 9 条。
 
 | 键 | 结论 |
 |---|---|
 | 并集规模（归一化后） | 8.0.31 = **594**、9.0.20 = **588** |
-| FCall 表 P0 gap 19 | 并集命中 **1**，落空 **14** |
-| QCall 表 P0 gap 42 | 并集命中 **11**，落空 **20**（另有 2 条仅 9.0.20 有） |
-| 合计 P0 gap 61 | 命中 **12**、落空 **49** |
+| FCall 表 P0 gap 19 | 8.0.31 命中 **1**、仅 9.0.20 有 **4**、两者皆无 **14** |
+| QCall 表 P0 gap 42 | 8.0.31 命中 **16**、仅 9.0.20 有 **8**、两者皆无 **18** |
+| 合计 P0 gap 61 | 8.0.31 命中 **17**、仅 9.0.20 有 **12**、两者皆无 **32** |
 
-**49 / 61（80%）的 P0 缺口在 8.0.31 与 9.0.20 都不存在** ⇒ 不是「待实现的缺口」，
-而是参考源码审计的产物。真正需要处置的是 12 条。
+**32 / 61（52%）的 P0 缺口在两版发布程序集都不存在** ⇒ 不是「待实现的缺口」，
+而是参考源码审计的产物。目标为 8.0.31，真正需要处置的是 **17 条**。
 
-### 3.1 真实缺口（并集命中，12 条）—— 全部已封堵
+> **更正记录（轮150）**：本节早先写「命中 12 / 落空 49」，是错的。汇总脚本
+> `.opencode/tmp/w11main-abi/recut.py` 只保留 `both_rows` 与 `neither_rows` 两个桶，
+> 把「仅在 9.0.20 存在」的 15 行（FCall 4 + QCall 11）静默丢弃；归一化后其中 5 条
+> 其实在 8.0.31 存在，于是 17 被算成 12。现按 `present / only9 / absent` 三桶重算，
+> 并断言三者之和 == 61。
 
-| owner | name | 表 | 现有处置 | 证据 |
+### 3.1 真实缺口（8.0.31 命中，17 条）
+
+处置列是**实测**（`grep '"<name>":'` 于该 owner 自己的 MethodMap 文件），不是从
+「同类型有公共面映射」推断出来的。
+
+| owner | name | 表 | 实测处置 | 证据 |
 |---|---|---|---|---|
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `GetTailCallInfo` | FCall | LOUD throw | `src/il2cppc/Emit/MethodMap.RuntimeHelpers.cs:185` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `RunClassConstructor` | QCall | LOUD throw | `src/il2cppc/Emit/MethodMap.RuntimeHelpers.cs:101` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `RunModuleConstructor` | QCall | LOUD throw | `src/il2cppc/Emit/MethodMap.RuntimeHelpers.cs:113` |
-| `System.Threading.Thread` | `StartInternal` | QCall | LOUD throw | `src/il2cppc/Emit/MethodMap.Thread.cs:314` |
-| `System.Exception` | `GetMessageFromNativeResources` | QCall | LOUD throw | `src/il2cppc/Emit/MethodMap.Exception.cs:295` |
-| `System.GC` | `_StartNoGCRegion` | QCall | LOUD throw（轮149 补齐，见 §3.1.2） | `src/il2cppc/Emit/MethodMap.GC.cs:432` |
-| `System.Threading.Thread` | `Initialize` | FCall | 公共面替代 | `MethodMap.Thread.cs` `case "Start"` / `".ctor"` |
-| `System.Threading.Thread` | `InformThreadNameChange` | QCall | 公共面替代（`set_Name` → `icall_threadobj_set_name`） | `MethodMap.Thread.cs:226-232` |
-| `System.Delegate` | `BindToMethodName` | FCall | 公共面替代（`CreateDelegate` → `il2cpp_createdelegate_loud`） | `src/il2cppc/Emit/MethodMap.Delegate.cs:92-100` |
-| `System.Delegate` | `BindToMethodInfo` | FCall | 同上（`CreateDelegate` LOUD） | `src/il2cppc/Emit/MethodMap.Delegate.cs:92` |
-| `System.Array` | `InternalCreate` | FCall | 公共面替代（`CreateInstance` 已映射） | `MethodMap.Legacy.cs:165` / `MethodMap.Reflect.cs:405` |
-| `System.Runtime.CompilerServices.RuntimeHelpers` | `AreTypesEquivalent` | QCall | LOUD throw（轮149 补齐，见 §3.1.2） | `src/il2cppc/Emit/MethodMap.RuntimeHelpers.cs:195` |
+| `System.Runtime.CompilerServices.RuntimeHelpers` | `GetTailCallInfo` | FCall | LOUD throw | `MethodMap.RuntimeHelpers.cs:185` |
+| `System.Runtime.CompilerServices.RuntimeHelpers` | `RunClassConstructor` | QCall | LOUD throw | `MethodMap.RuntimeHelpers.cs:101` |
+| `System.Runtime.CompilerServices.RuntimeHelpers` | `RunModuleConstructor` | QCall | LOUD throw | `MethodMap.RuntimeHelpers.cs:113` |
+| `System.Runtime.CompilerServices.RuntimeHelpers` | `AreTypesEquivalent` | QCall | LOUD throw | `MethodMap.RuntimeHelpers.cs:195` |
+| `System.Runtime.CompilerServices.RuntimeHelpers` | `AllocateUninitializedClone` | QCall | **无 arm（幻影）** | 该文件无此 case |
+| `System.Threading.Thread` | `StartInternal` | QCall | LOUD throw | `MethodMap.Thread.cs:314` |
+| `System.Exception` | `GetMessageFromNativeResources` | QCall | LOUD throw | `MethodMap.Exception.cs:295` |
+| `System.GC` | `_StartNoGCRegion` | QCall | LOUD throw | `MethodMap.GC.cs:432` |
+| `System.GC` | `_WaitForFullGCApproach` | QCall | **无 arm（幻影）** | `MethodMap.GC.cs` 无此 case |
+| `System.GC` | `_WaitForFullGCComplete` | QCall | **无 arm（幻影）** | `MethodMap.GC.cs` 无此 case |
+| `System.Exception` | `GetMethodFromStackTrace` | QCall | **无 arm（幻影）** | `MethodMap.Exception.cs` 无此 case |
+| `System.Threading.Thread` | `Initialize` | FCall | **无 arm（幻影）** | `MethodMap.Thread.cs` 无此 case |
+| `System.Threading.Thread` | `InformThreadNameChange` | QCall | **无 arm（幻影）** | `MethodMap.Thread.cs` 无此 case |
+| `System.Threading.Thread` | `SpinWaitInternal` | QCall | **无 arm（幻影）** | `MethodMap.Thread.cs` 无此 case |
+| `System.Delegate` | `BindToMethodName` | FCall | **无 arm（幻影）** | `MethodMap.Delegate.cs` 无此 case |
+| `System.Delegate` | `BindToMethodInfo` | FCall | **无 arm（幻影）** | `MethodMap.Delegate.cs` 无此 case |
+| `System.Array` | `InternalCreate` | FCall | **无 arm（幻影）** | `MethodMap.Array.cs` 无此 case |
 
-判据说明：12 条里 5 条是显式 `NotSupportedException`（LOUD，不会静默错值）；
-5 条是 CoreLib 内部 helper（`public/private` 或 `public/assembly`：类型 public、
-方法 private/internal），用户代码不可直接触达，其公共入口均已映射；
-**2 条曾未接线、现已补显式 LOUD**（轮149），见下节。
+统计：**7 条 LOUD throw / 10 条无 arm**。
 
-### 3.1.2 两条曾被漏掉的项（轮149 已补显式 LOUD）
+### 3.1.1 「无 arm」意味着什么，以及为什么它不是用户可见缺口
 
-`System.GC._StartNoGCRegion` 与 `RuntimeHelpers.AreTypesEquivalent` 在 `src/il2cppc/Emit/` 下
-**没有任何 `case` arm**（`grep '"(_StartNoGCRegion|AreTypesEquivalent)"'` 命中 0），
-落进各自 `switch` 的 `default: return null`。展开后果：
+`return null` 从 `MethodRefResolver` 返回后走**生成名兜底路径**：生成对
+`<owner>_<name>` 之类符号的调用。若该符号不存在则**链接失败**（编译期暴露，不是静默错值）；
+若偶然同名同签名则可能误绑。
 
-- `return null` ⇒ 走「生成名兜底路径」⇒ 生成对**不存在符号**的调用（链接失败）
-  或落到未定义行为，而不是抛 `NotSupportedException`。
-- **可达性缓解**：两者都是 `public/assembly/static`（类型 public、方法 assembly 可见），
-  只有 CoreLib 自己的 IL 能调；用户程序集不可能直接写出来。
-- **为什么没接线**：`_EndNoGCRegion` 的注释（`MethodMap.GC.cs:423-431`）记录了本 GC
-  从不授予 NoGC region，因此 `_StartNoGCRegion` 的成功路径永不存在；`AreTypesEquivalent`
-  在 AOT 下由 CLR 类型系统覆盖，CoreLib 侧无调用点。
+10 条全部是 CoreLib 内部成员（`public/private`、`public/internal` 或 `public/assembly`：
+类型 public、方法 private/internal/assembly）。用户程序集**无法直接写出**这些调用，
+只有 CoreLib 自己的 IL 会调，而 CoreLib 的 IL 不被转译。所以：
 
-**结论**：这两条**不改变「P0 段无用户可见静默缺口」的结论**，但它们的处置方式与另外 10 条不同
-（10 条是显式拒绝或公共面替代，这 2 条曾是隐式 null）。
+- **对用户代码**：不可达 ⇒ 不构成用户可见缺口。
+- **对转译过程**：若将来有路径触达（如 CoreLib IL 被纳入转译），会链接失败而非静默错值。
 
-**轮149 已修复**：两条都补了显式 `NotSupportedException` arm，与其它 `corelib-p0 gap` 条目一致。
-TDD 证据（`tests/unit/MethodMapTests.CoreLibP0.cs`）：
+**结论不变：P0 段没有用户可见的静默缺口。** 但「已封堵」的说法只对 7 条 LOUD 成立；
+另 10 条是「不可达 + 触达即链接失败」，属于**可接受但未显式拒绝**的状态。
 
-| 步骤 | 命令 | 结果 |
-|---|---|---|
-| 红证 | 先加 2 个 `IsLoudGap` 测试，未改实现 | `EXIT=1`，2 个 `[FAIL]` |
-| 绿证 | 补 arm 后重跑 | `EXIT=0`，`测试总数: 46 / 通过: 46` |
-| 变异红 | 把 2 处 throw 改回 `return null` | `MUT_EXIT=1`，2 个 `[FAIL]` |
-| 恢复绿 | 字节级恢复（sha16 回 `98379837652671B2` / `307896159CCAF325`） | `GREEN_EXIT=0`，46/46 |
-| C0 | `dotnet build src/il2cppc -warnaserror` | `warnings=0 errors=0` |
+**是否补齐这 10 条 —— 判据已确认（实测，非推测）**：
+转译器的类型加载入口只有 `opts.InputAssembly`
+（[READ:src/il2cppc/Program.cs:164] `var types = MetadataLoader.LoadAssembly(opts.InputAssembly);`），
+即只加载**用户程序集**；CoreLib 的方法体不进入转译。因此这 10 条不会出现在转译输入里。
 
-### 3.1.1 仅 9.0.20 存在的 2 条（目标为 8.0.31，不在范围内）
+**本轮不补**（按 C6：为不可达符号写代码属投机功能）。若后续引入「转译 CoreLib IL」的能力，
+这 10 条会立刻变成阻断点，届时按 LOUD throw 补齐（与另外 7 条一致）。
+这个条件已记录为**已知边界**，不是遗漏。
 
-`Thread.GetIsBackground`、`Exception.GetFrozenStackTrace` —— 8.0.31 无此成员，
+### 3.1.2 仅 9.0.20 存在的 12 条（目标为 8.0.31，不在范围内）
+
+FCall 4 条：`Interlocked.ExchangeObject`、`Interlocked.CompareExchangeObject`、
+`GC.GetTotalAllocatedBytesApproximate`、`RuntimeHelpers.ContentEquals`。
+
+QCall 8 条：`Thread.GetIsBackground`、`Thread.SetIsBackground`、`RuntimeHelpers.SizeOf`、
+`Delegate.InitializeVirtualCallStub`、`Delegate.GetMulticastInvokeSlow`、
+`GC.GetTotalAllocatedBytesPrecise`、`GC.GetNextFinalizeableObject`、
+`Exception.GetFrozenStackTrace`。
+
 若未来切到 9.0.20 目标需重新评估。
 
-### 3.2 落空的 49 条（不是缺口）
+### 3.2 落空的 44 条（不是缺口）
 
 这 52 条在两版发布程序集的 FCall∪QCall 并集里都查不到。分两类：
 
@@ -152,7 +167,7 @@ TDD 证据（`tests/unit/MethodMapTests.CoreLibP0.cs`）：
 | `RuntimeHelpers.AreTypesEquivalent` | 仍是 QCall，仅入口名带 `g____PInvoke` 后缀 | 见 §3.1（轮149 补显式 LOUD） |
 | `RuntimeHelpers.GetHashCodeSlow` | `GetHashCode` | `MethodMap.RuntimeHelpers.cs` `case "GetHashCode"` |
 | `RuntimeHelpers.AllocTailCallArgBufferInternal` | `AllocTailCallArgBuffer` | `MethodMap.RuntimeHelpers.cs` |
-| `Array.InternalCreate` | 见 §3.1（已按公共面替代） | — |
+| `Array.InternalCreate` | 仍是 FCall，无对应现代名 | 见 §3.1（无 arm） |
 
 **(b) .NET 8/9 已彻底移除 —— 无对应成员，不适用**
 
@@ -169,46 +184,63 @@ TDD 证据（`tests/unit/MethodMapTests.CoreLibP0.cs`）：
 
 ## 4. 结论
 
-1. **CoreLib P0 的「89 条缺口」是参考源码口径的虚数**（P0 实为 61 条，非 89；且其中 52 条
-   在发布程序集不存在）。按已发布目标程序集重切后，真实可触达缺口 = **9 条**，
-   9 条**全部已封堵**：6 条显式 `NotSupportedException`（LOUD），3 条由公共面替代
-   （`Thread.Start`/`Delegate.CreateDelegate`/`Array.CreateInstance`）。
-   不存在静默幻影路径。
-2. **不需要新增 MethodMap 接线**。若强行按参考源码补齐落空的 52 条，
-   会为永不出现的符号写映射（违反 C6：禁止投机功能）。
-3. **求交口径教训**：必须在 FCall∪QCall 并集上求交。同表求交会把「参考源码 QCall → 发布版 FCall」
-   的迁移（`Delegate.BindToMethodName`/`BindToMethodInfo` 等 4 条）误判为不存在，
-   本轮首次计算即因此把 9 条错算成 5 条。
-4. **tier 判据的缺陷已定位**：`parse_icall_tables.py:762` 的 `tier_for()` 只看类型名，
-   不看成员是否存在于发布程序集。这是「P0 虚高」的根因，记录为已知局限（本轮不改脚本，
-   因其输出仍用于相对排序）。
+1. **CoreLib P0 的「89 条缺口」是参考源码口径的虚数**：当前接线面实测 P0 gap 为 **61 条**，
+   其中 **32 条在两版发布程序集都不存在**、**12 条仅在 9.0.20 存在**（目标为 8.0.31，不适用），
+   真正落在 8.0.31 上的只有 **17 条**。
+2. **17 条的实测处置**：7 条显式 `NotSupportedException`（LOUD，已封堵）；
+   10 条无 `case` arm（落 `default: return null` → 生成名兜底 → 触达即链接失败）。
+   10 条全部是 CoreLib 内部成员，用户程序集不可达，因此**不构成用户可见缺口**。
+3. **不新增 MethodMap 接线**：①12 条仅 9.0.20 有效、32 条两版皆无 ⇒ 为它们写映射违反 C6；
+   ②10 条无 arm 成员当前无证据表明会进入转译输入，按 C6 同样不补。
+   若后续出现真实转译输入触达，按 LOUD throw 补齐（与另外 7 条一致）。
+4. **求交口径（两处硬伤，都已踩过）**：
+   - 必须在 **FCall ∪ QCall 并集**上求交。参考源码 QCall 迁到发布版 FCall 的有 67 条；
+     同表求交会把它们误判为「不存在」。
+   - 必须**归一化源生成器名** `<X>g____PInvoke|N_M` → `X`（192 条 QCall 里 64 条如此）。
+   - 必须**保留三个桶**：`present / only9 / absent`，并断言三者之和 == P0 gap。
+     只留 present+absent 会静默丢弃 only9 行（本轮因此把 17 算成 12）。
+5. **tier 判据的缺陷已定位**：`parse_icall_tables.py:762` 的 `tier_for()` 只看类型名
+   （硬编码 `P0_TYPES` :733-777），不看成员是否存在于发布程序集 ⇒「P0 虚高」的机制性根因。
+   该脚本的输出仍可用于**相对排序**，但**不能**直接当作绝对缺口数。
 
 ## 5. 复现
 
+三桶求交已固化为 `tools/audit/recut_p0_gaps.py`（带恒等式断言，防止再丢桶）：
+
 ```powershell
 # 1. 接线面现状
-python tools/audit/parse_icall_tables.py --repo-root . --out <tmp>/icall-corelib.md --json <tmp>/icall-corelib.json
+python tools/audit/parse_icall_tables.py --repo-root . --out <tmp>/icall-corelib.md `
+    --json <tmp>/icall-corelib.json
 
 # 2. 目标程序集 FCall 面
 dotnet build tools/audit/MetadataIcallCounter/MetadataIcallCounter.csproj -c Release
 tools/audit/MetadataIcallCounter/bin/Release/net9.0/MetadataIcallCounter.exe `
-  "C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.31\System.Private.CoreLib.dll" <tmp>/corelib8-fcall.tsv
+  "C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.31\System.Private.CoreLib.dll" `
+  <tmp>/corelib8-fcall.tsv
 
 # 3. 目标程序集 QCall 面
 dotnet build tools/audit/QCallProbe/QCallProbe.csproj -c Release
 tools/audit/QCallProbe/bin/Release/net9.0/QCallProbe.exe `
-  "C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.31\System.Private.CoreLib.dll" <tmp>/corelib8-qcall.tsv
+  "C:\Program Files\dotnet\shared\Microsoft.NETCore.App\8.0.31\System.Private.CoreLib.dll" `
+  <tmp>/corelib8-qcall.tsv
 
-# 4. 求交（按 (declaringType, methodName) 键）
+# 4. 三桶求交（present / only9 / absent，断言三者之和 == P0 gap）
+python tools/audit/recut_p0_gaps.py --probe-dir <tmp> --audit-json <tmp>/icall-corelib.json --target 80
 ```
 
-实测输出（本轮）：
+实测输出：
+
 ```
-shipped surface sizes:
-  fcall 8.0.31=402  9.0.20=282
-  qcall 8.0.31=192  9.0.20=306
-=== FCall P0 gap=19 ===
-  in 8.0.31 : 1   in 9.0.20 : 5   in BOTH : 1   in NEITHER: 14
-=== QCall P0 gap=42 ===
-  in 8.0.31 : 4   in 9.0.20 : 15  in BOTH : 4   in NEITHER: 27
+=== FCall  P0 gap = 19 ===
+  present in target (80) : 1
+  only in other   (90) : 4
+  in neither             : 14
+=== QCall  P0 gap = 42 ===
+  present in target (80) : 16
+  only in other   (90) : 8
+  in neither             : 18
+BUCKET IDENTITY OK: three buckets sum to 61
 ```
+
+变异验证（第16条）：把 `only_other` 桶强制置空后，脚本必须以非零码报
+`bucket identity broken: 49 + ... != 61`；恢复后重新打印 `BUCKET IDENTITY OK`。
