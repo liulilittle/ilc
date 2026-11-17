@@ -59,12 +59,31 @@ namespace Cases
             Console.WriteLine("ac.tryswitch_found=" + found);
             Console.WriteLine("ac.tryswitch_value=" + isEnabled);
 
-            // [thr.apartment] DEFERRED: Thread.GetApartmentState returns
-            // ApartmentState, and the enum type is never emitted into the generated
-            // TU (measured: 'System_Threading_ApartmentState' was not declared in
-            // this scope). Printing it is enough to trigger that, so the row cannot
-            // be probed until the enum is emitted. See
-            // docs/audit/half-wired-nonp0.md section 3.
+            // [thr.apartment] ApartmentState is STA=0, MTA=1, Unknown=2. net48
+            // answers Unknown for a thread that has not started, and the real
+            // apartment once it runs. This runtime never initialises a COM
+            // apartment, so a started thread must read MTA.
+            Thread t = new Thread(delegate() { });
+            Console.WriteLine("thr.apartment_unstarted=" + (int)t.GetApartmentState());
+            Console.WriteLine("thr.apartment_current=" + (int)Thread.CurrentThread.GetApartmentState());
+
+            // The enum NAME resolves through the KnownBclEnumNames carrier, so a
+            // parameter-typed call also compiles (this is the shape that used to
+            // declare the mangled System_Threading_ApartmentState).
+            Thread t3 = new Thread(delegate() { });
+            bool setOk;
+            try
+            {
+                t3.SetApartmentState(ApartmentState.MTA);
+                setOk = true;
+            }
+            catch (Exception ex)
+            {
+                setOk = false;
+                Console.WriteLine("thr.setapa_ex=" + ex.GetType().Name);
+            }
+            Console.WriteLine("thr.setapa_ok=" + setOk);
+            Console.WriteLine("thr.apartment_after=" + (int)t3.GetApartmentState());
 
             // [thr.setapa] DEFERRED: Thread.SetApartmentState has no MethodMap arm
             // (only TrySetApartmentState does), so any call to it makes the whole

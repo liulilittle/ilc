@@ -136,6 +136,12 @@ struct Il2CppThreadObject
     // Thread keeps its captured state alive. Invoked as the `this` argument of
     // the generated instance ABI.
     Il2CppObject* callbackTarget;
+    // ApartmentState this thread will run in: STA = 0, MTA = 1. Set before
+    // Start (net48 allows the apartment to be chosen once, while NEW); a
+    // running thread reports MTA because no STA apartment is ever initialised.
+    // 2 (Unknown) is reported for a NEW thread that nobody configured.
+    // Plain int32 (NOT a GC reference), so refFieldBitmap is unaffected.
+    int32_t apartmentState;
 };
 
 // The System.Threading.Thread descriptor (lazily registered on first use;
@@ -261,11 +267,18 @@ void il2cpp_threadobj_register_pool_worker();
 // Thread.IsThreadPoolThread setter: no-op (simplified model).
 void icall_threadobj_set_is_thread_pool_thread(Il2CppObject* self, bool value);
 
-// Thread.GetApartmentStateNative: always returns 0 (MTA).
+// Thread.GetApartmentStateNative: Unknown (2) before the thread starts, MTA (1)
+// once running. The runtime never initialises an STA apartment.
 int32_t icall_threadobj_get_apartment_state_native(Il2CppObject* self);
 
-// Thread.SetApartmentStateNative: always returns true (no-op).
+// Thread.TrySetApartmentState (bool form): false when the thread has already
+// started, otherwise whether the requested apartment (STA=0 / MTA=1) was taken.
+// Only MTA is modelled.
 bool icall_threadobj_set_apartment_state_native(Il2CppObject* self, int32_t state);
+
+// Thread.SetApartmentState (void form): raises ThreadStateException when the
+// thread has already started, matching net48's failure channel.
+void icall_threadobj_set_apartment_state_public(Il2CppObject* self, int32_t state);
 
 // Thread.Interrupt: no-op (simplified model, no thread interruption).
 void icall_threadobj_interrupt(Il2CppObject* self);

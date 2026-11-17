@@ -51,7 +51,7 @@
 - `Name`：wrapper 自己的字段优先（命名是 write-once），否则回退到 trampoline 发布的
   `t_currentThreadName`
 
-### 2.2 `Thread.SetApartmentState` 公共面无 arm（**未修复，已登记**）
+### 2.2 `Thread.SetApartmentState` 公共面无 arm（**已修复**）
 
 转译直接失败（整个方法 `not transpiled`）：
 
@@ -60,15 +60,19 @@ warning: method fold failed -> skipped (System.Threading.Thread::SetApartmentSta
   not wired in M5 (BCL owner has no mapping arm ...))
 ```
 
-`MethodMap.Thread.cs:241` 只有 `TrySetApartmentState`，没有 `SetApartmentState`。
-同一 API 家族的 `GetApartmentState`（`:237`）有 arm，`Set` 缺一条 —— 是**真实缺口**。
+`MethodMap.Thread.cs` 原来只有 `TrySetApartmentState`，没有 `SetApartmentState`。
+两者失败通道不同，必须分开：
 
-**为什么本轮不修**：实现它需要决定 net48 的异常语义
-（`PlatformNotSupportedException` / `InvalidOperationException` / 静默成功），
-这属于产品取舍而非机械补齐；且它不影响已交付的任何用例。
-**待办**：单独立项。
+| 入口 | 已启动线程 | 未启动线程 |
+|---|---|---|
+| `TrySetApartmentState` (bool) | 返回 `false` | 返回是否接受 |
+| `SetApartmentState` (void) | 抛 `ThreadStateException` | 静默成功 / 抛 PNSE |
 
-### 2.3 `ApartmentState` 枚举未生成到 TU（**未修复，已登记**）
+修法：新增运行时入口 `icall_threadobj_set_apartment_state_public`（void，抛），
+与 `..._native`（bool，不抛）并存；`MethodMap.Thread.cs` 的 `SetApartmentState`
+arm 指向新入口。
+
+### 2.3 `ApartmentState` 枚举未生成到 TU（**已修复**）
 
 即使调用 `GetApartmentState()`（有 arm），打印其返回值也编译失败：
 
@@ -76,8 +80,29 @@ warning: method fold failed -> skipped (System.Threading.Thread::SetApartmentSta
 error: 'System_Threading_ApartmentState' was not declared in this scope
 ```
 
-枚举类型没有被 emit 进生成的 TU。`GetApartmentState` 的 arm 因此**无法被任何用户代码
-观测**（拿到返回值就编译不过）。这与 2.2 是同一家族（apartment 面未打通）。
+根因：`CodeGenerator.KnownBclEnumNames` 白名单少了
+`System.Threading.ApartmentState`（该白名单注释自述「grows on demand — one entry per
+case that needs it」）。加入后枚举按 int32 carrier 处理，用户可 `(int)` 转换使用。
+
+### 2.4 `GetApartmentState` 返回值语义错误（**已修复**）
+
+修好 2.2/2.3 后探针立即暴露第三个缺陷：
+
+| 场景 | net48 | 修复前运行时 |
+|---|---|---|
+| 未启动、未配置 | `Unknown(2)` | `0` |
+| 当前线程 | `MTA(1)` | `0` |
+| 未启动、已 `SetApartmentState(MTA)` | `MTA(1)` | `2` |
+
+`ApartmentState` 的真实顺序是 **STA=0 / MTA=1 / Unknown=2**，而原实现
+`return 0; // MTA` 既把 STA 当 MTA，也从未记录用户选择的公寓。
+
+修法：
+- `Il2CppThreadObject` 末尾追加 `int32_t apartmentState`（非 GC 引用，
+  `refFieldBitmap` 不受影响），ctor 初始化为 `2`(Unknown)
+- `get`：`state != 0`（已启动/CURRENT）⇒ `1`(MTA)；否则返回已记录值
+- `native`(bool)：已启动 ⇒ `false`；请求非 MTA ⇒ `false`；否则记录并返回 `true`
+- `public`(void)：已启动 ⇒ `ThrowThreadState`；非 MTA ⇒ `PlatformNotSupportedException`
 
 ## 3. 探针与验收
 
@@ -85,18 +110,24 @@ error: 'System_Threading_ApartmentState' was not declared in this scope
 
 | 阶段 | 结果 |
 |---|---|
-| 修复前 | `ok=False`，`oracle 169B / runtime 170B`，唯一差异 `thr.current_same=False`（oracle `True`） |
-| 修复后 | `ok=True`，两侧 **169B 逐字节一致**，`C0_EXIT=0` |
-| 变异（缓存改回每次新建） | `ok=False`、`producedBytes=339`、`MUT_EXIT=1` |
+| CurrentThread 修复前 | `ok=False`，唯一差异 `thr.current_same=False`（oracle `True`） |
+| CurrentThread 修复后 | `ok=True`，169B 逐字节一致 |
+| apartment 修复前 | `ok=False`，`thr.apartment=0` vs oracle `2`；`thr.apartment_after` 亦不同 |
+| apartment 修复后 | `ok=True`，**264B 逐字节一致**，`C0_EXIT=0` |
+| 变异（两处判定同时改坏） | `ok=False`、`MUT_EXIT=1` |
 | 恢复 | 无 `MUTANT` 残留，`ok=True`、`GREEN_EXIT=0` |
 
-修复后实测输出（oracle == runtime）：
+修复后实测输出（oracle == runtime，264B）：
 ```
 serv.is_server=False
 ac.overrides_null=True
 ac.getvalue_null=True
 ac.tryswitch_found=False
 ac.tryswitch_value=False
+thr.apartment_unstarted=2
+thr.apartment_current=1
+thr.setapa_ok=True
+thr.apartment_after=1
 thr.current_same=True
 thr.current_id_pos=True
 ```
@@ -112,10 +143,13 @@ threadpooldeep2 PASS
 
 ## 4. 仍未覆盖的部分
 
-- `thr.apartment` / `thr.setapa` 两行因 §2.2 / §2.3 无法探针，**未验证**。
 - 10 条内部 icall 无公共路径，**未验证**（也不构成用户可见缺口）。
-- 本轮只验证了主线程；子线程的 `CurrentThread` 单例性由 `threadcase`/`threadcase2`/
-  `diffthread001` 间接覆盖，未写专门的 `ReferenceEquals` 断言（**未验证**）。
+- 子线程的 `CurrentThread` 单例性由 `threadcase`/`threadcase2`/`diffthread001` 间接覆盖，
+  **未写**专门的子线程 `ReferenceEquals` 断言（**未验证**）。
+- `SetApartmentState` 在**已启动线程**上抛 `ThreadStateException` 的分支
+  **未探针验证**（探针只覆盖未启动路径）。同理 STA 请求抛
+  `PlatformNotSupportedException` 的分支**未验证**。
+- `TrySetApartmentState` 的返回值语义**未加探针**（只有 `SetApartmentState` 被覆盖）。
 
 ## 5. 复现
 

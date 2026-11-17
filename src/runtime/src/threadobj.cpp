@@ -345,6 +345,7 @@ void icall_threadobj_ctor(Il2CppObject* self, Il2CppObject* callback)
     t->managedId = g_nextManagedId.fetch_add(1, std::memory_order_relaxed);
     t->isBackground = false; // net48: new threads are foreground
     t->name = nullptr;       // Thread.Name: unset until icall_threadobj_set_name
+    t->apartmentState = 2;   // Unknown until the apartment is chosen
 }
 
 //------------------------------------------------------------------------------
@@ -768,14 +769,51 @@ void icall_threadobj_set_is_thread_pool_thread(Il2CppObject* self, bool value)
 
 int32_t icall_threadobj_get_apartment_state_native(Il2CppObject* self)
 {
-    (void)self;
-    return 0; // MTA
+    ThrowIfNullReceiver(self);
+    Il2CppThreadObject* t = AsThread(self);
+    // ApartmentState: STA = 0, MTA = 1, Unknown = 2 (net48 ordering).
+    // A thread that has not started reports whatever was chosen for it, or
+    // Unknown when nobody chose; a running thread runs in this runtime's
+    // single (MTA) apartment because no STA pump is ever initialised.
+    if (t->state != 0)
+        return 1; // MTA
+    return t->apartmentState;
 }
 
 bool icall_threadobj_set_apartment_state_native(Il2CppObject* self, int32_t state)
 {
-    (void)self; (void)state;
-    return true; // always succeeds
+    ThrowIfNullReceiver(self);
+    Il2CppThreadObject* t = AsThread(self);
+    // TrySetApartmentState: answers false on a started thread instead of
+    // throwing, so the caller can branch on it. Only MTA (1) is available --
+    // the runtime never initialises an STA apartment, so an STA request is
+    // refused the way net48 refuses it on a platform without an STA pump.
+    if (t->state != 0)
+        return false;
+    if (state != 1)
+        return false;
+    t->apartmentState = 1;
+    return true;
+}
+
+// SetApartmentState (the void public wrapper): net48 raises
+// ThreadStateException when the thread has already started, rather than
+// answering false. Same predicate as the Try form, different failure channel.
+void icall_threadobj_set_apartment_state_public(Il2CppObject* self, int32_t state)
+{
+    ThrowIfNullReceiver(self);
+    Il2CppThreadObject* t = AsThread(self);
+    if (t->state != 0)
+    {
+        ThrowThreadState("Thread is running or terminated; it cannot restart.");
+    }
+    if (!icall_threadobj_set_apartment_state_native(self, state))
+    {
+        il2cpp_throw_new(
+            "System.PlatformNotSupportedException,"
+            "System.PlatformNotSupportedException,System.NotSupportedException,System.SystemException,System.Exception",
+            "Only the MTA apartment is supported by this runtime.");
+    }
 }
 
 void icall_threadobj_interrupt(Il2CppObject* self)

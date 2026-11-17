@@ -242,6 +242,14 @@ public static partial class MethodRefResolver
                 if (count == 1 && (ps[0] == 0x08 || ps[0] == 0x11))
                     return I("il2cpp::runtime::icall_threadobj_set_apartment_state_native", 1, true, false, true, new[] { "", "i" });
                 return null;
+            // SetApartmentState (void) is TrySetApartmentState's throwing sibling:
+            // net48 raises ThreadStateException on a started thread instead of
+            // answering false. Both route to the same native entry, which throws in
+            // that case, so the void form needs no separate runtime symbol.
+            case "SetApartmentState":
+                if (count == 1 && (ps[0] == 0x08 || ps[0] == 0x11))
+                    return I("il2cpp::runtime::icall_threadobj_set_apartment_state_public", 1, false, false, true, new[] { "", "i" });
+                return null;
             // P6: Thread internal helpers -- simplified model stubs.
             case "set_IsThreadPoolThread": return I("il2cpp::runtime::icall_threadobj_set_is_thread_pool_thread", 1, false, false, true, new[] { "", "i" });
             case "GetApartmentStateNative": return I("il2cpp::runtime::icall_threadobj_get_apartment_state_native", 0, true, false, true);

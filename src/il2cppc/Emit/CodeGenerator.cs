@@ -10970,6 +10970,13 @@ default: return false;                           // primitives/VAR(handled by ca
             // GCLatencyMode / System.TypeCode precedent) makes the parameter
             // compile; the call site passes the folded enum constant.
             "System.Globalization.DateTimeStyles",
+            // probe-half-nonp0 (2026-11-17): Thread.GetApartmentState returns
+            // ApartmentState. Without the carrier the return type declared the
+            // MANGLED System_Threading_ApartmentState (no generated body) ->
+            // cmake build FAIL, so the arm was unobservable from user code.
+            // The carrier makes the value an int32; the enum's own members are
+            // still not emitted, so callers cast the result to int.
+            "System.Threading.ApartmentState",
         };
     // D5: public accessor for the same whitelist (StackFold's shared-clone
     // return-unbox site needs it to unbox BCL-enum returns).
