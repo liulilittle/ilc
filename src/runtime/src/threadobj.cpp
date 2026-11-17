@@ -155,6 +155,17 @@ thread_local int32_t t_currentManagedId = 1;
 // the managed owner object); the main thread's entry stays null until set.
 thread_local Il2CppString* t_currentThreadName = nullptr;
 
+// The single Thread object that Thread.CurrentThread answers on this thread.
+// net48 hands out ONE object per thread (ReferenceEquals(CurrentThread,
+// CurrentThread) is true, and naming it once is visible on every later read),
+// so the wrapper is created once per thread and refreshed from the TLS fields
+// above on each access.
+//
+// Lifetime: thread_local storage, so the pointer dies with the thread. No
+// destructor runs for it -- the collector never moves objects and the object
+// itself stays reachable through this pointer until the thread exits.
+thread_local Il2CppThreadObject* t_currentThreadObj = nullptr;
+
 // Per-thread "already registered as a pool worker" flag (TLS). A pool worker
 // registers its managed id exactly ONCE at thread start; the flag makes a
 // second registration on the same thread a no-op (the worker keeps its id
@@ -660,8 +671,7 @@ void icall_threadobj_set_name(Il2CppObject* self, Il2CppString* name)
     if (t->state == 2)
     {
         // Naming the CURRENT wrapper (Thread.CurrentThread.Name = x) names
-        // this thread: publish to TLS so later CurrentThread reads see it
-        // (the wrapper itself is ephemeral -- a fresh object per call).
+        // this thread: publish to TLS so the trampoline's view agrees.
         t_currentThreadName = name;
     }
 }
@@ -675,8 +685,15 @@ void icall_threadobj_set_name(Il2CppObject* self, Il2CppString* name)
 Il2CppObject* icall_threadobj_get_current_thread()
 {
     il2cpp_threadobj_class(); // register the descriptor
-    Il2CppThreadObject* t = reinterpret_cast<Il2CppThreadObject*>(
-        il2cpp_object_new(&System_Threading_Thread_class));
+    Il2CppThreadObject* t = t_currentThreadObj;
+    if (t == nullptr)
+    {
+        t = reinterpret_cast<Il2CppThreadObject*>(
+            il2cpp_object_new(&System_Threading_Thread_class));
+        t_currentThreadObj = t;
+    }
+    // Refreshed on every access: the TLS fields are written by the thread
+    // trampoline (and by set_name), and they are the authoritative source.
     t->callbackFn = nullptr;
     t->callbackTarget = nullptr; // no ThreadStart callback (CURRENT object)
     t->handle = nullptr;
@@ -684,8 +701,11 @@ Il2CppObject* icall_threadobj_get_current_thread()
     t->tid = plat_thread_current_id();
     t->managedId = t_currentManagedId; // main = 1; spawned = ctor id (TLS)
     t->isBackground = false; // net48: threads start foreground
-    t->name = t_currentThreadName; // CurrentThread.Name: owner's name in a
-                                   // spawned thread, null on main until set
+    // Name: the wrapper is the object a caller named, so its own field wins when
+    // it has one (naming is write-once); otherwise fall back to the owner's name
+    // published by the trampoline.
+    if (t->name == nullptr)
+        t->name = t_currentThreadName;
     return reinterpret_cast<Il2CppObject*>(t);
 }
 
