@@ -278,6 +278,8 @@ void il2cpp_throw_file_not_found_exception(const char* message)
 // the localized "parameter name: <name>" line, so the getter reads that
 // suffix back out of the pending exception text.
 //------------------------------------------------------------------------------
+namespace il2cpp {
+
 il2cpp::Il2CppString* icall_exception_param_name(const char* messageText)
 {
     if (messageText == nullptr) return nullptr;
@@ -306,6 +308,8 @@ il2cpp::Il2CppString* icall_exception_param_name(const char* messageText)
     buf[n] = 0;
     return il2cpp::il2cpp_string_new_from_utf8(buf);
 }
+
+} // namespace il2cpp
 
 //------------------------------------------------------------------------------
 // corelib-p0: the CoreLib-internal exception FCalls (see il2cpp_exception_ext.h).

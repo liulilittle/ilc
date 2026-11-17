@@ -1,0 +1,28 @@
+# W11 green contract set: cases that MUST stay byte-exact GREEN.
+#
+# This is the mirror image of scripts/loud-contracts.txt:
+#   loud-contracts.txt  -> every case MUST exit non-zero (a documented rejection)
+#   green-contracts.txt -> every case MUST exit zero with ok=True (byte-exact)
+#
+# They are deliberately SEPARATE files: mixing them would require the gate to
+# know which expectation applies to which row, and a mis-filed row would then
+# silently invert its own assertion. Two files, two gates, one meaning each.
+#
+# scripts/green-gate.ps1 reads THIS file, runs scripts/difftest.ps1 -Case <name>
+# and requires ok=True (exit 0). Any failure is a hard gate failure.
+#
+# Format: one case name per line, optional ' #' note. The matching case
+# directory lives under tests/cases/<name>/.
+
+# --- W11 P0-D: decimal GroupBy bucket First/Last ---
+# Regression anchor for the header/declaration gap fixed in P0-D: the runtime
+# DEFINED il2cpp_linq_grouping_first_dec / _last_dec (via the
+# IL2CPP_LINQ_GRP_DEC_OPS macro in linq_map.cpp) but linq_map.h never declared
+# them, so `grp.First()` / `grp.Last()` over a decimal bucket emitted
+# `il2cpp::il2cpp_linq_grouping_first_dec(...)` and the C++ build failed with
+# "is not a member of 'il2cpp'".
+#
+# This case MUST stay ok=True (byte-exact against the net48 oracle). It must
+# NEVER become a LOUD reject and must NEVER fail to compile: either outcome
+# means the declaration gap came back.
+w11probe-linqgrpdec  # GREEN anchor: P0-D decimal GroupBy bucket First/Last must compile and stay ok=True

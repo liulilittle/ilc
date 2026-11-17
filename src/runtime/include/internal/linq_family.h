@@ -315,6 +315,11 @@ Il2CppObject* il2cpp_linq_list_to_lookup_sel(Il2CppObject* list, Il2CppObject* k
                                              int32_t elemCell);
 Il2CppClass*  il2cpp_lookup_gen_object_class();
 int32_t       il2cpp_lookup_gen_get_count(Il2CppObject* self);
+// W11 P0-11-R3: the keyed lookup probe. DEFINED in linq_family.cpp:4728 but
+// never declared. keyKind selects the carrier rule (int32 vs reference key),
+// exactly like the dict_gen family's keyKind.
+int32_t       il2cpp_lookup_gen_find(Il2CppObject* selfObj, int32_t keyInt,
+                                     Il2CppObject* keyRef, int32_t keyKind);
 // b5-gaps section 85: Enumerable.Any() over the ILookup result (the group
 // count is non-zero). 0/1 int32 result.
 int32_t       il2cpp_lookup_gen_any(Il2CppObject* self);

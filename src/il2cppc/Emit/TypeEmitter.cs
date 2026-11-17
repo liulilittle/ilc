@@ -1137,7 +1137,7 @@ public static class TypeEmitter
                 if (slot >= 32)
                 {
                     throw new NotSupportedException(
-                        $"type {t.FullName}: reference field '{f.Name}' lands on slot {slot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (W11 F4-a); widen the bitmap before translating this shape");
+                        $"type {t.FullName}: reference field '{f.Name}' lands on slot {slot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (W11 F4-a); widen the bitmap before translating this shape; see docs/w11-f4-bitmap-limit.md");
                 }
                 bitmap |= 1u << slot;
                 ++refCount;
@@ -1272,7 +1272,7 @@ public static class TypeEmitter
                 if (f.SlotIndex >= 32)
                 {
                     throw new NotSupportedException(
-                        $"type {t.FullName}: reference field '{f.Name}' lands on slot {f.SlotIndex} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (W11 F4-a); widen the bitmap before translating this shape");
+                        $"type {t.FullName}: reference field '{f.Name}' lands on slot {f.SlotIndex} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (W11 F4-a); widen the bitmap before translating this shape; see docs/w11-f4-bitmap-limit.md");
                 }
                 bitmap |= 1u << f.SlotIndex;
                 ++refCount;
@@ -1566,7 +1566,7 @@ public static class TypeEmitter
             if (absSlot >= 32)
             {
                 throw new NotSupportedException(
-                    $"type {owner.FullName}: reference field '{f.Name}' embedded reference lands on slot {absSlot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (W11 F4-a); widen the bitmap before translating this shape");
+                    $"type {owner.FullName}: reference field '{f.Name}' embedded reference lands on slot {absSlot} -- the 32-bit refFieldBitmap cannot represent slots >= 32 (W11 F4-a); widen the bitmap before translating this shape; see docs/w11-f4-bitmap-limit.md");
             }
             bitmap |= 1u << absSlot;
             ++refCount;

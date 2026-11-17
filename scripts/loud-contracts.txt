@@ -10,3 +10,26 @@
 # contract" note so (a) the byte-exact full-pool sweep does not count it as a
 # permanent FAIL, and (b) difftest.ps1 does NOT take its SKIP early-return.
 zz-loud-sentinel  # LOUD contract: W11 F1-b fixed sentinel, must throw NotSupportedException
+
+# --- W11 P0-A: Console DEVICE surface regression anchors ---
+# These four probes are the ONLY coverage of the Console device surface
+# (Clear / Beep / Title / colors / cursor / window+buffer metrics): a scan of the
+# 1251 pre-existing cases found zero references to those members. They are
+# registered here (NOT in sweep-exclude.txt) because a LOUD contract must be
+# EXECUTED and verified to still throw, not silenced.
+#
+# Contract after W11 P0-A: MethodMap.Console.cs maps all 21 device members to
+# ConsoleDeviceNotImplemented(...), which throws
+# "LOUD whitelist (console device surface not implemented)". difftest therefore
+# exits non-zero with "not transpiled" + "Unhandled managed exception" and the
+# C++ build has ZERO errors (no undefined icall_console_* symbol).
+#
+# They are also the acceptance anchors for a future (a) REAL implementation:
+# when console_device.cpp lands, these four must flip from LOUD-reject to
+# byte-exact difftest PASS, and loud-gate must then be updated (or these rows
+# removed) in the same change.
+w11probe-console   # LOUD contract: W11 P0-A Console device surface (Clear/Beep) must reject, never emit il2cpp::runtime::icall_console_*
+w11probe-clear     # LOUD contract: W11 P0-A Console.Clear() must reject, never emit icall_console_clear
+w11probe-setters   # LOUD contract: W11 P0-A Console setters (ForegroundColor/BackgroundColor/Title/CursorLeft/CursorTop/CursorVisible) must reject
+w11probe-getters   # LOUD contract: W11 P0-A Console getters (Title/colors/cursor/window+buffer) + SetCursorPosition/ResetColor/Beep(f,d) must reject
+

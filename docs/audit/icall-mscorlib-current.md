@@ -1035,7 +1035,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 
 下面这些运行时实现是**空体或单一 `return <常量>;`**：它永远返回同一个字面量、完全不看参数，或者干脆什么都不做。它们不是「LOUD 拒绝」（不是明确抛异常），也不是「无接线」（能编译能链接），而是**能跑但答案恒定的静默偏差** —— 对 net48 byte-exact 来说等价于「编译通过、行为恒定」，不能算语义等价。
 
-扫描器（`tools/audit/parse_runtime_syms.py` 的 `is_constant_stub`）在 `src/runtime/src` 全表命中**89** 个恒值/空体桩。其中 **27** 个正好是 908 条 icall 的 dispatch 目标，所以那 30 条 icall 从「已接」改判为「半接」；其余是没有 icall 引用的运行时辅助符号，不在本审计的 908 条范围内，但同样是净偏差（一并列出，便于后续排查）。
+扫描器（`tools/audit/parse_runtime_syms.py` 的 `is_constant_stub`）在 `src/runtime/src` 全表命中**89** 个恒值/空体桩。其中 **27** 个正好是 908 条 icall 的 dispatch 目标，所以那 27 条 icall 从「已接」改判为「半接」；其余是没有 icall 引用的运行时辅助符号，不在本审计的 908 条范围内，但同样是净偏差（一并列出，便于后续排查）。
 
 | # | 运行时实现 | 源码位置 | 实现体 | 被 N 条 icall 命中 |
 |---|---|---|---|---|
@@ -1129,11 +1129,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 88 | `il2cpp_threadpool_set_max_threads` | `src/runtime/src/threadpool.cpp:312` | `void il2cpp_threadpool_set_max_threads(int32_t maxThreads)` | 0 |
 | 89 | `il2cpp_typeinfo_is_contains_generic_params` | `src/runtime/src/typeinfo.cpp:2791` | `return 0;` | 0 |
 
-逐条影响（命中 icall 的那些）：任何**依赖真值**的 net48 程序都会静默走错分支 ——
-`Debugger.IsAttached`/`IsLogging` 恒 false、`GC.IsServerGC` 恒 false、
-`Environment.HasShutdownStarted` 恒 false、`Marshal.GetExceptionPointers` 恒 0、
-`StackTrace.GetStackFramesInternal` 填充 0 帧（栈回溯为空）、`Type.GetTypeFromHandleUnsafe` 恒 null、
-`ReaderWriterLock.AnyWritersSince` 恒 false、`Thread.GetApartmentStateNative` 恒 0（MTA）。
+逐条影响（命中 icall 的那些，共 **27** 个）：任何**依赖真值**的 net48 程序都会静默走错分支。完整清单见上表「命中 N 个 icall」列非 0 的行；例如 `icall_compatibility_switch_get_app_context_overrides`、`icall_compatibility_switch_get_value`、`icall_compatibility_switch_is_enabled`、`icall_delegate_find_method_handle`。
 处理原则见 §5.3 第 3 条：它们不排进 P0/P1 的「缺口」队列，但必须单独立项。
 
 ## 4. 与前次盘点（2026-08-06）的差异
@@ -1171,9 +1167,9 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 4 | `System.Array.get_Rank` 缺 | 已接 — → `icall_array_get_rank` | `MethodMap.Array.cs:1096` |
 | 5 | `System.ValueType.GetHashCode` 缺 | 已接 — → `icall_value_type_get_hash_code`（首字段分类） | `CodeGenerator.cs:1493` |
 | 6 | `System.Runtime.InteropServices.Marshal.UnsafeAddrOfPinnedArrayElement` 缺 | 已接 — → `icall_marshal_unsafe_addr_of_pinned_array_element` | `MethodMap.Marshal.cs:421` |
-| 7 | `System.Diagnostics.Debugger.get_IsAttached` 缺 | 已接 — → `il2cpp_debugger_is_attached`（**运行时是 `return 0;` 恒值桩，见 §3.8**） | `MethodMap.Debugger.cs:40` |
+| 7 | `System.Diagnostics.Debugger.get_IsAttached` 缺 | 已接 — → `il2cpp_debugger_is_attached` | `MethodMap.Debugger.cs:40` |
 | 8 | `System.Runtime.InteropServices.Marshal.GetHRForException` 缺 | 已接 — → `icall_marshal_get_hr_for_exception` | `MethodMap.Marshal.cs:431` |
-| 9 | `System.Runtime.InteropServices.Marshal.GetExceptionPointers` 缺 | 半接 — → `icall_marshal_get_exception_pointers`（**运行时是 `return 0;` 恒值桩，见 §3.8**） | `marshalext3.cpp:278` |
+| 9 | `System.Runtime.InteropServices.Marshal.GetExceptionPointers` 缺 | 半接 — → `icall_marshal_get_exception_pointers`（**运行时是恒值桩，见 §3.8**） | `marshalext3.cpp:278` |
 | 10 | `System.Runtime.InteropServices.SafeHandle.DangerousAddRef` 缺 | 已接 — SafeHandle 三项 → `icall_safehandle_dangerous_add_ref` 等 | `MethodMap.SafeHandle.cs:40` |
 
 **B. 旧文档 §4 分域缺口表 —— 11 条具体条目被推翻**：
@@ -1194,7 +1190,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 
 **C. 旧文档 §6(b)「JIT/转译器已有语义，不算缺口」—— 2 条被推翻、4 条成立**：
 
-- `Thread.MemoryBarrier` / `Interlocked.SpeculationBarrier`：旧文档称「空实现即可」——**推翻**，两者都已是真实运行时 icall（`icall_thread_memory_barrier`、`il2cpp_interlocked_speculation_barrier`）。但 `SpeculationBarrier` 的实现本身是空体，按本版口径是**半接**（§3.8），所以「不算缺口」这个结论仍然不成立。
+- `Thread.MemoryBarrier` / `Interlocked.SpeculationBarrier`：旧文档称「空实现即可」——**推翻**，两者都已是真实运行时 icall（`icall_thread_memory_barrier`、`il2cpp_interlocked_speculation_barrier`）。`SpeculationBarrier` 的实现是`std::atomic_thread_fence(std::memory_order_seq_cst)`（interlocked.cpp:191，源码注释自认旧空体是「an assumption, not a measurement」），按本版口径是**已接**，所以「不算缺口」这个结论成立。
 - `RuntimeHelpers.InitializeArray`：旧文档称折叠即可、不算缺口 —— **部分推翻**。折叠路径存在（`StackFold.FoldInitializeArray`），但未折叠的形状现在被显式 LOUD 拒绝（`MethodMap.RuntimeHelpers.cs:195`）。
 - `Type.GetTypeFromHandle`：旧文档称已接 —— **成立**（`MethodMap.Type.cs:73`）。
 - `RuntimeHelpers.GetHashCode` / `Equals` / `GetObjectValue`：旧文档称可折叠 —— **成立**（`Equals`/`GetObjectValue` 走 `::refeq::` / `::identity::` 折叠标记，`GetHashCode` 走真实 icall）。
@@ -1315,7 +1311,7 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 
 1. **P0 里的 LOUD 拒绝优先转成「明确的运行时语义」**：`RuntimeHelpers.PrepareDelegate` / `PrepareContractedDelegate` / `ProbeForSufficientStack` / `EnsureSufficientExecutionStack` 在 AOT 下没有实际工作要做，空实现即语义正确，比转译期直接拒绝更好。
 2. **P0 里的 COM/remoting 保持 LOUD**：设计上就不支持，转译期失败远好于编译期幽灵符号。
-3. **恒值桩单独列一类**（§3.8）：它们不是「缺口」也不是「已接」，而是静默偏差。按 net48 byte-exact 的要求，`Debugger.IsAttached` / `GC.IsServerGC` / `Marshal.GetExceptionPointers` 这类必须给出真实语义（或至少让偏差可观测），不能永远返回常量。
+3. **恒值桩单独列一类**（§3.8）：它们不是「缺口」也不是「已接」，而是静默偏差。按 net48 byte-exact 的要求，任何恒值桩都必须给出真实语义（或至少让偏差可观测），不能永远返回常量。（具体清单见 §3.8 的表格，由 `runtime_syms.json` 的 `const` 索引驱动，不在此处点名。）
 4. **P1 按属主成批推进**：同一 `MethodMap.*.cs` 域的分支集中加，避免反复触碰同一文件。
 5. **`缺（无接线）` 的 306 条里 P3 占 201 条**，多数是 CLR 内部（`System.StubHelpers.*`、`System.Reflection.MetadataImport`、`System.Signature`）或 legacy（`System.Mda`、`System.Variant`），不建议排期。
 

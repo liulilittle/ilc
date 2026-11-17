@@ -101,6 +101,7 @@
 #include "il2cpp_object.h"   // Il2CppObject (managed object header)
 #include "il2cpp_metadata.h" // Il2CppClass (descriptor type; System_Object_class)
 #include "il2cpp_string.h"   // Il2CppString (the Thread.Name GC reference)
+#include "il2cpp_time.h"     // Il2CppTimeSpan (Join/Sleep(TimeSpan) parameters)
 
 // System.Threading.Thread runtime descriptor (GLOBAL scope -- the transpiler
 // emits &System_Threading_Thread_class for newobj/isinst/castclass; defined
@@ -189,6 +190,14 @@ void icall_threadobj_join(Il2CppObject* self);
 // a timeout return (false) the native handle is NOT released: a later
 // Join / Join(int) still waits for the running thread.
 bool icall_threadobj_join_timeout(Il2CppObject* self, int32_t millisecondsTimeout);
+
+// W11 P0-11-R3: Thread.Join(TimeSpan) and Thread.Sleep(TimeSpan). Both are
+// DEFINED in threadobj.cpp (:777 / :797) but were never declared. They live in
+// THIS header (not il2cpp_thread.h) because threadobj.cpp includes this one --
+// a declaration in a header the defining TU does not include is never checked
+// by the compiler. Timeout.Infinite (-10000 ticks) means wait/sleep forever.
+bool icall_threadobj_join_timespan(Il2CppObject* self, Il2CppTimeSpan timeout);
+void icall_thread_sleep_timespan(Il2CppTimeSpan ts);
 
 // Thread.IsAlive: true exactly while the thread is running (NEW and
 // finished threads report false; the CURRENT thread reports true).

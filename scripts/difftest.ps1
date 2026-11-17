@@ -303,10 +303,21 @@ foreach ($id in $allIds) {
     $av = if ($actRec.ContainsKey($id)) { $actRec[$id] } else { '<missing>' }
     if (-not [string]::Equals($ev, $av, [System.StringComparison]::Ordinal)) { $diffIds += [pscustomobject]@{ Id = $id; Expected = $ev; Actual = $av } }
 }
-$ok = ($dOut -lt 0) -and ($dErr -lt 0) -and ($exp.Code -eq $act.Code) -and ($diffIds.Count -eq 0)
+# W11 P0-C: an EMPTY run must never be a PASS. The old gate compared only
+# "no first diff + same exit code + no differing records", all of which are
+# trivially true when BOTH sides produce nothing (an empty Main: 0B stdout,
+# 0B stderr, exit 0 on both sides -> ok=True, sha e3b0c442...). A case that
+# asserts nothing is not evidence of agreement, so require that the pair
+# actually produced output. All FOUR streams count: a case may legitimately
+# write only to stderr (e.g. zz-b4-aggref2: 0B stdout / 52B stderr on both
+# sides), so testing stdout alone would kill real cases.
+$producedBytes = $exp.Out.Length + $exp.Err.Length + $act.Out.Length + $act.Err.Length
+$produced = $producedBytes -gt 0
+$ok = $produced -and ($dOut -lt 0) -and ($dErr -lt 0) -and ($exp.Code -eq $act.Code) -and ($diffIds.Count -eq 0)
 
 $report = [ordered]@{
     case = $Case; compiler = $Compiler; ok = $ok
+    producedBytes = $producedBytes
     oracle = [ordered]@{ exe = $oracleExe; exitCode = $exp.Code; outBytes = $exp.Out.Length; outSha256 = (Get-Sha256Bytes $exp.Out); errBytes = $exp.Err.Length; errSha256 = (Get-Sha256Bytes $exp.Err) }
     runtime = [ordered]@{ exe = $rtExe; exitCode = $act.Code; outBytes = $act.Out.Length; outSha256 = (Get-Sha256Bytes $act.Out); errBytes = $act.Err.Length; errSha256 = (Get-Sha256Bytes $act.Err) }
     firstDiff = [ordered]@{ stdout = $dOut; stderr = $dErr }
@@ -318,9 +329,11 @@ $txtPath  = "$ReportDir/$Case.$Compiler.diffreport.txt"
 ($report | ConvertTo-Json -Depth 6) | Set-Content -Path $jsonPath -Encoding UTF8
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add("case=$Case compiler=$Compiler ok=$ok")
+$lines.Add("producedBytes=$producedBytes (oracle out=$($exp.Out.Length)B err=$($exp.Err.Length)B / runtime out=$($act.Out.Length)B err=$($act.Err.Length)B)")
 $lines.Add("oracle  code=$($exp.Code) out=$($exp.Out.Length)B sha=$($report.oracle.outSha256)")
 $lines.Add("runtime code=$($act.Code) out=$($act.Out.Length)B sha=$($report.runtime.outSha256)")
 $lines.Add("firstDiff stdout=$dOut stderr=$dErr records(oracle=$($expRec.Count) runtime=$($actRec.Count)) diff=$($diffIds.Count)")
+if (-not $produced) { $lines.Add("EMPTY-RUN: both sides produced 0 bytes on stdout AND stderr -- an empty run is not evidence of agreement") }
 foreach ($d in $diffIds) { $lines.Add("DIFF [$($d.Id)] expected=$($d.Expected) actual=$($d.Actual)") }
 $lines | Set-Content -Path $txtPath -Encoding UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

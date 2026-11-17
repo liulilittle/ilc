@@ -36,3 +36,17 @@ p-adb-loud        # RUNTIME-CONTRACT probe: net48 deliberately diverges (returns
 # Kept here with a "LOUD contract" note so the byte-exact sweep excludes it and
 # difftest.ps1 does NOT take its SKIP early-return (it must run and reject).
 zz-loud-sentinel  # LOUD contract: W11 F1-b fixed sentinel, must throw NotSupportedException
+
+# --- W11 P0-A: Console DEVICE surface LOUD anchors (controlled set = scripts/loud-contracts.txt) ---
+# These four are the only coverage of the Console device surface. They are
+# registered HERE as well as in loud-contracts.txt for one reason: run-tests.ps1
+# scans the FULL pool and has no "LOUD contract" escape, so without this entry a
+# full run would count them as permanent FAILs. The "LOUD contract" note keeps
+# difftest.ps1 on its normal path (difftest.ps1:181 skips only entries whose line
+# does NOT match 'LOUD contract'), so loud-gate.ps1 still executes them and
+# verifies they reject. Silencing is therefore impossible: the failure is caught
+# by loud-gate, and the contract is listed in loud-contracts.txt.
+w11probe-console   # LOUD contract: W11 P0-A Console device surface (Clear/Beep) must reject, never emit il2cpp::runtime::icall_console_*
+w11probe-clear     # LOUD contract: W11 P0-A Console.Clear() must reject, never emit icall_console_clear
+w11probe-setters   # LOUD contract: W11 P0-A Console setters (ForegroundColor/BackgroundColor/Title/CursorLeft/CursorTop/CursorVisible) must reject
+w11probe-getters   # LOUD contract: W11 P0-A Console getters (Title/colors/cursor/window+buffer) + SetCursorPosition/ResetColor/Beep(f,d) must reject

@@ -130,6 +130,11 @@ int32_t il2cpp_dict_gen_hash_carrier(const Il2CppObject* carrier, int32_t kind);
 bool il2cpp_dict_gen_carrier_equals(const Il2CppObject* a, const Il2CppObject* b, int32_t kind);
 Il2CppObject* il2cpp_dict_gen_box_int32(int32_t value);
 int32_t il2cpp_dict_gen_unbox_int32(const Il2CppObject* boxed);
+// W11 P0-11-R3: the double carrier pair. DEFINED in dictgen.cpp:378/383 but
+// never declared, so a caller in another TU could not reach them. Declared
+// here next to the int32 pair they mirror.
+Il2CppObject* il2cpp_dict_gen_box_double(double value);
+double il2cpp_dict_gen_unbox_double(const Il2CppObject* boxed);
 
 // Create / destroy (1:1 paired). A negative capacity raises
 // ArgumentOutOfRangeException.

@@ -78,54 +78,76 @@ public static partial class MethodRefResolver
             return I("il2cpp::runtime::icall_console_is_output_redirected", 0, true, false, false);
         if (name == "get_IsErrorRedirected")
             return I("il2cpp::runtime::icall_console_is_error_redirected", 0, true, false, false);
-        // ---- console device surface (console_device.cpp) ----
+        // ---- console device surface: LOUD, NOT wired ----
+        // W11 P0-A: these 21 members used to emit `il2cpp::runtime::icall_console_*`
+        // names that exist NOWHERE in src/runtime (console.cpp carries only the
+        // write / write_line / stream_write family; there is no console_device.cpp).
+        // The result was a hard C++ compile failure for any user program touching
+        // them (MSVC C2039/C3861, MinGW "is not a member of 'il2cpp::runtime'"),
+        // i.e. the transpile "succeeded" and the build died on a phantom symbol.
+        // They are now the LOUD contract: the fold throws, the method is skipped
+        // with the message below, and the emitted stub throws at runtime -- never
+        // an undefined symbol in generated C++.
         if (name == "Clear")
-            return I("il2cpp::runtime::icall_console_clear", 0, false, false, false);
+            return ConsoleDeviceNotImplemented("Clear");
         if (name == "Beep")
             return count switch
             {
-                0 => I("il2cpp::runtime::icall_console_beep", 0, false, false, false),
-                2 => I("il2cpp::runtime::icall_console_beep_freq", 2, false, false, false, new[] { "i", "i" }),
+                0 => ConsoleDeviceNotImplemented("Beep"),
+                2 => ConsoleDeviceNotImplemented("Beep(int frequency, int duration)"),
                 _ => null,
             };
         if (name == "get_Title")
-            return I("il2cpp::runtime::icall_console_get_title", 0, true, true, false);
+            return ConsoleDeviceNotImplemented("get_Title");
         if (name == "set_Title")
-            return I("il2cpp::runtime::icall_console_set_title", 1, false, false, false, new[] { "s" });
+            return ConsoleDeviceNotImplemented("set_Title");
         if (name == "get_ForegroundColor")
-            return I("il2cpp::runtime::icall_console_get_foreground_color", 0, true, false, false);
+            return ConsoleDeviceNotImplemented("get_ForegroundColor");
         if (name == "set_ForegroundColor")
-            return I("il2cpp::runtime::icall_console_set_foreground_color", 1, false, false, false, new[] { "i" });
+            return ConsoleDeviceNotImplemented("set_ForegroundColor");
         if (name == "get_BackgroundColor")
-            return I("il2cpp::runtime::icall_console_get_background_color", 0, true, false, false);
+            return ConsoleDeviceNotImplemented("get_BackgroundColor");
         if (name == "set_BackgroundColor")
-            return I("il2cpp::runtime::icall_console_set_background_color", 1, false, false, false, new[] { "i" });
+            return ConsoleDeviceNotImplemented("set_BackgroundColor");
         if (name == "ResetColor")
-            return I("il2cpp::runtime::icall_console_reset_color", 0, false, false, false);
+            return ConsoleDeviceNotImplemented("ResetColor");
         if (name == "get_CursorLeft")
-            return I("il2cpp::runtime::icall_console_get_cursor_left", 0, true, false, false);
+            return ConsoleDeviceNotImplemented("get_CursorLeft");
         if (name == "set_CursorLeft")
-            return I("il2cpp::runtime::icall_console_set_cursor_left", 1, false, false, false, new[] { "i" });
+            return ConsoleDeviceNotImplemented("set_CursorLeft");
         if (name == "get_CursorTop")
-            return I("il2cpp::runtime::icall_console_get_cursor_top", 0, true, false, false);
+            return ConsoleDeviceNotImplemented("get_CursorTop");
         if (name == "set_CursorTop")
-            return I("il2cpp::runtime::icall_console_set_cursor_top", 1, false, false, false, new[] { "i" });
+            return ConsoleDeviceNotImplemented("set_CursorTop");
         if (name == "SetCursorPosition")
-            return I("il2cpp::runtime::icall_console_set_cursor_position", 2, false, false, false, new[] { "i", "i" });
+            return ConsoleDeviceNotImplemented("SetCursorPosition");
         if (name == "get_WindowWidth")
-            return I("il2cpp::runtime::icall_console_get_window_width", 0, true, false, false);
+            return ConsoleDeviceNotImplemented("get_WindowWidth");
         if (name == "get_WindowHeight")
-            return I("il2cpp::runtime::icall_console_get_window_height", 0, true, false, false);
+            return ConsoleDeviceNotImplemented("get_WindowHeight");
         if (name == "get_BufferWidth")
-            return I("il2cpp::runtime::icall_console_get_buffer_width", 0, true, false, false);
+            return ConsoleDeviceNotImplemented("get_BufferWidth");
         if (name == "get_BufferHeight")
-            return I("il2cpp::runtime::icall_console_get_buffer_height", 0, true, false, false);
+            return ConsoleDeviceNotImplemented("get_BufferHeight");
         if (name == "get_CursorVisible")
-            return I("il2cpp::runtime::icall_console_get_cursor_visible", 0, true, false, false);
+            return ConsoleDeviceNotImplemented("get_CursorVisible");
         if (name == "set_CursorVisible")
-            return I("il2cpp::runtime::icall_console_set_cursor_visible", 1, false, false, false, new[] { "i" });
+            return ConsoleDeviceNotImplemented("set_CursorVisible");
         return null;
     }
+
+    // W11 P0-A: the console DEVICE surface (Clear / Beep / Title / colors /
+    // cursor / window+buffer metrics) has no runtime implementation. Emitting an
+    // icall name for it produced a C++ compile error, so the honest contract is
+    // the LOUD reject: the fold throws here, CodeGenerator skips the method and
+    // emits a throwing stub (see CodeGenerator.cs "method fold failed -> skipped").
+    private static ResolvedMethod ConsoleDeviceNotImplemented(string name) =>
+        throw new NotSupportedException(
+            $"LOUD whitelist (console device surface not implemented): Console.{name} -- " +
+            "the console device surface (Clear/Beep/Title/colors/cursor/window+buffer metrics) has no " +
+            "runtime icall: src/runtime/src/console.cpp implements only the write / write_line / " +
+            "stream_write family, so emitting the icall name would fail the C++ build with an " +
+            "undefined symbol [src/runtime/include/internal/il2cpp_console.h]");
 
     // The shared Write/WriteLine overload dispatcher: `newline` selects the
     // icall family. `paramTypes` is the decoded signature text used only to

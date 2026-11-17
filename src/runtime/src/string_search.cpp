@@ -26,7 +26,7 @@ namespace il2cpp {
 // IndexOf(char) -- first occurrence of c at or after start. -1 if not found.
 // 8x bulk, early exit on first lane hit.
 //------------------------------------------------------------------------------
-int32_t il2cpp_string_index_of_char(const Il2CppString* s, char16_t c, int32_t start) noexcept
+static int32_t il2cpp_string_index_of_char(const Il2CppString* s, char16_t c, int32_t start) noexcept
 {
     if (s == nullptr) 
     {
@@ -89,7 +89,7 @@ int32_t il2cpp_string_index_of_char(const Il2CppString* s, char16_t c, int32_t s
 //------------------------------------------------------------------------------
 // LastIndexOf(char) -- last occurrence at or before start.
 //------------------------------------------------------------------------------
-int32_t il2cpp_string_last_index_of_char(const Il2CppString* s, char16_t c, int32_t start) noexcept
+[[maybe_unused]] static int32_t il2cpp_string_last_index_of_char(const Il2CppString* s, char16_t c, int32_t start) noexcept
 {
     if (s == nullptr) 
     {
@@ -152,7 +152,7 @@ int32_t il2cpp_string_last_index_of_char(const Il2CppString* s, char16_t c, int3
 //------------------------------------------------------------------------------
 // Contains(char) -- wrapper over IndexOf, branchless for tiny strings.
 //------------------------------------------------------------------------------
-bool il2cpp_string_contains_char(const Il2CppString* s, char16_t c) noexcept
+[[maybe_unused]] static bool il2cpp_string_contains_char(const Il2CppString* s, char16_t c) noexcept
 {
     if (s == nullptr || s->length == 0) 
     {
@@ -164,7 +164,7 @@ bool il2cpp_string_contains_char(const Il2CppString* s, char16_t c) noexcept
 //------------------------------------------------------------------------------
 // Count occurrences of c in [start, start+count).
 //------------------------------------------------------------------------------
-int32_t il2cpp_string_count_char(const Il2CppString* s, char16_t c, int32_t start, int32_t count) noexcept
+[[maybe_unused]] static int32_t il2cpp_string_count_char(const Il2CppString* s, char16_t c, int32_t start, int32_t count) noexcept
 {
     if (s == nullptr || count <= 0) 
     {
@@ -199,7 +199,7 @@ int32_t il2cpp_string_count_char(const Il2CppString* s, char16_t c, int32_t star
 //------------------------------------------------------------------------------
 // StartsWith -- prefix equality, memcmp for bulk ASCII fast path.
 //------------------------------------------------------------------------------
-bool il2cpp_string_starts_with(const Il2CppString* s, const Il2CppString* prefix) noexcept
+[[maybe_unused]] static bool il2cpp_string_starts_with(const Il2CppString* s, const Il2CppString* prefix) noexcept
 {
     if (prefix == nullptr || prefix->length == 0) 
     {
@@ -217,7 +217,7 @@ bool il2cpp_string_starts_with(const Il2CppString* s, const Il2CppString* prefix
     return std::memcmp(s->chars, prefix->chars, static_cast<size_t>(plen) * sizeof(char16_t)) == 0;
 }
 
-bool il2cpp_string_ends_with(const Il2CppString* s, const Il2CppString* suffix) noexcept
+[[maybe_unused]] static bool il2cpp_string_ends_with(const Il2CppString* s, const Il2CppString* suffix) noexcept
 {
     if (suffix == nullptr || suffix->length == 0) 
     {
@@ -241,7 +241,7 @@ bool il2cpp_string_ends_with(const Il2CppString* s, const Il2CppString* suffix) 
 // for callers that link against search helpers only. Thin wrapper to avoid
 // code duplication; kept for API completeness.
 //------------------------------------------------------------------------------
-int32_t il2cpp_string_index_of_any_bulk(const Il2CppString* s, const char16_t* any, int32_t anyLen, int32_t start) noexcept
+[[maybe_unused]] static int32_t il2cpp_string_index_of_any_bulk(const Il2CppString* s, const char16_t* any, int32_t anyLen, int32_t start) noexcept
 {
     if (s == nullptr || any == nullptr || anyLen <= 0) 
     {

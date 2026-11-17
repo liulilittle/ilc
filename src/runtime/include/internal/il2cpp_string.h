@@ -175,6 +175,28 @@ Il2CppObject* icall_string_ctor_sbyte_ptr_range_encoding(Il2CppObject* this_, co
 // null/empty -> the empty string.
 Il2CppObject* icall_string_ctor_char_span(Il2CppObject* this_, const void* span);
 
+//==============================================================================
+// W11 P0-11-R3: ASCII fast-path predicates (string_ascii.cpp).
+//
+// These three were DEFINED in string_ascii.cpp but never declared anywhere, so
+// they were unreachable from another TU. They are declared HERE (not in
+// il2cpp_string_intern.h) because string_ascii.cpp includes THIS header --
+// a declaration in a header the defining TU does not include is never checked
+// by the compiler, so a signature drift would go unnoticed.
+//
+// All three are O(n) single-pass, GC-free, and safe for null/empty input.
+//==============================================================================
+
+// True when every UTF-16 unit is ASCII (< 0x80). The bulk guard for the
+// ToUpper/ToLower and UTF-8 transcoding fast paths.
+bool il2cpp_string_is_ascii_bulk(const Il2CppString* s) noexcept;
+
+// True when the string is already lower-case ASCII (a ToLower no-op).
+bool il2cpp_string_is_ascii_lower_noop(const Il2CppString* s) noexcept;
+
+// True when the string is already upper-case ASCII (a ToUpper no-op).
+bool il2cpp_string_is_ascii_upper_noop(const Il2CppString* s) noexcept;
+
 } // namespace runtime
 
 } // namespace il2cpp

@@ -792,7 +792,7 @@ Il2CppArray* il2cpp_dict_gen_get_values(Il2CppDictGen* d)
 // b5-gaps section 104: the int32-value instance arms. The value carrier is a
 // BOXED int32 (the section-78 kernel's il2cpp_dict_gen_box_int32); the raw
 // table fns are shared with the reference-value form.
-int32_t il2cpp_dict_gen_get_i(Il2CppObject* self, int32_t key,
+static int32_t il2cpp_dict_gen_get_i(Il2CppObject* self, int32_t key,
     int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
@@ -805,7 +805,7 @@ int32_t il2cpp_dict_gen_get_i(Il2CppObject* self, int32_t key,
     return 0; // unreachable (the factory throws)
 }
 
-void il2cpp_dict_gen_add_i(Il2CppObject* self, int32_t key, int32_t value,
+static void il2cpp_dict_gen_add_i(Il2CppObject* self, int32_t key, int32_t value,
     int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
@@ -813,7 +813,7 @@ void il2cpp_dict_gen_add_i(Il2CppObject* self, int32_t key, int32_t value,
         il2cpp_dict_gen_box_int32(value), keyKind, valueKind);
 }
 
-void il2cpp_dict_gen_set_i(Il2CppObject* self, int32_t key, int32_t value,
+static void il2cpp_dict_gen_set_i(Il2CppObject* self, int32_t key, int32_t value,
     int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
@@ -821,7 +821,7 @@ void il2cpp_dict_gen_set_i(Il2CppObject* self, int32_t key, int32_t value,
         il2cpp_dict_gen_box_int32(value), keyKind, valueKind);
 }
 
-bool il2cpp_dict_gen_try_get_value_i(Il2CppObject* self, int32_t key,
+static bool il2cpp_dict_gen_try_get_value_i(Il2CppObject* self, int32_t key,
     int32_t* value, int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
@@ -974,7 +974,7 @@ Il2CppArray* il2cpp_dict_gen_get_values_l(Il2CppDictGen* d)
 // b5-gaps section 109: the double-value instance arms. The value carrier is a
 // BOXED double (icall_box_double) -- the same 8-byte payload slot as the boxed
 // int64/int32.
-double il2cpp_dict_gen_get_d(Il2CppObject* self, int32_t key,
+static double il2cpp_dict_gen_get_d(Il2CppObject* self, int32_t key,
     int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
@@ -987,7 +987,7 @@ double il2cpp_dict_gen_get_d(Il2CppObject* self, int32_t key,
     return 0.0; // unreachable (the factory throws)
 }
 
-void il2cpp_dict_gen_add_d(Il2CppObject* self, int32_t key, double value,
+static void il2cpp_dict_gen_add_d(Il2CppObject* self, int32_t key, double value,
     int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
@@ -995,7 +995,7 @@ void il2cpp_dict_gen_add_d(Il2CppObject* self, int32_t key, double value,
         runtime::icall_box_double(value), keyKind, valueKind);
 }
 
-void il2cpp_dict_gen_set_d(Il2CppObject* self, int32_t key, double value,
+static void il2cpp_dict_gen_set_d(Il2CppObject* self, int32_t key, double value,
     int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
@@ -1003,7 +1003,7 @@ void il2cpp_dict_gen_set_d(Il2CppObject* self, int32_t key, double value,
         runtime::icall_box_double(value), keyKind, valueKind);
 }
 
-bool il2cpp_dict_gen_try_get_value_d(Il2CppObject* self, int32_t key,
+static bool il2cpp_dict_gen_try_get_value_d(Il2CppObject* self, int32_t key,
     double* value, int32_t keyKind, int32_t valueKind)
 {
     ThrowIfNullReceiver(self);
@@ -1026,7 +1026,7 @@ bool il2cpp_dict_gen_try_get_value_d(Il2CppObject* self, int32_t key,
 
 // b5-gaps section 109: the double-value snapshot (a real double[] -- net48's
 // Dictionary<TKey,double>.Values layout). Every value carrier is a boxed double.
-Il2CppArray* il2cpp_dict_gen_get_values_d(Il2CppDictGen* d)
+static Il2CppArray* il2cpp_dict_gen_get_values_d(Il2CppDictGen* d)
 {
     const int32_t live = OccupiedCount(d);
     Il2CppArray* result = il2cpp_array_new_typed(

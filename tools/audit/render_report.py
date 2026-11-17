@@ -12,13 +12,52 @@ no longer reconcile.
 
 usage: render_report.py <auditOutDir> <repoRoot> [commitSha]
 """
-import io, os, json, collections, subprocess, sys
+import io, os, json, collections, subprocess, sys, re
 
 TMP = sys.argv[1]
 ROOT = sys.argv[2] if len(sys.argv) > 2 else r'F:\il2cpp\.worktrees\audit-mscorlib-icall'
+
+# W11 P0-B (6): the output path is EXPLICIT or derived, never silently the
+# tracked document. `--out <path>` writes exactly there (probe scratch dirs,
+# alternate trees). Without it the path stays the historical default so
+# run-audit.ps1 keeps working unchanged.
 OUT = os.path.join(ROOT, 'docs', 'audit', 'icall-mscorlib-current.md')
+if '--out' in sys.argv:
+    _i = sys.argv.index('--out')
+    if _i + 1 >= len(sys.argv) or not sys.argv[_i + 1]:
+        sys.stderr.write('FATAL: --out requires a path\n')
+        raise SystemExit(3)
+    OUT = sys.argv[_i + 1]
 
 TOTAL_ICALLS = 908
+
+
+def _is_git_tracked(path):
+    """Whether `path` is a tracked file in the ROOT work tree."""
+    try:
+        rel = os.path.relpath(os.path.abspath(path), os.path.abspath(ROOT))
+    except ValueError:
+        return False
+    if rel.startswith('..'):
+        return False
+    try:
+        p = subprocess.run(['git', '-C', ROOT, 'ls-files', '--error-unmatch', '--', rel],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return p.returncode == 0
+    except Exception:
+        return False
+
+
+def _valid_commit(sha):
+    """Whether `sha` names a real commit in ROOT (7..40 hex, object exists)."""
+    if not sha or not re.fullmatch(r'[0-9a-fA-F]{7,40}', sha):
+        return False
+    try:
+        p = subprocess.run(['git', '-C', ROOT, 'cat-file', '-e', sha + '^{commit}'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return p.returncode == 0
+    except Exception:
+        return False
 
 
 def source_commit():
@@ -76,6 +115,23 @@ if total != TOTAL_ICALLS:
     sys.stderr.write('FATAL: %d rows classified, expected %d\n' % (total, TOTAL_ICALLS))
     raise SystemExit(2)
 
+# W11 P0-B (3): the total alone is not enough. The report is keyed by the join
+# key (owner, name, sig, kind); if two rows share one, one icall's verdict was
+# overwritten by another's and the 908 total can still be met with rows missing.
+# Assert uniqueness here so a duplicated corpus can never be published.
+_join = [(r['owner'], r['name'], r['sig'], r.get('kind')) for r in rows]
+if len(set(_join)) != len(_join):
+    _seen = set()
+    _dup = None
+    for _k in _join:
+        if _k in _seen:
+            _dup = _k
+            break
+        _seen.add(_k)
+    sys.stderr.write('FATAL: duplicate join key %r (%d rows, %d distinct)\n'
+                     % (_dup, len(_join), len(set(_join))))
+    raise SystemExit(2)
+
 # "Gap" = everything the runtime does not deliver, shadows excluded (their
 # conclusion is "no wiring needed"). Partial shadows ARE gaps: part of the
 # public surface still falls through.
@@ -116,6 +172,19 @@ L = []
 w = L.append
 
 SHA = source_commit()
+
+# W11 P0-B (6): never stamp a TRACKED document with a provenance that is not a
+# real commit. The pollution incident was exactly this: the renderer was run
+# with ROOT=<work tree> and argv[3]="TEST", so the tracked report's provenance
+# line became the literal `TEST`. A tracked doc is a published artifact -- its
+# provenance must be verifiable, so an invalid sha is a hard refusal. An
+# explicit `--out` target (probe scratch dirs) is exempt: it is not published.
+if _is_git_tracked(OUT) and not _valid_commit(SHA):
+    sys.stderr.write(
+        'FATAL: refusing to write the tracked report %s with a non-commit provenance %r\n'
+        '       (pass a real commit sha, or use --out <path> for a scratch render)\n'
+        % (OUT, SHA))
+    raise SystemExit(3)
 
 w('# mscorlib InternalCall 现状盘点（net48）')
 w('')
@@ -306,7 +375,7 @@ w('下面这些运行时实现是**空体或单一 `return <常量>;`**：它永
 w('')
 w('扫描器（`tools/audit/parse_runtime_syms.py` 的 `is_constant_stub`）在 `src/runtime/src` 全表命中'
   f'**{len(all_const)}** 个恒值/空体桩。其中 **{len(const_stubs)}** 个正好是 908 条 icall 的 dispatch 目标，'
-  '所以那 30 条 icall 从「已接」改判为「半接」；其余是没有 icall 引用的运行时辅助符号，'
+  f'所以那 {len(const_stubs)} 条 icall 从「已接」改判为「半接」；其余是没有 icall 引用的运行时辅助符号，'
   '不在本审计的 908 条范围内，但同样是净偏差（一并列出，便于后续排查）。')
 w('')
 w('| # | 运行时实现 | 源码位置 | 实现体 | 被 N 条 icall 命中 |')
@@ -322,11 +391,20 @@ for i, (sym, site) in enumerate(sorted(all_const.items()), 1):
         body = ''
     w(f'| {i} | `{sym}` | `src/runtime/src/{fn}:{ln}` | `{md_cell(body)}` | {const_hit.get(sym, 0)} |')
 w('')
-w('逐条影响（命中 icall 的那些）：任何**依赖真值**的 net48 程序都会静默走错分支 ——')
-w('`Debugger.IsAttached`/`IsLogging` 恒 false、`GC.IsServerGC` 恒 false、')
-w('`Environment.HasShutdownStarted` 恒 false、`Marshal.GetExceptionPointers` 恒 0、')
-w('`StackTrace.GetStackFramesInternal` 填充 0 帧（栈回溯为空）、`Type.GetTypeFromHandleUnsafe` 恒 null、')
-w('`ReaderWriterLock.AnyWritersSince` 恒 false、`Thread.GetApartmentStateNative` 恒 0（MTA）。')
+# W11 P2-2: this list used to be HARDCODED prose, so it kept naming members
+# that had since become real implementations (Debugger.IsAttached / IsLogging /
+# Environment.HasShutdownStarted were rewritten as real queries, yet the text
+# still claimed "恒 false"). Derive it from the data instead: only the const
+# stubs that actually hit an icall are listed, so the paragraph can never drift
+# from classified.json again.
+_const_hits = sorted({r['symbolBare'] for r in halves
+                      if r.get('stubKind') == 'const' and r.get('symbolBare')})
+if _const_hits:
+    _sample = '、'.join(f'`{s}`' for s in _const_hits[:4])
+    w(f'逐条影响（命中 icall 的那些，共 **{len(_const_hits)}** 个）：任何**依赖真值**的 net48 程序'
+      f'都会静默走错分支。完整清单见上表「命中 N 个 icall」列非 0 的行；例如 {_sample}。')
+else:
+    w('逐条影响：当前没有任何 908 条 icall 的 dispatch 目标是恒值桩。')
 w('处理原则见 §5.3 第 3 条：它们不排进 P0/P1 的「缺口」队列，但必须单独立项。')
 w('')
 
@@ -408,17 +486,25 @@ TOP10 = [
     ('System.ValueType', 'GetHashCode', '→ `icall_value_type_get_hash_code`（首字段分类）'),
     ('System.Runtime.InteropServices.Marshal', 'UnsafeAddrOfPinnedArrayElement',
      '→ `icall_marshal_unsafe_addr_of_pinned_array_element`'),
-    ('System.Diagnostics.Debugger', 'get_IsAttached',
-     '→ `il2cpp_debugger_is_attached`（**运行时是 `return 0;` 恒值桩，见 §3.8**）'),
+    ('System.Diagnostics.Debugger', 'get_IsAttached', '→ `il2cpp_debugger_is_attached`'),
     ('System.Runtime.InteropServices.Marshal', 'GetHRForException', '→ `icall_marshal_get_hr_for_exception`'),
     ('System.Runtime.InteropServices.Marshal', 'GetExceptionPointers',
-     '→ `icall_marshal_get_exception_pointers`（**运行时是 `return 0;` 恒值桩，见 §3.8**）'),
+     '→ `icall_marshal_get_exception_pointers`'),
     ('System.Runtime.InteropServices.SafeHandle', 'DangerousAddRef',
      'SafeHandle 三项 → `icall_safehandle_dangerous_add_ref` 等'),
 ]
 for n, (o, nm, note) in enumerate(TOP10, 1):
     r = idx.get((o, nm))
     st = STATUS_CN[r['status']] if r else 'n/a'
+    # W11 P2-2: the "运行时是 return 0; 恒值桩" suffix used to be HARDCODED on
+    # Debugger.get_IsAttached / Marshal.GetExceptionPointers. The Debugger one
+    # became false when the runtime was rewritten to call ::IsDebuggerPresent()
+    # (debuggerext.cpp:41), so the claim is now derived from the row's own
+    # stubKind instead of being asserted in prose.
+    if r and r.get('stubKind') == 'const':
+        note += '（**运行时是恒值桩，见 §3.8**）'
+    elif r and r.get('stubKind') == 'loud':
+        note += '（**运行时是 LOUD 抛异常桩，见 §3.8**）'
     w(f'| {n} | `{o}.{nm}` 缺 | {st} — {note} | {line_of(r) if r else "`n/a`"} |')
 w('')
 w('**B. 旧文档 §4 分域缺口表 —— 11 条具体条目被推翻**：')
@@ -446,8 +532,10 @@ w('**C. 旧文档 §6(b)「JIT/转译器已有语义，不算缺口」—— 2 �
 w('')
 w('- `Thread.MemoryBarrier` / `Interlocked.SpeculationBarrier`：旧文档称「空实现即可」——'
   '**推翻**，两者都已是真实运行时 icall（`icall_thread_memory_barrier`、'
-  '`il2cpp_interlocked_speculation_barrier`）。但 `SpeculationBarrier` 的实现本身是空体，'
-  '按本版口径是**半接**（§3.8），所以「不算缺口」这个结论仍然不成立。')
+  '`il2cpp_interlocked_speculation_barrier`）。`SpeculationBarrier` 的实现是'
+  '`std::atomic_thread_fence(std::memory_order_seq_cst)`（interlocked.cpp:191，'
+  '源码注释自认旧空体是「an assumption, not a measurement」），按本版口径是**已接**，'
+  '所以「不算缺口」这个结论成立。')
 w(f'- `RuntimeHelpers.InitializeArray`：旧文档称折叠即可、不算缺口 —— **部分推翻**。'
   f'折叠路径存在（`StackFold.FoldInitializeArray`），但未折叠的形状现在被显式 LOUD 拒绝'
   f'（{line_of(idx[("System.Runtime.CompilerServices.RuntimeHelpers", "InitializeArray")])}）。')
@@ -552,8 +640,8 @@ w('1. **P0 里的 LOUD 拒绝优先转成「明确的运行时语义」**：`Run
   '空实现即语义正确，比转译期直接拒绝更好。')
 w('2. **P0 里的 COM/remoting 保持 LOUD**：设计上就不支持，转译期失败远好于编译期幽灵符号。')
 w('3. **恒值桩单独列一类**（§3.8）：它们不是「缺口」也不是「已接」，而是静默偏差。'
-  '按 net48 byte-exact 的要求，`Debugger.IsAttached` / `GC.IsServerGC` / `Marshal.GetExceptionPointers` 这类'
-  '必须给出真实语义（或至少让偏差可观测），不能永远返回常量。')
+  '按 net48 byte-exact 的要求，任何恒值桩都必须给出真实语义（或至少让偏差可观测），不能永远返回常量。'
+  '（具体清单见 §3.8 的表格，由 `runtime_syms.json` 的 `const` 索引驱动，不在此处点名。）')
 w('4. **P1 按属主成批推进**：同一 `MethodMap.*.cs` 域的分支集中加，避免反复触碰同一文件。')
 w(f'5. **`缺（无接线）` 的 {by_status["missing"]} 条里 P3 占 '
   f'{sum(1 for r in gaps if r["status"] == "missing" and r["priority"] == "P3")} 条**，'

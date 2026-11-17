@@ -24,6 +24,8 @@
 
 namespace il2cpp {
 
+namespace runtime {
+
 //------------------------------------------------------------------------------
 // Bulk ASCII predicate -- 8x unrolled, early exit on first non-ASCII.
 // Returns true for empty string (vacuously ASCII, mirrors .NET IsAscii
@@ -75,11 +77,13 @@ bool il2cpp_string_is_ascii_bulk(const Il2CppString* s) noexcept
     return true;
 }
 
+} // namespace runtime
+
 //------------------------------------------------------------------------------
 // Find first non-ASCII index. Returns -1 if all ASCII (or empty). Null -> -1
 // sentinel (caller treats as not-found; bulk guard already rejected null).
 //------------------------------------------------------------------------------
-int32_t il2cpp_string_find_non_ascii(const Il2CppString* s) noexcept
+[[maybe_unused]] static int32_t il2cpp_string_find_non_ascii(const Il2CppString* s) noexcept
 {
     if (s == nullptr) 
     {
@@ -126,7 +130,7 @@ int32_t il2cpp_string_find_non_ascii(const Il2CppString* s) noexcept
 // ASCII string returns len; for non-ASCII returns index of first non-ASCII.
 // Useful to split bulk ASCII prefix memcpy from slow suffix handling.
 //------------------------------------------------------------------------------
-int32_t il2cpp_string_ascii_prefix_length(const Il2CppString* s) noexcept
+[[maybe_unused]] static int32_t il2cpp_string_ascii_prefix_length(const Il2CppString* s) noexcept
 {
     if (s == nullptr) 
     {
@@ -173,7 +177,7 @@ int32_t il2cpp_string_ascii_prefix_length(const Il2CppString* s) noexcept
 // accumulation (sum of (c >= 0x80) widened). Early-out not used -- caller
 // wants exact count for diagnostics.
 //------------------------------------------------------------------------------
-int32_t il2cpp_string_count_non_ascii(const Il2CppString* s) noexcept
+[[maybe_unused]] static int32_t il2cpp_string_count_non_ascii(const Il2CppString* s) noexcept
 {
     if (s == nullptr || s->length == 0) 
     {
@@ -207,7 +211,7 @@ int32_t il2cpp_string_count_non_ascii(const Il2CppString* s) noexcept
 // decide whether ToUpper can take the prefix-memcpy + suffix-only path vs
 // full copy. Pure predicate, no allocation.
 //------------------------------------------------------------------------------
-int32_t il2cpp_string_count_ascii_lower(const Il2CppString* s) noexcept
+[[maybe_unused]] static int32_t il2cpp_string_count_ascii_lower(const Il2CppString* s) noexcept
 {
     if (s == nullptr || s->length == 0) 
     {
@@ -239,7 +243,7 @@ int32_t il2cpp_string_count_ascii_lower(const Il2CppString* s) noexcept
 //------------------------------------------------------------------------------
 // Count units that would change under ASCII ToLower (A-Z -> a-z) -- 8x unrolled.
 //------------------------------------------------------------------------------
-int32_t il2cpp_string_count_ascii_upper(const Il2CppString* s) noexcept
+[[maybe_unused]] static int32_t il2cpp_string_count_ascii_upper(const Il2CppString* s) noexcept
 {
     if (s == nullptr || s->length == 0) 
     {
@@ -267,6 +271,8 @@ int32_t il2cpp_string_count_ascii_upper(const Il2CppString* s) noexcept
     }
     return count;
 }
+
+namespace runtime {
 
 //------------------------------------------------------------------------------
 // Fast check whether ToUpper would be a no-op (no a-z). 8x unrolled early
@@ -361,6 +367,8 @@ bool il2cpp_string_is_ascii_lower_noop(const Il2CppString* s) noexcept
     }
     return true;
 }
+
+} // namespace runtime
 
 } // namespace il2cpp
 

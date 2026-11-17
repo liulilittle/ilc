@@ -196,6 +196,12 @@ int32_t il2cpp_stream_set_length(il2cpp_stream_t stream, int64_t value);
 // allocation failure.
 il2cpp_stream_t il2cpp_stream_memory_create(void);
 
+// W11 P0-11-R3: the two seeded MemoryStream constructors. DEFINED in
+// streamio.cpp:1526/1549 but never declared. `_data` copies `length` bytes
+// from `data`; `_capacity` starts with an empty buffer of the given capacity.
+il2cpp_stream_t il2cpp_stream_memory_create_data(const uint8_t* data, int64_t length);
+il2cpp_stream_t il2cpp_stream_memory_create_capacity(int64_t capacity);
+
 // MemoryStream.ToArray(): a managed byte[] copy of the stream content
 // (bytes written so far, regardless of the current position). nullptr for a
 // null stream or a non-memory stream.

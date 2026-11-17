@@ -570,6 +570,12 @@ Il2CppArray* il2cpp_linq_select_guid_dtoffset(Il2CppArray* src, Il2CppObject* se
 Il2CppArray* il2cpp_linq_select_idx_guid_dtoffset(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_dto_dtoffset(Il2CppArray* src, Il2CppObject* sel);
 Il2CppArray* il2cpp_linq_select_idx_dto_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+// W11 P0-11-R3: the DECIMAL-source pair. DEFINED in linq_map.cpp via
+// IL2CPP_LINQ_SELECT_DTO_WRAP(dec, runtime::Il2CppDecimal, ...) (:4946) but
+// never declared -- the block above lists every other source family
+// (i4/i8/f/d/ref/dt/ts/guid/dto) and skipped `dec`.
+Il2CppArray* il2cpp_linq_select_dec_dtoffset(Il2CppArray* src, Il2CppObject* sel);
+Il2CppArray* il2cpp_linq_select_idx_dec_dtoffset(Il2CppArray* src, Il2CppObject* sel);
 
 // impl-vtsel: the STRUCT-TYPED SELECTOR ABI (net48 Select<TSource,TResult>),
 // family-generic in BOTH type arguments. `srcKind` is the IL2CPP_LIST_KIND_*
@@ -1442,6 +1448,13 @@ runtime::Il2CppDateTimeOffset il2cpp_linq_last_or_default_dtoffset(Il2CppArray* 
 // impl-linq2 (B-3): the DECIMAL-BUCKET operator surface -- each entry
 // snapshots the bucket's decimal cells and reuses the DECIMAL-SOURCE kernel
 // (the same operator set net48 exposes over IEnumerable<decimal>).
+// W11 P0-D: `grouping_first_dec` / `grouping_last_dec` were DEFINED by the
+// IL2CPP_LINQ_GRP_DEC_OPS macro in linq_map.cpp but never declared here, so a
+// user program calling `grp.First()` / `grp.Last()` on a decimal bucket emitted
+// `il2cpp::il2cpp_linq_grouping_first_dec(...)` and the C++ build failed with
+// "is not a member of 'il2cpp'". The two declarations below close that gap.
+void          il2cpp_linq_grouping_first_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
+void          il2cpp_linq_grouping_last_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
 void          il2cpp_linq_grouping_first_or_default_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
 void          il2cpp_linq_grouping_last_or_default_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping);
 void          il2cpp_linq_grouping_first_pred_dec(runtime::Il2CppDecimal* result, Il2CppObject* grouping, Il2CppObject* pred);
