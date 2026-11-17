@@ -1,7 +1,7 @@
 # mscorlib InternalCall 现状盘点（net48）
 
 > 只读审计。目标程序集：`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\mscorlib.dll`（net48）。
-> 本版数字由 `tools/audit/run-audit.ps1` 于源码提交 `64f2eb7b28ac6f7605929c7feda33d2c66f97e5a`（`git rev-list -1 HEAD -- src`）重新生成；五类之和必须等于 **908**，脚本内 `assert sum == 908`，不成立则渲染器直接失败退出。
+> 本版数字由 `tools/audit/run-audit.ps1` 于源码提交 `020180450b552fa81cb60e26600762673eb2625e`（`git rev-list -1 HEAD -- src`）重新生成；五类之和必须等于 **908**，脚本内 `assert sum == 908`，不成立则渲染器直接失败退出。
 
 ## 0. 结论摘要
 
@@ -345,7 +345,7 @@
 | 28 | `System.Exception` | `CopyStackTrace` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 29 | `System.Exception` | `GetMethodFromStackTrace` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 30 | `System.Exception` | `GetStackTracesDeepCopy` | public/private/static | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
-| 31 | `System.Exception` | `PrepareForForeignExceptionRaise` | public/private/static | 半接 | 半接：dispatch 指向 `icall_exception_prepare_for_foreign_exception_raise`，但运行时是空体/恒值桩（桩定义 `exceptionext.cpp:338`） | `exceptionext.cpp:338` |
+| 31 | `System.Exception` | `PrepareForForeignExceptionRaise` | public/private/static | 半接 | 半接：dispatch 指向 `icall_exception_prepare_for_foreign_exception_raise`，但运行时是空体/恒值桩（桩定义 `exceptionext.cpp:342`） | `exceptionext.cpp:342` |
 | 32 | `System.Exception` | `SaveStackTracesFromDeepCopy` | public/internal/static | 半接 | 半接：dispatch 指向 `icall_exception_save_stack_traces_from_deep_copy`，但运行时是空体/恒值桩（桩定义 `stubs.cpp:47`） | `stubs.cpp:47` |
 | 33 | `System.Exception` | `StripFileInfo` | public/private/instance | 缺（无接线） | 无 owner 分支 / 无方法分支 | `no wiring` |
 | 34 | `System.Exception` | `nIsTransient` | public/private/static | 部分影子 | 部分影子：**3 跳**，链路 `System.Exception::get_IsTransient → System.Resources.ResourceManager::SetAppXConfiguration → System.Resources.ResourceManager::.ctor`，根入口 `System.Resources.ResourceManager::.ctor`；不是由 `System.Resources.ResourceManager::.ctor` 直接承接 | `MethodMap.Resource.cs:65` |
@@ -1053,8 +1053,8 @@ mscorlib 内部没有任何 public 入口可达（legacy / CLR 内部）。
 | 12 | `icall_environment_get_user_interactive` | `src/runtime/src/environment.cpp:1190` | `return 1;` | 0 |
 | 13 | `icall_exception_get_exception_count` | `src/runtime/src/stubs.cpp:703` | `return 0;` | 0 |
 | 14 | `icall_exception_get_null_ref` | `src/runtime/src/stubs.cpp:697` | `return nullptr;` | 0 |
-| 15 | `icall_exception_is_immutable_agile_exception` | `src/runtime/src/exceptionext.cpp:328` | `return false;` | 0 |
-| 16 | `icall_exception_prepare_for_foreign_exception_raise` | `src/runtime/src/exceptionext.cpp:338` | `void icall_exception_prepare_for_foreign_exception_raise()` | 1 |
+| 15 | `icall_exception_is_immutable_agile_exception` | `src/runtime/src/exceptionext.cpp:332` | `return false;` | 0 |
+| 16 | `icall_exception_prepare_for_foreign_exception_raise` | `src/runtime/src/exceptionext.cpp:342` | `void icall_exception_prepare_for_foreign_exception_raise()` | 1 |
 | 17 | `icall_exception_save_stack_traces_from_deep_copy` | `src/runtime/src/stubs.cpp:47` | `void icall_exception_save_stack_traces_from_deep_copy(Il2CppObject*)` | 1 |
 | 18 | `icall_gc_add_memory_pressure` | `src/runtime/src/gcapi.cpp:190` | `void icall_gc_add_memory_pressure(int64_t bytesAllocated)` | 0 |
 | 19 | `icall_gc_allocate_new_array` | `src/runtime/src/stubs.cpp:37` | `return nullptr; // stub` | 0 |
