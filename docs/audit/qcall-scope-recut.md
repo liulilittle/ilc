@@ -75,12 +75,15 @@ present in shipped 8.0.31 surface: 180 (45%)   <- 漏掉 57 条生成器方法
 
 P0 QCall gap 42 条中，**12 条**在发布程序集存在（归一化后口径，见 `corelib-p0-recut.md` §3.1）：
 
-- 6 条显式 LOUD throw
-- 6 条由公共面替代
+- 5 条显式 LOUD throw
+- 5 条由公共面替代
+- **2 条未接线**（`GC._StartNoGCRegion` / `RuntimeHelpers.AreTypesEquivalent`），
+  落 `default: return null` 幻影路径；两者均为 `public/assembly`，用户程序集不可直接调用
 
 其余 30 条落空。
 
-**⇒ P0 段 QCall 无静默缺口。**
+**⇒ P0 段无用户可见的静默缺口**，但有 2 条**内部幻影路径**待补显式 LOUD
+（见 `corelib-p0-recut.md` §3.1.2，本轮只做定性，未改生产代码）。
 
 ## 6. 非 P0 的真实缺口（139 条 missing 的分布）
 
