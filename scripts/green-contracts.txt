@@ -59,3 +59,12 @@ probe-apartment-fail  # GREEN anchor: apartment refusal channels must stay byte-
 # (InvalidOperationException -> falls back to System.Exception), a plain class
 # keeping its null root, and the catch path.
 probe-excbase  # GREEN anchor: exception base chain must stay byte-exact
+
+# ProbeCatchF6a: a catch handler whose FIRST instruction consumes the entry.
+# When the caught object is used only by an s/is expression, Roslyn tests
+# the entry directly (brfalse/brtrue) -- and drops the isinst entirely when the
+# static type makes the conversion infallible. Without those branch opcodes in
+# OpcodeConsumesStack no entry was pushed and the whole method failed to
+# transpile ("Stack empty."). The two lines below cover both as-only and
+# is-only shapes.
+probe-catchf6a  # GREEN anchor: catch entry consumed by a leading branch must fold
