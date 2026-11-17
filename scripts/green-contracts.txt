@@ -80,3 +80,14 @@ probe-catchf6a  # GREEN anchor: catch entry consumed by a leading branch must fo
 # the exception crossed a method boundary still answers the carrier's own type
 # name (the open catch-carrier defect, docs/audit/half-wired-nonp0.md).
 probe-userexcmsg  # GREEN anchor: user-exception message must stay byte-exact
+
+# ProbeCatchCarrier: a caught exception must stay an OBJECT across a method
+# boundary. The catch variable used to be the exception's type name interned as
+# a managed string, so an inline GetType() looked right while a shared
+# `Log(Exception ex)` helper answered "System.String" -- the exception's identity
+# was gone. The carrier is now a real instance of the thrown type's descriptor,
+# synthesised from the throw-time chain when the runtime has no static one, with
+# the message captured so Message answers it. The lines cover a runtime-raised
+# arithmetic exception, a ThreadStateException (no static descriptor), and a
+# user-thrown InvalidOperationException with a ctor message.
+probe-catchcarrier  # GREEN anchor: catch carrier must be a real exception object

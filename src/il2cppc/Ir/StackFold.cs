@@ -506,11 +506,14 @@ public static class StackFold
                 {
                     var stName = LocName(ctx, StlocIndex(ins.OpCode, (int)ins.Operand));
                     var stValue = stack.Count > 0 ? stack.Peek() : null; // EmitStore pops the stack; peek first
-                    // M5 wiring: the catch-variable binding stores the
-                    // exception ENTRY -- the value IS the type-name string;
-                    // GetType()/get_Name on it fold to identities.
+                    // The catch-variable binding stores the exception ENTRY -- a
+                    // real exception OBJECT (the carrier). The label must be the
+                    // exception domain, NOT "System.Type": a real Type value and
+                    // the carrier used to share that label while the carrier was
+                    // a type-name string, and keeping it would route GetType()
+                    // to the Type-identity arm (answering the carrier itself).
                     if (stValue is ExceptionEntryExpr)
-                        objTypes[stName] = "System.Type";
+                        objTypes[stName] = "System.Exception";
 
                     // b5-gaps section 104: propagate a call's ReturnTypeName
                     // through the store (the LINQ ToDictionary result's tracked
@@ -2667,13 +2670,13 @@ public static class StackFold
                 // FILTER clause (`catch (E e) when (...)`): csc binds the caught
                 // variable through `isinst T; dup; brtrue; stloc`, and the
                 // isinst result materializes into THIS temp before the store.
-                // Carry the catch-carrier hint ("System.Type" -- the model's
-                // exception-carrier convention) to the temp; without it the
+                // Carry the catch-carrier hint to the temp; without it the
                 // later `e.Message` callvirt resolves with no receiver and dies
-                // at the phantom-call guard.
+                // at the phantom-call guard. The carrier is a real exception
+                // object, so the hint is the exception domain, NOT "System.Type".
                 if (e is CallExpr isq && isq.Args.Count == 1 && isq.Args[0] is ExceptionEntryExpr
                     && isq.Function.StartsWith("isinst_", StringComparison.Ordinal))
-                    objTypes[name] = "System.Type";
+                    objTypes[name] = "System.Exception";
                 // p-refl2-gapmatrix (B08): a folded typeof-chain GetMethod/
                 // GetField result materializes into this temp -- carry its
                 // member provenance so a downstream member flag predicate on
@@ -2766,15 +2769,15 @@ public static class StackFold
                 return nn.TypeName;
             // FILTER clause (`catch (E e) when (...)`): csc binds the caught
             // variable through `isinst T` over the exception ENTRY, not through
-            // a direct entry store. The entry IS the model's exception carrier
-            // (tracked as "System.Type" -- the catch-variable convention), so
-            // the isinst result keeps that hint through every spill temp and the
-            // final stloc; without it `e.Message` inside a filter resolves with
-            // no receiver hint and dies at the phantom-call guard (MEASURED:
-            // the first ehfilter1 run failed exactly there).
+            // a direct entry store. The entry IS the model's exception carrier --
+            // a real exception object -- so the isinst result keeps the exception
+            // domain hint through every spill temp and the final stloc; without
+            // it `e.Message` inside a filter resolves with no receiver hint and
+            // dies at the phantom-call guard (MEASURED: the first ehfilter1 run
+            // failed exactly there).
             if (value is CallExpr ii && ii.Args.Count == 1 && ii.Args[0] is ExceptionEntryExpr
                 && ii.Function.StartsWith("isinst_", StringComparison.Ordinal))
-                return "System.Type";
+                return "System.Exception";
             if (value is ValueTypeNewExpr vn2)
                 return vn2.TypeFullName;
             if (value is CallExpr rc && rc.Resolved?.ResultKind is string rk)
@@ -4164,7 +4167,7 @@ public static class StackFold
                 // StringBuilder temp, MemberInfo::get_Name on a GetType()
                 // result -- the default resolution of get_* marks these
                 // STATIC and would reject the callvirt below).
-                var recvType = args[0] is ExceptionEntryExpr ? "System.Type"
+                var recvType = args[0] is ExceptionEntryExpr ? "System.Exception"
                     : args[0] is StringConstExpr ? "System.String"
                     : args[0] is LocExpr rl2 && objTypes.TryGetValue(rl2.Name, out var rt2) ? rt2
                     // P25 (listp25): a VALUE-TYPE receiver that was ldloca'd

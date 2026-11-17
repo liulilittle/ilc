@@ -435,6 +435,60 @@ void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message)
 {
     icall_exception_ctor_message_inner(self, message, nullptr);
 }
+//------------------------------------------------------------------------------
+// il2cpp_exception_carrier_new -- the catch CARRIER as a real exception object.
+//
+// The transpiler materialises the caught exception in a catch handler. It used
+// to materialise the type name as an interned managed STRING, which survives an
+// inline GetType() (folded at the catch site) but not a method boundary: a
+// method typed System.Exception receives the string and reports
+// GetType() == System.String. The exception's identity is then gone -- the
+// single most common shape, a shared `Log(Exception ex)` helper, prints the
+// wrong type for every exception.
+//
+// The carrier is now an instance of the exception's OWN descriptor, stamped
+// from the throw-time type chain, with the thrown message captured into the
+// side table so Message answers it. Allocation is a plain zero-arg object: the
+// transpiler's exception ctors are no-op carriers (the message rides the side
+// table keyed by object identity), so no ctor runs here.
+//
+// 'chain' is the throw-time type chain "Type,Type,Base1,..." whose FIRST
+// segment is the thrown type's full name (the runtime splits it here, so the
+// generated call passes the carrier's own text through unchanged).
+//------------------------------------------------------------------------------
+Il2CppObject* il2cpp_exception_carrier_new(const char* chain, const char* message)
+{
+    if (chain == nullptr || chain[0] == '\0')
+    {
+        chain = "System.Exception,System.Exception,System.Object";
+    }
+    // The descriptor wants just the leading name; the chain itself is what
+    // supplies the base, so it is forwarded whole.
+    char nameBuf[256];
+    size_t nameLen = 0;
+    while (chain[nameLen] != '\0' && chain[nameLen] != ',' && nameLen + 1 < sizeof(nameBuf))
+    {
+        ++nameLen;
+    }
+    std::memcpy(nameBuf, chain, nameLen);
+    nameBuf[nameLen] = '\0';
+
+    Il2CppClass* klass = il2cpp_exception_class_by_name(nameBuf, chain);
+    if (klass == nullptr)
+    {
+        klass = &System_Exception_class;
+    }
+    Il2CppObject* obj = il2cpp_object_new(klass);
+    if (obj == nullptr)
+    {
+        return nullptr;
+    }
+    if (message != nullptr)
+    {
+        icall_exception_ctor_message(obj, il2cpp_string_new_from_cs(message));
+    }
+    return obj;
+}
 // excapi1: net48's default Exception.Message for a parameterless ctor --
 // the zh-CN host resource "An exception of type '{type}' was thrown."
 // (probe-pinned). The type name is the object's klass name (the base

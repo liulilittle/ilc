@@ -3684,8 +3684,13 @@ public static class CodeGenerator
         }
         _curNewArrLengths = newArrLengths;
         _curNewArrElemSizes = newArrElemSizes;
-        // nb9 D13: mark locals holding the catch carrier's type-name string
-        // (e is ArgumentException / cast) so isinst can test the exception chain.
+        // The catch carrier is now a real exception OBJECT, so an isinst over it
+        // is an ordinary conformance test -- except that the target type may be
+        // an exception the runtime never modelled, whose descriptor appears only
+        // after the program throws it. Marking the local as "excname" lets the
+        // isinst arm resolve the target through the exception lookup (which
+        // never fabricates a descriptor) instead of emitting an undefined
+        // {Type}_class symbol.
         for (var iEx = 0; iEx < stmts.Count; iEx++)
         {
             if (stmts[iEx] is AssignStmt aEx &&
@@ -6196,24 +6201,15 @@ public static class CodeGenerator
                 // statement initializes it -- see the vctor_ emission).
                 return $"{TypeCppName(vn.TypeFullName)} {{ }}";
             case ExceptionEntryExpr:
-                // M5 wiring: the synthetic catch-handler entry -- the
-                // exception type name interned as a managed string. The Type
-                // model's documented convention (MethodMap.Type.cs) is a Type
-                // VALUE = the FULL type name string, and MemberInfo::get_Name
-                // on it truncates at runtime (il2cpp_type_get_short_name) while
-                // get_FullName is the identity -- so the entry carries the full
-                // name and both properties resolve correctly (GN-17 probe A:
-                // e.GetType().FullName == System.Runtime.InteropServices.
-                // SEHException). __il2cpp_ex is in scope ONLY inside the
-                // generated catch block (where the entry is consumed). The
-                // runtime type_name() is a chain "Type,Base1,Base2,...": the
-                // full name is the FIRST comma-separated entry. The std::string
-                // temporary lives through the full expression, so c_str() is
-                // valid for the intern.
-                return "il2cpp::il2cpp_string_intern_literal(" +
-                    "[](const char* n) -> std::string { const char* c = std::strchr(n, ','); " +
-                    "return c != nullptr ? std::string(n, static_cast<size_t>(c - n)) : std::string(n); " +
-                    "}(__il2cpp_ex.type_name()).c_str())";
+                // M5 wiring: the synthetic catch-handler entry -- a REAL
+                // exception object for the thrown exception, so the catch
+                // variable behaves like an Exception through a method
+                // boundary (GetType() reads obj->klass, Message reads the
+                // side-table entry). The runtime splits the leading name off
+                // the chain and stamps the descriptor, so no temporary has to
+                // outlive the expression.
+                return "il2cpp::runtime::il2cpp_exception_carrier_new(" +
+                    "__il2cpp_ex.type_name(), __il2cpp_ex.message_text())";
             case FuncPtrExpr fp:
                 // ldftn: the address of the target method's generated function.
                 // fnptr domain b23: emitted as a void* (the model's pointer
@@ -11421,29 +11417,32 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         if ((c.Function.StartsWith("isinst_", StringComparison.Ordinal) && int.TryParse(c.Function[7..], out var isTok))
             || (c.Function.StartsWith("castclass_", StringComparison.Ordinal) && int.TryParse(c.Function[10..], out isTok)))
         {
-            // nb9 D13: `e is ArgumentException` on a catch carrier is a TEST OF
-            // THE THROWN TYPE-NAME STRING, not an object type identity. The
-            // carrier holds either the exception entry or its interned short
-            // name; compare against the exception chain instead of a descriptor.
-            {
-                var excTargetName = "";
-                try { excTargetName = TypeTokenFullName(md, isTok); } catch { }
-                var excCarrier = c.Args.Count > 0 &&
-                    (c.Args[0] is ExceptionEntryExpr ||
-                     (c.Args[0] is LocExpr leExc && _curLocKinds.TryGetValue(leExc.Name, out var kExc) && kExc == "excname"));
-                if (excCarrier && (excTargetName == "System.Exception" ||
-                    excTargetName == "System.SystemException" ||
-                    excTargetName == "System.ArgumentException" ||
-                    excTargetName == "System.ArgumentNullException" ||
-                    excTargetName == "System.ArgumentOutOfRangeException" ||
-                    excTargetName == "System.InvalidOperationException"))
+                // The catch carrier is a real exception object, so `e is T` is an
+                // ordinary conformance test against T's descriptor. The one
+                // difference from the generic path below: T may name an
+                // exception the runtime has no STATIC descriptor for, and
+                // &T_class would then be an undefined symbol. The lookup
+                // resolves it when the program has actually thrown T and
+                // otherwise yields nullptr -- and il2cpp_is_instance answers
+                // false for a null klass, which is the correct answer for a type
+                // that never occurred.
                 {
-                    var excNameCode = EmitExpr(c.Args[0], md, types);
-                    var excChain = excTargetName;
-                    if (c.Function.StartsWith("isinst_", StringComparison.Ordinal))
-                        return $"((il2cpp::il2cpp_exception_matches(\"{excChain}\", __il2cpp_ex.type_name())) ? reinterpret_cast<Il2CppObject*>({excNameCode}) : nullptr)";
+                    var excTargetName = "";
+                    try { excTargetName = TypeTokenFullName(md, isTok); } catch { }
+                    var excCarrier = c.Args.Count > 0 &&
+                        (c.Args[0] is ExceptionEntryExpr ||
+                         (c.Args[0] is LocExpr leExc && _curLocKinds.TryGetValue(leExc.Name, out var kExc) && kExc == "excname"));
+                    if (excCarrier && excTargetName.StartsWith("System.", StringComparison.Ordinal)
+                        && excTargetName.EndsWith("Exception", StringComparison.Ordinal))
+                    {
+                        var excObjCode = EmitExpr(c.Args[0], md, types);
+                        if (excObjCode == "nullptr") return "nullptr";
+                        var excKlass = $"il2cpp::il2cpp_exception_class_lookup(\"{excTargetName}\")";
+                        if (c.Function.StartsWith("castclass_", StringComparison.Ordinal))
+                            return $"(il2cpp::il2cpp_is_instance({excObjCode}, {excKlass}) ? reinterpret_cast<Il2CppObject*>({excObjCode}) : (({excObjCode}) == nullptr ? nullptr : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception\", \"Unable to cast object to the target type.\"), nullptr)))";
+                        return $"(il2cpp::il2cpp_is_instance({excObjCode}, {excKlass}) ? reinterpret_cast<Il2CppObject*>({excObjCode}) : nullptr)";
+                    }
                 }
-            }
             // .NET isinst semantics: returns obj (type matches) or null (no match) -- NOT a bool!
             //   isinst:   match -> obj, no match -> null (as-operator semantics)
             //   castclass:match -> obj, null input -> null (D-CAST-NULL: ECMA castclass on

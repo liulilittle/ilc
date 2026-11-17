@@ -35,6 +35,15 @@ int32_t icall_exception_get_exception_count();
 // the catch-variable carrier path is untouched).
 void icall_exception_ctor_message(Il2CppObject* self, Il2CppString* message);
 Il2CppString* icall_exception_get_message(Il2CppObject* obj);
+// The catch CARRIER: a real exception OBJECT for an exception that crossed a
+// method boundary. The type name and message are the ones the DotNetException
+// carried; 'chain' is its throw-time type chain, which supplies the descriptor's
+// base (il2cpp_exception_class_by_name). Before this existed the carrier was the
+// type name interned as a managed STRING, so handing it to a method typed
+// System.Exception made GetType() answer "System.String" -- the exception's
+// identity was gone. Returns a zero-arg exception instance whose klass names the
+// thrown type and whose side-table entry carries the message.
+Il2CppObject* il2cpp_exception_carrier_new(const char* chain, const char* message);
 // nb1 EXC-CHAIN: the 2-arg System.Exception::.ctor(string, Exception)
 // captures BOTH the message and the INNER EXCEPTION OBJECT into the side
 // table (the 1-arg ctor above routes here with a null inner). get_Inner

@@ -84,6 +84,11 @@ Il2CppClass* il2cpp_class_by_name_ignore_case(const char* name);
 // the process and safe to compare by pointer.
 //------------------------------------------------------------------------------
 Il2CppClass* il2cpp_exception_class_by_name(const char* name, const char* chain);
+// Lookup-only sibling of il2cpp_exception_class_by_name: returns the modelled or
+// already-synthesised descriptor for 'name', or nullptr when neither exists. It
+// never creates a descriptor, so an isinst conformance test cannot consume the
+// synthesis table with types the running program never threw.
+Il2CppClass* il2cpp_exception_class_lookup(const char* name);
 
 //------------------------------------------------------------------------------
 // il2cpp_object_construct -- the managed ctor invocation mechanism (COM stage

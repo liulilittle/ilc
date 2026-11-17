@@ -114,13 +114,62 @@ Il2CppClass* FindSynth(const char* name)
     {
         if (std::strcmp(g_synthClasses[i]->name, name) == 0)
         {
-            return g_synthClasses[i];
+                        return g_synthClasses[i];
         }
     }
     return nullptr;
 }
 
 } // namespace
+
+//------------------------------------------------------------------------------
+// il2cpp_exception_class_lookup -- descriptor for 'name' if one already exists.
+//
+// Lookup only: a type the program has actually thrown answers its synthesised
+// descriptor. Anything else is nullptr, which lets a conformance test
+// (isinst/castclass) answer "no" without creating a descriptor for a type the
+// program never threw.
+//
+// The static five are DELIBERATELY not consulted by name here: an exact-name
+// match against them would answer a static descriptor for the modelled type
+// itself, which is right, but ModelledAncestor is a NAME lookup that the
+// synthesis path uses to mean "already has a descriptor anywhere in the chain".
+// For a conformance test only the exact type matters, so this walks its own
+// table and never widens the match.
+//------------------------------------------------------------------------------
+Il2CppClass* il2cpp_exception_class_lookup(const char* name)
+{
+    if (name == nullptr)
+    {
+        return nullptr;
+    }
+    Il2CppClass* cached = FindSynth(name);
+    if (cached != nullptr)
+    {
+        return cached;
+    }
+    if (std::strcmp(name, "System.Exception") == 0)
+    {
+        return &System_Exception_class;
+    }
+    if (std::strcmp(name, "System.SystemException") == 0)
+    {
+        return &System_SystemException_class;
+    }
+    if (std::strcmp(name, "System.ArgumentException") == 0)
+    {
+        return &System_ArgumentException_class;
+    }
+    if (std::strcmp(name, "System.ArgumentNullException") == 0)
+    {
+        return &System_ArgumentNullException_class;
+    }
+    if (std::strcmp(name, "System.ArgumentOutOfRangeException") == 0)
+    {
+        return &System_ArgumentOutOfRangeException_class;
+    }
+    return nullptr;
+}
 
 //------------------------------------------------------------------------------
 // il2cpp_exception_class_by_name -- descriptor for 'name', synthesising it when
