@@ -50,10 +50,3 @@ w11probe-console   # LOUD contract: W11 P0-A Console device surface (Clear/Beep)
 w11probe-clear     # LOUD contract: W11 P0-A Console.Clear() must reject, never emit icall_console_clear
 w11probe-setters   # LOUD contract: W11 P0-A Console setters (ForegroundColor/BackgroundColor/Title/CursorLeft/CursorTop/CursorVisible) must reject
 w11probe-getters   # LOUD contract: W11 P0-A Console getters (Title/colors/cursor/window+buffer) + SetCursorPosition/ResetColor/Beep(f,d) must reject
-
-# probe-apartment-fail is a GREEN anchor case, not a LOUD contract; it is
-# listed here only because the SWEEP must never run it: the STA-accepting
-# lines this case would also cover make the net48 oracle itself fail to
-# format exceptions on a host without an STA pump, so a sweep run there
-# cannot produce a trustworthy baseline. difftest.ps1 runs it explicitly.
-probe-apartment-fail   # sweep-exclude: net48 oracle untrustworthy on the STA path (no STA pump); covered by difftest + green-contracts
