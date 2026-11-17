@@ -66,6 +66,26 @@ Il2CppClass* il2cpp_class_by_name(const char* name);
 Il2CppClass* il2cpp_class_by_name_ignore_case(const char* name);
 
 //------------------------------------------------------------------------------
+// il2cpp_exception_class_by_name -- descriptor for an exception type, creating
+// one on demand when the runtime has no static descriptor for it.
+//
+// Only five exception types have static descriptors (Exception, SystemException,
+// ArgumentException, ArgumentNullException, ArgumentOutOfRangeException). Any
+// other exception -- ThreadStateException, InvalidOperationException, a user
+// declared one -- has none, so a caught exception could not be represented as an
+// object that answers isinst/GetType. This synthesises the missing descriptor.
+//
+//   name  : the managed full type name ("System.Threading.ThreadStateException")
+//   chain : the throw-time type chain ("Type,Type,Base1,...") whose first
+//           segment that is NOT the type itself supplies the base class.
+//           May be null; the base then falls back to System.Exception.
+//
+// Returns nullptr only when 'name' is null. The result is stable for the life of
+// the process and safe to compare by pointer.
+//------------------------------------------------------------------------------
+Il2CppClass* il2cpp_exception_class_by_name(const char* name, const char* chain);
+
+//------------------------------------------------------------------------------
 // il2cpp_object_construct -- the managed ctor invocation mechanism (COM stage
 // 17 batch 3). Allocates via il2cpp_object_new, then runs the type's ".ctor"
 // resolved through its typeinfo (the fnPtr + signature + paramCount -- the
