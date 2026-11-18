@@ -138,3 +138,13 @@ probe-marshal-helpers  # GREEN anchor: Marshal.SizeOf/PtrToStructure over the re
 # undefined C++ symbol and the program failed to COMPILE, not merely misbehaved.
 # Requires net9.0: Interlocked.And/Or do not exist in net8.
 probe-interlocked-widths  # GREEN anchor: unsigned Interlocked widths + And/Or round-trip
+
+# CorelibP0: the P0 CoreLib surface (GC / RuntimeHelpers / Interlocked / Thread /
+# Math) end to end. Registered after it caught a regression no other case did:
+# the phantom guard added in 2475f4a2 rejected `new Action(...)` because
+# IsExternalBclOwner exempted `System.Action`1` but not the bare `System.Action`.
+# Every probe run at the time happened not to construct a non-generic delegate,
+# and this case was in no contract file, so nothing ran it for four rounds.
+# A guard that exempts the delegate families must be exercised by a case that
+# uses them.
+corelibp0  # GREEN anchor: P0 CoreLib surface must transpile and stay byte-exact
