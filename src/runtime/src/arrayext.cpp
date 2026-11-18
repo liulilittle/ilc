@@ -391,7 +391,8 @@ int32_t icall_array_get_upper_bound(Il2CppObject* arr, int32_t dimension)
 {
     Il2CppArray* a = RequireInstanceArray(arr);
     RequireDimensionInRange(a, dimension);
-    return a->dims[dimension] - 1;
+    // The upper bound is lower + length - 1 (net48: -1 for an empty array).
+    return a->lowerBounds[dimension] + a->dims[dimension] - 1;
 }
 
 //------------------------------------------------------------------------------
@@ -454,7 +455,10 @@ int32_t icall_array_get_lower_bound(Il2CppObject* arr, int32_t dimension)
 {
     Il2CppArray* a = RequireInstanceArray(arr);
     RequireDimensionInRange(a, dimension);
-    return 0;
+    // net48 keeps the lower bound in the array header: a zero-based array
+    // answers 0, and Array.CreateInstance(Type, lengths, lowerBounds) can
+    // produce a non-zero (even negative) one.
+    return a->lowerBounds[dimension];
 }
 
 //------------------------------------------------------------------------------

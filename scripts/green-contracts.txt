@@ -220,3 +220,12 @@ probe-arraybase  # GREEN anchor: System.Array is a real descriptor and the array
 # Covers (int[,])x, as, a failing cast, element access, and the rank-exclusion
 # assertions in BOTH directions (int[] must reject int[,] and vice versa).
 probe-arraymd  # GREEN anchor: multidim casts resolve a rank-carrying array class
+
+# Array.CreateInstance(Type, int[], int[]) used to DROP the lowerBounds argument
+# (the mapping passed 2 args for a 3-arg call), so GetLowerBound always answered
+# 0 and a non-zero lower bound was silently lost. net48 keeps the lower bound in
+# the array header: lengths {3} + lowerBounds {5} means valid indices 5..7.
+# Covers a non-zero bound, indexing from it, the zero-based case, a 2-D array
+# with a different bound per dimension, an out-of-range index below the bound,
+# and a NEGATIVE lower bound.
+probe-arraylower  # GREEN anchor: CreateInstance lower bounds are modelled and applied once

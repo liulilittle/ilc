@@ -96,6 +96,14 @@ struct Il2CppArray
     int32_t      elemKind;
     int32_t      rank;      // number of dimensions (1 in the one-dimensional scope)
     int32_t      dims[IL2CPP_MAX_ARRAY_RANK]; // per-dim sizes (dims[0..rank-1])
+    // Per-dimension LOWER bounds (dims[0..rank-1]). net48 keeps them in the
+    // array header, so Array.CreateInstance(Type, lengths, lowerBounds) can
+    // produce an array whose valid indices start at a non-zero (even negative)
+    // value. Every other allocator leaves these zero, which is the ordinary
+    // zero-based array. GetLowerBound/GetUpperBound and the index arithmetic
+    // read them; a zero-filled header is byte-identical to the pre-existing
+    // behaviour.
+    int32_t      lowerBounds[IL2CPP_MAX_ARRAY_RANK];
     char         data[1];   // element storage: length * elemSize bytes inline
 };
 
@@ -143,6 +151,14 @@ Il2CppArray* il2cpp_array_create_instance(Il2CppObject* elemTypeName, int32_t le
 Il2CppArray* il2cpp_array_create_instance_2d(Il2CppObject* elemTypeName, int32_t d0, int32_t d1);
 Il2CppArray* il2cpp_array_create_instance_3d(Il2CppObject* elemTypeName, int32_t d0, int32_t d1, int32_t d2);
 Il2CppArray* il2cpp_array_create_instance_dims(Il2CppObject* elemTypeName, Il2CppArray* lengths);
+// Array.CreateInstance(Type, int[], int[]): the same allocation plus the
+// per-dimension LOWER bounds net48 keeps in the array header. A non-zero
+// lower bound shifts the valid index range (lengths {3} + lowerBounds {5}
+// -> indices 5..7); a negative lower bound is legal. lowerBounds == nullptr
+// is the zero-based case.
+Il2CppArray* il2cpp_array_create_instance_dims_lb(Il2CppObject* elemTypeName,
+                                                  Il2CppArray* lengths,
+                                                  Il2CppArray* lowerBounds);
 
 // Array.Clone() -- a shallow copy: a new array of the same shape (rank, dims,
 // element size, element kind, reference-ness) with the element payload copied

@@ -177,8 +177,13 @@ public static partial class MethodRefResolver
                         return I("il2cpp::il2cpp_array_create_instance_dims", 2, true, true, false,
                             new[] { "", "a" }, returnTypeName: "System.Array");
                     if (count == 3 && ps[1] == 0x1D && ps[2] == 0x1D)
-                        return I("il2cpp::il2cpp_array_create_instance_dims", 2, true, true, false,
-                            new[] { "", "a" }, returnTypeName: "System.Array");
+                        // (Type, int[] lengths, int[] lowerBounds): the lower
+                        // bounds are a REAL parameter -- net48 keeps them in the
+                        // array header, so dropping them (the old 2-argument
+                        // mapping) silently produced a zero-based array and
+                        // GetLowerBound always answered 0.
+                        return I("il2cpp::il2cpp_array_create_instance_dims_lb", 3, true, true, false,
+                            new[] { "", "a", "a" }, returnTypeName: "System.Array");
                     throw new NotSupportedException(
                         $"LOUD whitelist (net48 has no such overload): Array.CreateInstance arity {count} / " +
                         $"param bytes 0x{(ps is { Length: >= 2 } gp2 ? gp2[1] : 0):X2} -- net48 has (Type,int), " +

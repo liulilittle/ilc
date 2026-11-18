@@ -281,6 +281,7 @@ Il2CppArray* il2cpp_array_new(Il2CppClass* elemClass, int32_t elemSize, bool isR
     }
     arr->rank = 1; // one-dimensional scope; multi-dimensional support is future work
     arr->dims[0] = length; // single-dim fills dims[0] (rank-aware GetLength/GetUpperBound parity)
+    arr->lowerBounds[0] = 0; // zero-based: the ordinary array
     return arr;
 }
 
@@ -371,6 +372,7 @@ Il2CppArray* il2cpp_array_new_multi(Il2CppClass* elemClass, int32_t elemSize, bo
     for (int32_t d = 0; d < rank; ++d)
     {
         arr->dims[d] = dims[d] < 0 ? 0 : dims[d];
+        arr->lowerBounds[d] = 0; // zero-based: the ordinary array
     }
     return arr;
 }
@@ -583,6 +585,65 @@ Il2CppArray* il2cpp_array_create_instance_dims(Il2CppObject* elemTypeName, Il2Cp
         dims[d] = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(lengths, d));
     }
     return il2cpp_array_new_multi(elemClass, elemSize, isRef, rank, dims);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_array_create_instance_dims_lb -- Array.CreateInstance(Type, int[],
+// int[]): the same allocation as the two-argument form, plus the per-dimension
+// LOWER bounds net48 keeps in the array header.
+//
+//   A non-zero lower bound shifts the valid index range: an array created with
+//   lengths {3} and lowerBounds {5} has valid indices 5..7, GetLowerBound(0)
+//   answers 5 and GetUpperBound(0) answers 7. A negative lower bound is legal.
+//
+//   lowerBounds == nullptr is the zero-based case (the two-argument overload
+//   delegates here with nullptr), so the ordinary path is unchanged.
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_array_create_instance_dims_lb(Il2CppObject* elemTypeName,
+                                                  Il2CppArray* lengths,
+                                                  Il2CppArray* lowerBounds)
+{
+    Il2CppClass* elemClass = nullptr;
+    int32_t elemSize = 0;
+    bool isRef = false;
+    if (!ResolveElementType(elemTypeName, &elemClass, &elemSize, &isRef))
+    {
+        il2cpp_throw_new(kArrayNotSupportedChain,
+            "Array.CreateInstance: the element type is not part of this AOT "
+            "build (no class descriptor), so its element size is unknown.");
+    }
+    if (lengths == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("lengths");
+    }
+    const int32_t rank = lengths->length;
+    if (rank < 1 || rank > IL2CPP_MAX_ARRAY_RANK)
+    {
+        il2cpp_throw_new(kArrayNotSupportedChain,
+            "Array.CreateInstance: the requested rank is outside the supported "
+            "range (1..IL2CPP_MAX_ARRAY_RANK).");
+    }
+    if (lowerBounds != nullptr && lowerBounds->length != rank)
+    {
+        il2cpp_throw_new(kArrayNotSupportedChain,
+            "Array.CreateInstance: the lowerBounds array length does not match "
+            "the lengths array length.");
+    }
+    int32_t dims[IL2CPP_MAX_ARRAY_RANK];
+    int32_t lbs[IL2CPP_MAX_ARRAY_RANK];
+    for (int32_t d = 0; d < rank; ++d)
+    {
+        dims[d] = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(lengths, d));
+        lbs[d] = lowerBounds == nullptr
+            ? 0
+            : *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(lowerBounds, d));
+    }
+    Il2CppArray* arr = il2cpp_array_new_multi(elemClass, elemSize, isRef, rank, dims);
+    for (int32_t d = 0; d < rank; ++d)
+    {
+        arr->lowerBounds[d] = lbs[d];
+    }
+    return arr;
 }
 
 //------------------------------------------------------------------------------

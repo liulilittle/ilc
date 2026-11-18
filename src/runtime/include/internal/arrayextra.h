@@ -133,6 +133,11 @@ void il2cpp_array_clear_int32(Il2CppArray* arr, int32_t index, int32_t length);
 // A null array throws ArgumentNullException, an out-of-range index throws
 // IndexOutOfRangeException.
 Il2CppObject* il2cpp_array_get_value(Il2CppArray* arr, int32_t index);
+// The offset-taking core: 'index' is already a ZERO-BASED flat offset (the
+// multidim entry points compute it from per-dimension indices and lower
+// bounds). The 1-D entry points above convert first, so a non-zero lower
+// bound is applied exactly once.
+Il2CppObject* il2cpp_array_get_value_at_offset(Il2CppArray* a, int32_t index);
 
 // Array.SetValue(object value, int index): store 'value' into the element at
 // 'index'. Reference arrays store the reference itself (null legal, write
@@ -145,6 +150,7 @@ Il2CppObject* il2cpp_array_get_value(Il2CppArray* arr, int32_t index);
 // A null array throws ArgumentNullException, an out-of-range index throws
 // IndexOutOfRangeException.
 void il2cpp_array_set_value(Il2CppArray* arr, Il2CppObject* value, int32_t index);
+void il2cpp_array_set_value_at_offset(Il2CppArray* a, Il2CppObject* value, int32_t index);
 
 // arrgen1b: the long-index 1-D forms of GetValue/SetValue. The index is
 // validated against the int32 range (ArgumentOutOfRangeException outside it),

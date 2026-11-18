@@ -121,12 +121,20 @@ void RequireRange(Il2CppArray* arr, int32_t index, int32_t length)
 // RequireIndex -- GetValue/SetValue bounds check (.NET IndexOutOfRangeException
 // semantics for a negative or beyond-the-end index).
 //------------------------------------------------------------------------------
-void RequireIndex(Il2CppArray* arr, int32_t index)
+// Returns the ZERO-BASED offset for an index expressed in the array's own
+// coordinate system: net48 keeps a per-dimension lower bound in the header, so
+// an array created with lengths {3} and lowerBounds {5} accepts indices 5..7
+// and stores them at offsets 0..2. A zero-based array (lowerBounds[0] == 0)
+// yields the index unchanged, which is the ordinary path.
+int32_t RequireIndex(Il2CppArray* arr, int32_t index)
 {
-    if (index < 0 || index >= arr->length)
+    const int32_t lower = arr->lowerBounds[0];
+    const int32_t offset = index - lower;
+    if (offset < 0 || offset >= arr->length)
     {
         il2cpp_throw_index_out_of_range_exception(nullptr);
     }
+    return offset;
 }
 
 //------------------------------------------------------------------------------
@@ -363,10 +371,24 @@ void il2cpp_array_clear_int32(Il2CppArray* arr, int32_t index, int32_t length)
 //   System.Int64 via icall_box_long); any other stride throws
 //   NotSupportedException.
 //------------------------------------------------------------------------------
+// The 1-D entry points take an index in the array's own coordinate system and
+// convert it to a zero-based offset (net48 keeps lowerBounds[0] in the header).
 Il2CppObject* il2cpp_array_get_value(Il2CppArray* arr, int32_t index)
 {
     Il2CppArray* a = RequireArrayExtra(arr);
-    RequireIndex(a, index);
+    return il2cpp_array_get_value_at_offset(a, RequireIndex(a, index));
+}
+
+void il2cpp_array_set_value(Il2CppArray* arr, Il2CppObject* value, int32_t index)
+{
+    Il2CppArray* a = RequireArrayExtra(arr);
+    il2cpp_array_set_value_at_offset(a, value, RequireIndex(a, index));
+}
+
+Il2CppObject* il2cpp_array_get_value_at_offset(Il2CppArray* a, int32_t index)
+{
+    // 'index' is already a zero-based offset; no lower-bound adjustment here.
+
     if (a->isRefElem)
     {
         Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
@@ -433,10 +455,10 @@ Il2CppObject* il2cpp_array_get_value(Il2CppArray* arr, int32_t index)
 //   boxed type raises InvalidCastException through the unbox icall); any
 //   other stride throws NotSupportedException.
 //------------------------------------------------------------------------------
-void il2cpp_array_set_value(Il2CppArray* arr, Il2CppObject* value, int32_t index)
+void il2cpp_array_set_value_at_offset(Il2CppArray* a, Il2CppObject* value, int32_t index)
 {
-    Il2CppArray* a = RequireArrayExtra(arr);
-    RequireIndex(a, index);
+    // 'index' is already a zero-based offset; no lower-bound adjustment here.
+
     if (a->isRefElem)
     {
         Il2CppObject** slots = reinterpret_cast<Il2CppObject**>(a->data);
@@ -558,26 +580,32 @@ void RequireRankExtra(const Il2CppArray* a, int32_t rank)
     }
 }
 
-void RequireDimIndexExtra(const Il2CppArray* a, int32_t dim, int32_t index)
+// Returns the ZERO-BASED offset for a per-dimension index expressed in the
+// array's own coordinate system. net48 keeps a lower bound per dimension, so a
+// dimension with lower bound 10 accepts indices 10..10+len-1 and stores them at
+// offsets 0..len-1. A zero-based dimension yields the index unchanged.
+int32_t RequireDimIndexExtra(const Il2CppArray* a, int32_t dim, int32_t index)
 {
-    if (index < 0 || index >= a->dims[dim])
+    const int32_t offset = index - a->lowerBounds[dim];
+    if (offset < 0 || offset >= a->dims[dim])
     {
         il2cpp_throw_index_out_of_range_exception(nullptr);
     }
+    return offset;
 }
 
 int32_t FlatIndex2(const Il2CppArray* a, int32_t i0, int32_t i1)
 {
-    RequireDimIndexExtra(a, 0, i0);
-    RequireDimIndexExtra(a, 1, i1);
+    i0 = RequireDimIndexExtra(a, 0, i0);
+    i1 = RequireDimIndexExtra(a, 1, i1);
     return i0 * a->dims[1] + i1;
 }
 
 int32_t FlatIndex3(const Il2CppArray* a, int32_t i0, int32_t i1, int32_t i2)
 {
-    RequireDimIndexExtra(a, 0, i0);
-    RequireDimIndexExtra(a, 1, i1);
-    RequireDimIndexExtra(a, 2, i2);
+    i0 = RequireDimIndexExtra(a, 0, i0);
+    i1 = RequireDimIndexExtra(a, 1, i1);
+    i2 = RequireDimIndexExtra(a, 2, i2);
     return (i0 * a->dims[1] + i1) * a->dims[2] + i2;
 }
 
@@ -612,32 +640,37 @@ int32_t FlatIndexFromIndices(const Il2CppArray* a, const Il2CppArray* indices)
 
 } // namespace
 
+// The multidim entry points take a ZERO-BASED flat offset from FlatIndex2/3
+// (which already subtracted each dimension's lower bound), so they must not go
+// through the 1-D entry points: those subtract lowerBounds[0] again, and a
+// non-zero lower bound would then be applied twice and the access would land
+// out of range.
 Il2CppObject* il2cpp_array_get_value_2d(Il2CppArray* arr, int32_t index1, int32_t index2)
 {
     Il2CppArray* a = RequireArrayExtra(arr);
     RequireRankExtra(a, 2);
-    return il2cpp_array_get_value(a, FlatIndex2(a, index1, index2));
+    return il2cpp_array_get_value_at_offset(a, FlatIndex2(a, index1, index2));
 }
 
 void il2cpp_array_set_value_2d(Il2CppArray* arr, Il2CppObject* value, int32_t index1, int32_t index2)
 {
     Il2CppArray* a = RequireArrayExtra(arr);
     RequireRankExtra(a, 2);
-    il2cpp_array_set_value(a, value, FlatIndex2(a, index1, index2));
+    il2cpp_array_set_value_at_offset(a, value, FlatIndex2(a, index1, index2));
 }
 
 Il2CppObject* il2cpp_array_get_value_3d(Il2CppArray* arr, int32_t index1, int32_t index2, int32_t index3)
 {
     Il2CppArray* a = RequireArrayExtra(arr);
     RequireRankExtra(a, 3);
-    return il2cpp_array_get_value(a, FlatIndex3(a, index1, index2, index3));
+    return il2cpp_array_get_value_at_offset(a, FlatIndex3(a, index1, index2, index3));
 }
 
 void il2cpp_array_set_value_3d(Il2CppArray* arr, Il2CppObject* value, int32_t index1, int32_t index2, int32_t index3)
 {
     Il2CppArray* a = RequireArrayExtra(arr);
     RequireRankExtra(a, 3);
-    il2cpp_array_set_value(a, value, FlatIndex3(a, index1, index2, index3));
+    il2cpp_array_set_value_at_offset(a, value, FlatIndex3(a, index1, index2, index3));
 }
 
 Il2CppObject* il2cpp_array_get_value_indices(Il2CppArray* arr, Il2CppArray* indices)
