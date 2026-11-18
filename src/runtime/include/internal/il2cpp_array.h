@@ -130,6 +130,20 @@ Il2CppArray* il2cpp_array_new_multi_v3d(Il2CppClass* elemClass, int32_t elemSize
 Il2CppArray* il2cpp_array_new_multi_ref2d(Il2CppClass* elemClass, int32_t elemSize, bool isRefElement, int32_t d0, int32_t d1);
 Il2CppArray* il2cpp_array_new_multi_ref3d(Il2CppClass* elemClass, int32_t elemSize, bool isRefElement, int32_t d0, int32_t d1, int32_t d2);
 
+// Array.CreateInstance(Type, ...) -- the element type arrives as the simplified
+// Type model (a full-name managed string, the same shape
+// il2cpp_typeinfo_lookup consumes). The runtime resolves the name to a class
+// descriptor, takes the element size from it, and allocates through
+// il2cpp_array_new / il2cpp_array_new_multi. A name with no descriptor throws
+// NotSupportedException (net48 raises TypeLoadException for an unresolvable
+// element type; this build cannot allocate an array of a type it has no
+// descriptor for, so the failure is loud rather than a silent wrong-size
+// allocation).
+Il2CppArray* il2cpp_array_create_instance(Il2CppObject* elemTypeName, int32_t length);
+Il2CppArray* il2cpp_array_create_instance_2d(Il2CppObject* elemTypeName, int32_t d0, int32_t d1);
+Il2CppArray* il2cpp_array_create_instance_3d(Il2CppObject* elemTypeName, int32_t d0, int32_t d1, int32_t d2);
+Il2CppArray* il2cpp_array_create_instance_dims(Il2CppObject* elemTypeName, Il2CppArray* lengths);
+
 // Rank-fixed multidim int32 element access (GN-3): index -> flat offset
 // (row-major), per-dimension bounds check (net48 IndexOutOfRangeException,
 // catchable; null receiver -> NullReferenceException).

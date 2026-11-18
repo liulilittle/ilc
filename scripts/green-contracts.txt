@@ -189,3 +189,9 @@ delegate-byref-params  # GREEN anchor: ref/out delegate parameters must transpil
 # wrong one. Covers a struct return (Pt F(int,int)), a struct parameter
 # (int G(Pt)), and a plain string return as the no-struct control.
 delegate-struct-signatures  # GREEN anchor: value-type delegate params/returns must keep the aggregate ABI
+
+# Array.CreateInstance(Type, ...) -- the element type arrives as the simplified
+# Type model (a full-name string), so the runtime resolves it to a class descriptor
+# and takes the element size from there. Covers the 1-D (Type,int) form plus
+# Length/GetType().Name/SetValue/GetValue on the result.
+probe-arraycreate  # GREEN anchor: Array.CreateInstance must allocate a sized array from a Type value

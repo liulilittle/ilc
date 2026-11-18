@@ -26,6 +26,7 @@
 #include "il2cpp_metadata.h" // nb9 D10: primitive element descriptors (elemKind)
 #include "il2cpp_runtime.h"
 #include "il2cpp_time.h"
+#include "typeinfo.h" // Array.CreateInstance: the element type resolves through the typeinfo registry
 #include "il2cpp_array_md_vt.h" // the value-element multidim accessors defined below
 
 #include <cstddef>
@@ -329,6 +330,149 @@ Il2CppArray* il2cpp_array_new_multi(Il2CppClass* elemClass, int32_t elemSize, bo
         arr->dims[d] = dims[d] < 0 ? 0 : dims[d];
     }
     return arr;
+}
+
+//------------------------------------------------------------------------------
+// Array.CreateInstance(Type, ...) -- the element type arrives as the simplified
+// Type model (a full-name managed string). Resolve it to a class descriptor,
+// take the element size from that descriptor, and allocate through the same
+// allocators the transpiler emits for `new T[n]`.
+//
+//   reference element -> elemSize = sizeof(void*), isRefElement = true
+//   value element     -> elemSize = klass->instanceSize, isRefElement = false
+//
+// A name with no descriptor cannot be allocated: this build has no size for it,
+// so the failure is loud (NotSupportedException) rather than a silent
+// wrong-size allocation. net48 raises TypeLoadException there; the difference is
+// recorded in docs/audit/array-create-instance.md.
+//------------------------------------------------------------------------------
+namespace {
+
+// The exception chain for an element type this build has no descriptor for.
+// net48 raises TypeLoadException there; this build cannot size the element, so
+// the failure is loud rather than a silent wrong-size allocation.
+// Full type names are ASCII by project convention; 256 covers every realistic
+// name and an over-long input escapes to "no descriptor" rather than truncating.
+constexpr int kArrayNameBufferSize = 256;
+
+const char kArrayNotSupportedChain[] =
+    "System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception";
+
+// Resolve the simplified Type model to (klass, elemSize, isRefElement).
+// Returns false when the name has no descriptor in this build.
+bool ResolveElementType(Il2CppObject* elemTypeName, Il2CppClass** outClass,
+                        int32_t* outSize, bool* outIsRef)
+{
+    if (elemTypeName == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("elementType");
+    }
+    auto s = reinterpret_cast<Il2CppString*>(elemTypeName);
+    if (s->length < 0 || s->length >= kArrayNameBufferSize)
+    {
+        return false;
+    }
+    char buf[kArrayNameBufferSize];
+    for (int32_t i = 0; i < s->length; ++i)
+    {
+        if (s->chars[i] > 0x7F)
+        {
+            return false; // non-ASCII: out of the project convention
+        }
+        buf[i] = static_cast<char>(s->chars[i]);
+    }
+    buf[s->length] = '\0';
+
+    // A primitive name has a builtin descriptor in the class registry; a
+    // translated user type has one too. Both are value or reference by the
+    // descriptor's own shape, so ask the registry rather than guessing from
+    // the name.
+    Il2CppClass* klass = il2cpp_class_by_name(buf);
+    if (klass == nullptr)
+    {
+        return false;
+    }
+    const bool isRef = !il2cpp_typeinfo_is_value_type(elemTypeName);
+    *outClass = klass;
+    *outSize = isRef ? static_cast<int32_t>(sizeof(void*)) : klass->instanceSize;
+    *outIsRef = isRef;
+    return true;
+}
+
+} // namespace
+
+Il2CppArray* il2cpp_array_create_instance(Il2CppObject* elemTypeName, int32_t length)
+{
+    Il2CppClass* elemClass = nullptr;
+    int32_t elemSize = 0;
+    bool isRef = false;
+    if (!ResolveElementType(elemTypeName, &elemClass, &elemSize, &isRef))
+    {
+        il2cpp_throw_new(kArrayNotSupportedChain,
+            "Array.CreateInstance: the element type is not part of this AOT "
+            "build (no class descriptor), so its element size is unknown.");
+    }
+    return il2cpp_array_new(elemClass, elemSize, isRef, length);
+}
+
+Il2CppArray* il2cpp_array_create_instance_2d(Il2CppObject* elemTypeName, int32_t d0, int32_t d1)
+{
+    Il2CppClass* elemClass = nullptr;
+    int32_t elemSize = 0;
+    bool isRef = false;
+    if (!ResolveElementType(elemTypeName, &elemClass, &elemSize, &isRef))
+    {
+        il2cpp_throw_new(kArrayNotSupportedChain,
+            "Array.CreateInstance: the element type is not part of this AOT "
+            "build (no class descriptor), so its element size is unknown.");
+    }
+    const int32_t dims[2] = { d0, d1 };
+    return il2cpp_array_new_multi(elemClass, elemSize, isRef, 2, dims);
+}
+
+Il2CppArray* il2cpp_array_create_instance_3d(Il2CppObject* elemTypeName, int32_t d0, int32_t d1, int32_t d2)
+{
+    Il2CppClass* elemClass = nullptr;
+    int32_t elemSize = 0;
+    bool isRef = false;
+    if (!ResolveElementType(elemTypeName, &elemClass, &elemSize, &isRef))
+    {
+        il2cpp_throw_new(kArrayNotSupportedChain,
+            "Array.CreateInstance: the element type is not part of this AOT "
+            "build (no class descriptor), so its element size is unknown.");
+    }
+    const int32_t dims[3] = { d0, d1, d2 };
+    return il2cpp_array_new_multi(elemClass, elemSize, isRef, 3, dims);
+}
+
+Il2CppArray* il2cpp_array_create_instance_dims(Il2CppObject* elemTypeName, Il2CppArray* lengths)
+{
+    Il2CppClass* elemClass = nullptr;
+    int32_t elemSize = 0;
+    bool isRef = false;
+    if (!ResolveElementType(elemTypeName, &elemClass, &elemSize, &isRef))
+    {
+        il2cpp_throw_new(kArrayNotSupportedChain,
+            "Array.CreateInstance: the element type is not part of this AOT "
+            "build (no class descriptor), so its element size is unknown.");
+    }
+    if (lengths == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("lengths");
+    }
+    const int32_t rank = lengths->length;
+    if (rank < 1 || rank > IL2CPP_MAX_ARRAY_RANK)
+    {
+        il2cpp_throw_new(kArrayNotSupportedChain,
+            "Array.CreateInstance: the requested rank is outside the supported "
+            "range (1..IL2CPP_MAX_ARRAY_RANK).");
+    }
+    int32_t dims[IL2CPP_MAX_ARRAY_RANK];
+    for (int32_t d = 0; d < rank; ++d)
+    {
+        dims[d] = *reinterpret_cast<int32_t*>(il2cpp_array_get_elem_ptr(lengths, d));
+    }
+    return il2cpp_array_new_multi(elemClass, elemSize, isRef, rank, dims);
 }
 
 namespace {

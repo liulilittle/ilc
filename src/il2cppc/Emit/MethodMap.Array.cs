@@ -142,6 +142,40 @@ public static partial class MethodRefResolver
     {
         switch (name)
         {
+            case "CreateInstance":
+                // net48 Array.CreateInstance overloads (array.cs:):
+                //   (Type, int) / (Type, int, int) / (Type, int, int, int)
+                //   (Type, int[]) / (Type, int[], int[]) / (Type, long[])
+                // The element type arrives as the simplified Type model (a
+                // full-name managed string), so the runtime resolves it to a
+                // class descriptor and takes the element size from there.
+                // ps[0] == 0x12 (CLASS) is the Type parameter.
+                if (count >= 1 && ps is { Length: >= 1 } && ps[0] == 0x12)
+                {
+                    if (count == 2 && ps[1] == 0x08)
+                        return I("il2cpp::il2cpp_array_create_instance", 2, true, true, false,
+                            new[] { "", "i" }, returnTypeName: "System.Array");
+                    if (count == 3 && ps[1] == 0x08 && ps[2] == 0x08)
+                        return I("il2cpp::il2cpp_array_create_instance_2d", 3, true, true, false,
+                            new[] { "", "i", "i" }, returnTypeName: "System.Array");
+                    if (count == 4 && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] == 0x08)
+                        return I("il2cpp::il2cpp_array_create_instance_3d", 4, true, true, false,
+                            new[] { "", "i", "i", "i" }, returnTypeName: "System.Array");
+                    if (count == 2 && ps[1] == 0x1D)
+                        return I("il2cpp::il2cpp_array_create_instance_dims", 2, true, true, false,
+                            new[] { "", "a" }, returnTypeName: "System.Array");
+                    if (count == 3 && ps[1] == 0x1D && ps[2] == 0x1D)
+                        return I("il2cpp::il2cpp_array_create_instance_dims", 2, true, true, false,
+                            new[] { "", "a" }, returnTypeName: "System.Array");
+                    throw new NotSupportedException(
+                        $"LOUD whitelist (net48 has no such overload): Array.CreateInstance arity {count} / " +
+                        $"param bytes 0x{(ps is { Length: >= 2 } gp2 ? gp2[1] : 0):X2} -- net48 has (Type,int), " +
+                        "(Type,int,int), (Type,int,int,int), (Type,int[]), (Type,int[],int[]) and " +
+                        "(Type,long[]) only [Reference Source mscorlib/system/array.cs]");
+                }
+                throw new NotSupportedException(
+                    "LOUD whitelist: Array.CreateInstance without a Type first parameter " +
+                    "(net48 has no such overload)");
             case "Sort":
                 if (genArgs != null)
                 {
