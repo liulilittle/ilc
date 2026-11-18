@@ -7128,6 +7128,13 @@ public static class CodeGenerator
                 var invokeArgs = string.Join(", ", v.Args.Skip(1).Select(a => EmitExpr(a, md, types)));
                 return $"((reinterpret_cast<void(*)(Il2CppObject*)>({d}->methodPtr))({d}->target))";
             }
+            // Same phantom guard as the other emitter arms. This branch is the
+            // callvirt path for an owner that is NOT translated, so a phantom
+            // here would emit a call to a symbol nothing defines. No case in the
+            // suite reaches it today (the BCL virtual members that appear in
+            // callvirt position all have mapping arms), but the branch is
+            // reachable in principle and the guard costs nothing.
+            MethodRefResolver.RequireResolvable(mappedVc);
             if (mappedVc != null)
             {
                 var callArgsVc = EmitIcallCallArgs(mappedVc, v.Args, md, types) ?? "";
