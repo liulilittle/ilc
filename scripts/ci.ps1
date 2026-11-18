@@ -130,6 +130,16 @@ Write-Host "=== 3.9 sweep-exclude strictness ==="
 powershell -NoProfile -ExecutionPolicy Bypass -File "$Root/scripts/probe-sweep-exclude-strict.ps1"
 if ($LASTEXITCODE -ne 0) { throw "sweep-exclude strictness probe failed (exit $LASTEXITCODE)" }
 
+# 3.95: an exclusion that outlives its reason is invisible -- difftest early-returns
+# SKIP, so a case that turned green (or a name that no longer resolves) keeps being
+# excused forever, and on the next regression it would hide a RED result just as
+# quietly. This audit classifies every entry and FAILS on the two categories that are
+# wrong regardless of the sweep: a name with no case directory, and a note claiming a
+# LOUD contract that loud-contracts.txt does not list. It is static (no compilation).
+Write-Host "=== 3.95 sweep-exclude audit ==="
+powershell -NoProfile -ExecutionPolicy Bypass -File "$Root/scripts/audit-sweep-exclude.ps1"
+if ($LASTEXITCODE -ne 0) { throw "sweep-exclude audit failed (exit $LASTEXITCODE): an entry is wrong regardless of the sweep" }
+
 Write-Host "=== 4. e2e mingw ==="
 pwsh -NoProfile -File "$Root/scripts/run-tests.ps1" -Compiler mingw
 if ($LASTEXITCODE -ne 0) { throw "e2e mingw failed" }
