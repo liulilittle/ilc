@@ -104,6 +104,10 @@ public static class StackFold
         var stmts = new List<Stmt>();
         var stack = new Stack<Expr>();
         var temps = new List<string>();
+        // Delegate types proved at their newobj (by ctor signature). The BCL
+        // delegate types are not in the model, so this is the only way an
+        // Invoke on one can be recognised before the resolver runs.
+        var delegateTypeNames = new HashSet<string>(StringComparer.Ordinal);
         // Leave sites that need EXPLICIT finally expansion (see the
         // ILOpCode.Leave arm): the statement index the expansion is inserted
         // at, the leave's own IL offset, the branch target offset, and the
@@ -4491,6 +4495,16 @@ public static class StackFold
                         // foreach-finally Dispose on the ldloca'd enumerator
                         // needs the same re-resolve to the deref:r arm.
                         || recvType == "System.Collections.SortedList.Enumerator"))
+                    // A delegate's Invoke has no mapping arm by design: it
+                    // dispatches through the delegate object's methodPtr,
+                    // which the delegate arm below folds to
+                    // DelegateInvokeExpr. The resolver would throw a phantom
+                    // gap for it, so the delegate shape is settled FIRST.
+                    // The type set is populated at newobj from the ctor
+                    // signature -- the only way to know a BCL type is a
+                    // delegate, since those types are not in the model.
+                    if (!(recvType != null && delegateTypeNames.Contains(recvType)
+                          && IsDelegateInvokeName(md, (int)ins.Operand)))
                     resolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
                         recvType, args[0] is LocAddrExpr or StaticFieldAddrExpr
                             || (args[0] is LocExpr ptrRecv2 && LocWidth(ptrRecv2.Name, ctx, tempWidths) == "ptr"),
@@ -4501,7 +4515,14 @@ public static class StackFold
                 // link: reject it loud here instead of a late cmake failure. The
                 // hint-less first pass (resolved from the 2230 call) is a legal
                 // deferral -- this check runs after every remap had its chance.
-                resolved = MethodRefResolver.RequireResolvable(md, (int)ins.Operand, resolved);
+                // A delegate's Invoke has no mapping arm by design -- it
+                // dispatches through the delegate object's methodPtr, which
+                // the delegate arm below folds to DelegateInvokeExpr. The
+                // phantom guard must not pre-empt that, so the delegate
+                // shape is checked BEFORE the guard runs.
+                var isDelegateInvokeToken = IsDelegateInvoke(md, (int)ins.Operand, types, recvType, delegateTypeNames);
+                resolved = MethodRefResolver.RequireResolvable(md, (int)ins.Operand, resolved,
+                    allowFictionalBclFallback: isDelegateInvokeToken);
 
                 // G2 (D3, constrained VALUE clone): a constrained callvirt on a
                 // VALUE-typed generic parameter (`PairCon<T1,T2>.Cmp(T1 a)` with
@@ -4845,7 +4866,7 @@ public static class StackFold
 
                 // M3 Task 8: delegate Invoke -- the receiver is a delegate
                 // object; the call dispatches through its methodPtr.
-                if (IsDelegateInvoke(resolved, md, (int)ins.Operand, types))
+                if (isDelegateInvokeToken)
                 {
                     var invoke = new DelegateInvokeExpr
                     {
@@ -7402,8 +7423,9 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
             // FuncPtrExpr is the native-int argument, the OTHER arg is the
             // bound instance (#42): ldnull (static binding -> nullptr) or the
             // bound object (instance binding -> the instance ABI's `this`).
-            if (IsDelegateType(typeFullName, types)
-                || (md != null && IsDelegateCtorSignature(md, (int)ins.Operand)))
+            var isDelegateCtor = md != null && IsDelegateCtorSignature(md, (int)ins.Operand);
+            if (isDelegateCtor) delegateTypeNames.Add(typeFullName);
+            if (IsDelegateType(typeFullName, types) || isDelegateCtor)
             {
                 var fptr = args.OfType<FuncPtrExpr>().FirstOrDefault();
                 if (fptr != null)
@@ -7639,9 +7661,29 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
         // reaches System.MulticastDelegate / System.Delegate (Roslyn emits a
         // custom delegate's Invoke as a MemberRef whose parent is the delegate
         // TypeDefinition).
-        static bool IsDelegateInvoke(ResolvedMethod? resolved, MetadataReader? md, int token, IReadOnlyList<TypeDef>? types)
+        // Whether the call token names the member "Invoke". Split out so the
+        // pre-resolve short-circuit and IsDelegateInvoke agree on the test.
+        static bool IsDelegateInvokeName(MetadataReader? md, int token)
         {
-            if (md == null || resolved == null) return false;
+            if (md == null) return false;
+            var h = MetadataTokens.Handle(token);
+            return h.Kind switch
+            {
+                HandleKind.MemberReference => md.GetString(md.GetMemberReference((MemberReferenceHandle)h).Name) == "Invoke",
+                HandleKind.MethodDefinition => md.GetString(md.GetMethodDefinition((MethodDefinitionHandle)h).Name) == "Invoke",
+                _ => false,
+            };
+        }
+
+                static bool IsDelegateInvoke(MetadataReader? md, int token,
+            IReadOnlyList<TypeDef>? types, string? recvType, HashSet<string> delegateTypeNames)
+        {
+            // `resolved` may be NULL here: a BCL delegate's Invoke has no
+            // mapping arm, so MethodRefResolver returns a phantom (or the
+            // guard already threw). Recognition must not depend on it --
+            // the fold still needs to know this token is a delegate Invoke
+            // so it can route to DelegateInvokeExpr.
+            if (md == null) return false;
             var handle = MetadataTokens.Handle(token);
             string? owner = null;
             string? name = null;
@@ -7667,12 +7709,24 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 };
                 name = md.GetString(mr.Name);
             }
-            return name == "Invoke" && (IsDelegateType(owner, types)
-                // excext (fold-skip family): the NON-generic System.Action --
-                // IsDelegateType matches the `N generic forms only; the
-                // parameterless BCL delegate still invokes through the same
-                // DelegateInvokeExpr multicast ABIs.
-                || owner == "System.Action");
+            // A delegate's Invoke dispatches through the delegate object's
+            // methodPtr, so it must fold to DelegateInvokeExpr. Recognising
+            // the owner from a name list cannot work for the BCL -- those
+            // names are not in the model. The RECEIVER TYPE is known here
+            // (the fold tracks it for every temp), and a delegate receiver
+            // is exactly what makes this an Invoke: the delegate object's
+            // type is the owner. User-declared delegates are covered by the
+            // TypeDef base-chain test.
+            if (name != "Invoke") return false;
+            // recvType is the tracked receiver -- the delegate INSTANCE's
+            // type when the fold saw its newobj, otherwise the declared type
+            // (a parameter). The latter is how an Invoke in a DIFFERENT
+            // method is recognised: the newobj happened elsewhere, so the
+            // per-fold set cannot see it. IsDelegateType covers both the
+            // gated BCL list and user-declared TypeDefs.
+            if (recvType != null && delegateTypeNames.Contains(recvType)) return true;
+            if (recvType != null && IsDelegateType(recvType, types)) return true;
+            return owner != null && IsDelegateType(owner, types);
         }
 
         // delechain: whether the call token is Equals(object) on a delegate
@@ -9860,13 +9914,13 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
         static bool IsDelegateType(string? fullName, IReadOnlyList<TypeDef>? types)
         {
             if (fullName == null) return false;
-            // The BCL delegate families live in ONE place
-            // (MethodRefResolver.IsBclDelegateType). This used to be a second
-            // copy, and the two drifted: the bare System.Action and ten other
-            // families were added to one and not the other, so
-            // `new AsyncCallback(...)` emitted an undefined __ctor_<hash>.
-            if (MethodRefResolver.IsBclDelegateType(fullName))
-                return true;
+            // The BCL delegate families are not in the model (the transpiler
+            // loads only the user assembly), so they are answered by name.
+            // The newobj arm prefers the ctor SIGNATURE (which needs no list);
+            // this name path is what the Invoke arm and the parameter-typed
+            // receivers use, where no ctor token exists. The list is complete
+            // and gated -- see MethodRefResolver.IsBclDelegateType.
+            if (MethodRefResolver.IsBclDelegateType(fullName)) return true;
             if (types == null) return false;
             // Nested-name match: nested TypeDefs carry Namespace="" (FullName is
             // the short name), but metadata queries use the '+' full name

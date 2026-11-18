@@ -1557,9 +1557,10 @@ public static partial class MethodRefResolver
     // would emit a function that can never link: reject it here with a
     // self-identifying message instead of a late cmake "use of undeclared
     // identifier" failure.
-    public static ResolvedMethod? RequireResolvable(MetadataReader? md, int token, ResolvedMethod? resolved)
+    public static ResolvedMethod? RequireResolvable(MetadataReader? md, int token, ResolvedMethod? resolved,
+        bool allowFictionalBclFallback = false)
     {
-        if (md != null && resolved is { IsFictionalBclFallback: true })
+        if (!allowFictionalBclFallback && md != null && resolved is { IsFictionalBclFallback: true })
             throw new NotSupportedException(M5PhantomMessage(md, token));
         return resolved;
     }
@@ -1666,30 +1667,117 @@ public static partial class MethodRefResolver
     // A delegate type is not a callable member -- it has no MethodMap arm -- so
     // a .ctor on one must ride StackFold's EmitNewObj delegate path
     // (il2cpp_delegate_new), never the reference-alloc path.
+
+    // The BCL delegate types, for the arms that have NO ctor token and
+    // therefore cannot use IsDelegateCtorSignature: a delegate's Invoke.
+    // A hardcoded list is only sound here because it is complete and
+    // checked -- tools/audit/bcl_delegate_gate.py re-derives this set from
+    // mscorlib+System.dll metadata and fails on any hole or dead entry, and
+    // runs in CI (step 3.73). The newobj arm does NOT use this list: it
+    // decides from the ctor signature, which covers every delegate the
+    // user assembly can name.
     public static bool IsBclDelegateType(string? fullName)
     {
         if (fullName == null) return false;
-        return fullName == "System.Action"
-            || fullName.StartsWith("System.Func`", StringComparison.Ordinal)
-            || fullName.StartsWith("System.Action`", StringComparison.Ordinal)
-            || fullName.StartsWith("System.Predicate`", StringComparison.Ordinal)
-            || fullName.StartsWith("System.Converter`", StringComparison.Ordinal)
+        return fullName.StartsWith("System.Action`", StringComparison.Ordinal)
             || fullName.StartsWith("System.Comparison`", StringComparison.Ordinal)
-            || fullName is "System.Threading.ThreadStart" or "System.Threading.WaitCallback"
-                or "System.Threading.TimerCallback" or "System.Timers.ElapsedEventHandler"
-                or "System.EventHandler" or "System.EventHandler`1"
-                or "System.AsyncCallback"
-                or "System.Threading.ParameterizedThreadStart"
-                or "System.Threading.ContextCallback"
-                or "System.Threading.IOCompletionCallback"
-                or "System.Threading.SendOrPostCallback"
-                or "System.Threading.WaitOrTimerCallback"
-                or "System.Threading.ThreadExceptionEventHandler"
-                or "System.ResolveEventHandler"
-                or "System.AssemblyLoadEventHandler"
-                or "System.UnhandledExceptionEventHandler"
-                or "System.Runtime.CompilerServices.RuntimeHelpers+TryCode"
-                or "System.Runtime.CompilerServices.RuntimeHelpers+CleanupCode";
+            || fullName.StartsWith("System.Converter`", StringComparison.Ordinal)
+            || fullName.StartsWith("System.EventHandler`", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Func`", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Predicate`", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Runtime.CompilerServices.ConditionalWeakTable`", StringComparison.Ordinal)
+            || fullName == "Microsoft.Win32.NativeMethods+ConHndlr"
+            || fullName == "Microsoft.Win32.NativeMethods+WndProc"
+            || fullName == "Microsoft.Win32.PowerModeChangedEventHandler"
+            || fullName == "Microsoft.Win32.SessionEndedEventHandler"
+            || fullName == "Microsoft.Win32.SessionEndingEventHandler"
+            || fullName == "Microsoft.Win32.SessionSwitchEventHandler"
+            || fullName == "Microsoft.Win32.TimerElapsedEventHandler"
+            || fullName == "Microsoft.Win32.UserPreferenceChangedEventHandler"
+            || fullName == "Microsoft.Win32.UserPreferenceChangingEventHandler"
+            || fullName == "System.Action"
+            || fullName == "System.AppDomainInitializer"
+            || fullName == "System.AssemblyLoadEventHandler"
+            || fullName == "System.AsyncCallback"
+            || fullName == "System.Collections.Specialized.NotifyCollectionChangedEventHandler"
+            || fullName == "System.ComponentModel.AddingNewEventHandler"
+            || fullName == "System.ComponentModel.AsyncCompletedEventHandler"
+            || fullName == "System.ComponentModel.CancelEventHandler"
+            || fullName == "System.ComponentModel.CollectionChangeEventHandler"
+            || fullName == "System.ComponentModel.Design.ActiveDesignerEventHandler"
+            || fullName == "System.ComponentModel.Design.ComponentChangedEventHandler"
+            || fullName == "System.ComponentModel.Design.ComponentChangingEventHandler"
+            || fullName == "System.ComponentModel.Design.ComponentEventHandler"
+            || fullName == "System.ComponentModel.Design.ComponentRenameEventHandler"
+            || fullName == "System.ComponentModel.Design.DesignerEventHandler"
+            || fullName == "System.ComponentModel.Design.DesignerTransactionCloseEventHandler"
+            || fullName == "System.ComponentModel.Design.Serialization.ResolveNameEventHandler"
+            || fullName == "System.ComponentModel.Design.ServiceCreatorCallback"
+            || fullName == "System.ComponentModel.DoWorkEventHandler"
+            || fullName == "System.ComponentModel.HandledEventHandler"
+            || fullName == "System.ComponentModel.ListChangedEventHandler"
+            || fullName == "System.ComponentModel.ProgressChangedEventHandler"
+            || fullName == "System.ComponentModel.PropertyChangedEventHandler"
+            || fullName == "System.ComponentModel.PropertyChangingEventHandler"
+            || fullName == "System.ComponentModel.RefreshEventHandler"
+            || fullName == "System.ComponentModel.RunWorkerCompletedEventHandler"
+            || fullName == "System.Configuration.SettingChangingEventHandler"
+            || fullName == "System.Configuration.SettingsLoadedEventHandler"
+            || fullName == "System.Configuration.SettingsSavingEventHandler"
+            || fullName == "System.ConsoleCancelEventHandler"
+            || fullName == "System.CrossAppDomainDelegate"
+            || fullName == "System.Diagnostics.DataReceivedEventHandler"
+            || fullName == "System.Diagnostics.EntryWrittenEventHandler"
+            || fullName == "System.EventHandler"
+            || fullName == "System.IO.ErrorEventHandler"
+            || fullName == "System.IO.FileSystemEventHandler"
+            || fullName == "System.IO.Ports.SerialDataReceivedEventHandler"
+            || fullName == "System.IO.Ports.SerialErrorReceivedEventHandler"
+            || fullName == "System.IO.Ports.SerialPinChangedEventHandler"
+            || fullName == "System.IO.RenamedEventHandler"
+            || fullName == "System.Net.AuthenticationSchemeSelector"
+            || fullName == "System.Net.BindIPEndPoint"
+            || fullName == "System.Net.DownloadDataCompletedEventHandler"
+            || fullName == "System.Net.DownloadProgressChangedEventHandler"
+            || fullName == "System.Net.DownloadStringCompletedEventHandler"
+            || fullName == "System.Net.HttpContinueDelegate"
+            || fullName == "System.Net.HttpListener+ExtendedProtectionSelector"
+            || fullName == "System.Net.Mail.SendCompletedEventHandler"
+            || fullName == "System.Net.NetworkInformation.NetworkAddressChangedEventHandler"
+            || fullName == "System.Net.NetworkInformation.NetworkAvailabilityChangedEventHandler"
+            || fullName == "System.Net.NetworkInformation.PingCompletedEventHandler"
+            || fullName == "System.Net.OpenReadCompletedEventHandler"
+            || fullName == "System.Net.OpenWriteCompletedEventHandler"
+            || fullName == "System.Net.Security.LocalCertificateSelectionCallback"
+            || fullName == "System.Net.Security.RemoteCertificateValidationCallback"
+            || fullName == "System.Net.UploadDataCompletedEventHandler"
+            || fullName == "System.Net.UploadFileCompletedEventHandler"
+            || fullName == "System.Net.UploadProgressChangedEventHandler"
+            || fullName == "System.Net.UploadStringCompletedEventHandler"
+            || fullName == "System.Net.UploadValuesCompletedEventHandler"
+            || fullName == "System.Net.WriteStreamClosedEventHandler"
+            || fullName == "System.Reflection.MemberFilter"
+            || fullName == "System.Reflection.ModuleResolveEventHandler"
+            || fullName == "System.Reflection.TypeFilter"
+            || fullName == "System.ResolveEventHandler"
+            || fullName == "System.Runtime.CompilerServices.RuntimeHelpers+CleanupCode"
+            || fullName == "System.Runtime.CompilerServices.RuntimeHelpers+TryCode"
+            || fullName == "System.Runtime.InteropServices.ObjectCreationDelegate"
+            || fullName == "System.Runtime.Remoting.Contexts.CrossContextDelegate"
+            || fullName == "System.Runtime.Remoting.Messaging.HeaderHandler"
+            || fullName == "System.Runtime.Remoting.Messaging.MessageSurrogateFilter"
+            || fullName == "System.Text.RegularExpressions.MatchEvaluator"
+            || fullName == "System.Threading.ContextCallback"
+            || fullName == "System.Threading.IOCompletionCallback"
+            || fullName == "System.Threading.ParameterizedThreadStart"
+            || fullName == "System.Threading.SendOrPostCallback"
+            || fullName == "System.Threading.ThreadExceptionEventHandler"
+            || fullName == "System.Threading.ThreadStart"
+            || fullName == "System.Threading.TimerCallback"
+            || fullName == "System.Threading.WaitCallback"
+            || fullName == "System.Threading.WaitOrTimerCallback"
+            || fullName == "System.Timers.ElapsedEventHandler"
+            || fullName == "System.UnhandledExceptionEventHandler";
     }
 
     private static bool IsExternalBclOwner(MetadataReader md, string owner)
@@ -1698,8 +1786,6 @@ public static partial class MethodRefResolver
             && !owner.StartsWith("Microsoft.", StringComparison.Ordinal))
             return false;
         if (owner is "System.Object" or "System.ValueType")
-            return false;
-        if (IsBclDelegateType(owner))
             return false;
 
         foreach (var tdh in md.TypeDefinitions)
