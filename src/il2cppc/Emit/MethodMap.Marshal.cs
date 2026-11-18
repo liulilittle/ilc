@@ -95,6 +95,21 @@ public static partial class MethodRefResolver
             case "GetLastWin32Error":
                 if (ps.Length != 0) return null;
                 return I("il2cpp::il2cpp_pinvoke_get_last_error", 0, true, false, false);
+            // int GetLastPInvokeError(): net8's GetLastWin32Error forwards to
+            // this member (reference/netcore Marshal.cs), so both read the same
+            // captured slot. They are separate IL members, and the shipped
+            // 8.0.31 declares this one as its own InternalCall -- unwired, it
+            // emitted an undefined symbol at every call site.
+            case "GetLastPInvokeError":
+                if (ps.Length != 0) return null;
+                return I("il2cpp::il2cpp_pinvoke_get_last_error", 0, true, false, false);
+            // void SetLastPInvokeError(int): writes the CAPTURED slot, not the
+            // OS error -- see il2cpp_pinvoke_set_last_error. SetLastWin32Error
+            // below is the OS-error writer and stays separate.
+            case "SetLastPInvokeError":
+                if (ps.Length != 1 || ps[0] != 0x08) return null;
+                return I("il2cpp::il2cpp_pinvoke_set_last_error", 1, false, false, false,
+                    new[] { "i" });
             // void SetLastWin32Error(int): the helper lives in
             // il2cpp_marshal_ext2.h (in the generated include chain).
             case "SetLastWin32Error":

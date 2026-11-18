@@ -419,4 +419,16 @@ int32_t il2cpp_pinvoke_get_last_error()
     return g_lastError;
 }
 
+//------------------------------------------------------------------------------
+// il2cpp_pinvoke_set_last_error -- write the CAPTURED slot (Marshal.
+// SetLastPInvokeError). net8 keeps one value per thread that both
+// GetLastPInvokeError and GetLastWin32Error read, so setting it must be
+// observable through the getter above; writing the OS error instead would not
+// be.
+//------------------------------------------------------------------------------
+void il2cpp_pinvoke_set_last_error(int32_t error)
+{
+    g_lastError = error;
+}
+
 } // namespace il2cpp

@@ -105,5 +105,11 @@ Il2CppObject* il2cpp_pinvoke_string_from_utf8(const char* utf8);
 //------------------------------------------------------------------------------
 void il2cpp_pinvoke_capture_last_error();
 int32_t il2cpp_pinvoke_get_last_error();
+// Marshal.SetLastPInvokeError(int): write the CAPTURED slot directly. This is
+// deliberately NOT il2cpp_marshal_set_last_win32_error, which writes the OS
+// error (SetLastError/errno); the two differ and net8's GetLastPInvokeError
+// reads the captured value, so a setter that wrote the OS error would not be
+// observable through the getter.
+void il2cpp_pinvoke_set_last_error(int32_t error);
 
 } // namespace il2cpp

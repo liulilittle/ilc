@@ -114,3 +114,13 @@ probe-excmsgcap  # GREEN anchor: message capture must not have a capacity limit
 # caught exceptions each answering their own name both inline and through a
 # method boundary.
 probe-excparamname  # GREEN anchor: ParamName must be per-exception, carrier included
+
+# ProbePInvokeError: Marshal.GetLastPInvokeError / SetLastPInvokeError. These were
+# the ONLY two user-callable unwired icalls in the shipped CoreLib 8.0.31
+# (docs/audit/corelib-p0-shipped-recut.md), and an unwired one emitted an
+# undefined symbol at every call site. The setter writes the per-thread CAPTURED
+# slot rather than the OS error (SetLastWin32Error writes that), because net8's
+# getter reads the captured value -- writing the OS error would set a value the
+# getter never sees. Lines cover set/read round-trip, replacement, zero as a
+# legal value, the negative range, and GetLastWin32Error reading the same slot.
+probe-pinvoke-error  # GREEN anchor: PInvoke error code round-trips through both members

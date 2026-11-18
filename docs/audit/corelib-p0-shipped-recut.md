@@ -104,3 +104,21 @@ python tools/audit/recut_shipped_icalls.py \
 | B | 取消 QCall 的未测量保护 | `QCall unwired 0 → 192`（重新引入虚假缺口） |
 
 两者恢复后回到 §3 数值，无残留。
+
+## 6. 后续：两条 USER-CALLABLE 已接线（轮 34）
+
+§4 结论已过时。两条缺口现已接线，重跑探针后 `USER-CALLABLE (live)` **2 → 0**：
+
+| 成员 | 接线到 | 语义 |
+|---|---|---|
+| `Marshal.GetLastPInvokeError` | `il2cpp::il2cpp_pinvoke_get_last_error` | 读每线程捕获槽（与 `GetLastWin32Error` 同一槽） |
+| `Marshal.SetLastPInvokeError` | `il2cpp::il2cpp_pinvoke_set_last_error`（新增） | 写捕获槽，**非** OS 错误码 |
+
+`SetLastPInvokeError` 不能复用 `il2cpp_marshal_set_last_win32_error`：后者写的是
+OS 错误（`SetLastError`/`errno`，`marshalext2.cpp:135`），而 net8 的 getter 读的是
+**捕获**的值——写 OS 错误会写入 getter 永远看不到的位置，因此两者必须分开。
+语义依据：net8 `Marshal.cs` 中 `GetLastWin32Error()` 直接 `return GetLastPInvokeError();`。
+
+验证：`tests/cases/probe-pinvoke-error/`（net8.0，5 断言）与 net8 oracle 逐行一致；
+变异测试删除 `SetLastPInvokeError` 臂 → 构建失败（未声明符号，RED），
+恢复后 GREEN。残余 67 INNER-ONLY + 105 INTERNAL-TYPE 仍不是用户可命名 API。
