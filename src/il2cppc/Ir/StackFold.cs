@@ -9902,7 +9902,29 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 // System_Runtime_CompilerServices_RuntimeHelpers_TryCode_class
                 // / __ctor_<hash> symbols.
                 || fullName == "System.Runtime.CompilerServices.RuntimeHelpers+TryCode"
-                || fullName == "System.Runtime.CompilerServices.RuntimeHelpers+CleanupCode")
+                || fullName == "System.Runtime.CompilerServices.RuntimeHelpers+CleanupCode"
+                // The NON-generic System.Action: the `System.Action`1` prefix
+                // above does not cover the bare name, so `new Action(...)` fell
+                // to the reference-alloc path and emitted an undefined
+                // System_Action__ctor_<hash>.
+                || fullName == "System.Action"
+                // The remaining BCL delegate families a user program can
+                // construct. Each has no MethodMap arm (they are delegate
+                // types, not callable members), so without this they take the
+                // reference-alloc path and emit an undefined __ctor_<hash>.
+                // ParameterizedThreadStart is the worst case: it is a
+                // `publicapi` row, not an `icall`, so the phantom guard never
+                // sees it and the transpile EXITS 0 with the bad symbol.
+                || fullName == "System.AsyncCallback"
+                || fullName == "System.Threading.ParameterizedThreadStart"
+                || fullName == "System.Threading.ContextCallback"
+                || fullName == "System.Threading.IOCompletionCallback"
+                || fullName == "System.Threading.SendOrPostCallback"
+                || fullName == "System.Threading.WaitOrTimerCallback"
+                || fullName == "System.Threading.ThreadExceptionEventHandler"
+                || fullName == "System.ResolveEventHandler"
+                || fullName == "System.AssemblyLoadEventHandler"
+                || fullName == "System.UnhandledExceptionEventHandler")
                 return true;
             if (types == null) return false;
             // Nested-name match: nested TypeDefs carry Namespace="" (FullName is
