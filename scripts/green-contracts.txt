@@ -169,3 +169,12 @@ delegate-bcl-invoke  # GREEN anchor: BCL delegate construction + Invoke across m
 # first. The string/long/double arms emit a per-signature
 # il2cpp_delegate_multicast_<hash>; int/void use the shared icall helpers.
 delegate-abi-signatures  # GREEN anchor: delegate invocation ABI across signature families
+
+# DelegateByrefParams: ref/out delegate parameters. These were REJECTED outright
+# (delegate Invoke with a byref (0x10) parameter/return is not supported), so
+# every delegate void F(ref int) failed to transpile -- single-cast included,
+# not just multicast. The fold already lowers ldloca to LocAddrExpr, which emits
+# (&name), so the leaf ABI is <elem>* and the generated per-signature
+# multicast helper carries it as a plain C++ parameter. Covers ref, out, and two
+# ref params (the swap shape).
+delegate-byref-params  # GREEN anchor: ref/out delegate parameters must transpile and round-trip

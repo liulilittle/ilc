@@ -9323,8 +9323,18 @@ default: return false;                           // primitives/VAR(handled by ca
                     for (var i = 0; i < nf; i++) _ = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _);
                     throw new NotSupportedException("delegate Invoke with a function-pointer (0x1B) parameter/return is not supported: the multicast helper cannot express it");
                 case 0x10:                                     // BYREF (ref/out param)
-                    _ = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _);
-                    throw new NotSupportedException("delegate Invoke with a byref (0x10) parameter/return is not supported: the multicast helper cannot express the address ABI");
+                {
+                    // A ref/out parameter is the ADDRESS of the slot. The fold
+                    // already lowers `ldloca` to LocAddrExpr, which emits
+                    // `(&name)` -- so the leaf ABI is `<elem>*` and the
+                    // generated per-signature multicast helper carries it
+                    // unchanged (it is a plain C++ parameter). Rejecting this
+                    // made EVERY ref/out delegate unusable, single-cast
+                    // included: `delegate void F(ref int)` failed to
+                    // transpile at all.
+                    var elem = ConsumeDelegateSigFull(md, ref sig, genArgs, genArgNames, isReturn, out _);
+                    return elem + "*";
+                }
                 case 0x16:                                     // TYPEDREF
                     throw new NotSupportedException("delegate Invoke with a TypedReference (0x16) parameter/return is not supported");
                 default:
