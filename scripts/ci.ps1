@@ -77,8 +77,13 @@ if ($LASTEXITCODE -ne 0) { throw "LOUD contract gate failed (exit $LASTEXITCODE)
 # inline at 3.75 because it is only ~10s on this machine and the evidence gate
 # is worth blocking on.
 Write-Host "=== 3.7 declaration symmetry (runtime header vs definition) ==="
+# This now includes the ABI (namespace/mangled) dimension: a declaration only
+# counts when `N::name` reaches it from the namespace its DEFINITION compiled
+# into, so a symbol moved to the wrong namespace fails here instead of at link
+# time. --pair mode stays available for targeted diagnosis. --no-abi is the
+# explicit opt-out and prints that the dimension was not verified.
 & python "$Root/tools/audit/check_decl_symmetry.py" $Root
-if ($LASTEXITCODE -ne 0) { throw "declaration symmetry failed (exit $LASTEXITCODE): a runtime symbol is defined but not declared in its header" }
+if ($LASTEXITCODE -ne 0) { throw "declaration symmetry failed (exit $LASTEXITCODE): a runtime symbol is defined but not declared in its header, or its declaration does not resolve in the definition's namespace" }
 
 # 3.72: the F4-a 32-slot reference-field limit is a DOCUMENTED LIMITATION, and
 # this harness is what keeps the documentation honest. It asserts BOTH

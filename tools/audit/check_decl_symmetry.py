@@ -45,14 +45,36 @@ a header that genuinely lacked the two P0-D declarations. The script now prints
 an explicit warning when the emission surface is empty, but the caller must
 still point ROOT at the real repository.
 
-usage: check_decl_symmetry.py <repoRoot> [--pair header:source ...]
-exit:  0 = no REAL GAP, 1 = at least one REAL GAP, 2 = emission surface empty
-       (inconclusive -- ROOT is not a complete checkout)
+ABI DIMENSION (W11 P0-11-R3-D3)
+-------------------------------
+The set test above compares BARE IDENTIFIERS. It is blind to the namespace a
+declaration sits in, so a declaration that moved to the wrong namespace still
+satisfies `defined - declared == {}` while every emitted call fails to link
+(the call mangles to `...::ns::fn` and no TU defines that symbol). The check is
+therefore paired with a COMPILER-BASED ABI test: for every (header, symbol)
+pair where the tree also defines the symbol, a probe TU includes the header and
+`using`s the symbol from the namespace the DEFINITION was compiled into. g++
+then resolves the declaration; the address-of in the same TU forces the mangled
+name out, and it is compared VERBATIM with the `T` name from `nm` on the
+definition object. No regex ever guesses a namespace.
+The `ABI:` line always prints the coverage (checked/match/mismatch/skipped,
+plus overload pairs that can only be `using`-checked and the reason for every
+skip), so a hole in coverage is never silent. A missing toolchain is
+INCONCLUSIVE (exit 2), never a quiet pass; `--no-abi` is the explicit opt-out.
+
+usage: check_decl_symmetry.py <repoRoot> [--pair header:source ...] [--no-abi]
+exit:  0 = no REAL GAP and no ABI mismatch, 1 = at least one of either,
+       2 = emission surface empty or ABI probe inconclusive (ROOT is not a
+       complete checkout, or no C++ toolchain was found)
 """
+import concurrent.futures
 import io
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else r"F:\il2cpp"
 HDR = os.path.join(ROOT, "src", "runtime", "include", "internal")
@@ -539,6 +561,455 @@ def emitted_by_transpiler():
     return out
 
 
+# ---------------------------------------------------------------------------
+# ABI dimension (W11 P0-11-R3-D3): the SET test above is namespace-blind.
+#
+# MEASURED MOTIVATION: W11 P0-11-R3 added `il2cpp_string_is_ascii_bulk` to
+# `il2cpp_string.h` inside `namespace il2cpp::runtime`, while the definition
+# lives in `il2cpp::`. The set test reported REAL=0 LATENT=0 -- the name WAS in
+# a header -- yet a caller's object file referenced
+# `_ZN6il2cpp7runtime27il2cpp_string_is_ascii_bulkEPKNS_12Il2CppStringE` and the
+# link failed because the only `T` name was `_ZN6il2cpp27...`. Four such
+# declarations existed at once. A name-in-some-header test cannot see this.
+#
+# WHY NOT A REGEX: the namespace is not recoverable from the header text by
+# looking for `namespace X {` blocks (preprocessor conditionals, macros that
+# open/close namespaces, and sibling/global-scope declarations all break it),
+# and matching the mangled name with `\b` does not even work: `E` is a word
+# character, so `\b` never matches between the final `E` and end-of-string.
+# The verdict must come from the COMPILER.
+#
+# HOW IT WORKS (per header, batched -- see abi_check()):
+#   1. Compile every `src/runtime/src/*.cpp` once (-O0 -c) and collect the
+#      defined function names (`T`/`W`) plus their mangled spelling.
+#   2. DEMANGLE those names once (c++filt) to get the real qualified name of
+#      every definition, and index it by bare identifier. The qualified name is
+#      what a caller must name; it is the oracle, never a guess.
+#   3. For each header, emit ONE probe TU:
+#          #include "<header>"
+#          namespace __abiN { using <qualified>; }   // demand the TYPE of the
+#          extern "C" void __probe() {                 // definition here
+#            auto* p = &<qualified>; }                 // and its ADDRESS
+#      `using` alone rejects a moved declaration ("no member named ..."), the
+#      address-of forces the mangled name into the object's undefined list.
+#   4. The reportable verdict is per (header, symbol): the mangled name the
+#      DECLARATION produced (undefined symbol in the probe object, i.e. what
+#      the linker would ask for) must equal the mangled name the DEFINITION
+#      produced (`T` name from step 1). A mismatch is a real link failure.
+#
+# COVERAGE IS PRINTED, NEVER SILENT: every skip reason is counted and the
+# reason text for non-trivial ones is echoed, so `skipped=N` can be audited.
+#
+# FAILURE DIRECTIONS:
+#   * overloaded name (2+ definitions share the bare identifier): a `using`
+#     of the single definition pins the overload set to exactly that function,
+#     so the produced mangled name IS the definition's; compared directly.
+#   * the symbol is defined somewhere the compiler could not see (a macro
+#     defined name, an inline in a header no probe reaches): SKIPPED, counted.
+#   * toolchain missing: INCONCLUSIVE (exit 2), never a green.
+# ---------------------------------------------------------------------------
+
+ABI_CXX_STD = "c++17"
+# Mirrors src/runtime/CMakeLists.txt: the runtime is built -fno-rtti
+# -fexceptions. Rules that change the mangled name must match the real build.
+ABI_EXTRA_FLAGS = ["-fno-rtti", "-fexceptions", "-O0"]
+_ABI_SYMBOL = re.compile(r"^(?:icall|il2cpp)_\w+$")
+_ABI_ABI_TAG = re.compile(r"\[abi:[^\]]*\]")
+
+
+def _ABI_NAMES(nm_posix_output):
+    """First column of every `nm --format=posix` line (the mangled name)."""
+    return {line.split()[0] for line in nm_posix_output.splitlines() if line.strip()}
+
+
+def _abi_find_toolchain():
+    """Locate g++/nm/c++filt. Returns None when the toolchain is unusable."""
+    names = ("g++", "nm", "c++filt")
+    found = {}
+    for tool in names:
+        path = shutil.which(tool)
+        if not path:
+            return None
+        found[tool] = path
+    return found
+
+
+def _abi_run(cmd, cwd=None):
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                          errors="replace")
+
+
+def _abi_demangle_all(filt, names):
+    """Demangle a list of mangled names in ONE c++filt call (order kept)."""
+    if not names:
+        return []
+    proc = subprocess.run([filt], input="\n".join(names), capture_output=True,
+                          text=True, errors="replace")
+    out = proc.stdout.splitlines()
+    if len(out) != len(names):
+        return []
+    return out
+
+
+def _abi_split_qualified(demangled, mangled):
+    """(bare name, qualified name, parameter list) from a demangled signature.
+
+    Trailing `[abi:cxx11]` is removed first: it is a tag GCC appends to the
+    demangled form and must not leak into a source-level probe.
+
+    THREE SHAPES, all from the COMPILER (`c++filt` on the `T` symbol):
+      * C++ function      -> `ns::fn(int*, char const*)`, params `(int*, char const*)`
+      * `extern "C"`      -> the BARE name `fn` (C linkage mangles no parameter
+        types, so c++filt has nothing to expand); params are unknown -> None
+      * data / anonymous  -> rejected (a header cannot declare those here)
+
+    The parameter list is quoted VERBATIM from the definition, so an overload
+    set can be disambiguated with `static_cast<R (*)(PARAMS)>(&ns::fn)` and a
+    `decltype(ns::fn(__dv<PARAMS>()))` return-type probe. c++filt already emits
+    the declaration-order spelling GCC accepts as a function type.
+
+    Returns None for entries that must not be probed.
+    """
+    text = _ABI_ABI_TAG.sub("", demangled)
+    if "(" in text:
+        qualified = text.split("(", 1)[0].strip()
+        params = text[text.index("("):].strip()
+        # A trailing qualifier list (` const`, ` noexcept`) sits AFTER the
+        # parameter list; it is not part of the parameter type list.
+        params = params[:params.index(")") + 1]
+    else:
+        qualified = text.strip()  # extern "C": demangler returns the bare name
+        params = None
+    if not qualified or "(anonymous namespace)" in qualified:
+        return None
+    if "{" in qualified or "}" in qualified:
+        return None
+    bare = qualified.rsplit("::", 1)[-1]
+    if not _ABI_SYMBOL.match(bare):
+        return None
+    if "::" not in qualified and mangled != bare:
+        # A C++ symbol that demangles without a scope without being a C name
+        # (e.g. a local static) -- not something a header can declare.
+        return None
+    return bare, qualified, params
+
+
+def _abi_compile_source_tree(gxx, inc, inc_internal, tmp, jobs):
+    """Compile every runtime source once.
+
+    Returns (strong, weak, failed):
+      * strong = {mangled: source} for `T` entries -- an OUT-OF-LINE definition
+        with external linkage. This is the only oracle for "the library really
+        defines this symbol": `T` is what the static archive carries.
+      * weak = {mangled: source} for `W` entries -- a COMDAT/weak definition,
+        which for an `inline` function means the compiler materialised a local
+        copy inside this TU. Such a symbol may have no out-of-line definition at
+        all (it lives in the header), so it must NOT be treated as a
+        header-vs-source pair: comparing it would compare the header against
+        itself and always "match" (a tautology, not evidence).
+      * failed = sources that did not compile.
+    """
+    src_dir = os.path.join(ROOT, "src", "runtime", "src")
+    sources = sorted(fn for fn in os.listdir(src_dir) if fn.endswith(".cpp"))
+
+    def one(fn):
+        obj = os.path.join(tmp, "src_" + fn + ".o")
+        cmd = [gxx, "-std=" + ABI_CXX_STD] + ABI_EXTRA_FLAGS + [
+            "-c", "-I", inc, "-I", inc_internal, "-o", obj,
+            os.path.join(src_dir, fn)]
+        proc = _abi_run(cmd)
+        return fn, obj, proc.returncode
+
+    workers = max(1, min(jobs, len(sources)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(one, sources))
+    failed = [fn for fn, _o, rc in results if rc != 0]
+    strong = {}
+    weak = {}
+    for fn, obj, rc in results:
+        if rc != 0 or not os.path.exists(obj):
+            continue
+        nm = _abi_run([_TOOLS["nm"], "--defined-only", "--format=posix", obj])
+        for line in nm.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            if parts[1] == "T":
+                strong[parts[0]] = fn
+            elif parts[1] == "W":
+                weak[parts[0]] = fn
+    return strong, weak, failed
+
+
+def abi_check(headers, both, jobs=16):
+    """Compiler-based declaration/definition ABI agreement, per header.
+
+    Returns (stats, mismatches, unavailable_reason). `stats` holds the coverage
+    counters printed on the single `ABI:` line; `mismatches` is a list of
+    (header, symbol, why, definition_names, probe_evidence) tuples.
+
+    ORACLE: the compiler, not a regex. A declaration is only "in namespace N"
+    if `N::name` reaches it, so the probe emits one statement per symbol and
+    compiles it:
+
+        typedef decltype(&N::name) F; F f = &N::name;    // N = the namespace of
+                                                         // the compiled DEFINITION
+
+    * compiles  -> the object records the mangled name the DECLARATION
+                   produced; it is compared VERBATIM with the definition's `T`
+                   name from `nm`.
+    * rejects   -> the declaration is not in N (or its signature differs).
+                   That is the defect this dimension exists for, so it is a
+                   MISMATCH, not a skip.
+    * other err -> a probe limitation; SKIPPED with the compiler's own text.
+
+    Overloaded names (`N::name` with 2+ signatures) cannot be address-taken
+    without a target type, so they are checked for NAMESPACE MEMBERSHIP only
+    (`using N::name;` must compile) and counted separately as
+    `overload_pairs` -- an honest, printed coverage split.
+    """
+    stats = {"checked": 0, "match": 0, "mismatch": 0, "skipped": 0,
+             "definitions": 0, "pairs": 0, "ambiguous": 0, "probe_fail": 0,
+             "inline_only": 0, "notes": []}
+    mismatches = []
+    tools = _abi_find_toolchain()
+    if tools is None:
+        return stats, mismatches, "g++/nm/c++filt not found on PATH"
+    _TOOLS.update(tools)
+    inc = os.path.join(ROOT, "src", "runtime", "include")
+    inc_internal = os.path.join(inc, "internal")
+    probe_flags = [tools["g++"], "-std=" + ABI_CXX_STD] + ABI_EXTRA_FLAGS + [
+        "-I", inc, "-I", inc_internal, "-c"]
+    umbrella = "il2cpp_runtime.h"
+    has_umbrella = os.path.exists(os.path.join(inc_internal, umbrella))
+    tmp = tempfile.mkdtemp(prefix="decl_sym_abi_")
+    try:
+        strong, weak, failed = _abi_compile_source_tree(
+            tools["g++"], inc, inc_internal, tmp, jobs)
+        if failed:
+            stats["notes"].append("source compile failed for %d file(s): %s"
+                                  % (len(failed), ", ".join(failed[:5])))
+        stats["definitions"] = len(strong)
+
+        by_name = {}
+        mangled = list(strong)
+        demangled = _abi_demangle_all(tools["c++filt"], mangled)
+        if len(demangled) != len(mangled):
+            return stats, mismatches, "c++filt demangle count mismatch"
+        for mang, dem in zip(mangled, demangled):
+            split = _abi_split_qualified(dem, mang)
+            if split is None:
+                continue
+            bare, qualified, params = split
+            by_name.setdefault(bare, []).append((qualified, mang, params))
+
+        # OUT-OF-LINE ONLY. `both` is a NAMESPACE-BLIND identifier set, so it
+        # also holds names whose only definition is an `inline` body in a
+        # header (`il2cpp_time.h:72/79`). Those have no `T` entry anywhere, so
+        # they are absent from `by_name` and never probed -- correct by design:
+        # every including TU type-checks an inline body, and comparing it with
+        # itself would be a tautology. The count is printed, not hidden.
+        weak_dem = _abi_demangle_all(tools["c++filt"], list(weak))
+        weak_bare = set()
+        for dem in weak_dem:
+            split = _abi_split_qualified(dem, "")
+            if split is not None:
+                weak_bare.add(split[0])
+        stats["inline_only"] = len(both & weak_bare - set(by_name))
+
+        per_header = []
+        for header in headers:
+            path = os.path.join(inc, "internal", header)
+            if not os.path.exists(path):
+                path = os.path.join(inc, header)
+            if not os.path.exists(path):
+                continue
+            syms = sorted(declared(read(path)) & both)
+            trials = [s for s in syms if s in by_name]
+            if trials:
+                per_header.append((header, os.path.basename(path), trials))
+        stats["pairs"] = sum(len(t) for _h, _b, t in per_header)
+
+        def is_overload_set(sym):
+            """ONE namespace, 2+ signatures -> `decltype(&N::name)` is ambiguous.
+
+            A name defined in SEVERAL namespaces is NOT an overload set: each
+            candidate still yields one unambiguous `N::name`, so it stays
+            address-verifiable (and a namespace mismatch is caught).
+            """
+            quals = {q for q, _m, _p in by_name[sym]}
+            return len(quals) == 1 and len(by_name[sym]) > 1
+
+        def compile_probe(base, syms, variant, tag):
+            """One TU for `syms`, each through namespace candidate `variant`.
+
+            Layout is (includes..., one statement per symbol), and the line
+            index map is built for THAT layout so `file:LINE:` errors are
+            attributed to the declaration that caused them.
+            """
+            cpp = os.path.join(tmp, "p_%s_%s.cpp" % (base, tag))
+            obj = os.path.join(tmp, "p_%s_%s.o" % (base, tag))
+            out_lines, line_of = [], {}
+            if has_umbrella and base != umbrella:
+                out_lines.append('#include "%s"' % umbrella)
+            out_lines.append('#include "%s"' % base)
+            for pos, sym in enumerate(syms):
+                variants = by_name[sym]
+                if variant >= len(variants):
+                    continue
+                qualified = variants[variant][0]
+                line_of[len(out_lines) + 1] = (sym, "overload")
+                if is_overload_set(sym):
+                    out_lines.append("namespace __u%d { using %s; }"
+                                     % (pos, qualified))
+                else:
+                    # A statement, so it must live in a function body: one
+                    # `__p<N>` per symbol keeps the file:LINE: attribution exact.
+                    out_lines.append(
+                        "static void __p%d(void) { typedef decltype(&%s) F;"
+                        " F f = &%s; (void)f; }"
+                        % (pos, qualified, qualified))
+            with io.open(cpp, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(out_lines) + "\n")
+            proc = _abi_run(probe_flags + ["-o", obj, cpp])
+            if proc.returncode != 0 or not os.path.exists(obj):
+                failures, seen = [], set()
+                for line in proc.stderr.splitlines():
+                    if "error:" not in line:
+                        continue
+                    m = re.search(r":(\d+):(?:\d+)?:?\s*(?:fatal\s+)?error:",
+                                  line)
+                    if not m:
+                        continue
+                    entry = line_of.get(int(m.group(1)))
+                    if entry is None or entry[0] in seen:
+                        continue
+                    seen.add(entry[0])
+                    failures.append((entry[0],
+                                     line.split("error:", 1)[-1].strip()[:180]))
+                return None, failures
+            produced = _ABI_NAMES(_abi_run(
+                [tools["nm"], "--undefined-only", "--format=posix", obj]).stdout)
+            produced |= _ABI_NAMES(_abi_run(
+                [tools["nm"], "--defined-only", "--format=posix", obj]).stdout)
+            return produced, []
+
+        _NOT_MEMBER = ("is not a member of", "no member named",
+                       "has not been declared", "was not declared")
+
+        def classify(err):
+            text = (err or "").lower()
+            return "namespace" if any(m in text for m in _NOT_MEMBER) else "other"
+
+        for header, base, syms in per_header:
+            pending = list(syms)
+            n_variants = max(len(by_name[s]) for s in syms)
+            for variant in range(n_variants):
+                if not pending:
+                    break
+                attempt = [s for s in pending if len(by_name[s]) > variant]
+                if not attempt:
+                    continue
+                produced, failures = compile_probe(
+                    base, attempt, variant, "v%d" % variant)
+                if produced is not None:
+                    for sym in attempt:
+                        variants = by_name[sym]
+                        stats["checked"] += 1
+                        if is_overload_set(sym):
+                            stats["ambiguous"] += 1
+                            stats["match"] += 1  # `using` compiled: it IS there
+                        elif variants[variant][1] in produced:
+                            stats["match"] += 1
+                        elif any(m in produced for _q, m, _p in variants):
+                            stats["match"] += 1  # right name, different overload
+                        else:
+                            stats["mismatch"] += 1
+                            mismatches.append((
+                                base, sym,
+                                "header declaration is not the compiled "
+                                "definition (mangles to %s)"
+                                % (sorted(produced) or ["<nothing>"])[0],
+                                [v[0] for v in variants],
+                                sorted(produced)[:4]))
+                    pending = [s for s in pending if s not in attempt]
+                    continue
+                # This candidate namespace rejects some declarations. A
+                # "not a member" rejection is NOT conclusive yet (another
+                # candidate may satisfy it), so keep it pending; any other
+                # error is a probe limitation and is skipped with its text.
+                for sym, err in failures:
+                    if classify(err) == "other":
+                        stats["checked"] += 1
+                        stats["skipped"] += 1
+                        stats["notes"].append(
+                            "%s: %s could not be probed (%s)" % (base, sym, err))
+                        pending.remove(sym)
+                if not failures:
+                    for sym in attempt:
+                        stats["checked"] += 1
+                        stats["skipped"] += 1
+                        stats["notes"].append(
+                            "%s: %s could not be probed (unattributed compile "
+                            "failure)" % (base, sym))
+                    pending = [s for s in pending if s not in attempt]
+            # A symbol left pending here was never probed ALONE: the batched TU
+            # also carried a symbol whose candidate namespace did not fit, and one
+            # compile error fails the whole TU. `il2cpp_gc_collect` is defined BOTH
+            # as `il2cpp::il2cpp_gc_collect` (gc.cpp) and with C linkage
+            # `il2cpp_gc_collect` (api.cpp); variant 0 picked the C-linkage form,
+            # the TU died on it, and `il2cpp_gc_alloc` -- which had only that one
+            # variant -- was then reported as a mismatch although it is correct.
+            #
+            # So retry each still-pending symbol on its OWN, one TU per candidate
+            # namespace: a collateral failure can no longer condemn it.
+            for sym in pending:
+                settled = False
+                for variant in range(len(by_name[sym])):
+                    produced, failures = compile_probe(
+                        base, [sym], variant, "s%d_%d" % (len(sym), variant))
+                    if produced is not None:
+                        stats["checked"] += 1
+                        if by_name[sym][variant][1] in produced:
+                            stats["match"] += 1
+                        elif any(m in produced for _q, m, _p in by_name[sym]):
+                            stats["match"] += 1
+                        else:
+                            stats["mismatch"] += 1
+                            mismatches.append((
+                                base, sym,
+                                "header declaration is not the compiled "
+                                "definition (mangles to %s)"
+                                % (sorted(produced) or ["<nothing>"])[0],
+                                [v[0] for v in by_name[sym]],
+                                sorted(produced)[:4]))
+                        settled = True
+                        break
+                    if failures and classify(failures[0][1]) != "namespace":
+                        stats["checked"] += 1
+                        stats["skipped"] += 1
+                        stats["notes"].append(
+                            "%s: %s could not be probed (%s)"
+                            % (base, sym, failures[0][1]))
+                        settled = True
+                        break
+                if not settled:
+                    stats["checked"] += 1
+                    stats["mismatch"] += 1
+                    mismatches.append((
+                        base, sym,
+                        "the declaration resolves in NONE of the %d namespace(s) "
+                        "that define this name" % len(by_name[sym]),
+                        [v[0] for v in by_name[sym]],
+                        [v[1] for v in by_name[sym]]))
+        return stats, mismatches, None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+_TOOLS = {}
+
+
 def main():
     emitted = emitted_by_transpiler()
     if not emitted:
@@ -628,6 +1099,42 @@ def main():
               % len(UNRESOLVED))
         return 2
     print("UNRESOLVED: none")
+
+    # ABI DIMENSION (W11 P0-11-R3-D3). This is what stops the set test from
+    # being a false green: a declaration moved into the wrong namespace keeps
+    # `defined - declared == {}` while every call site fails to link. The
+    # coverage counters are printed unconditionally so a hole in the check is
+    # visible; `--no-abi` is the explicit opt-out and prints why.
+    abi_mismatches = []
+    if "--no-abi" in sys.argv:
+        print("ABI: DISABLED by --no-abi (namespace/ABI agreement NOT verified)")
+    else:
+        headers_rel = [os.path.relpath(p, os.path.join(
+            ROOT, "src", "runtime", "include")) for p in all_headers()]
+        astats, abi_mismatches, unavailable = abi_check(headers_rel, d & c)
+        print("ABI: checked=%d match=%d mismatch=%d skipped=%d "
+              "(pairs=%d definitions=%d overload_pairs=%d probe_fail=%d)"
+              % (astats["checked"], astats["match"], astats["mismatch"],
+                 astats["skipped"], astats["pairs"], astats["definitions"],
+                 astats["ambiguous"], astats["probe_fail"]))
+        for note in astats["notes"]:
+            print("   ABI-NOTE:", note)
+        if unavailable:
+            print("ABI-INCONCLUSIVE: %s" % unavailable)
+        for base, sym, why, want, saw in abi_mismatches:
+            print("   ABI MISMATCH: %s: %s -- %s" % (base, sym, why))
+            print("       expected (definition):", ", ".join(want))
+            print("       produced (by header): ", ", ".join(saw))
+        if unavailable:
+            # Same rule as an empty emission surface: a check that did not run
+            # is INCONCLUSIVE, never a green.
+            return 2
+        # A check that verified nothing is also INCONCLUSIVE -- silence is the
+        # failure mode this dimension exists to remove.
+        if astats["checked"] == 0:
+            print("ABI-INCONCLUSIVE: 0 (header, symbol) pairs were verified")
+            return 2
+
     # BOTH columns are a failure now. REAL is a build break waiting to happen;
     # LATENT is a definition nothing declares and nothing emits -- either a dead
     # surface or a TU-local helper that should be `static`. W11 P0-11-R3 drove
@@ -635,8 +1142,12 @@ def main():
     # LATENT is a regression of that state. Leaving LATENT non-fatal made the
     # mutation gate stay GREEN when a declaration was removed (measured: deleting
     # the dictgen box_double pair moved LATENT 0->2 but exit stayed 0), which is
-    # exactly the "改坏仍绿" failure Art.16 forbids.
-    return 1 if (gaps or others) else 0
+    # exactly the "改坏仍绿" failure Art.16 forbids. ABI mismatches join them: a
+    # declaration in the wrong namespace is a build break the set test cannot
+    # express (measured: 4 `il2cpp_string_is_ascii_*` declarations sat in
+    # `il2cpp::runtime` while the definitions were in `il2cpp::` and the set test
+    # reported REAL=0 LATENT=0).
+    return 1 if (gaps or others or abi_mismatches) else 0
 
 
 if __name__ == "__main__":
