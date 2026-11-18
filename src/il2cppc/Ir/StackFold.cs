@@ -7402,7 +7402,8 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
             // FuncPtrExpr is the native-int argument, the OTHER arg is the
             // bound instance (#42): ldnull (static binding -> nullptr) or the
             // bound object (instance binding -> the instance ABI's `this`).
-            if (IsDelegateType(typeFullName, types))
+            if (IsDelegateType(typeFullName, types)
+                || (md != null && IsDelegateCtorSignature(md, (int)ins.Operand)))
             {
                 var fptr = args.OfType<FuncPtrExpr>().FirstOrDefault();
                 if (fptr != null)
@@ -9865,7 +9866,8 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
             // families were added to one and not the other, so
             // `new AsyncCallback(...)` emitted an undefined __ctor_<hash>.
             if (MethodRefResolver.IsBclDelegateType(fullName))
-                return true;            if (types == null) return false;
+                return true;
+            if (types == null) return false;
             // Nested-name match: nested TypeDefs carry Namespace="" (FullName is
             // the short name), but metadata queries use the '+' full name
             // ("Cases.Outer+ChainFn") -- MatchesFullName covers both forms, so
@@ -10386,6 +10388,62 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
                 _ => throw new NotSupportedException($"newobj owner kind {owner.Kind} not supported in M2"),
             };
         }
+
+        // Whether a newobj token is a DELEGATE construction, decided from the
+        // ctor SIGNATURE rather than a name list. Every delegate ctor in the
+        // BCL is `Void .ctor(System.Object, System.IntPtr)` -- the target and
+        // the method pointer -- so the shape identifies the family without
+        // enumerating it. That matters because the transpiler loads only the
+        // user assembly (MetadataLoader.LoadAssembly), so mscorlib's and
+        // System.dll's delegate types are not in the model: a name list can
+        // only ever be a partial copy of them, and it was (11 of net48's 48
+        // mscorlib delegates and 64 of System.dll's were missing, so
+        // `new MemberFilter(...)` / `new PropertyChangedEventHandler(...)`
+        // both failed with `__ctor_<hash>: not wired in M5`).
+        //
+        // The one non-delegate with this ctor shape is
+        // System.Runtime.InteropServices.HandleRef, and it never reaches here:
+        // the value-type newobj arm above claims it first.
+        static bool IsDelegateCtorSignature(MetadataReader md, int token)
+        {
+            var handle = MetadataTokens.Handle(token);
+            BlobHandle sigHandle;
+            switch (handle.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                    sigHandle = md.GetMethodDefinition((MethodDefinitionHandle)handle).Signature;
+                    break;
+                case HandleKind.MemberReference:
+                    sigHandle = md.GetMemberReference((MemberReferenceHandle)handle).Signature;
+                    break;
+                default:
+                    return false;
+            }
+            var sig = md.GetBlobReader(sigHandle);
+            var header = sig.ReadSignatureHeader();
+            if (header.Kind != SignatureKind.Method || !header.IsInstance) return false;
+            var paramCount = sig.ReadCompressedInteger();
+            if (paramCount != 2) return false;
+            var ret = sig.ReadByte();
+            if (ret != 0x01) return false; // ELEMENT_TYPE_VOID
+            // param 0: System.Object (ELEMENT_TYPE_OBJECT 0x1C)
+            if (sig.ReadByte() != 0x1C) return false;
+            // param 1: the method pointer. csc encodes System.IntPtr as
+            // ELEMENT_TYPE_I (0x18, the native-int primitive) in a delegate
+            // ctor signature -- NOT as VALUETYPE(0x11)+TypeDefOrRef. Both
+            // spellings mean IntPtr, so accept either.
+            var p1 = sig.ReadByte();
+            if (p1 == 0x18) return true; // ELEMENT_TYPE_I
+            if (p1 != 0x11) return false;
+            return TypeHandleFullName(md, sig.ReadTypeHandle()) == "System.IntPtr";
+        }
+
+        static string TypeHandleFullName(MetadataReader md, EntityHandle handle) => handle.Kind switch
+        {
+            HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)handle),
+            HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)handle),
+            _ => "",
+        };
 
         // G1 (C1): whether a newobj token is a MULTIDIM array ctor (`new
         // int[2,2]` -> the MemberRef int32_t[0...,0...,0...]::.ctor). True when

@@ -110,6 +110,31 @@ if ($LASTEXITCODE -ne 0) { throw "F4-a limit harness failed (exit $LASTEXITCODE)
 # NOTE: run-audit.ps1's own render step DOES write the tracked document (it is
 # the publishing path). CI therefore re-renders to scratch and verifies THAT;
 # the tracked doc is left untouched by CI.
+# 3.73: the delegate-ctor SIGNATURE test is the only thing deciding whether a
+# `newobj` is a delegate construction. The transpiler loads only the user
+# assembly, so mscorlib's and System.dll's delegate types are not in the model
+# and the decision cannot be a name list (it was, and 11 of mscorlib's 48 plus
+# 64 of System.dll's public delegates were missing -- `new MemberFilter(...)`
+# and `new PropertyChangedEventHandler(...)` both emitted an undefined
+# `__ctor_<hash>`). This step re-derives the truth from metadata and fails when
+# any shipped delegate's ctor does not match the shape the test accepts.
+Write-Host "=== 3.73 BCL delegate signature coverage ==="
+$delProbe = Join-Path $Root "tools/audit/DelegateProbe/bin/Release/net8.0/DelegateProbe.dll"
+dotnet build "$Root/tools/audit/DelegateProbe/DelegateProbe.csproj" -c Release | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "DelegateProbe build failed" }
+$delDir = Join-Path $Root ".opencode/tmp/ci-delegates"
+New-Item -ItemType Directory -Force -Path $delDir | Out-Null
+$fxDir = "C:/Program Files (x86)/Reference Assemblies/Microsoft/Framework/.NETFramework/v4.8"
+$delArgs = @()
+foreach ($asm in @("mscorlib.dll", "System.dll")) {
+    $outTsv = Join-Path $delDir ($asm -replace '\.dll$', '.tsv')
+    & dotnet exec $delProbe (Join-Path $fxDir $asm) $outTsv | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "DelegateProbe failed on $asm" }
+    $delArgs += @("--shipped-tsv", $outTsv)
+}
+& python "$Root/tools/audit/bcl_delegate_gate.py" @delArgs
+if ($LASTEXITCODE -ne 0) { throw "BCL delegate signature coverage failed (exit $LASTEXITCODE): a shipped delegate's ctor does not match StackFold.IsDelegateCtorSignature, so it would emit an undefined __ctor_<hash>" }
+
 Write-Host "=== 3.75 audit evidence chain (scratch corpus + scratch render + verify) ==="
 $auditDir = Join-Path $Root ".opencode/tmp/ci-audit"
 powershell -NoProfile -ExecutionPolicy Bypass -File "$Root/tools/audit/run-audit.ps1" -OutDir $auditDir
