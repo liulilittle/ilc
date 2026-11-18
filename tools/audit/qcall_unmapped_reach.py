@@ -62,6 +62,31 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--qcall-tsv", required=True)
     ap.add_argument("--wiring", required=True)
+    ap.add_argument(
+        "--assert-zero-user-callable",
+        action="store_true",
+        help="exit non-zero when any unmapped QCall is USER-CALLABLE. "
+             "Without this the script only reports, so a regression that makes "
+             "an unmapped QCall nameable from user code would print and pass.",
+    )
+    ap.add_argument(
+        "--assert-matched-all",
+        action="store_true",
+        help="exit non-zero when the wiring TSV reports an unmapped QCall that "
+             "qcall-tsv does not contain (a stale or mismatched input pair).",
+    )
+    ap.add_argument(
+        "--assert-resolved-at-least",
+        type=int,
+        default=None,
+        metavar="N",
+        help="exit non-zero when fewer than N QCalls resolve to a runtime symbol. "
+             "The accessibility tiers cannot see a public wrapper: "
+             "Environment.ProcessorCount is public and calls the PRIVATE QCall "
+             "GetProcessorCount, so deleting that arm leaves the tier counts "
+             "unchanged (INNER-ONLY 45 -> 46) while a user-visible API breaks. "
+             "Pinning the resolved count is what catches that.",
+    )
     args = ap.parse_args(argv)
 
     qcalls = load_qcalls(args.qcall_tsv)
@@ -91,9 +116,40 @@ def main(argv=None):
     counts = collections.Counter(reachability(r) for r in selected)
     for tier, n in counts.most_common():
         print("%s %d" % (tier, n))
-    for r in selected:
-        if reachability(r) == "USER-CALLABLE":
-            print("USER-CALLABLE %s::%s" % (r["owner"], r["name"]))
+    user_callable = [r for r in selected if reachability(r) == "USER-CALLABLE"]
+    for r in user_callable:
+        print("USER-CALLABLE %s::%s" % (r["owner"], r["name"]))
+
+    if args.assert_matched_all and len(selected) != len(unmapped):
+        missing = sorted(unmapped - {(r["owner"], r["name"]) for r in qcalls})
+        raise SystemExit(
+            "wiring reports %d unmapped QCalls but qcall-tsv matched only %d; "
+            "the two inputs are not from the same assembly. First unmatched: %r"
+            % (len(unmapped), len(selected), missing[0] if missing else None))
+
+    if args.assert_zero_user_callable and user_callable:
+        raise SystemExit(
+            "%d unmapped QCall(s) are USER-CALLABLE, so user code can name a "
+            "member with no mapping arm and the transpile would emit an "
+            "undefined symbol. First: %s::%s"
+            % (len(user_callable), user_callable[0]["owner"],
+               user_callable[0]["name"]))
+
+    if args.assert_resolved_at_least is not None:
+        resolved = sum(1 for line in io.open(args.wiring, encoding="utf-8")
+                       if len(line.rstrip("\n").split("\t")) >= 5
+                       and line.rstrip("\n").split("\t")[3] == "qcall"
+                       and line.rstrip("\n").split("\t")[4] == "resolved")
+        print("resolved=%d" % resolved)
+        if resolved < args.assert_resolved_at_least:
+            raise SystemExit(
+                "only %d QCalls resolve to a runtime symbol, below the pinned "
+                "floor of %d: a mapping arm was removed. The accessibility "
+                "tiers cannot see this when the QCall is private and reached "
+                "through a public wrapper (Environment.ProcessorCount -> "
+                "GetProcessorCount), so the floor is the only guard."
+                % (resolved, args.assert_resolved_at_least))
+
     return 0
 
 

@@ -135,6 +135,36 @@ foreach ($asm in @("mscorlib.dll", "System.dll")) {
 & python "$Root/tools/audit/bcl_delegate_gate.py" @delArgs
 if ($LASTEXITCODE -ne 0) { throw "BCL delegate signature coverage failed (exit $LASTEXITCODE): a shipped delegate's ctor does not match StackFold.IsDelegateCtorSignature, so it would emit an undefined __ctor_<hash>" }
 
+Write-Host "=== 3.74 QCall wiring + reachability (CoreLib 8.0.31) ==="
+# The QCall set is the one icall family with no InternalCall flag: it is an
+# ImplMap row whose module is "QCall". Before IcallWiringProbe grew a qcall kind
+# the audit could only mark all 192 UNMEASURED, and the reachability question
+# ("can user code name an unmapped one?") had no answer at all. Both are now
+# measurable, but the measurement lived only in .opencode/tmp scratch files, so
+# nothing failed if a mapping arm was deleted and an unmapped QCall became
+# nameable. This step re-derives both from metadata on every CI run.
+$qcallProbe = Join-Path $Root "tools/audit/QCallProbe/bin/Release/net9.0/QCallProbe.dll"
+dotnet build "$Root/tools/audit/QCallProbe/QCallProbe.csproj" -c Release | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "QCallProbe build failed" }
+$wiringProbe = Join-Path $Root "tools/audit/IcallWiringProbe/bin/Release/net8.0/IcallWiringProbe.dll"
+dotnet build "$Root/tools/audit/IcallWiringProbe/IcallWiringProbe.csproj" -c Release | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "IcallWiringProbe build failed" }
+
+$qcallDir = Join-Path $Root ".opencode/tmp/ci-qcall"
+New-Item -ItemType Directory -Force -Path $qcallDir | Out-Null
+$coreLib = "C:/Program Files/dotnet/shared/Microsoft.NETCore.App/8.0.31/System.Private.CoreLib.dll"
+if (-not (Test-Path -LiteralPath $coreLib)) {
+    throw "CoreLib 8.0.31 not found at $coreLib; the QCall audit is pinned to that build (docs/audit/qcall-unmapped-reachability.md)"
+}
+$qcallTsv = Join-Path $qcallDir "qcall-8031.tsv"
+$wiringTsv = Join-Path $qcallDir "wiring-8031-qcall.tsv"
+& dotnet exec $qcallProbe $coreLib $qcallTsv | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "QCallProbe failed on CoreLib 8.0.31" }
+& dotnet exec $wiringProbe $coreLib $wiringTsv | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "IcallWiringProbe failed on CoreLib 8.0.31" }
+& python "$Root/tools/audit/qcall_unmapped_reach.py" --qcall-tsv $qcallTsv --wiring $wiringTsv --assert-zero-user-callable --assert-matched-all --assert-resolved-at-least 19
+if ($LASTEXITCODE -ne 0) { throw "QCall reachability failed (exit $LASTEXITCODE): an unmapped QCall is USER-CALLABLE, or a mapping arm was removed (resolved fell below 19)" }
+
 Write-Host "=== 3.75 audit evidence chain (scratch corpus + scratch render + verify) ==="
 $auditDir = Join-Path $Root ".opencode/tmp/ci-audit"
 powershell -NoProfile -ExecutionPolicy Bypass -File "$Root/tools/audit/run-audit.ps1" -OutDir $auditDir
