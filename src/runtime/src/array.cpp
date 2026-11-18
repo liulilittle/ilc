@@ -53,7 +53,7 @@ Il2CppClass g_int32ArrayClass = {
     static_cast<int32_t>(sizeof(Il2CppArray)), // instanceSize (header + stub)
     0u,                           // refFieldBitmap
     0,                            // refFieldCount
-    nullptr,                      // baseClass
+    &System_Array_class,                      // baseClass (every array IS-A System.Array)
     nullptr,                      // vtable
     0,                            // vtableSize
     nullptr,                      // interfaces
@@ -99,7 +99,7 @@ Il2CppClass g_objectArrayClass = {
     static_cast<int32_t>(sizeof(Il2CppArray)),
     0u,                           // refFieldBitmap (payload scanned dynamically)
     0,
-    nullptr,
+    &System_Array_class, // baseClass (object[] IS-A System.Array)
     nullptr,
     0,
     nullptr,
@@ -176,7 +176,7 @@ Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass, bool isRef = true)
     slot.isRef = isRef;
     // nb9 F1: value-element arrays are NOT assignable to object[]; reference
     // arrays derive from the shared object-array descriptor (E3).
-    slot.klass.baseClass = isRef ? &g_objectArrayClass : nullptr;
+    slot.klass.baseClass = isRef ? &g_objectArrayClass : &System_Array_class;
     slot.klass.vtable = nullptr;
     slot.klass.vtableSize = 0;
     slot.klass.interfaces = nullptr;

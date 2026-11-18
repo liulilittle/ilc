@@ -158,6 +158,7 @@ const Il2CppClass* il2cpp_class_at(int32_t index);
 //------------------------------------------------------------------------------
 extern il2cpp::Il2CppClass System_Object_class;
 extern il2cpp::Il2CppClass System_ValueType_class;
+extern il2cpp::Il2CppClass System_Array_class;
 extern il2cpp::Il2CppClass System_String_class;
 extern il2cpp::Il2CppClass System_Int32_class;
 extern il2cpp::Il2CppClass System_UInt32_class;

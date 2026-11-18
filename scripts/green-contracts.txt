@@ -204,3 +204,10 @@ probe-arrayclone  # GREEN anchor: Array.Clone must copy the payload into a new a
 # (long[])x used to fail whenever no long[] existed yet. Covers i8/f8/ref/i4/i2/u1
 # plus a failing cast that must throw InvalidCastException.
 probe-arraycast  # GREEN anchor: array casts resolve the element class on demand
+# A generated (Array)o / o as Array names System_Array_class directly. It used to
+# be an undefined symbol (the case failed to COMPILE, not at run time), because no
+# System.Array descriptor existed. Every array class now converges on it:
+#   int32[]/value-element[] -> System.Array -> System.Object
+#   object[]/ref-element[]  -> object[] -> System.Array -> System.Object
+# Covers cast, as, a failing cast, GetValue through the base type, and Clone.
+probe-arraybase  # GREEN anchor: System.Array is a real descriptor and the array base chain reaches it

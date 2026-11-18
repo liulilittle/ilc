@@ -122,6 +122,35 @@ Il2CppClass System_ValueType_class = {
     0,                                     // interfaceCount
 };
 
+// System.Array: the abstract base of every array. A generated `(Array)o` (or
+// `o as Array`) names this descriptor directly, so it must exist as a symbol --
+// it used to be emitted as `&System_Array_class` with no definition anywhere,
+// and the case failed to compile with "'System_Array_class' was not declared in
+// this scope" rather than at run time.
+//
+// It is the SINGLE shared node the array-class base chains converge on:
+//   g_int32ArrayClass / a value-element class -> System.Array -> System.Object
+//   g_objectArrayClass / a ref-element class  -> System.Array -> System.Object
+// (the ref chain keeps the object[] step net48 has; see array.cpp). Every
+// baseClass reader in the runtime walks the chain to nullptr, so inserting this
+// node is invisible to them.
+//
+// instanceSize is header-only and it is never allocated: no transpiled program
+// can `new Array()` (the ctor is protected assembly in CoreLib). The vtable is
+// empty -- Array's own members (Length/Clone/GetValue) route through the
+// dedicated array icalls on the Il2CppArray header, not through dispatch.
+Il2CppClass System_Array_class = {
+    "System.Array",                        // name
+    static_cast<int32_t>(sizeof(il2cpp::Il2CppObject)), // instanceSize (abstract; never allocated)
+    0u,                                    // refFieldBitmap
+    0,                                     // refFieldCount
+    &System_Object_class,                  // baseClass
+    nullptr,                               // vtable
+    0,                                     // vtableSize
+    nullptr,                               // interfaces
+    0,                                     // interfaceCount
+};
+
 // System.String: base of the object model under Object; the string
 // allocation paths (string.cpp) allocate through this descriptor.
 Il2CppClass System_String_class = {
@@ -797,6 +826,10 @@ void il2cpp_ensure_builtin_system_classes()
     std::call_once(s_builtinSystemOnce, [] {
         il2cpp_class_register(&System_Object_class);
         il2cpp_class_register(&System_ValueType_class);
+        // System.Array is the shared base of every array class (array.cpp wires
+        // the int32/object/element descriptors to it), and a generated `(Array)o`
+        // names the symbol directly.
+        il2cpp_class_register(&System_Array_class);
         il2cpp_class_register(&System_String_class);
         il2cpp_class_register(&System_Int32_class);
         il2cpp_class_register(&System_UInt32_class);
