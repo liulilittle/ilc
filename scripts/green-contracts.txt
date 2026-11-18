@@ -178,3 +178,14 @@ delegate-abi-signatures  # GREEN anchor: delegate invocation ABI across signatur
 # multicast helper carries it as a plain C++ parameter. Covers ref, out, and two
 # ref params (the swap shape).
 delegate-byref-params  # GREEN anchor: ref/out delegate parameters must transpile and round-trip
+
+# DelegateStructSignatures: a delegate whose parameter or return is a VALUE TYPE.
+# The multicast helper names the SAME C++ struct the leaf method declares
+# (ConsumeDelegateSigFull maps 0x11 through TypeCppName), so the platform
+# aggregate ABI applies on both sides with no manual expansion: on x64 a 16-byte
+# aggregate rides a hidden by-ref slot and the return comes back through sret.
+# If that mapping ever degrades to a bare int32/int64 pair the copy tears
+# silently -- the program still compiles and still prints a number, just the
+# wrong one. Covers a struct return (Pt F(int,int)), a struct parameter
+# (int G(Pt)), and a plain string return as the no-struct control.
+delegate-struct-signatures  # GREEN anchor: value-type delegate params/returns must keep the aggregate ABI
