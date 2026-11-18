@@ -9859,74 +9859,13 @@ if (name.EndsWith("list_then_by_chain_ref", StringComparison.Ordinal)) return "l
         static bool IsDelegateType(string? fullName, IReadOnlyList<TypeDef>? types)
         {
             if (fullName == null) return false;
-            if (fullName.StartsWith("System.Func`", StringComparison.Ordinal)
-                || fullName.StartsWith("System.Action`", StringComparison.Ordinal)
-                // threadobj domain: the BCL ThreadStart delegate (new Thread
-                // wiring) is constructed through the same il2cpp_delegate_new
-                // path as Func`/Action` (threadcase e2e).
-                || fullName == "System.Threading.ThreadStart"
-                // threadpool domain: the BCL WaitCallback delegate
-                // (ThreadPool.QueueUserWorkItem wiring) takes the same
-                // il2cpp_delegate_new path (threadpoolcase e2e).
-                || fullName == "System.Threading.WaitCallback"
-                // batch 158 (timercase): the BCL TimerCallback delegate
-                // (System.Threading.Timer wiring) -- same il2cpp_delegate_new
-                // path (the ctor unwraps its methodPtr in the runtime).
-                || fullName == "System.Threading.TimerCallback"
-                // batch 161 (timerscase): the BCL ElapsedEventHandler delegate
-                // (System.Timers.Timer's Elapsed event) -- same
-                // il2cpp_delegate_new path (the bridge dispatches the
-                // 2-ref-arg void ABI).
-                || fullName == "System.Timers.ElapsedEventHandler"
-                // batch 162 (eventcase): the BCL EventHandler delegates
-                // (event backing fields / Raise) -- same il2cpp_delegate_new
-                // path (the invoke routes through the 2-ref-arg void
-                // multicast icall).
-                || fullName == "System.EventHandler"
-                || fullName == "System.EventHandler`1"
-                // icallwide (arrayext2 predicate/converter domain): the
-                // Array.Find*/Exists/TrueForAll/ConvertAll delegate types ride
-                // the same il2cpp_delegate_new path (the single-cast static
-                // methodPtr ABI the arrayext2 icalls invoke directly).
-                || fullName.StartsWith("System.Predicate`", StringComparison.Ordinal)
-                || fullName.StartsWith("System.Converter`", StringComparison.Ordinal)
-                || fullName.StartsWith("System.Comparison`", StringComparison.Ordinal)
-                // P0 batch A (RuntimeHelpers.ExecuteCodeWithGuaranteedCleanup):
-                // the CER delegate pair is NESTED in the BCL type
-                // (System.Runtime.CompilerServices.RuntimeHelpers+TryCode /
-                // +CleanupCode). They are ordinary single-cast delegates
-                // (TryCode(object), CleanupCode(object, bool)) the runtime
-                // helper invokes directly, so they ride the same
-                // il2cpp_delegate_new path -- without this the newobj fell to
-                // the reference-alloc path and emitted undefined
-                // System_Runtime_CompilerServices_RuntimeHelpers_TryCode_class
-                // / __ctor_<hash> symbols.
-                || fullName == "System.Runtime.CompilerServices.RuntimeHelpers+TryCode"
-                || fullName == "System.Runtime.CompilerServices.RuntimeHelpers+CleanupCode"
-                // The NON-generic System.Action: the `System.Action`1` prefix
-                // above does not cover the bare name, so `new Action(...)` fell
-                // to the reference-alloc path and emitted an undefined
-                // System_Action__ctor_<hash>.
-                || fullName == "System.Action"
-                // The remaining BCL delegate families a user program can
-                // construct. Each has no MethodMap arm (they are delegate
-                // types, not callable members), so without this they take the
-                // reference-alloc path and emit an undefined __ctor_<hash>.
-                // ParameterizedThreadStart is the worst case: it is a
-                // `publicapi` row, not an `icall`, so the phantom guard never
-                // sees it and the transpile EXITS 0 with the bad symbol.
-                || fullName == "System.AsyncCallback"
-                || fullName == "System.Threading.ParameterizedThreadStart"
-                || fullName == "System.Threading.ContextCallback"
-                || fullName == "System.Threading.IOCompletionCallback"
-                || fullName == "System.Threading.SendOrPostCallback"
-                || fullName == "System.Threading.WaitOrTimerCallback"
-                || fullName == "System.Threading.ThreadExceptionEventHandler"
-                || fullName == "System.ResolveEventHandler"
-                || fullName == "System.AssemblyLoadEventHandler"
-                || fullName == "System.UnhandledExceptionEventHandler")
-                return true;
-            if (types == null) return false;
+            // The BCL delegate families live in ONE place
+            // (MethodRefResolver.IsBclDelegateType). This used to be a second
+            // copy, and the two drifted: the bare System.Action and ten other
+            // families were added to one and not the other, so
+            // `new AsyncCallback(...)` emitted an undefined __ctor_<hash>.
+            if (MethodRefResolver.IsBclDelegateType(fullName))
+                return true;            if (types == null) return false;
             // Nested-name match: nested TypeDefs carry Namespace="" (FullName is
             // the short name), but metadata queries use the '+' full name
             // ("Cases.Outer+ChainFn") -- MatchesFullName covers both forms, so

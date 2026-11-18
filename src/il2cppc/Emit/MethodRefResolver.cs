@@ -1657,6 +1657,41 @@ public static partial class MethodRefResolver
     // first pass); the BCL DELEGATE families (Func`/Action`/Converter`/... --
     // their .ctors are consumed by StackFold's EmitNewObj delegate path, which
     // needs the raw resolution to proceed). The guard must not pre-empt either.
+    // The ONE list of BCL delegate types. StackFold's IsDelegateType and this
+    // class's IsExternalBclOwner both need it, and keeping two copies let them
+    // drift: the bare System.Action and ten other families were added to one
+    // and not the other, so `new AsyncCallback(...)` emitted an undefined
+    // __ctor_<hash>. Both callers now ask this method.
+    //
+    // A delegate type is not a callable member -- it has no MethodMap arm -- so
+    // a .ctor on one must ride StackFold's EmitNewObj delegate path
+    // (il2cpp_delegate_new), never the reference-alloc path.
+    public static bool IsBclDelegateType(string? fullName)
+    {
+        if (fullName == null) return false;
+        return fullName == "System.Action"
+            || fullName.StartsWith("System.Func`", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Action`", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Predicate`", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Converter`", StringComparison.Ordinal)
+            || fullName.StartsWith("System.Comparison`", StringComparison.Ordinal)
+            || fullName is "System.Threading.ThreadStart" or "System.Threading.WaitCallback"
+                or "System.Threading.TimerCallback" or "System.Timers.ElapsedEventHandler"
+                or "System.EventHandler" or "System.EventHandler`1"
+                or "System.AsyncCallback"
+                or "System.Threading.ParameterizedThreadStart"
+                or "System.Threading.ContextCallback"
+                or "System.Threading.IOCompletionCallback"
+                or "System.Threading.SendOrPostCallback"
+                or "System.Threading.WaitOrTimerCallback"
+                or "System.Threading.ThreadExceptionEventHandler"
+                or "System.ResolveEventHandler"
+                or "System.AssemblyLoadEventHandler"
+                or "System.UnhandledExceptionEventHandler"
+                or "System.Runtime.CompilerServices.RuntimeHelpers+TryCode"
+                or "System.Runtime.CompilerServices.RuntimeHelpers+CleanupCode";
+    }
+
     private static bool IsExternalBclOwner(MetadataReader md, string owner)
     {
         if (owner != "System" && !owner.StartsWith("System.", StringComparison.Ordinal)
@@ -1664,23 +1699,9 @@ public static partial class MethodRefResolver
             return false;
         if (owner is "System.Object" or "System.ValueType")
             return false;
-        // The NON-generic System.Action is a delegate too, and its .ctor is
-        // consumed by StackFold's EmitNewObj delegate path exactly like the
-        // generic families. It was missing from this list, so `new Action(...)`
-        // resolved to a phantom and the emitter guard rejected it --
-        // tests/cases/corelibp0 (which takes an Action parameter) stopped
-        // transpiling. The generic `System.Action`1` prefix does not cover the
-        // bare name.
-        if (owner == "System.Action"
-            || owner.StartsWith("System.Func`", StringComparison.Ordinal)
-            || owner.StartsWith("System.Action`", StringComparison.Ordinal)
-            || owner.StartsWith("System.Predicate`", StringComparison.Ordinal)
-            || owner.StartsWith("System.Converter`", StringComparison.Ordinal)
-            || owner.StartsWith("System.Comparison`", StringComparison.Ordinal)
-            || owner is "System.Threading.ThreadStart" or "System.Threading.WaitCallback"
-                or "System.Threading.TimerCallback" or "System.Timers.ElapsedEventHandler"
-                or "System.EventHandler" or "System.EventHandler`1")
+        if (IsBclDelegateType(owner))
             return false;
+
         foreach (var tdh in md.TypeDefinitions)
         {
             var full = md.GetFullName(tdh);
