@@ -94,6 +94,26 @@ the gen build had already linked the runtime, so the edit never reached the
 binary. That is why the mutation is applied at the mapping layer, which is the
 decision under test.
 
+## The guard, and where it was missing
+
+`StackFold` rejects a phantom at fold time via `RequireResolvable`, but a call
+that reaches the emitter with `c.Resolved` already populated never passes
+through that check. `CodeGenerator`'s ordinary-call arm took
+`c.Resolved ?? ResolveByToken(...)` and used the result directly, so a phantom
+resolved during folding was emitted as a call to a symbol nothing defines.
+
+The guard now sits at that arm (`CodeGenerator.cs`, the `resolved2` assignment):
+a phantom throws a self-identifying `NotSupportedException` instead of being
+emitted. Verified by removing the `Marshal.GetExceptionForHR` allow-list entry
+and confirming the generic guard rejects it on its own -- transpile exits 2 with
+`..._GetExceptionForHR_<hash>: not wired in M5 (BCL owner has no mapping arm and
+is not defined in the input assembly -- a phantom generated-name call would
+never link)` and no `Program.cpp` is produced.
+
+Mutation: disabling the guard (`if (false)`) while the allow-list entry is also
+removed reproduces the undefined call (`undef_calls=1`). Restoring both returns
+`LOUD_FIRED=True` with `undef_calls=0`.
+
 ## Limits
 
 - The probe cannot see whether an arm exists; it only reports what

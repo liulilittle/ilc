@@ -10946,7 +10946,18 @@ default: return false;                           // primitives/VAR(handled by ca
     private static string EmitFunctionName(string function, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
         if (function.StartsWith("call_", StringComparison.Ordinal) && int.TryParse(function[5..], out var token))
-            return MethodRefResolver.Resolve(md, token, types).CppName;
+        {
+            // A phantom fallback (generated-name resolution for an EXTERNAL BCL
+            // owner) can never link: the input assembly never defines System.*
+            // types, so the emitted call names a C++ function that does not
+            // exist. StackFold rejects these at fold time via RequireResolvable,
+            // but a call site that reaches the emitter through this placeholder
+            // path bypasses that check -- Marshal.GetExceptionForHR emitted
+            // ..._GetExceptionForHR_<hash> with nothing defining it.
+            var fnResolved = MethodRefResolver.Resolve(md, token, types);
+            MethodRefResolver.RequireResolvable(md, token, fnResolved);
+            return fnResolved.CppName;
+        }
         return function;
     }
 
@@ -12049,6 +12060,16 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // receiver-type-aware answer + the icall arg-cast codes; user-method
         // calls resolve by token as before. "fcap" collapses to a field read.
         var resolved2 = c.Resolved ?? ResolveByToken(c.Function, md, types);
+        // A phantom fallback (generated-name resolution for an EXTERNAL BCL
+        // owner) can never link: the input assembly never defines System.*
+        // types, so the emitted call would name a C++ function that does not
+        // exist. StackFold rejects these at fold time via RequireResolvable, but
+        // a call that reaches the emitter with c.Resolved already set bypasses
+        // that check -- Marshal.GetExceptionForHR emitted
+        // ..._GetExceptionForHR_<hash> with nothing defining it.
+        if (resolved2 is { IsFictionalBclFallback: true })
+            throw new NotSupportedException(
+                $"{resolved2.CppName}: not wired in M5 (BCL owner has no mapping arm and is not defined in the input assembly -- a phantom generated-name call would never link)");
         // GN-2 (Nullable): the BCL Nullable`1<T> members map to synthetic
         // markers (MethodMap.Nullable.cs) -- get_HasValue -> (obj != nullptr),
         // get_Value -> unbox by the underlying T. The markers are NOT runtime
