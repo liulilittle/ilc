@@ -155,6 +155,29 @@ def main(argv):
     qcalls = load_tsv(args.qcall_tsv, has_sig=False)
     wired = load_wiring(args.wiring)
 
+    # The join key is (owner, name) because the wiring TSV and the metadata
+    # TSVs cannot be joined on the signature (qcall-8031.tsv column 3 is the
+    # ENTRY name, not the signature). That key is only sound while no
+    # (owner, name) has overloads straddling the wired/unwired boundary --
+    # otherwise one overload being wired would hide another being unwired, and
+    # the gap count would silently drop. Assert it on the WIRING rows, which do
+    # carry the signature: grouping the metadata rows instead would make every
+    # overload of a key look identical and the check could never fire.
+    _wired_rows = collections.defaultdict(list)
+    with open(args.wiring, encoding="utf-8") as _f:
+        for _line in _f:
+            _p = _line.rstrip("\r\n").split("\t")
+            if len(_p) < 5 or _p[3] not in ("icall", "qcall"):
+                continue
+            _k = (_p[0].replace("+", "."), normalise_name(_p[1]))
+            _wired_rows[_k].append(_p[4] in ("resolved", "loud"))
+    _mixed = [k for k, v in _wired_rows.items() if len(v) > 1 and len(set(v)) > 1]
+    if _mixed:
+        raise SystemExit(
+            "%d (owner, name) keys have overloads straddling the wired/unwired "
+            "boundary; the (owner, name) join would undercount the gap. Join on "
+            "the signature instead. First: %r" % (len(_mixed), _mixed[0]))
+
     report = {}
     for table, rows in (("FCall", fcalls), ("QCall", qcalls)):
         unwired = [r for r in rows if (r["owner"], r["name"]) not in wired]
