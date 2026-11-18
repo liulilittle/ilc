@@ -1801,10 +1801,12 @@ public static class TypeEmitter
         // The generic instantiation name has no generated C++ struct.
         _ when fullName.StartsWith("System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1", StringComparison.Ordinal)
             || fullName.StartsWith("System.Runtime.CompilerServices.TaskAwaiter`1", StringComparison.Ordinal) => "Il2CppObject*",
-        // batch 162 (eventcase): BCL DELEGATE fields (System.EventHandler --
-        // the event backing field) are runtime Il2CppDelegate objects; the
-        // concrete generated C++ type does not exist.
-        _ when fullName == "System.EventHandler" || fullName == "System.EventHandler`1" => "Il2CppObject*",
+        // BCL DELEGATE fields (the event backing field) are runtime
+        // Il2CppDelegate objects; the concrete generated C++ type does not
+        // exist. This used to name only System.EventHandler/EventHandler`1 --
+        // a fifth copy of the delegate list. The one gated list answers it
+        // (MethodRefResolver.IsBclDelegateType, checked in CI).
+        _ when MethodRefResolver.IsBclDelegateType(fullName) => "Il2CppObject*",
         _ when allTypes != null && allTypes.Any(x => TypeLookup.Matches(x, fullName) && IsDelegateType(x)) => "Il2CppObject*",
         // COM stage 17 batch 3 (com17type): an INTERFACE-typed reference field
         // (DragEventArgs.Data : IDataObject). Interfaces have NO generated C++
