@@ -1664,7 +1664,15 @@ public static partial class MethodRefResolver
             return false;
         if (owner is "System.Object" or "System.ValueType")
             return false;
-        if (owner.StartsWith("System.Func`", StringComparison.Ordinal)
+        // The NON-generic System.Action is a delegate too, and its .ctor is
+        // consumed by StackFold's EmitNewObj delegate path exactly like the
+        // generic families. It was missing from this list, so `new Action(...)`
+        // resolved to a phantom and the emitter guard rejected it --
+        // tests/cases/corelibp0 (which takes an Action parameter) stopped
+        // transpiling. The generic `System.Action`1` prefix does not cover the
+        // bare name.
+        if (owner == "System.Action"
+            || owner.StartsWith("System.Func`", StringComparison.Ordinal)
             || owner.StartsWith("System.Action`", StringComparison.Ordinal)
             || owner.StartsWith("System.Predicate`", StringComparison.Ordinal)
             || owner.StartsWith("System.Converter`", StringComparison.Ordinal)
