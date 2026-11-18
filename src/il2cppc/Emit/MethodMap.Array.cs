@@ -142,6 +142,18 @@ public static partial class MethodRefResolver
     {
         switch (name)
         {
+            case "Clone":
+                // Array.Clone() -- a shallow copy: a new array of the same
+                // shape with the element payload copied verbatim (reference
+                // elements copy the SLOTS, so the clone holds the same
+                // objects -- net48 shallow-clone contract). Returns
+                // System.Object, so the result stays in the object domain.
+                if (count == 0)
+                    return I("il2cpp::il2cpp_array_clone", 0, true, true, true,
+                        new[] { "a" }, returnTypeName: "System.Object");
+                throw new NotSupportedException(
+                    $"LOUD whitelist (net48 has no such overload): Array.Clone arity {count} " +
+                    "-- net48 has Clone() only [Reference Source mscorlib/system/array.cs]");
             case "CreateInstance":
                 // net48 Array.CreateInstance overloads (array.cs:):
                 //   (Type, int) / (Type, int, int) / (Type, int, int, int)

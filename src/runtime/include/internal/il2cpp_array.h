@@ -144,6 +144,13 @@ Il2CppArray* il2cpp_array_create_instance_2d(Il2CppObject* elemTypeName, int32_t
 Il2CppArray* il2cpp_array_create_instance_3d(Il2CppObject* elemTypeName, int32_t d0, int32_t d1, int32_t d2);
 Il2CppArray* il2cpp_array_create_instance_dims(Il2CppObject* elemTypeName, Il2CppArray* lengths);
 
+// Array.Clone() -- a shallow copy: a new array of the same shape (rank, dims,
+// element size, element kind, reference-ness) with the element payload copied
+// verbatim. A reference-element array copies the SLOTS (the same objects),
+// which is what net48's shallow clone does. The result's class is the source's
+// array class, so GetType().Name reports the same "T[]".
+Il2CppArray* il2cpp_array_clone(Il2CppArray* src);
+
 // Rank-fixed multidim int32 element access (GN-3): index -> flat offset
 // (row-major), per-dimension bounds check (net48 IndexOutOfRangeException,
 // catchable; null receiver -> NullReferenceException).

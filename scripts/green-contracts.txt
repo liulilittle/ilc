@@ -195,3 +195,7 @@ delegate-struct-signatures  # GREEN anchor: value-type delegate params/returns m
 # and takes the element size from there. Covers the 1-D (Type,int) form plus
 # Length/GetType().Name/SetValue/GetValue on the result.
 probe-arraycreate  # GREEN anchor: Array.CreateInstance must allocate a sized array from a Type value
+# Array.Clone() -- a shallow copy: a new array of the same shape with the
+# element payload copied verbatim (reference elements copy the SLOTS). Covers
+# int[]/string[] clones, clone independence, and the shallow reference contract.
+probe-arrayclone  # GREEN anchor: Array.Clone must copy the payload into a new array

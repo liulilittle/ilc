@@ -536,6 +536,41 @@ Il2CppArray* il2cpp_array_create_instance_dims(Il2CppObject* elemTypeName, Il2Cp
     return il2cpp_array_new_multi(elemClass, elemSize, isRef, rank, dims);
 }
 
+//------------------------------------------------------------------------------
+// il2cpp_array_clone -- Array.Clone(): a shallow copy of the array.
+//
+//   The result is a NEW array with the same shape (rank, per-dim sizes, element
+//   size, element kind, reference-ness) and the same array class, so
+//   GetType().Name reports the same "T[]". The element payload is copied
+//   verbatim: for a reference-element array that copies the SLOTS, so the clone
+//   holds the same objects -- net48's shallow-clone contract.
+//
+//   A null receiver is a NullReferenceException (net48: ((Array)null).Clone()
+//   throws NRE).
+//------------------------------------------------------------------------------
+Il2CppArray* il2cpp_array_clone(Il2CppArray* src)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    const int32_t rank = src->rank < 1 ? 1 : src->rank;
+    Il2CppArray* dst = il2cpp_array_new_multi(src->elemClass, src->elemSize,
+                                              src->isRefElem, rank, src->dims);
+    // il2cpp_array_new_multi recomputes elemKind from the element descriptor,
+    // which loses the primitive kind for a descriptor-less array (int32[] keeps
+    // its fixed class but a long[]/double[] cell is ambiguous by size alone).
+    // Copy the source's kind so the clone scans elements exactly as the source
+    // does.
+    dst->elemKind = src->elemKind;
+    const size_t bytes = static_cast<size_t>(src->length) * static_cast<size_t>(src->elemSize);
+    if (bytes > 0)
+    {
+        std::memcpy(dst->data, src->data, bytes);
+    }
+    return dst;
+}
+
 namespace {
 
 // Flat row-major offset for a multidim element index set. The caller passes
