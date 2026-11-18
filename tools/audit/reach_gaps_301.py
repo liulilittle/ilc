@@ -94,6 +94,36 @@ def wired_set(path, kinds):
 wired = wired_set(ROOT + "/.opencode/tmp/reach/wiring-final.tsv", ("icall", "qcall"))
 
 rows = load_fcall() + load_qcall()
+
+# The join key is (owner, name) because the wiring TSV and the metadata TSVs
+# cannot be joined on the signature (qcall-8031.tsv column 3 is the ENTRY name,
+# not the signature). That key is only sound while no (owner, name) has
+# overloads that straddle the wired/unwired boundary -- otherwise one overload
+# being wired would hide the other being unwired. Assert it instead of
+# assuming it: the shipped FCall table has 6 duplicate keys today and all 6
+# are uniformly wired or uniformly unwired, which is why the looser key gives
+# the right answer. A future table where that stops holding must fail here
+# rather than silently undercount.
+# The check has to run on the WIRING rows, not on `rows`: `rows` carries no
+# signature, so every overload of one (owner, name) would look identical and
+# the test could never fire (a vacuous assertion). The wiring TSV does carry
+# the signature, so group ITS rows by (owner, name) and look for a key whose
+# overloads disagree on resolved/loud vs unmapped. That is exactly the shape
+# that would make the (owner, name) join undercount.
+_wired_rows = collections.defaultdict(list)
+for _line in open(ROOT + "/.opencode/tmp/reach/wiring-final.tsv", encoding="utf-8"):
+    _p = _line.rstrip("\r\n").split("\t")
+    if len(_p) < 5 or _p[3] not in ("icall", "qcall"):
+        continue
+    _k = (_p[0].replace("+", "."), normalise(_p[1]))
+    _wired_rows[_k].append(_p[4] in ("resolved", "loud"))
+_mixed = [k for k, v in _wired_rows.items() if len(v) > 1 and len(set(v)) > 1]
+if _mixed:
+    raise SystemExit(
+        "%d (owner, name) keys have overloads straddling the wired/unwired "
+        "boundary; the (owner, name) join would undercount the gap. Join on "
+        "the signature instead. First: %r" % (len(_mixed), _mixed[0]))
+
 unwired = [r for r in rows if (r["owner"], r["name"]) not in wired]
 print("unwired_total", len(unwired))
 
