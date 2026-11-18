@@ -27,6 +27,7 @@
 #include "il2cpp_runtime.h"
 #include "il2cpp_time.h"
 #include "typeinfo.h" // Array.CreateInstance: the element type resolves through the typeinfo registry
+#include "enumext.h" // Array.CreateInstance: an enum element strides by its underlying primitive
 #include "il2cpp_array_md_vt.h" // the value-element multidim accessors defined below
 
 #include <cstddef>
@@ -420,6 +421,36 @@ bool ResolveElementType(Il2CppObject* elemTypeName, Il2CppClass** outClass,
             *outSize = kPrimitiveSizes[i].size;
             return true;
         }
+    }
+    // An ENUM's descriptor is also its box class (instanceSize 16), so the
+    // element stride is the UNDERLYING primitive's width, not instanceSize.
+    // Measured: Color[3] (int-backed) allocated 48 bytes, net48 says 12;
+    // Big[2] (long-backed) allocated 32, net48 says 16.
+    if (runtime::il2cpp_enum_is_registered(klass))
+    {
+        Il2CppString* underlying = runtime::il2cpp_enum_get_underlying_type(klass);
+        char ubuf[kArrayNameBufferSize];
+        auto us = reinterpret_cast<Il2CppString*>(underlying);
+        if (us != nullptr && us->length > 0 && us->length < kArrayNameBufferSize)
+        {
+            for (int32_t i = 0; i < us->length; ++i)
+            {
+                ubuf[i] = static_cast<char>(us->chars[i]);
+            }
+            ubuf[us->length] = '\0';
+            for (size_t i = 0; i < sizeof(kPrimitiveSizes) / sizeof(kPrimitiveSizes[0]); ++i)
+            {
+                if (std::strcmp(ubuf, kPrimitiveSizes[i].name) == 0)
+                {
+                    *outSize = kPrimitiveSizes[i].size;
+                    return true;
+                }
+            }
+        }
+        // An unregistered underlying falls back to the int32 default, which is
+        // what il2cpp_enum_get_underlying_type itself reports.
+        *outSize = 4;
+        return true;
     }
     // A translated user struct: its descriptor's instanceSize IS the element
     // stride (TypeEmitter lays the C++ struct out at that size, and the

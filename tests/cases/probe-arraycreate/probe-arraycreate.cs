@@ -2,6 +2,9 @@
 
 struct Pt { public int X; public int Y; public int Z; }
 
+enum Color { Red, Green, Blue }
+enum Big : long { A = 1, B = 2 }
+
 class Program
 {
     static void Main()
@@ -37,5 +40,29 @@ class Program
 
         Array a9 = Array.CreateInstance(typeof(Pt), 2);
         Console.WriteLine("struct:" + a9.Length + ":" + a9.GetType().Name);
+
+        // An enum element strides by its UNDERLYING primitive, not by the
+        // enum descriptor instanceSize (which is the box size, 16).
+        Array e1 = Array.CreateInstance(typeof(Color), 3);
+        Console.WriteLine("enum:" + e1.Length + ":" + e1.GetType().Name + ":" + Buffer.ByteLength(e1));
+
+        Array e2 = Array.CreateInstance(typeof(Big), 2);
+        Console.WriteLine("enum8:" + e2.Length + ":" + e2.GetType().Name + ":" + Buffer.ByteLength(e2));
+
+        // The narrow primitives: a wrong stride shows up here too.
+        Array e3 = Array.CreateInstance(typeof(byte), 5);
+        Console.WriteLine("u1:" + e3.Length + ":" + Buffer.ByteLength(e3));
+
+        Array e4 = Array.CreateInstance(typeof(short), 4);
+        Console.WriteLine("i2:" + e4.Length + ":" + Buffer.ByteLength(e4));
+
+        Array e5 = Array.CreateInstance(typeof(bool), 3);
+        Console.WriteLine("bool:" + e5.Length + ":" + Buffer.ByteLength(e5));
+
+        Array e6 = Array.CreateInstance(typeof(char), 3);
+        Console.WriteLine("char:" + e6.Length + ":" + Buffer.ByteLength(e6));
+
+        Array e7 = Array.CreateInstance(typeof(float), 2);
+        Console.WriteLine("f4:" + e7.Length + ":" + Buffer.ByteLength(e7));
     }
 }

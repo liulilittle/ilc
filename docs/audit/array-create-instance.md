@@ -98,6 +98,28 @@ size, and the transpiler's own newarr path uses the same value --
 Mutation: changing `System.Int32` from 4 to 8 in that table makes the
 ByteLength column read 24/48/192; restoring it returns 12/24/96.
 
+## An enum element strides by its underlying primitive
+
+An enum's descriptor is also its box class, so `Color_class.instanceSize` is 16
+for an int-backed enum. Taking instanceSize as the element stride allocated
+`Color[3]` at 48 bytes (net48: 12) and `Big[2]` (long-backed) at 32 (net48: 16).
+
+The fix asks the enum registry for the underlying primitive
+(`il2cpp_enum_is_registered` + `il2cpp_enum_get_underlying_type`) and reuses the
+same primitive width table. An unregistered underlying falls back to int32,
+which is what `il2cpp_enum_get_underlying_type` itself reports.
+
+| array | net48 | before | fixed |
+|---|---|---|---|
+| `Color[3]` (int-backed) | 12 | 48 | 12 |
+| `Big[2]` (long-backed) | 16 | 32 | 16 |
+
+The narrow primitives were already right and are now pinned too: `byte[5]`=5,
+`short[4]`=8, `bool[3]`=3, `char[3]`=6, `float[2]`=8.
+
+Mutation: disabling the enum branch (`if (false && ...)`) returns 48/32;
+restoring it returns 12/16.
+
 ## Difference from net48, recorded
 
 An element type with no descriptor in this build throws
