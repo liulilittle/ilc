@@ -285,6 +285,49 @@ void il2cpp_volatile_write_i4(int32_t* location, int32_t value)
 #endif
 }
 
+// Interlocked.And / Interlocked.Or: read-modify-write with a bitwise op.
+// Neither Windows Interlocked* nor the __atomic builtins expose an AND/OR
+// primitive, so each is a CAS retry loop -- the standard construction, and
+// the reason these cannot be a single intrinsic call.
+int32_t il2cpp_interlocked_and(int32_t* location, int32_t value)
+{
+    int32_t old = __atomic_load_n(location, __ATOMIC_SEQ_CST);
+    while (!__atomic_compare_exchange_n(location, &old, old & value, false,
+                                         __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+    {
+    }
+    return old;
+}
+
+int64_t il2cpp_interlocked_and64(int64_t* location, int64_t value)
+{
+    int64_t old = __atomic_load_n(location, __ATOMIC_SEQ_CST);
+    while (!__atomic_compare_exchange_n(location, &old, old & value, false,
+                                         __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+    {
+    }
+    return old;
+}
+
+int32_t il2cpp_interlocked_or(int32_t* location, int32_t value)
+{
+    int32_t old = __atomic_load_n(location, __ATOMIC_SEQ_CST);
+    while (!__atomic_compare_exchange_n(location, &old, old | value, false,
+                                         __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+    {
+    }
+    return old;
+}
+
+int64_t il2cpp_interlocked_or64(int64_t* location, int64_t value)
+{
+    int64_t old = __atomic_load_n(location, __ATOMIC_SEQ_CST);
+    while (!__atomic_compare_exchange_n(location, &old, old | value, false,
+                                         __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+    {
+    }
+    return old;
+}
 int64_t il2cpp_volatile_read_i8(int64_t* location)
 {
 #if defined(_WIN32)

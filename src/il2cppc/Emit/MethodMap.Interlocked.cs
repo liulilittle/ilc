@@ -47,23 +47,36 @@ public static partial class MethodRefResolver
                 // Single BYREF param: ps[0] is the ELEMENT byte (0x08=i4 ->
                 // int32 icall, 0x0A=i8 -> int64 icall -- G5 fix).
                 var suffix = name == "Increment" ? "increment" : "decrement";
-                if (ps.Length == 1 && ps[0] == 0x08)
+                // 0x09 (u4) rides the int32 icall: same width, same bits.
+                if (ps.Length == 1 && ps[0] is 0x08 or 0x09)
                     return I($"il2cpp::runtime::il2cpp_interlocked_{suffix}", 1, true, false, false, new[] { "" });
-                if (ps.Length == 1 && ps[0] == 0x0A)
+                // 0x0B (u8) rides the int64 icall.
+                if (ps.Length == 1 && ps[0] is 0x0A or 0x0B)
                     return I($"il2cpp::runtime::il2cpp_interlocked_{suffix}64", 1, true, false, false, new[] { "" }, "l");
+                return null;
+            }
+            case "And":
+            case "Or":
+            {
+                // .NET 9 additions; net8 has no managed body for them either.
+                var op = name == "And" ? "and" : "or";
+                if (ps.Length == 2 && ps[0] is 0x0A or 0x0B && ps[1] is 0x0A or 0x0B)
+                    return I($"il2cpp::runtime::il2cpp_interlocked_{op}64", 2, true, false, false, new[] { "", "l" }, "l");
+                if (ps.Length == 2 && ps[0] is 0x08 or 0x09 && ps[1] is 0x08 or 0x09)
+                    return I($"il2cpp::runtime::il2cpp_interlocked_{op}", 2, true, false, false, new[] { "", "i" });
                 return null;
             }
             case "Add":
             case "ExchangeAdd":
-                return ps.Length == 2 && ps[0] == 0x0A && ps[1] == 0x0A
+                return ps.Length == 2 && ps[0] is 0x0A or 0x0B && ps[1] is 0x0A or 0x0B
                     ? I("il2cpp::runtime::il2cpp_interlocked_add64", 2, true, false, false, new[] { "", "l" }, "l")
-                    : ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x08
+                    : ps.Length == 2 && ps[0] is 0x08 or 0x09 && ps[1] is 0x08 or 0x09
                     ? I("il2cpp::runtime::il2cpp_interlocked_add", 2, true, false, false, new[] { "", "i" })
                     : null;
             case "Exchange":
-                return ps.Length == 2 && ps[0] == 0x0A && ps[1] == 0x0A
+                return ps.Length == 2 && ps[0] is 0x0A or 0x0B && ps[1] is 0x0A or 0x0B
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange64", 2, true, false, false, new[] { "", "l" }, "l")
-                    : ps.Length == 2 && ps[0] == 0x08 && ps[1] == 0x08
+                    : ps.Length == 2 && ps[0] is 0x08 or 0x09 && ps[1] is 0x08 or 0x09
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange", 2, true, false, false, new[] { "", "i" })
                     : ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x1C
                     ? I("il2cpp::runtime::il2cpp_interlocked_exchange_pointer", 2, true, true, false,
@@ -107,9 +120,9 @@ public static partial class MethodRefResolver
                 if (ps.Length == 4 && ps[0] == 0x08 && ps[1] == 0x08 && ps[2] == 0x08 && ps[3] == 0x02)
                     return I("il2cpp::runtime::icall_interlocked_compare_exchange_found", 4, true, false, false,
                         new[] { "", "i", "i", "addr:b" });
-                return ps.Length == 3 && ps[0] == 0x0A && ps[1] == 0x0A && ps[2] == 0x0A
+                return ps.Length == 3 && ps[0] is 0x0A or 0x0B && ps[1] is 0x0A or 0x0B && ps[2] is 0x0A or 0x0B
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange64", 3, true, false, false, new[] { "", "l", "l" }, "l")
-                    : ps.Length == 3 && ps[0] == 0x08 && ps[1] == 0x08 && ps[2] == 0x08
+                    : ps.Length == 3 && ps[0] is 0x08 or 0x09 && ps[1] is 0x08 or 0x09 && ps[2] is 0x08 or 0x09
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange", 3, true, false, false, new[] { "", "i", "i" })
                     : ps.Length == 3 && ps[0] == 0x1C && ps[1] == 0x1C && ps[2] == 0x1C
                     ? I("il2cpp::runtime::il2cpp_interlocked_compare_exchange_pointer", 3, true, true, false,

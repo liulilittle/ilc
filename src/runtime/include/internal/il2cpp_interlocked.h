@@ -102,6 +102,13 @@ float il2cpp_interlocked_compare_exchange_float(float* location, float value, fl
 double il2cpp_interlocked_compare_exchange_double(double* location, double value, double comparand);
 float il2cpp_interlocked_add_float(float* location, float value);
 double il2cpp_interlocked_add_double(double* location, double value);
+// Interlocked.And / Interlocked.Or (.NET 9 additions, present in the shipped
+// CoreLib). net8 has no managed body for them either -- they are bodiless
+// public wrappers -- so an unmapped arm emitted an undefined symbol.
+int32_t il2cpp_interlocked_and(int32_t* location, int32_t value);
+int64_t il2cpp_interlocked_and64(int64_t* location, int64_t value);
+int32_t il2cpp_interlocked_or(int32_t* location, int32_t value);
+int64_t il2cpp_interlocked_or64(int64_t* location, int64_t value);
 
 // nb4 GC-SPOT: the Volatile.Read/Volatile.Write family -- SEQ_CST atomic
 // loads/stores (the .NET "volatile" semantics: full fence on the operation,

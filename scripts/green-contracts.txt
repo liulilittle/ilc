@@ -132,3 +132,9 @@ probe-pinvoke-error  # GREEN anchor: PInvoke error code round-trips through both
 # family: SizeOf/OffsetOf on a user struct is a documented LOUD boundary, and
 # Marshal.GetExceptionForHR has no runtime HR->Exception conversion.
 probe-marshal-helpers  # GREEN anchor: Marshal.SizeOf/PtrToStructure over the registered struct family
+# ProbeInterlockedWidths: signed 32/64 Interlocked already worked; these cover the
+# unsigned widths (UInt32/UInt64) and the .NET 9 And/Or pair. All of them are
+# BODILESS public wrappers -- no IL body -- so an unmapped arm emitted an
+# undefined C++ symbol and the program failed to COMPILE, not merely misbehaved.
+# Requires net9.0: Interlocked.And/Or do not exist in net8.
+probe-interlocked-widths  # GREEN anchor: unsigned Interlocked widths + And/Or round-trip
