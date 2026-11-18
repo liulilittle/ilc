@@ -159,3 +159,13 @@ corelibp0  # GREEN anchor: P0 CoreLib surface must transpile and stay byte-exact
 # through the Delegate-typed result without a castclass back to Action (castclass
 # to a BCL delegate is a separate, pre-existing gap).
 delegate-bcl-invoke  # GREEN anchor: BCL delegate construction + Invoke across method boundaries
+
+# DelegateAbiSignatures: the delegate invocation ABI across the common signature
+# families. Construction is signature-based and Invoke is receiver-typed, but
+# neither proves the CALL is emitted with the right width: a string/long/double
+# result routed through the int32 helper would compile and silently truncate.
+# Covers void(), int(int), string(string), long(long), double(double),
+# bool(int,int), void(object), int() -- the eight shapes a user program hits
+# first. The string/long/double arms emit a per-signature
+# il2cpp_delegate_multicast_<hash>; int/void use the shared icall helpers.
+delegate-abi-signatures  # GREEN anchor: delegate invocation ABI across signature families
