@@ -110,7 +110,10 @@ def load_wiring(path):
             if len(parts) < 5:
                 continue
             owner, name, _sig, kind, status = parts[0], parts[1], parts[2], parts[3], parts[4]
-            if kind != "icall":
+            # "qcall" rows exist only for methods whose ImplMap module is QCall,
+            # so admitting them cannot collide with any FCall-table join. They
+            # are the whole reason the QCall table stopped being UNMEASURED.
+            if kind not in ("icall", "qcall"):
                 continue
             if status in ("resolved", "loud"):
                 wired.add((owner.replace("+", "."), normalise_name(name)))
@@ -154,21 +157,6 @@ def main(argv):
 
     report = {}
     for table, rows in (("FCall", fcalls), ("QCall", qcalls)):
-        if table == "QCall":
-            # The wiring probe enumerates InternalCall methods only; a QCall
-            # enters through [LibraryImport]/DllImport, so the probe cannot see
-            # it and every QCall would be reported as a gap. Their wiring state
-            # is UNMEASURED here, not absent.
-            report[table] = {
-                "declared": len(rows),
-                "unwired": 0,
-                "byReach": {},
-                "userCallable": [],
-                "innerOnlyCount": 0,
-                "internalTypeCount": 0,
-                "unmeasured": len(rows),
-            }
-            continue
         unwired = [r for r in rows if (r["owner"], r["name"]) not in wired]
         reach = collections.Counter(reachability(r) for r in unwired)
         report[table] = {

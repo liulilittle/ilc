@@ -825,6 +825,14 @@ public static partial class MethodRefResolver
         "GetIUnknownForObjectInContext",
         "GetLoadedTypeForGUID",
         "GetRawIUnknownForComObjectNoAddRef",
+        // net8's Marshal.GetTypeFromCLSID(Guid) returns a TRANSPARENT RCW whose
+        // runtime type is System.__ComObject (confirmed against the net8
+        // oracle, tests/cases/probe-marshal-clsid), not the COMCLSID sentinel
+        // string that Type.GetTypeFromCLSID produces. ILC has no RCW machinery,
+        // so the only honest answer is this LOUD rejection; left out of this
+        // set the member fell through to the generated-name path and emitted a
+        // call to an undefined C++ symbol that failed at link time.
+        "GetTypeFromCLSID",
         // NOTE (impl-p0b G2): "GetStartComSlot", "GetEndComSlot" and
         // "IsTypeVisibleFromCom" were REMOVED from this LOUD set -- they fold to
         // an int CONSTANT from the type metadata (com8 block above; oracle:

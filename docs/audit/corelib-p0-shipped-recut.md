@@ -122,3 +122,41 @@ OS 错误（`SetLastError`/`errno`，`marshalext2.cpp:135`），而 net8 的 get
 验证：`tests/cases/probe-pinvoke-error/`（net8.0，5 断言）与 net8 oracle 逐行一致；
 变异测试删除 `SetLastPInvokeError` 臂 → 构建失败（未声明符号，RED），
 恢复后 GREEN。残余 67 INNER-ONLY + 105 INTERNAL-TYPE 仍不是用户可命名 API。
+
+## 7. QCall 表已测量（轮 36）
+
+§5 把 QCall 的 192 条记为 **UNMEASURED**，理由是探针只枚举
+`MethodImplAttributes.InternalCall`而 QCall 经 `[LibraryImport]`/`DllImport` 进入。
+轮 36 给 `IcallWiringProbe` 加了第三种 kind：
+
+```
+isQcall = (m.Attributes & PInvokeImpl) != 0 && ImplMap.Module 的名字 == "QCall"
+```
+
+它与 `icall` / `publicapi` 一样走 `MethodRefResolver.BclResolve`，因此结果就是
+发射路径自己的答案。量测结果：
+
+| 状态 | 数量 | 含义 |
+|---|---|---|
+| resolved | 19 | 已映射到具体 `icall_*` 符号 |
+| loud | 44 | 被明确拒绝（不会静默产生未定义符号） |
+| unmapped | 129 | 无映射臂 |
+| 合计 | **192** | 与 QCallProbe 的声明数一致 |
+
+可达性分档（同 §3 的两级筛）：**USER-CALLABLE 0** / INNER-ONLY 45 / INTERNAL-TYPE 84。
+因此 QCall 也没有用户可命名的未接线缺口。
+
+### 变异验证
+
+把 `load_wiring` 的 kind 过滤改回 `kind != "icall"`（即恢复轮 168 的旧口径），
+QCall 立即从 `unwired=129` 变为 **`unwired=192`**，也就是把“没看见”重新算成“未接线”。
+恢复后回到 129。这是本文唯一一处可靠的 QCall 结论来源。
+
+### 探针口径的局限（必须知道）
+
+探针把 CoreLib 本身当作 `MetadataReader`，因此
+`IsExternalBclOwner` 对它恒为 false，phantom 守卫（`MethodRefResolver.cs:1603`）
+**不会**触发。于是探针报的 `unmapped` 只意味着“没有映射臂”，
+**不等于**“真实转译会静默产生未定义符号”。真实转译里 BCL 是外部程序集，
+守卫会甩 LOUD。本轮正是靠这个差异发现了
+`Marshal.GetTypeFromCLSID` 的真实缺陷（见 §8）。

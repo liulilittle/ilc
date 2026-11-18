@@ -19,6 +19,11 @@
 //
 // kind:
 //   icall     -- the method carries MethodImplAttributes.InternalCall
+//   qcall     -- the method's ImplMap module is "QCall" (the [LibraryImport]
+//                table). These carry no InternalCall flag, so before this kind
+//                existed the probe skipped them and the audit could only mark
+//                all 192 as UNMEASURED. BclResolve answers for them the same
+//                way it does for an icall, so the wiring question is closable.
 //   publicapi -- a public method on a public type (a possible public WRAPPER
 //                around an internal icall; probed so the audit can tell a
 //                "shadow" -- behaviour delivered through a wired public
@@ -36,6 +41,7 @@
 //      than a silently emitted undefined C++ call.
 
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using IcallAuditShared;
@@ -46,8 +52,7 @@ namespace IcallWiringProbe;
 internal static class Program
 {
     private static int Main(string[] args)
-    {
-        if (args.Length < 2)
+    {        if (args.Length < 2)
         {
             Console.Error.WriteLine("usage: IcallWiringProbe <mscorlib.dll> <out.tsv>");
             return 2;
@@ -72,6 +77,14 @@ internal static class Program
         var lines = new List<string>();
         var counts = new Dictionary<string, int>();
 
+        var moduleNames = new Dictionary<ModuleReferenceHandle, string>();
+        int modRefCount = md.GetTableRowCount(TableIndex.ModuleRef);
+        for (int i = 1; i <= modRefCount; i++)
+        {
+            var h = MetadataTokens.ModuleReferenceHandle(i);
+            moduleNames[h] = md.GetString(md.GetModuleReference(h).Name);
+        }
+
         foreach (var th in md.TypeDefinitions)
         {
             var td = md.GetTypeDefinition(th);
@@ -83,10 +96,11 @@ internal static class Program
             {
                 var m = md.GetMethodDefinition(mh);
                 var isIcall = (m.ImplAttributes & System.Reflection.MethodImplAttributes.InternalCall) != 0;
+                var isQcall = IsQCall(md, m, moduleNames);
                 var isPublicApi = typePublic
                     && (m.Attributes & System.Reflection.MethodAttributes.MemberAccessMask)
                         == System.Reflection.MethodAttributes.Public;
-                if (!isIcall && !isPublicApi)
+                if (!isIcall && !isQcall && !isPublicApi)
                     continue;
 
                 var name = md.GetString(m.Name);
@@ -103,7 +117,7 @@ internal static class Program
                     : loud ? "loud"
                     : "unmapped";
 
-                var kind = isIcall ? "icall" : "publicapi";
+                var kind = isIcall ? "icall" : isQcall ? "qcall" : "publicapi";
                 counts[kind + ":" + status] = counts.GetValueOrDefault(kind + ":" + status) + 1;
 
                 lines.Add(string.Join('\t', owner, name, sig, kind, status,
@@ -222,5 +236,19 @@ internal static class Program
         if (!declaring.IsNil) return FullName(reader, declaring) + "+" + name;
         var ns = reader.GetString(def.Namespace);
         return string.IsNullOrEmpty(ns) ? name : ns + "." + name;
+    }
+
+    // A QCall is a DllImport whose ImplMap module is the literal "QCall". The
+    // runtime resolves those through qcallentrypoints rather than the icall
+    // table, and the metadata carries no InternalCall flag, which is exactly why
+    // the original InternalCall-only filter could not see any of them.
+    private static bool IsQCall(MetadataReader md, MethodDefinition m,
+        Dictionary<ModuleReferenceHandle, string> moduleNames)
+    {
+        if ((m.Attributes & System.Reflection.MethodAttributes.PinvokeImpl) == 0) return false;
+        var imp = m.GetImport();
+        if (imp.Module.IsNil) return false;
+        return moduleNames.TryGetValue(imp.Module, out var name)
+            && string.Equals(name, "QCall", StringComparison.Ordinal);
     }
 }
