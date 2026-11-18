@@ -72,6 +72,32 @@ Mutation: renaming the `case "CreateInstance":` arm makes the transpile fail
 again with the same `not wired in M5` error (exit 2); restoring it returns exit
 0 and the three lines above.
 
+## The element size is NOT the descriptor's instanceSize
+
+The first version of this fix took the element size from `klass->instanceSize`.
+That is wrong for every primitive: a primitive's descriptor is its BOX class,
+so `System_Int32_class.instanceSize` is 16 (object header + an aligned 8-byte
+slot), not 4. Every primitive array was allocated at 4x the right size.
+
+Measured with `Buffer.ByteLength` (already wired, `il2cpp_buffer_byte_length`):
+
+| array | net48 | instanceSize version | fixed |
+|---|---|---|---|
+| `int[3]` | 12 | 48 | 12 |
+| `int[2,3]` | 24 | 96 | 24 |
+| `int[2,3,4]` | 96 | 384 | 96 |
+| `long[3]` | 24 | 48 | 24 |
+| `double[2]` | 16 | 32 | 16 |
+
+The fix maps the 14 primitive full names to their real widths and falls back to
+`instanceSize` only for a translated user struct, where the descriptor's
+instanceSize IS the element stride (TypeEmitter lays the C++ struct out at that
+size, and the transpiler's own newarr path uses the same value --
+`CodeGenerator.ArrayElementType`).
+
+Mutation: changing `System.Int32` from 4 to 8 in that table makes the
+ByteLength column read 24/48/192; restoring it returns 12/24/96.
+
 ## Difference from net48, recorded
 
 An element type with no descriptor in this build throws

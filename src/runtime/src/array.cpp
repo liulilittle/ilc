@@ -394,8 +394,38 @@ bool ResolveElementType(Il2CppObject* elemTypeName, Il2CppClass** outClass,
     }
     const bool isRef = !il2cpp_typeinfo_is_value_type(elemTypeName);
     *outClass = klass;
-    *outSize = isRef ? static_cast<int32_t>(sizeof(void*)) : klass->instanceSize;
     *outIsRef = isRef;
+    if (isRef)
+    {
+        *outSize = static_cast<int32_t>(sizeof(void*));
+        return true;
+    }
+    // A primitive's descriptor is its BOX class: instanceSize is the boxed
+    // object size (header + an aligned 8-byte slot = 16 for Int32), NOT the
+    // element stride. Using it allocated every primitive array at 4x the right
+    // size (measured: Buffer.ByteLength(int[3]) returned 48, net48 says 12).
+    // The element stride is the primitive's own width, so map it by name.
+    static const struct { const char* name; int32_t size; } kPrimitiveSizes[] = {
+        { "System.Boolean", 1 }, { "System.Byte", 1 }, { "System.SByte", 1 },
+        { "System.Char", 2 },    { "System.Int16", 2 }, { "System.UInt16", 2 },
+        { "System.Int32", 4 },   { "System.UInt32", 4 }, { "System.Single", 4 },
+        { "System.Int64", 8 },   { "System.UInt64", 8 }, { "System.Double", 8 },
+        { "System.IntPtr", static_cast<int32_t>(sizeof(void*)) },
+        { "System.UIntPtr", static_cast<int32_t>(sizeof(void*)) },
+    };
+    for (size_t i = 0; i < sizeof(kPrimitiveSizes) / sizeof(kPrimitiveSizes[0]); ++i)
+    {
+        if (std::strcmp(buf, kPrimitiveSizes[i].name) == 0)
+        {
+            *outSize = kPrimitiveSizes[i].size;
+            return true;
+        }
+    }
+    // A translated user struct: its descriptor's instanceSize IS the element
+    // stride (TypeEmitter lays the C++ struct out at that size, and the
+    // transpiler's own newarr path uses the same value -- CodeGenerator
+    // ArrayElementType). A zero-field struct packs to 1 byte, never 0.
+    *outSize = klass->instanceSize > 0 ? klass->instanceSize : 1;
     return true;
 }
 
