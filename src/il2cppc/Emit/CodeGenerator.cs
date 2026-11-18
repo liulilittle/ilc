@@ -5462,6 +5462,9 @@ public static class CodeGenerator
                 // icall arg-cast codes; user-method calls resolve by token.
                 // "fcap" collapses the call to a field read (no function call).
                 var resolvedStmt = c.Resolved ?? ResolveByToken(c.Function, md, types);
+                // Same phantom guard as the expression arm: a statement-position
+                // call must not emit a symbol nothing defines either.
+                MethodRefResolver.RequireResolvable(resolvedStmt);
                 if (resolvedStmt != null && TryEmitVarArgCall(c.Function, c.Args, resolvedStmt, md, types) is { } varArgStmt)
                 {
                     w.LineAligned($"{varArgStmt};",
@@ -12063,13 +12066,11 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // A phantom fallback (generated-name resolution for an EXTERNAL BCL
         // owner) can never link: the input assembly never defines System.*
         // types, so the emitted call would name a C++ function that does not
-        // exist. StackFold rejects these at fold time via RequireResolvable, but
-        // a call that reaches the emitter with c.Resolved already set bypasses
-        // that check -- Marshal.GetExceptionForHR emitted
-        // ..._GetExceptionForHR_<hash> with nothing defining it.
-        if (resolved2 is { IsFictionalBclFallback: true })
-            throw new NotSupportedException(
-                $"{resolved2.CppName}: not wired in M5 (BCL owner has no mapping arm and is not defined in the input assembly -- a phantom generated-name call would never link)");
+        // exist. StackFold rejects these at fold time, but a call that reaches
+        // the emitter with c.Resolved already set bypasses that check --
+        // Marshal.GetExceptionForHR emitted ..._GetExceptionForHR_<hash> with
+        // nothing defining it.
+        MethodRefResolver.RequireResolvable(resolved2);
         // GN-2 (Nullable): the BCL Nullable`1<T> members map to synthetic
         // markers (MethodMap.Nullable.cs) -- get_HasValue -> (obj != nullptr),
         // get_Value -> unbox by the underlying T. The markers are NOT runtime

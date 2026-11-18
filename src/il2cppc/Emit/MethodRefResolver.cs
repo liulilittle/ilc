@@ -1564,6 +1564,17 @@ public static partial class MethodRefResolver
         return resolved;
     }
 
+    // Emitter-side variant: the call site may carry a fold-time resolution whose
+    // originating token is no longer at hand, so the message is built from the
+    // generated name instead of re-reading the MemberReference.
+    public static ResolvedMethod? RequireResolvable(ResolvedMethod? resolved)
+    {
+        if (resolved is { IsFictionalBclFallback: true })
+            throw new NotSupportedException(
+                $"{resolved.CppName}: not wired in M5 (BCL owner has no mapping arm and is not defined in the input assembly -- a phantom generated-name call would never link)");
+        return resolved;
+    }
+
     private static string M5PhantomMessage(MetadataReader md, int token)
     {
         var mr = md.GetMemberReference(MetadataTokens.MemberReferenceHandle(token));

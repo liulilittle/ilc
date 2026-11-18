@@ -33,3 +33,25 @@ w11probe-clear     # LOUD contract: W11 P0-A Console.Clear() must reject, never 
 w11probe-setters   # LOUD contract: W11 P0-A Console setters (ForegroundColor/BackgroundColor/Title/CursorLeft/CursorTop/CursorVisible) must reject
 w11probe-getters   # LOUD contract: W11 P0-A Console getters (Title/colors/cursor/window+buffer) + SetCursorPosition/ResetColor/Beep(f,d) must reject
 
+
+# --- Phantom BCL call guard: the emitter must reject, not emit an undefined symbol ---
+# Marshal.GetExceptionForHR has no HR->Exception conversion in the runtime, and its
+# owner (System.Runtime.InteropServices.Marshal) is an EXTERNAL BCL type -- the input
+# assembly never defines it. Resolving the call yields a PHANTOM: a generated name
+# (System_Runtime_InteropServices_Marshal_GetExceptionForHR_<hash>) that no translation
+# unit defines, so the failure used to surface as a cmake "use of undeclared
+# identifier" far from the cause.
+#
+# TWO independent guards must reject it, and this case pins both:
+#   1. MethodMap.Marshal.cs allow-lists the name -> "LOUD whitelist (marshal member
+#      not wired)".
+#   2. The emitter's phantom guard (CodeGenerator: the `resolved2` expression arm,
+#      the `resolvedStmt` statement arm, and EmitFunctionName) throws for any
+#      IsFictionalBclFallback result -- so even with the allow-list entry removed the
+#      transpile still fails loudly.
+#
+# The probe calls GetExceptionForHR in EXPRESSION position and ThrowExceptionForHR in
+# STATEMENT position so both emitter arms are exercised. It deliberately does NOT call
+# ex.GetType(): that member is itself a fold-time phantom reject and would mask which
+# guard fired.
+loud-marshal-hr  # LOUD contract: phantom BCL calls must be rejected at the emitter, never emitted as undefined symbols
