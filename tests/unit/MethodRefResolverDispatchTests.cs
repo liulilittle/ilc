@@ -927,15 +927,33 @@ public class MethodRefResolverDispatchTests
         Assert.Equal("System.String", resolved.ReturnTypeName);
     }
 
-    // get_Message on a NON-catch receiver (a plain new Exception() object --
-    // the BCL exception ctor is a no-op carrier in M3) has no reachable
-    // message -> LOUD.
+    // get_Message on a CONSTRUCTED exception receiver. This used to be LOUD:
+    // the carrier model only knew the catch variable, so a plain
+    // `new DivideByZeroException()` had no reachable message. 7859f824 lifted
+    // that ceiling -- the runtime side table now captures the ctor message for
+    // ANY System.* exception type, and icall_exception_get_message answers the
+    // captured text or the net48 type-based default. The receiver test is
+    // therefore structural (System.* + "Exception" suffix), not a five-type
+    // list, and a constructed receiver resolves to the icall.
     [Fact]
-    public void Resolve_Exception_GetMessage_OnNonCatchReceiver_ThrowsLoud()
+    public void Resolve_Exception_GetMessage_OnConstructedReceiver_MapsToIcall()
+    {
+        var resolved = ResolveMember(Synthesize("System", "Exception", "get_Message", Sig(0x0E)),
+            "get_Message", receiverType: "System.DivideByZeroException");
+
+        Assert.Equal("il2cpp::runtime::icall_exception_get_message", resolved.CppName);
+        Assert.Equal("System.String", resolved.ReturnTypeName);
+    }
+
+    // The structural test must not swallow an unrelated type that merely ends
+    // in "Exception": only the System namespace is modelled, so anything else
+    // still has no runtime descriptor and must stay LOUD.
+    [Fact]
+    public void Resolve_Exception_GetMessage_OnNonSystemExceptionReceiver_ThrowsLoud()
     {
         var ex = Assert.Throws<NotSupportedException>(() =>
             ResolveMember(Synthesize("System", "Exception", "get_Message", Sig(0x0E)),
-                "get_Message", receiverType: "System.DivideByZeroException"));
+                "get_Message", receiverType: "Contoso.CustomException"));
 
         Assert.Contains("System.Exception::get_Message", ex.Message);
     }
