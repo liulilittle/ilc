@@ -165,6 +165,23 @@ if ($LASTEXITCODE -ne 0) { throw "IcallWiringProbe failed on CoreLib 8.0.31" }
 & python "$Root/tools/audit/qcall_unmapped_reach.py" --qcall-tsv $qcallTsv --wiring $wiringTsv --assert-zero-user-callable --assert-matched-all --assert-resolved-at-least 19
 if ($LASTEXITCODE -ne 0) { throw "QCall reachability failed (exit $LASTEXITCODE): an unmapped QCall is USER-CALLABLE, or a mapping arm was removed (resolved fell below 19)" }
 
+Write-Host "=== 3.745 core-type publicapi unmapped gate (net48) ==="
+# IcallWiringProbe emits a publicapi row for every public method on a public
+# type, precisely so a public method with no mapping arm can be spotted. Nothing
+# gated on those rows, and two real holes shipped through it -- Array.CreateInstance
+# (six overloads) and Array.Clone -- each found only by accident. The full net48
+# set is 9328 rows, most of them APIs a normal program never names; this gate
+# covers the CORE owners (the types a program names directly) and only fails when
+# a row that was unmapped is STILL unmapped but no longer in the baseline, i.e. a
+# new hole. A row that became resolved is reported as CLOSED and passes.
+$fx48 = "C:/Program Files (x86)/Reference Assemblies/Microsoft/Framework/.NETFramework/v4.8/mscorlib.dll"
+if (-not (Test-Path -LiteralPath $fx48)) { throw "net48 mscorlib not found at $fx48; the publicapi gate is pinned to that reference assembly" }
+$paTsv = Join-Path $qcallDir "wiring-net48-publicapi.tsv"
+& dotnet exec $wiringProbe $fx48 $paTsv | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "IcallWiringProbe failed on net48 mscorlib" }
+& python "$Root/tools/audit/publicapi_unmapped_gate.py" --wiring $paTsv --baseline "$Root/scripts/publicapi-unmapped-baseline.txt" --resolved-baseline "$Root/scripts/publicapi-resolved-baseline.txt"
+if ($LASTEXITCODE -ne 0) { throw "core-type publicapi gate failed (exit $LASTEXITCODE): a core-type public API is newly unmapped -- a mapping arm was removed or a new public method appeared without one" }
+
 Write-Host "=== 3.75 audit evidence chain (scratch corpus + scratch render + verify) ==="
 $auditDir = Join-Path $Root ".opencode/tmp/ci-audit"
 powershell -NoProfile -ExecutionPolicy Bypass -File "$Root/tools/audit/run-audit.ps1" -OutDir $auditDir
