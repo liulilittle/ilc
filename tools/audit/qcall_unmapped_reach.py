@@ -66,6 +66,24 @@ def main(argv=None):
 
     qcalls = load_qcalls(args.qcall_tsv)
     unmapped = load_unmapped_qcalls(args.wiring)
+
+    # The two inputs cannot be joined on the signature: qcall-8031.tsv column 3
+    # is the ENTRY name (Buffer_MemMove) while the wiring TSV column 3 is the
+    # full signature. So the join key is (owner, name) -- which is only sound
+    # while that key is unique. Assert it rather than assume it: a duplicate
+    # would merge overloads and report a member as unmapped when only one
+    # overload is (Marshal.DestroyStructure(IntPtr) is unmapped while
+    # DestroyStructure(IntPtr, Type) resolves; the FCall set has 16 such
+    # duplicates). Today the QCall set has 192 keys and 0 duplicates.
+    dup = [k for k, n in collections.Counter(
+        (r["owner"], r["name"]) for r in qcalls).items() if n > 1]
+    if dup:
+        raise SystemExit(
+            "qcall-8031.tsv has %d duplicate (owner, name) keys; the (owner, name) "
+            "join would merge overloads and overstate the gap. Join on the "
+            "signature instead, or split the duplicates by hand. First: %r"
+            % (len(dup), dup[0]))
+
     selected = [r for r in qcalls if (r["owner"], r["name"]) in unmapped]
 
     print("unmapped_pairs=%d" % len(unmapped))
