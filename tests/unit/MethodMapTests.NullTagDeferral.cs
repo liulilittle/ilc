@@ -67,6 +67,16 @@ public class MethodMapTestsNullTagDeferral
         var ex = Assert.Throws<NotSupportedException>(() =>
             MethodRefResolver.RequireResolvable(md, token, resolved));
         Assert.Contains(expectedFragment, ex.Message);
+
+        // The emitter-side overload takes only the resolution: a call site may
+        // carry a fold-time result whose originating token is no longer at hand
+        // (CodeGenerator's resolved2 / resolvedStmt / MethodCppNameFromToken
+        // arms). It must reject the same phantom, and it must name the generated
+        // symbol so the message points at what would have failed to link.
+        var ex2 = Assert.Throws<NotSupportedException>(() =>
+            MethodRefResolver.RequireResolvable(resolved));
+        Assert.Contains(resolved.CppName, ex2.Message);
+        Assert.Contains("not wired in M5", ex2.Message);
     }
 
     private static MemoryStream Synthesize(string ns, string typeName, string memberName, byte[] signature)

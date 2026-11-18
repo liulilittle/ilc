@@ -834,7 +834,12 @@ public static partial class MethodRefResolver
         // DO work; the public wrapper, not its internal target, was the gap.
         "GetExceptionForHR",
         "ThrowExceptionForHR",
-        "GetHRForException",
+        // NOTE: GetHRForException is NOT in this set -- it has a real mapping
+        // arm above (case "GetHRForException" -> icall_marshal_get_hr_for_exception).
+        // Listing it here shadowed that arm and broke
+        // MethodMapMarshalTests.Resolve_Marshal_GetHRForException_*; the
+        // allow-list is consulted before the switch, so a member with an arm
+        // must never appear in it.
         "GetHRForLastWin32Error",
         // net8's Marshal.GetTypeFromCLSID(Guid) returns a TRANSPARENT RCW whose
         // runtime type is System.__ComObject (confirmed against the net8
