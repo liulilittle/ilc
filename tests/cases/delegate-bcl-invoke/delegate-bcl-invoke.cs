@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Reflection;
 
@@ -35,7 +35,7 @@ public static class Program
 
         Action a1 = new Action(OnA);
         Action a2 = new Action(OnA);
-        Delegate comb = Delegate.Combine(a1, a2);
+        Action comb = (Action)Delegate.Combine(a1, a2);
         Delegate rem = Delegate.Remove(comb, a1);
         InvokeActionElsewhere(a1);
 

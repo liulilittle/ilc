@@ -11544,11 +11544,11 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // Delegate.Combine castclass back to the delegate type is an
                 // identity here too -- without these arms `p += ...` on a
                 // Predicate<T> LOUD-rejects.
-                var isDelegateInst = specName.StartsWith("System.Func`", StringComparison.Ordinal)
-                    || specName.StartsWith("System.Action`", StringComparison.Ordinal)
-                    || specName.StartsWith("System.Predicate`", StringComparison.Ordinal)
-                    || specName.StartsWith("System.Converter`", StringComparison.Ordinal)
-                    || specName.StartsWith("System.Comparison`", StringComparison.Ordinal);
+                // A delegate instantiation cast is an IDENTITY (the receiver
+                // is already that delegate). This used to be a third copy of
+                // the delegate list; it now asks the one gated list, so a
+                // family added there cannot be missed here.
+                var isDelegateInst = MethodRefResolver.IsBclDelegateType(specName);
                 if (!isDelegateInst)
                 {
                     // anontype (sanitize2): a generic instantiation of a type
@@ -14555,11 +14555,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
         // both, same fix as StackFold.IsDelegateType.
         var t = types.FirstOrDefault(x => x.MatchesFullName(fullName));
         if (t != null && IsDelegateTypeDef(t)) return true;
-        // batch 162 (eventcase): BCL delegates (System.EventHandler etc.) are
-        // runtime Il2CppDelegate objects with no generated struct -- the
-        // reference-field store cast must stay Il2CppObject* (the generated
-        // C++ name would be an unknown type).
-        return fullName == "System.EventHandler" || fullName == "System.EventHandler`1";
+        // BCL delegates are runtime Il2CppDelegate objects with no generated
+        // struct, so a cast to one must stay Il2CppObject* (the generated C++
+        // name would be an unknown type). This used to name only
+        // System.EventHandler/EventHandler`1, which is a second copy of the
+        // delegate list -- `(Action)Delegate.Combine(...)` therefore emitted
+        // the undeclared `System_Action_class` and the C++ build failed. The
+        // one gated list answers it now (MethodRefResolver.IsBclDelegateType,
+        // checked by tools/audit/bcl_delegate_gate.py in CI).
+        return MethodRefResolver.IsBclDelegateType(fullName);
     }
 
     // xmlenum: whether a FULL NAME names one of the System.Xml handle-gap
