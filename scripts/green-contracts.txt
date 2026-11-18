@@ -211,3 +211,12 @@ probe-arraycast  # GREEN anchor: array casts resolve the element class on demand
 #   object[]/ref-element[]  -> object[] -> System.Array -> System.Object
 # Covers cast, as, a failing cast, GetValue through the base type, and Clone.
 probe-arraybase  # GREEN anchor: System.Array is a real descriptor and the array base chain reaches it
+
+# A multidim ARRAY (0x14) TypeSpec cast target used to throw at TRANSPILE time:
+#   TypeSpec signature byte 0x14 not GenericInst(0x15) in M5
+# The 0x14 arm now resolves a RANK-CARRYING array class, because net48 keeps
+# int[] and int[,] as distinct types: the conformance test is an identity
+# comparison, so the rank must be part of the descriptor name ("[System.Int32,2").
+# Covers (int[,])x, as, a failing cast, element access, and the rank-exclusion
+# assertions in BOTH directions (int[] must reject int[,] and vice versa).
+probe-arraymd  # GREEN anchor: multidim casts resolve a rank-carrying array class

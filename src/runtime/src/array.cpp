@@ -125,8 +125,9 @@ constexpr size_t  kElementArrayNameMax = 96;
 
 struct ElementArrayClassSlot
 {
-    char        name[kElementArrayNameMax]; // "[<element full name>"
+    char        name[kElementArrayNameMax]; // "[<element full name>" or "[<element>,<rank>"
     bool        isRef;
+    int32_t     rank; // 1 = SZARRAY; >1 = multidim (part of the identity)
     Il2CppClass klass;
 };
 
@@ -136,23 +137,42 @@ std::mutex g_elementArrayMutex; // guards the pool (array alloc is multi-threade
 
 // Look up the synthesized array class for an element class, creating and
 // registering it on first use. Null element -> the shared object-array class.
-Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass, bool isRef = true)
+Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass, bool isRef = true, int32_t rank = 1)
 {
     if (elemClass == nullptr || elemClass->name == nullptr)
     {
         return &g_objectArrayClass;
     }
     // System.Object elements reuse the shared object-array descriptor: its
-    // name "[System.Object" is already the element-aware form.
-    if (std::strcmp(elemClass->name, "System.Object") == 0)
+    // name "[System.Object" is already the element-aware form. A MULTIDIM
+    // object array cannot reuse it (the rank is part of the identity), so it
+    // falls through to the pool below.
+    if (rank <= 1 && std::strcmp(elemClass->name, "System.Object") == 0)
     {
         return &g_objectArrayClass;
+    }
+    // The pool key is (isRef, rank, element name). The element name CANNOT be
+    // read back as `klass.name + 1`: a multidim slot is named "[<elem>,<rank>",
+    // so name+1 is "<elem>,<rank>" and would never equal "<elem>". Comparing
+    // the full expected name instead keeps the key exact for both forms --
+    // without this, every multidim lookup missed and allocated a FRESH slot, so
+    // the array's class and the cast target were different pointers and
+    // `(int[,])x` threw "Unable to cast object to the target type".
+    char wantName[kElementArrayNameMax];
+    if (rank > 1)
+    {
+        std::snprintf(wantName, kElementArrayNameMax, "[%s,%d", elemClass->name, static_cast<int>(rank));
+    }
+    else
+    {
+        std::snprintf(wantName, kElementArrayNameMax, "[%s", elemClass->name);
     }
     std::lock_guard<std::mutex> lock(g_elementArrayMutex);
     for (int32_t i = 0; i < g_elementArrayClassCount; ++i)
     {
         if (g_elementArrayClasses[i].isRef == isRef &&
-            std::strcmp(g_elementArrayClasses[i].klass.name + 1, elemClass->name) == 0)
+            g_elementArrayClasses[i].rank == rank &&
+            std::strcmp(g_elementArrayClasses[i].klass.name, wantName) == 0)
         {
             return &g_elementArrayClasses[i].klass;
         }
@@ -165,7 +185,16 @@ Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass, bool isRef = true)
         std::abort();
     }
     ElementArrayClassSlot& slot = g_elementArrayClasses[g_elementArrayClassCount];
-    std::snprintf(slot.name, kElementArrayNameMax, "[%s", elemClass->name);
+    // A multidim class name carries the rank ("[System.Int32,2") so that
+    // `(int[,])x` and `(int[])x` are different identities, exactly as net48.
+    if (rank > 1)
+    {
+        std::snprintf(slot.name, kElementArrayNameMax, "[%s,%d", elemClass->name, static_cast<int>(rank));
+    }
+    else
+    {
+        std::snprintf(slot.name, kElementArrayNameMax, "[%s", elemClass->name);
+    }
     slot.klass.name = slot.name;
     slot.klass.instanceSize = static_cast<int32_t>(sizeof(Il2CppArray));
     slot.klass.refFieldBitmap = 0u; // payload scanned dynamically via isRefElem
@@ -174,6 +203,7 @@ Il2CppClass* ArrayClassForElement(Il2CppClass* elemClass, bool isRef = true)
     // object[]'s own base chain to Array), exactly like net48; the shared
     // object-array descriptor is the base of every synthesized ref array.
     slot.isRef = isRef;
+    slot.rank = rank;
     // nb9 F1: value-element arrays are NOT assignable to object[]; reference
     // arrays derive from the shared object-array descriptor (E3).
     slot.klass.baseClass = isRef ? &g_objectArrayClass : &System_Array_class;
@@ -314,12 +344,23 @@ Il2CppArray* il2cpp_array_new_multi(Il2CppClass* elemClass, int32_t elemSize, bo
         }
     }
     const int32_t length = static_cast<int32_t>(total);
-    Il2CppClass* arrayClass = isRefElement ? ArrayClassForElement(elemClass) : &g_int32ArrayClass;
-    // nb9 F1/typed-cast: value arrays with a known element descriptor get
-    // their own array class ("[System.Int64" etc.) so Array -> T[] casts
-    // conform; int32[] keeps the fixed descriptor.
-    if (!isRefElement && elemClass != nullptr && elemClass != &System_Int32_class)
-        arrayClass = ArrayClassForElement(elemClass, false);
+    // A MULTIDIM array always gets its own rank-carrying class: net48 keeps
+    // int[] and int[,] distinct, so the fixed single-dim descriptors
+    // (g_int32ArrayClass / g_objectArrayClass) must not be reused for rank > 1.
+    Il2CppClass* arrayClass;
+    if (rank > 1)
+    {
+        arrayClass = ArrayClassForElement(elemClass, isRefElement, rank);
+    }
+    else
+    {
+        arrayClass = isRefElement ? ArrayClassForElement(elemClass) : &g_int32ArrayClass;
+        // nb9 F1/typed-cast: value arrays with a known element descriptor get
+        // their own array class ("[System.Int64" etc.) so Array -> T[] casts
+        // conform; int32[] keeps the fixed descriptor.
+        if (!isRefElement && elemClass != nullptr && elemClass != &System_Int32_class)
+            arrayClass = ArrayClassForElement(elemClass, false);
+    }
     Il2CppArray* arr = reinterpret_cast<Il2CppArray*>(
         il2cpp_gc_alloc_size(arrayClass, ArrayAllocSize(elemSize, length)));
     arr->length = length;
@@ -645,6 +686,54 @@ Il2CppClass* il2cpp_array_class_for_element_name(const char* elementFullName)
         isRef = false;
     }
     return ArrayClassForElement(elemClass, isRef);
+}
+
+//------------------------------------------------------------------------------
+// il2cpp_array_class_for_element_name_rank -- the array class for an element
+// type and a RANK.
+//
+//   rank 1 is the SZARRAY form: delegate to the unranked lookup so the
+//   single-dimension descriptors stay byte-identical to before.
+//
+//   rank > 1 must NOT reuse a single-dimension descriptor: net48 keeps int[]
+//   and int[,] as distinct types, so `(int[,])x` has to reject an int[] and
+//   `(int[])x` has to reject an int[,]. The rank is part of the class name
+//   ("[System.Int32,2"), and the conformance test is an identity comparison.
+//
+//   The element descriptor is resolved the same way as the unranked form
+//   (primitive width table first, then the registry), so a multidim cast works
+//   before any array of that element type has been allocated.
+//------------------------------------------------------------------------------
+Il2CppClass* il2cpp_array_class_for_element_name_rank(const char* elementFullName, int32_t rank)
+{
+    if (rank <= 1)
+    {
+        return il2cpp_array_class_for_element_name(elementFullName);
+    }
+    if (elementFullName == nullptr)
+    {
+        return nullptr;
+    }
+    EnsureArraysRegistered();
+    Il2CppClass* elemClass = il2cpp_class_by_name(elementFullName);
+    if (elemClass == nullptr)
+    {
+        return nullptr;
+    }
+    bool isRef = true;
+    for (size_t i = 0; i < sizeof(kPrimitiveSizes) / sizeof(kPrimitiveSizes[0]); ++i)
+    {
+        if (std::strcmp(elementFullName, kPrimitiveSizes[i].name) == 0)
+        {
+            isRef = false;
+            break;
+        }
+    }
+    if (isRef && runtime::il2cpp_type_is_value_type(elemClass))
+    {
+        isRef = false;
+    }
+    return ArrayClassForElement(elemClass, isRef, rank);
 }
 
 Il2CppArray* il2cpp_array_clone(Il2CppArray* src)

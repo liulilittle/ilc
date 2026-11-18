@@ -6700,6 +6700,69 @@ public static class CodeGenerator
         string elementName = elementByte is 0x0E or 0x1C or 0x12 ? "System.Object" : elementFullName;
         return $"il2cpp::il2cpp_array_class_for_element_name(\"{elementName}\")";
     }
+
+    // A multidim ARRAY (0x14) TypeSpec target -> the rank-carrying array class
+    // descriptor. net48 keeps int[] and int[,] as DISTINCT types, so the target
+    // must not resolve to the single-dimension descriptor: the conformance test
+    // is an identity comparison, and reusing "[System.Int32" would make
+    // `(int[,])new int[]{...}` succeed and `(int[])new int[2,3]` succeed too.
+    //
+    // The element byte is decoded with the same table SzArrayArrayClassCpp uses
+    // (the ECMA-335 element-type byte -> full type name), then the rank is read
+    // from the ARRAY shape (rank, numSizes, sizes, numLoBounds, loBounds).
+    private static string MultidimArrayClassCpp(MetadataReader md, TypeSpecificationHandle handle)
+    {
+        var spec = md.GetTypeSpecification(handle);
+        var sig = md.GetBlobReader(spec.Signature);
+        var header = sig.ReadByte();
+        if (header != 0x14)
+            throw new NotSupportedException($"TypeSpec signature byte 0x{header:X2} not ARRAY(0x14) in M7");
+        var elementByte = sig.ReadByte();
+        string elementFullName;
+        switch (elementByte)
+        {
+            case 0x08: elementFullName = "System.Int32"; break;
+            case 0x02: elementFullName = "System.Boolean"; break;
+            case 0x03: elementFullName = "System.Char"; break;
+            case 0x04: elementFullName = "System.SByte"; break;
+            case 0x05: elementFullName = "System.Byte"; break;
+            case 0x06: elementFullName = "System.Int16"; break;
+            case 0x07: elementFullName = "System.UInt16"; break;
+            case 0x09: elementFullName = "System.UInt32"; break;
+            case 0x0A: elementFullName = "System.Int64"; break;
+            case 0x0B: elementFullName = "System.UInt64"; break;
+            case 0x0C: elementFullName = "System.Single"; break;
+            case 0x0D: elementFullName = "System.Double"; break;
+            case 0x0E: elementFullName = "System.String"; break;
+            case 0x1C: elementFullName = "System.Object"; break;
+            case 0x12:
+            case 0x11:
+            {
+                var elemHandle = sig.ReadTypeHandle();
+                elementFullName = elemHandle.Kind switch
+                {
+                    HandleKind.TypeReference => md.GetFullName((TypeReferenceHandle)elemHandle),
+                    HandleKind.TypeDefinition => md.GetFullName((TypeDefinitionHandle)elemHandle),
+                    HandleKind.TypeSpecification => GenericTypeSpecDefinitionName(md, (TypeSpecificationHandle)elemHandle),
+                    _ => throw new NotSupportedException($"ARRAY element kind {elemHandle.Kind} in M7"),
+                };
+                break;
+            }
+            case 0x13:
+            case 0x1E:
+                elementFullName = "System.Object";
+                break;
+            default:
+                throw new NotSupportedException($"ARRAY element type byte 0x{elementByte:X2} not supported in M7");
+        }
+        var rank = sig.ReadCompressedInteger();
+        var numSizes = sig.ReadCompressedInteger();
+        for (var i = 0; i < numSizes; i++) _ = sig.ReadCompressedInteger();
+        var numLoBounds = sig.ReadCompressedInteger();
+        for (var i = 0; i < numLoBounds; i++) _ = sig.ReadCompressedInteger();
+        string elementName = elementByte is 0x0E or 0x1C or 0x12 ? "System.Object" : elementFullName;
+        return $"il2cpp::il2cpp_array_class_for_element_name_rank(\"{elementName}\", {rank})";
+    }
     private static string? BclAllocExpr(string typeFullName)
     {
         // Every System.* exception type allocates through the exception
@@ -11540,7 +11603,15 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                 // element array (double[] here) resolves to nullptr and the
                 // isinst returns false -- .NET semantics (element types
                 // differ).
-                if (md.GetBlobReader(md.GetTypeSpecification(tsHandle).Signature).ReadByte() == 0x1D)
+                // A multidim ARRAY (0x14) target is the same kind of
+                // conformance test as SZARRAY (0x1D), but the rank is part of
+                // the identity: net48 keeps int[] and int[,] distinct, so the
+                // target class must carry the rank. Without this arm the 0x14
+                // TypeSpec fell through to GenericTypeSpecDefinitionName, which
+                // only accepts 0x15 and threw "TypeSpec signature byte 0x14 not
+                // GenericInst(0x15) in M5".
+                var tsHeader = md.GetBlobReader(md.GetTypeSpecification(tsHandle).Signature).ReadByte();
+                if (tsHeader is 0x1D or 0x14)
                 {
                     var objCodeArr = EmitExpr(c.Args[0], md, types);
                     // nullptr_t fix (boxing/boxdeep/boxdeep2): a NULL literal
@@ -11549,7 +11620,9 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
                     // C++). isinst(null)/castclass(null) are null (castclass
                     // does not throw on null -- ECMA) -> constant-shortcut.
                     if (objCodeArr == "nullptr") return "nullptr";
-                    var klassArr = SzArrayArrayClassCpp(md, tsHandle);
+                    var klassArr = tsHeader == 0x14
+                        ? MultidimArrayClassCpp(md, tsHandle)
+                        : SzArrayArrayClassCpp(md, tsHandle);
                     if (c.Function.StartsWith("castclass_", StringComparison.Ordinal))
                         return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? reinterpret_cast<Il2CppObject*>({objCodeArr}) : (({objCodeArr}) == nullptr ? nullptr : (il2cpp::il2cpp_throw_new(\"System.InvalidCastException,System.InvalidCastException,System.SystemException,System.Exception\", \"Unable to cast object to the target type.\"), nullptr)))";
                     return $"(il2cpp::il2cpp_is_instance({objCodeArr}, {klassArr}) ? reinterpret_cast<Il2CppObject*>({objCodeArr}) : nullptr)";
@@ -11776,7 +11849,14 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             var isRefElem = elemWidth == IntPtr.Size && (elemSuffix == "string" || elemSuffix == "object");
             var dimExprs = string.Join(", ", c.Args.Select(a => $"static_cast<int32_t>({EmitExpr(a, md, types)})"));
             var tag = isRefElem ? "ref" : "v";
-            var alloc = $"il2cpp::il2cpp_array_new_multi_{tag}{mdRank}d(nullptr, {elemWidth}, {(isRefElem ? "true" : "false")}, {dimExprs})";
+            // The element descriptor must be passed, not nullptr: the allocator
+            // stamps the array's class from it, and a multidim array needs its
+            // OWN rank-carrying class ("[System.Int32,2") so that `(int[,])x`
+            // and `(int[])x` are different identities. With nullptr the array
+            // fell back to the fixed single-dimension descriptor and the two
+            // ranks were indistinguishable.
+            var mdElemClass = MdSuffixElementClassCpp(elemSuffix);
+            var alloc = $"il2cpp::il2cpp_array_new_multi_{tag}{mdRank}d({mdElemClass}, {elemWidth}, {(isRefElem ? "true" : "false")}, {dimExprs})";
             return $"reinterpret_cast<Il2CppObject*>({alloc})";
         }
         if (c.Function.StartsWith("ldlen_", StringComparison.Ordinal))
@@ -14201,6 +14281,29 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
     // b5-gaps 13: the value families join with the arrayinit-vt cell widths
     // (the allocation passes elemSize verbatim -- il2cpp_array_new_multi
     // strides and zeroes the payload for any width).
+    // The element class descriptor for an M3 multidim element suffix. The
+    // allocator needs it to stamp the array's rank-carrying class; a suffix
+    // with no descriptor in this build answers nullptr, which the allocator
+    // treats as the shared object-array class (the pre-existing behaviour).
+    private static string MdSuffixElementClassCpp(string suffix) => suffix switch
+    {
+        "bool" => "&System_Boolean_class",
+        "char" => "&System_Char_class",
+        "sbyte" => "&System_SByte_class",
+        "byte" => "&System_Byte_class",
+        "short" => "&System_Int16_class",
+        "ushort" => "&System_UInt16_class",
+        "int" => "&System_Int32_class",
+        "uint" => "&System_UInt32_class",
+        "long" => "&System_Int64_class",
+        "ulong" => "&System_UInt64_class",
+        "float" => "&System_Single_class",
+        "double" => "&System_Double_class",
+        "string" => "&System_String_class",
+        "object" => "&System_Object_class",
+        _ => "nullptr",
+    };
+
     private static readonly (string Suffix, int Width)[] MdSuffixTable =
     {
         ("bool", 1), ("char", 2), ("sbyte", 1), ("byte", 1),

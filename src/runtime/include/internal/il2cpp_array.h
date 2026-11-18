@@ -164,6 +164,20 @@ Il2CppArray* il2cpp_array_clone(Il2CppArray* src);
 //   correct conformance answer: an unregistered element type cannot match).
 Il2CppClass* il2cpp_array_class_for_element_name(const char* elementFullName);
 
+// il2cpp_array_class_for_element_name_rank -- the same lookup for a
+// MULTI-DIMENSIONAL array target ("System.Int32" + rank 2 -> "[System.Int32,2").
+//
+//   net48 keeps int[] and int[,] as DISTINCT types, so `(int[,])x` must not
+//   accept an int[] and `(int[])x` must not accept an int[,]. The rank is part
+//   of the class name for exactly that reason: the conformance test is an
+//   identity comparison, so two arrays of the same element type but different
+//   ranks must not share a descriptor.
+//
+//   rank 1 is the SZARRAY form and delegates to the unranked lookup, so the
+//   single-dimension descriptors (g_int32ArrayClass / g_objectArrayClass /
+//   the synthesized "[<element>") stay exactly as they were.
+Il2CppClass* il2cpp_array_class_for_element_name_rank(const char* elementFullName, int32_t rank);
+
 // Rank-fixed multidim int32 element access (GN-3): index -> flat offset
 // (row-major), per-dimension bounds check (net48 IndexOutOfRangeException,
 // catchable; null receiver -> NullReferenceException).
