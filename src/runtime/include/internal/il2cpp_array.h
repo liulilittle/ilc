@@ -151,6 +151,19 @@ Il2CppArray* il2cpp_array_create_instance_dims(Il2CppObject* elemTypeName, Il2Cp
 // array class, so GetType().Name reports the same "T[]".
 Il2CppArray* il2cpp_array_clone(Il2CppArray* src);
 
+// il2cpp_array_class_for_element_name -- the array class descriptor for an
+// element type named by its full name ("System.Int64" -> "[System.Int64").
+//
+//   The castclass/isinst path needs this BEFORE any array of that element type
+//   has been allocated: il2cpp_class_by_name only answers classes that are
+//   already registered, and a synthesized element-array class is registered on
+//   first allocation. So `(long[])x` used to fail with "Unable to cast object
+//   to the target type" whenever no long[] had been allocated yet.
+//
+//   Returns nullptr when the element name has no descriptor in this build (the
+//   correct conformance answer: an unregistered element type cannot match).
+Il2CppClass* il2cpp_array_class_for_element_name(const char* elementFullName);
+
 // Rank-fixed multidim int32 element access (GN-3): index -> flat offset
 // (row-major), per-dimension bounds check (net48 IndexOutOfRangeException,
 // catchable; null receiver -> NullReferenceException).

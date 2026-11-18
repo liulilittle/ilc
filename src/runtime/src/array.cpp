@@ -28,6 +28,7 @@
 #include "il2cpp_time.h"
 #include "typeinfo.h" // Array.CreateInstance: the element type resolves through the typeinfo registry
 #include "enumext.h" // Array.CreateInstance: an enum element strides by its underlying primitive
+#include "il2cpp_typeext.h" // il2cpp_array_class_for_element_name: value-vs-reference element test
 #include "il2cpp_array_md_vt.h" // the value-element multidim accessors defined below
 
 #include <cstddef>
@@ -359,6 +360,19 @@ constexpr int kArrayNameBufferSize = 256;
 const char kArrayNotSupportedChain[] =
     "System.NotSupportedException,System.NotSupportedException,System.SystemException,System.Exception";
 
+// The .NET primitive full names and their ELEMENT widths. Used both for the
+// Array.CreateInstance element size and for the value-vs-reference decision in
+// il2cpp_array_class_for_element_name (a primitive descriptor's baseClass is
+// System.Object, so the base chain cannot answer it).
+const struct { const char* name; int32_t size; } kPrimitiveSizes[] = {
+    { "System.Boolean", 1 }, { "System.Byte", 1 }, { "System.SByte", 1 },
+    { "System.Char", 2 },    { "System.Int16", 2 }, { "System.UInt16", 2 },
+    { "System.Int32", 4 },   { "System.UInt32", 4 }, { "System.Single", 4 },
+    { "System.Int64", 8 },   { "System.UInt64", 8 }, { "System.Double", 8 },
+    { "System.IntPtr", static_cast<int32_t>(sizeof(void*)) },
+    { "System.UIntPtr", static_cast<int32_t>(sizeof(void*)) },
+};
+
 // Resolve the simplified Type model to (klass, elemSize, isRefElement).
 // Returns false when the name has no descriptor in this build.
 bool ResolveElementType(Il2CppObject* elemTypeName, Il2CppClass** outClass,
@@ -406,14 +420,8 @@ bool ResolveElementType(Il2CppObject* elemTypeName, Il2CppClass** outClass,
     // element stride. Using it allocated every primitive array at 4x the right
     // size (measured: Buffer.ByteLength(int[3]) returned 48, net48 says 12).
     // The element stride is the primitive's own width, so map it by name.
-    static const struct { const char* name; int32_t size; } kPrimitiveSizes[] = {
-        { "System.Boolean", 1 }, { "System.Byte", 1 }, { "System.SByte", 1 },
-        { "System.Char", 2 },    { "System.Int16", 2 }, { "System.UInt16", 2 },
-        { "System.Int32", 4 },   { "System.UInt32", 4 }, { "System.Single", 4 },
-        { "System.Int64", 8 },   { "System.UInt64", 8 }, { "System.Double", 8 },
-        { "System.IntPtr", static_cast<int32_t>(sizeof(void*)) },
-        { "System.UIntPtr", static_cast<int32_t>(sizeof(void*)) },
-    };
+    // (kPrimitiveSizes is declared at file scope above -- ArrayClassForElement
+    // name resolution needs the same table.)
     for (size_t i = 0; i < sizeof(kPrimitiveSizes) / sizeof(kPrimitiveSizes[0]); ++i)
     {
         if (std::strcmp(buf, kPrimitiveSizes[i].name) == 0)
@@ -548,6 +556,97 @@ Il2CppArray* il2cpp_array_create_instance_dims(Il2CppObject* elemTypeName, Il2Cp
 //   A null receiver is a NullReferenceException (net48: ((Array)null).Clone()
 //   throws NRE).
 //------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+// il2cpp_array_class_for_element_name -- the array class for an element type
+// named by its full name.
+//
+//   The castclass/isinst path runs BEFORE any array of that element type may
+//   have been allocated, and a synthesized element-array class is registered on
+//   first allocation (ArrayClassForElement). So a plain il2cpp_class_by_name
+//   lookup answers nullptr for "[System.Int64" until some long[] exists, and
+//   `(long[])x` then fails with "Unable to cast object to the target type".
+//   This resolves the ELEMENT descriptor first and synthesizes the array class
+//   through the same pool the allocator uses, so the cast works regardless of
+//   allocation order.
+//
+//   nullptr when the element name has no descriptor (an unregistered element
+//   type cannot match -- the correct conformance answer).
+//------------------------------------------------------------------------------
+Il2CppClass* il2cpp_array_class_for_element_name(const char* elementFullName)
+{
+    if (elementFullName == nullptr)
+    {
+        return nullptr;
+    }
+    EnsureArraysRegistered();
+    // The shared object-array class answers for System.Object directly.
+    if (std::strcmp(elementFullName, "System.Object") == 0)
+    {
+        return &g_objectArrayClass;
+    }
+    // int32[] is the one primitive array with a FIXED descriptor, and
+    // il2cpp_array_new returns it for an int element (array.cpp: `arrayClass =
+    // isRefElement ? ArrayClassForElement(elemClass) : &g_int32ArrayClass`, then
+    // the elemClass != Int32 guard leaves it). Synthesizing a separate
+    // "[System.Int32" here would make `(int[])x` fail on a pointer mismatch --
+    // measured: i8/f8/ref passed while i4 alone threw.
+    if (std::strcmp(elementFullName, "System.Int32") == 0)
+    {
+        return &g_int32ArrayClass;
+    }
+    // The NARROW primitives (byte/sbyte/short/ushort/char/bool) are allocated
+    // with a nullptr element class: the transpiler only passes a descriptor for
+    // int/long/single/double/uint (CodeGenerator `valueElemClass`), so
+    // il2cpp_array_new takes the `!isRefElement && elemClass != nullptr` guard's
+    // ELSE branch and stores the fixed int32 array class. Answer the same class
+    // here, or `(short[])x` fails on a pointer mismatch while long[]/double[]
+    // pass. Measured: i8/f8/ref/i4 passed, i2 alone threw.
+    {
+        static const char* const kNarrow[] = {
+            "System.Boolean", "System.Byte", "System.SByte",
+            "System.Char", "System.Int16", "System.UInt16",
+        };
+        for (size_t i = 0; i < sizeof(kNarrow) / sizeof(kNarrow[0]); ++i)
+        {
+            if (std::strcmp(elementFullName, kNarrow[i]) == 0)
+            {
+                return &g_int32ArrayClass;
+            }
+        }
+    }
+    Il2CppClass* elemClass = il2cpp_class_by_name(elementFullName);
+    if (elemClass == nullptr)
+    {
+        return nullptr;
+    }
+    // A reference element shares the object-array class (net48: string[] IS-A
+    // object[]); a value element gets its own synthesized class.
+    //
+    // The value/reference decision CANNOT come from il2cpp_type_is_value_type:
+    // it walks the base chain looking for System.ValueType, and a primitive's
+    // descriptor has baseClass System.Object (metadata.cpp deliberately models a
+    // boxed primitive as IS-A object), so it answers 0 for System.Int64. Using
+    // that answer made this return the REF array class while il2cpp_array_new
+    // returns the VALUE one, so `(long[])x` failed on a pointer mismatch.
+    // The primitive width table IS the value-type table here, and any other
+    // registered element is a reference type unless it is a translated struct
+    // (whose descriptor has instanceSize > pointerSize and a ValueType base).
+    bool isRef = true;
+    for (size_t i = 0; i < sizeof(kPrimitiveSizes) / sizeof(kPrimitiveSizes[0]); ++i)
+    {
+        if (std::strcmp(elementFullName, kPrimitiveSizes[i].name) == 0)
+        {
+            isRef = false;
+            break;
+        }
+    }
+    if (isRef && runtime::il2cpp_type_is_value_type(elemClass))
+    {
+        isRef = false;
+    }
+    return ArrayClassForElement(elemClass, isRef);
+}
+
 Il2CppArray* il2cpp_array_clone(Il2CppArray* src)
 {
     if (src == nullptr)
@@ -555,7 +654,19 @@ Il2CppArray* il2cpp_array_clone(Il2CppArray* src)
         il2cpp_throw_null_reference_exception(nullptr);
     }
     const int32_t rank = src->rank < 1 ? 1 : src->rank;
-    Il2CppArray* dst = il2cpp_array_new_multi(src->elemClass, src->elemSize,
+    // src->elemClass is NULL for a VALUE array (il2cpp_array_new records it only
+    // for reference arrays), so passing it straight through would allocate the
+    // clone as the fixed int32 array class and `((long[])x.Clone())` would then
+    // fail to cast. Recover the element descriptor from the SOURCE'S OWN CLASS
+    // NAME ("[System.Int64" -> "System.Int64"), which il2cpp_array_new stamps
+    // from the element descriptor the transpiler passed.
+    Il2CppClass* cloneElemClass = src->elemClass;
+    if (cloneElemClass == nullptr && src->obj.klass != nullptr
+        && src->obj.klass->name != nullptr && src->obj.klass->name[0] == '[')
+    {
+        cloneElemClass = il2cpp_class_by_name(src->obj.klass->name + 1);
+    }
+    Il2CppArray* dst = il2cpp_array_new_multi(cloneElemClass, src->elemSize,
                                               src->isRefElem, rank, src->dims);
     // il2cpp_array_new_multi recomputes elemKind from the element descriptor,
     // which loses the primitive kind for a descriptor-less array (int32[] keeps

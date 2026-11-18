@@ -199,3 +199,8 @@ probe-arraycreate  # GREEN anchor: Array.CreateInstance must allocate a sized ar
 # element payload copied verbatim (reference elements copy the SLOTS). Covers
 # int[]/string[] clones, clone independence, and the shallow reference contract.
 probe-arrayclone  # GREEN anchor: Array.Clone must copy the payload into a new array
+# The castclass/isinst path must SYNTHESIZE the element-array class, not just
+# query the registry: a synthesized class is registered on first allocation, so
+# (long[])x used to fail whenever no long[] existed yet. Covers i8/f8/ref/i4/i2/u1
+# plus a failing cast that must throw InvalidCastException.
+probe-arraycast  # GREEN anchor: array casts resolve the element class on demand

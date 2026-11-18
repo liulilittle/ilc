@@ -6688,10 +6688,17 @@ public static class CodeGenerator
                 throw new NotSupportedException($"SZARRAY element type byte 0x{elementByte:X2} not supported in M7");
         }
         // Reference elements share the single object-array class ("[System.Object");
-        // int32 is the only registered primitive array class. Any other element
-        // yields an unregistered name -> il2cpp_class_by_name nullptr -> isinst false.
-        string arrayName = elementByte is 0x0E or 0x1C or 0x12 ? "[System.Object" : $"[{elementFullName}";
-        return $"il2cpp::il2cpp_class_by_name(\"{arrayName}\")";
+        // a value element gets its own synthesized class ("[System.Int64").
+        //
+        // The lookup must SYNTHESIZE, not just query: a synthesized element-array
+        // class is registered on first allocation (ArrayClassForElement), so a
+        // plain il2cpp_class_by_name answers nullptr for "[System.Int64" until
+        // some long[] exists -- and `(long[])x` then fails with "Unable to cast
+        // object to the target type". il2cpp_array_class_for_element_name
+        // resolves the element descriptor and synthesizes through the same pool,
+        // so the cast works regardless of allocation order.
+        string elementName = elementByte is 0x0E or 0x1C or 0x12 ? "System.Object" : elementFullName;
+        return $"il2cpp::il2cpp_array_class_for_element_name(\"{elementName}\")";
     }
     private static string? BclAllocExpr(string typeFullName)
     {

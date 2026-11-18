@@ -25,5 +25,18 @@ class Program
         string[] s2ca = (string[])s2c;
         s2ca[0] = "z";
         Console.WriteLine("shallow:" + s2[0] + ":" + s2ca[0]);
+
+        // A clone of a long[]/double[] array: the cast back to the concrete
+        // array type needs the element-array class synthesized on demand
+        // (il2cpp_array_class_for_element_name), not just looked up.
+        long[] l = { 9000000000L, 7000000000L };
+        object lc = l.Clone();
+        long[] lca = (long[])lc;
+        Console.WriteLine("i8:" + lca.Length + ":" + lca[0] + ":" + lca[1]);
+
+        double[] f = { 1.5, 2.5 };
+        object fc = f.Clone();
+        double[] fca = (double[])fc;
+        Console.WriteLine("f8:" + fca.Length + ":" + fca[0] + ":" + fca[1]);
     }
 }
