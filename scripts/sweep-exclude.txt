@@ -57,3 +57,8 @@ w11probe-getters   # LOUD contract: W11 P0-A Console getters (Title/colors/curso
 # The note keeps difftest.ps1 on its normal path so loud-gate.ps1 still executes
 # it and verifies the rejection.
 loud-marshal-hr  # LOUD contract: phantom BCL calls must be rejected at the emitter, never emitted as undefined symbols
+
+# --- Phantom guard, DELEGATE half (controlled set = scripts/loud-contracts.txt) ---
+# Registered here so a full-pool run does not count it a permanent FAIL while
+# loud-gate still executes it and verifies the rejection.
+loud-marshal-hr-delegate  # LOUD contract: a delegate bound to an unmapped BCL method must reject, never emit &<phantom>

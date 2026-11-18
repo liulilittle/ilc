@@ -84,7 +84,12 @@ $evidence = @(
     "Unhandled managed exception",
     "not transpiled",
     "culture-aware collation",
-    "no cell ABI"
+    "no cell ABI",
+    # A rejection raised while RESOLVING (not while running) never reaches the
+    # runtime, so it produces neither of the two strings above. The phantom
+    # guard is one: a delegate bound to an unmapped BCL method fails the
+    # transpile itself with "LOUD whitelist (runtime-descriptor/COM)".
+    "LOUD whitelist"
 )
 
 $failures = New-Object System.Collections.Generic.List[string]

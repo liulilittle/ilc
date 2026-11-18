@@ -55,3 +55,10 @@ w11probe-getters   # LOUD contract: W11 P0-A Console getters (Title/colors/curso
 # ex.GetType(): that member is itself a fold-time phantom reject and would mask which
 # guard fired.
 loud-marshal-hr  # LOUD contract: phantom BCL calls must be rejected at the emitter, never emitted as undefined symbols
+
+# --- Phantom guard, DELEGATE half ---
+# A phantom name used as a FUNCTION POINTER (&Name) is worse than a call: the
+# transpile used to EXIT 0 and the undefined symbol only surfaced at cmake.
+# CodeGenerator.MethodCppNameFromToken now rejects it. Separate from
+# loud-marshal-hr because the two take different emitter paths.
+loud-marshal-hr-delegate  # LOUD contract: a delegate bound to an unmapped BCL method must reject, never emit &<phantom>

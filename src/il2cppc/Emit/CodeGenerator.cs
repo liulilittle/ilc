@@ -9029,6 +9029,13 @@ default: return false;                           // primitives/VAR(handled by ca
     private static string MethodCppNameFromToken(int token, MetadataReader md, IReadOnlyList<TypeDef> types)
     {
         var resolved = MethodRefResolver.Resolve(md, token, types);
+        // This name is used as a FUNCTION POINTER (&Name), so a phantom here is
+        // worse than an ordinary call: the transpile SUCCEEDS and the undefined
+        // symbol only surfaces at link time. A delegate bound to an unmapped BCL
+        // method (Func<int,Exception> f = Marshal.GetExceptionForHR) took this
+        // path and emitted &System_Runtime_InteropServices_Marshal_
+        // GetExceptionForHR_<hash>, which no translation unit defines.
+        MethodRefResolver.RequireResolvable(resolved);
         return resolved.CppName;
     }
 
