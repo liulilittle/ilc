@@ -124,3 +124,11 @@ probe-excparamname  # GREEN anchor: ParamName must be per-exception, carrier inc
 # getter never sees. Lines cover set/read round-trip, replacement, zero as a
 # legal value, the negative range, and GetLastWin32Error reading the same slot.
 probe-pinvoke-error  # GREEN anchor: PInvoke error code round-trips through both members
+
+# ProbeMarshalHelpers: the public Marshal surface whose native helpers
+# (SizeOfHelper / OffsetOfHelper / PtrToStructureHelper) are among the 68
+# reachable-but-internal gaps -- these calls work, which is what proves those
+# gaps are not load-bearing for user code. Restricted to the registered struct
+# family: SizeOf/OffsetOf on a user struct is a documented LOUD boundary, and
+# Marshal.GetExceptionForHR has no runtime HR->Exception conversion.
+probe-marshal-helpers  # GREEN anchor: Marshal.SizeOf/PtrToStructure over the registered struct family

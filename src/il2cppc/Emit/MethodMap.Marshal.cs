@@ -825,6 +825,17 @@ public static partial class MethodRefResolver
         "GetIUnknownForObjectInContext",
         "GetLoadedTypeForGUID",
         "GetRawIUnknownForComObjectNoAddRef",
+        // No HR->Exception conversion exists in the runtime (no
+        // GetExceptionForHR / exception_for_hr symbol in src/runtime), so this
+        // family had no arm and fell through to the generated-name path,
+        // emitting System_Runtime_InteropServices_Marshal_GetExceptionForHR_<hash>
+        // -- a symbol nothing defines. Found by building
+        // tests/cases/probe-marshal-helpers, whose PtrToStructure/SizeOf siblings
+        // DO work; the public wrapper, not its internal target, was the gap.
+        "GetExceptionForHR",
+        "ThrowExceptionForHR",
+        "GetHRForException",
+        "GetHRForLastWin32Error",
         // net8's Marshal.GetTypeFromCLSID(Guid) returns a TRANSPARENT RCW whose
         // runtime type is System.__ComObject (confirmed against the net8
         // oracle, tests/cases/probe-marshal-clsid), not the COMCLSID sentinel
