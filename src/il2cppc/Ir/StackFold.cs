@@ -4503,8 +4503,8 @@ public static class StackFold
                     // The type set is populated at newobj from the ctor
                     // signature -- the only way to know a BCL type is a
                     // delegate, since those types are not in the model.
-                    if (!(recvType != null && delegateTypeNames.Contains(recvType)
-                          && IsDelegateInvokeName(md, (int)ins.Operand)))
+                    if (!(recvType != null && IsDelegateInvokeName(md, (int)ins.Operand)
+                          && (delegateTypeNames.Contains(recvType) || IsDelegateType(recvType, types))))
                     resolved = MethodRefResolver.Resolve(md, (int)ins.Operand, types ?? Array.Empty<TypeDef>(),
                         recvType, args[0] is LocAddrExpr or StaticFieldAddrExpr
                             || (args[0] is LocExpr ptrRecv2 && LocWidth(ptrRecv2.Name, ctx, tempWidths) == "ptr"),

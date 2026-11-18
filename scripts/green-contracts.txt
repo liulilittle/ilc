@@ -1,4 +1,4 @@
-﻿# W11 green contract set: cases that MUST stay byte-exact GREEN.
+# W11 green contract set: cases that MUST stay byte-exact GREEN.
 #
 # This is the mirror image of scripts/loud-contracts.txt:
 #   loud-contracts.txt  -> every case MUST exit non-zero (a documented rejection)
@@ -148,3 +148,14 @@ probe-interlocked-widths  # GREEN anchor: unsigned Interlocked widths + And/Or r
 # A guard that exempts the delegate families must be exercised by a case that
 # uses them.
 corelibp0  # GREEN anchor: P0 CoreLib surface must transpile and stay byte-exact
+
+# DelegateBclInvoke: every BCL delegate family, without a name list.
+# Construction is decided by the ctor signature (Void .ctor(Object, native int))
+# and invocation by the tracked receiver type. Covers a System.dll delegate
+# (PropertyChangedEventHandler), a mscorlib reflection callback (MemberFilter),
+# a generic delegate (Func<int,int>), and the CROSS-METHOD shape that regressed
+# corelibp0 -- a delegate constructed in one method and invoked in another,
+# which a per-fold type set cannot see. Delegate.Combine/Remove are exercised
+# through the Delegate-typed result without a castclass back to Action (castclass
+# to a BCL delegate is a separate, pre-existing gap).
+delegate-bcl-invoke  # GREEN anchor: BCL delegate construction + Invoke across method boundaries

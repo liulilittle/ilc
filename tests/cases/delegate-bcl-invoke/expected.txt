@@ -1,0 +1,1 @@
+﻿pce=True mf=True r=42 comb=True rem=True
