@@ -117,6 +117,13 @@ bool icall_array_get_is_read_only(Il2CppObject* arr);
 bool icall_array_get_is_synchronized(Il2CppObject* arr);
 // Instance Array.get_SyncRoot: net48 answers the array itself.
 Il2CppObject* icall_array_get_sync_root(Il2CppObject* arr);
+// Instance Array.GetEnumerator(): the non-generic IEnumerator over the array.
+// The enumerator is the shared Il2CppArrayEnumerator (array + index), so
+// MoveNext/Reset/Dispose are the il2cpp_sortedlist_enumerator_* icalls.
+Il2CppObject* icall_array_get_enumerator(Il2CppObject* arr);
+// IEnumerator.get_Current for the array enumerator: the element at the cursor,
+// boxed for a value element (net48 IEnumerator.Current is object).
+Il2CppObject* icall_array_enumerator_get_current(Il2CppObject* self);
 
 // Static Array.GetElementSize(Array) (netcore31+ audit gap): the array's
 // element stride in bytes (the allocator-stamped elemSize field). A null

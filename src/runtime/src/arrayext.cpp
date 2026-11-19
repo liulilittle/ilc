@@ -33,6 +33,10 @@
 #include "il2cpp_array.h"
 #include "il2cpp_exception.h"
 #include "il2cpp_gc.h"
+#include "arrayextra.h"   // il2cpp_array_get_value_at_offset (boxed element read)
+#include "sortedlist.h"   // Il2CppArrayEnumerator + its class descriptor
+#include "il2cpp_gcroot.h" // GcRoot (the enumerator allocation may move the array)
+#include "il2cpp_runtime.h" // il2cpp_object_new
 
 #include <cstdint>
 #include <cstring>
@@ -464,6 +468,53 @@ Il2CppObject* icall_array_get_sync_root(Il2CppObject* arr)
 {
     (void)RequireInstanceArray(arr);
     return arr;
+}
+
+//------------------------------------------------------------------------------
+// icall_array_get_enumerator -- instance Array.GetEnumerator(): the non-generic
+// IEnumerator over the array.
+//
+//   The enumerator object is the SAME Il2CppArrayEnumerator the SortedList
+//   snapshot path uses (array + index, index -1 = before the first element), so
+//   MoveNext/Reset/Dispose are the existing il2cpp_sortedlist_enumerator_*
+//   icalls. Only the element READ differs: Array.GetEnumerator must box a value
+//   element (net48 IEnumerator.Current is object), which is exactly what
+//   il2cpp_array_get_value_at_offset already does for every recorded element
+//   kind.
+//
+//   The array is stored in the enumerator's GC-scanned field, so it stays
+//   reachable while the foreach runs. il2cpp_object_new may compact and MOVE
+//   the receiver, so it is rooted and re-read before the store.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_array_get_enumerator(Il2CppObject* arr)
+{
+    Il2CppArray* a = RequireInstanceArray(arr);
+    (void)a;
+    GcRoot<Il2CppObject*> root(arr, "icall_array_get_enumerator");
+    Il2CppArrayEnumerator* en = reinterpret_cast<Il2CppArrayEnumerator*>(
+        il2cpp_object_new(&System_Collections_SortedList_Enumerator_class));
+    arr = root.Get();
+    en->array = reinterpret_cast<Il2CppArray*>(arr);
+    il2cpp_write_barrier(reinterpret_cast<void**>(&en->array),
+                         reinterpret_cast<Il2CppObject*>(en->array));
+    en->index = -1;
+    return reinterpret_cast<Il2CppObject*>(en);
+}
+
+//------------------------------------------------------------------------------
+// icall_array_enumerator_get_current -- IEnumerator.get_Current for the array
+// enumerator: the element at the cursor, BOXED for a value element (net48
+// IEnumerator.Current is object). Delegates to the shared boxed element read so
+// every recorded element kind keeps its exact box type.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_array_enumerator_get_current(Il2CppObject* self)
+{
+    if (self == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    Il2CppArrayEnumerator* en = reinterpret_cast<Il2CppArrayEnumerator*>(self);
+    return il2cpp_array_get_value_at_offset(en->array, en->index);
 }
 
 //------------------------------------------------------------------------------

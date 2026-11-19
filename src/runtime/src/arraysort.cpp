@@ -5230,8 +5230,17 @@ Il2CppObject* il2cpp_ienum_get_current_obj(Il2CppObject* receiver)
     }
     // P25d: the snapshot-object receivers forward (the non-generic get_Current
     // over a Dictionary enumerator still yields the pair object).
+    //
+    // The SortedList enumerator class is ALSO the class Array.GetEnumerator
+    // stamps on its enumerator (the shared Il2CppArrayEnumerator), and that
+    // enumerator can wrap a VALUE array. il2cpp_sortedlist_enumerator_get_current
+    // reads the slot as an Il2CppObject* (correct only for a reference array),
+    // so a value array must go through ArrayEnumRef, which boxes by element
+    // kind. Measured: routing an int[] enumerator through the reference read
+    // dereferenced the int payload as a pointer and crashed with an access
+    // violation.
     if (receiver->klass == &System_Collections_SortedList_Enumerator_class)
-        return il2cpp::runtime::il2cpp_sortedlist_enumerator_get_current(receiver);
+        return ArrayEnumRef(receiver);
     if (receiver->klass == &System_Collections_Generic_Dictionary_2_Enumerator_string_int_class)
         return il2cpp_dict_si_enumerator_get_current(receiver);
     const int32_t slot = FindIEnumSlot(receiver, kIEnumGetCurrentObj, "get_Current");

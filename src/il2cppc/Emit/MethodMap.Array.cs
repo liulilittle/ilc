@@ -1176,6 +1176,14 @@ public static partial class MethodRefResolver
             case "get_IsSynchronized":
                 // No automatic synchronization: net48 answers FALSE.
                 return I("il2cpp::runtime::icall_array_get_is_synchronized", 0, true, false, true);
+            case "GetEnumerator":
+                // Array.GetEnumerator(): the non-generic IEnumerator. The
+                // enumerator object is the shared Il2CppArrayEnumerator, so
+                // MoveNext/Reset/Dispose ride the existing
+                // il2cpp_sortedlist_enumerator_* icalls; only the element read
+                // needs the array-specific boxed accessor.
+                return I("il2cpp::runtime::icall_array_get_enumerator", 0, true, true, true,
+                    returnTypeName: "System.Collections.IEnumerator");
             case "get_SyncRoot":
                 // net48 answers the array ITSELF as the synchronization object.
                 // ReturnsRef (the 4th I() flag) is what declares the result

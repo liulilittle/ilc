@@ -242,3 +242,12 @@ probe-arrayapi  # GREEN anchor: Array search surface + GetLongLength + IList fla
 # calls. The mapping arm needs ReturnsRef (the 4th I() flag) or the result temp
 # is declared int32_t and the generated C++ rejects the pointer assignment.
 probe-arraysync  # GREEN anchor: SyncRoot is the array itself, stable, null throws
+
+# Array.GetEnumerator: the non-generic IEnumerator over the array. The
+# enumerator object is the shared Il2CppArrayEnumerator, so MoveNext/Reset ride
+# the existing il2cpp_sortedlist_enumerator_* icalls. The element READ must box
+# a value element: il2cpp_ienum_get_current_obj routes the SortedList enumerator
+# class through ArrayEnumRef (which boxes by element kind), NOT through the
+# reference-only il2cpp_sortedlist_enumerator_get_current -- that read
+# dereferences the int payload as a pointer and crashes.
+probe-arrayenum  # GREEN anchor: array enumerator boxes value elements on the object carrier
