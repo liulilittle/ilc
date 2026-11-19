@@ -109,6 +109,30 @@ internal static class Program
                 var hintless = Call(md, owner, name, m.Signature, null);
                 var hinted = Call(md, owner, name, m.Signature, owner);
 
+                // A GENERIC method's mapping arm dispatches on the generic
+                // ARGUMENT bytes (Array.Empty<T> -> icall_array_empty_int32 for
+                // T=int32, and so on), so resolving the open definition with
+                // genArgs == null reports "unmapped" for a member that IS
+                // wired. Retry with a placeholder instantiation: the arm only
+                // needs SOME argument byte to pick a branch, and a resolved
+                // symbol from any instantiation proves the arm exists.
+                //
+                // This is a probe-side correction, not a transpiler change: the
+                // real transpiler always has the closed MethodSpec.
+                if (hintless.Symbol == null && hinted.Symbol == null
+                    && m.GetGenericParameters().Count > 0)
+                {
+                    var placeholder = new byte[m.GetGenericParameters().Count];
+                    for (var gi = 0; gi < placeholder.Length; gi++) placeholder[gi] = 0x08; // int32
+                    var gHintless = Call(md, owner, name, m.Signature, null, placeholder);
+                    var gHinted = Call(md, owner, name, m.Signature, owner, placeholder);
+                    if (gHinted.Symbol != null || gHintless.Symbol != null)
+                    {
+                        hintless = gHintless;
+                        hinted = gHinted;
+                    }
+                }
+
                 var resolved = hinted.Symbol ?? hintless.Symbol;
                 var loud = hinted.Loud || hintless.Loud;
                 var err = hinted.Error ?? hintless.Error;
@@ -139,13 +163,14 @@ internal static class Program
     [ThreadStatic] private static bool _inCall;
     [ThreadStatic] private static string? _currentSite;
 
-    private static ProbeResult Call(MetadataReader md, string owner, string name, BlobHandle sig, string? receiverType)
+    private static ProbeResult Call(MetadataReader md, string owner, string name, BlobHandle sig, string? receiverType,
+        byte[]? genArgs = null)
     {
         _inCall = true;
         _currentSite = null;
         try
         {
-            var r = MethodRefResolver.BclResolve(md, owner, name, sig, null, receiverType,
+            var r = MethodRefResolver.BclResolve(md, owner, name, sig, genArgs, receiverType,
                 receiverIsAddress: false, arg0Type: null, arg1Type: null);
             return new ProbeResult(r?.CppName, false, null, null);
         }
