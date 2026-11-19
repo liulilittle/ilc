@@ -35,7 +35,10 @@
 
 #include <cstdint>
 
-namespace il2cpp { namespace runtime {
+namespace il2cpp {
+struct Il2CppObject; // forward: the (string, int) overload family below
+
+namespace runtime {
 
 // char.IsDigit(char) -- ASCII digit (U+0030-U+0039).
 bool icall_char_is_digit(char16_t c);
@@ -73,5 +76,42 @@ bool icall_char_is_low_surrogate(char16_t c);
 bool icall_char_is_separator(char16_t c);
 bool icall_char_is_symbol(char16_t c);
 double icall_char_get_numeric_value(char16_t c);
+
+// The (string, int) overload family. net48 declares a SECOND set of the same
+// classification methods that index into a string instead of taking one char:
+// char.IsDigit(s, i), char.IsLetter(s, i), ... Only the single-char overloads
+// were wired, so every call here failed to transpile with "no BCL mapping in
+// M5" -- a whole-method loss, since the BCL body is not in the input assembly.
+//
+// The contract is exactly "classify s[index]": the same predicate the char
+// overload answers, applied to the selected code unit. The index is bounds
+// checked against the string length and throws
+// ArgumentOutOfRangeException when out of range (net48 behaviour); a null
+// string throws NullReferenceException. Each entry is a thin adapter over the
+// char overload above, so the two families can never disagree.
+//
+// The UnicodeCategory return is the enum's NUMERIC value (contract pinned by
+// the probe), matching the int32 ABI slot the emitter allocates.
+bool icall_char_s_is_digit(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_letter(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_upper(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_lower(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_whitespace(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_punctuation(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_symbol(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_separator(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_control(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_surrogate(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_high_surrogate(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_low_surrogate(Il2CppObject* s, int32_t index);
+bool icall_char_s_is_number(Il2CppObject* s, int32_t index);
+// char.IsSurrogatePair(char, char): true when the FIRST unit is a high
+// surrogate and the second a low one (net48: 0xD800-0xDBFF followed by
+// 0xDC00-0xDFFF). net48 also declares (string, int), covered by
+// icall_char_s_is_surrogate_pair below.
+bool icall_char_is_surrogate_pair(char16_t high, char16_t low);
+bool icall_char_s_is_surrogate_pair(Il2CppObject* s, int32_t index);
+int32_t icall_char_s_get_unicode_category(Il2CppObject* s, int32_t index);
+double icall_char_s_get_numeric_value(Il2CppObject* s, int32_t index);
 
 }} // namespace il2cpp::runtime

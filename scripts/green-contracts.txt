@@ -272,3 +272,15 @@ probe-arrayreadonly  # GREEN anchor: Array.AsReadOnly returns a live ReadOnlyCol
 # ushort share i2, int/uint/single share i4, long/ulong/double share i8,
 # IntPtr -> ip, UIntPtr -> up, every reference -> obj.
 p-nb4-gc  # GREEN anchor: Volatile fence atomics over every net48 width
+
+# probe-charstr: System.Char's (string, int) overload family. net48 declares a
+# SECOND set of the same predicates that index into a string instead of taking
+# one char -- char.IsDigit(s, i), char.IsLetter(s, i), char.GetUnicodeCategory
+# (s, i), and so on. Only the single-char overloads were wired, so every call in
+# this family failed to transpile with "no BCL mapping in M5" (a whole-method
+# loss, since the BCL body is not in the input assembly). The probe prints the
+# predicate answer for a mixed-classification literal plus the enum NUMERIC
+# values (cat1=8 for a digit, cat0=1 for a lowercase letter), so a wrong index,
+# a missing bound check, or a category mapping that returns the wrong ordinal is
+# visible.
+probe-charstr  # GREEN anchor: char (string, int) overloads incl. UnicodeCategory ordinals

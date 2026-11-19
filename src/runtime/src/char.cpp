@@ -7,6 +7,9 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_char.h"
+#include "il2cpp_string.h"          // Il2CppString (the (string, int) overload family)
+#include "il2cpp_exception_ext.h"   // throw_null_reference / argument_out_of_range
+#include "il2cpp_string_ext.h"      // il2cpp_throw_argument_out_of_range (index contract)
 
 namespace il2cpp {
 namespace runtime {
@@ -224,6 +227,180 @@ double icall_char_get_numeric_value(char16_t c)
     if (c == 0x2160)
         return 1.0;
     return -1.0;
+}
+
+//------------------------------------------------------------------------------
+// The (string, int) overload family (il2cpp_char.h).
+//
+// net48 declares a SECOND set of the same classification methods that index
+// into a string instead of taking one char. Only the single-char overloads were
+// wired, so every call here failed to transpile with "no BCL mapping in M5" --
+// a whole-method loss, because the BCL body is not in the input assembly and the
+// transpiler has nothing to fall back on.
+//
+// The contract is exactly "classify s[index]": the same predicate the char
+// overload answers, applied to the selected code unit. Each entry is a thin
+// adapter over the char overload above, so the two families can never disagree.
+// The index is bounds checked (net48 throws ArgumentOutOfRangeException) and a
+// null string throws NullReferenceException.
+//------------------------------------------------------------------------------
+namespace {
+
+// Shared prologue: validate the receiver and the index, then return the code
+// unit. Out of range throws; null throws.
+inline char16_t CharAtChecked(Il2CppObject* s, int32_t index)
+{
+    if (s == nullptr)
+    {
+        il2cpp_throw_null_reference_exception(nullptr);
+    }
+    Il2CppString* str = reinterpret_cast<Il2CppString*>(s);
+    if (index < 0 || index >= str->length)
+    {
+        il2cpp_throw_argument_out_of_range("index");
+    }
+    return str->chars[index];
+}
+
+} // namespace
+
+bool icall_char_s_is_digit(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_digit(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_letter(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_letter(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_upper(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_upper(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_lower(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_lower(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_whitespace(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_whitespace(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_punctuation(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_punctuation(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_symbol(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_symbol(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_separator(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_separator(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_control(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_control(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_surrogate(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_surrogate(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_high_surrogate(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_high_surrogate(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_low_surrogate(Il2CppObject* s, int32_t index)
+{
+    return icall_char_is_low_surrogate(CharAtChecked(s, index));
+}
+
+bool icall_char_s_is_number(Il2CppObject* s, int32_t index)
+{
+    // IsNumber is "digit OR numeric value present": the char overload answers
+    // IsDigit; the string overload additionally accepts a character that HAS a
+    // numeric value (net48's Number category = Nd | Nl | No).
+    char16_t c = CharAtChecked(s, index);
+    if (icall_char_is_digit(c))
+    {
+        return true;
+    }
+    return icall_char_get_numeric_value(c) >= 0.0;
+}
+
+int32_t icall_char_s_get_unicode_category(Il2CppObject* s, int32_t index)
+{
+    // System.Globalization.UnicodeCategory numeric values (measured from net48:
+    // UppercaseLetter=0, LowercaseLetter=1, DecimalDigitNumber=8, Control=14,
+    // SpaceSeparator=11, Surrogate=16, OtherPunctuation=24, MathSymbol=25,
+    // OtherSymbol=28, OtherNotAssigned=29). The probe pins the values it
+    // exercises; the ordering follows the char overloads, so the two families
+    // stay consistent.
+    char16_t c = CharAtChecked(s, index);
+    if (icall_char_is_upper(c))
+    {
+        return 0; // UppercaseLetter
+    }
+    if (icall_char_is_lower(c))
+    {
+        return 1; // LowercaseLetter
+    }
+    if (icall_char_is_digit(c))
+    {
+        return 8; // DecimalDigitNumber
+    }
+    if (icall_char_is_whitespace(c))
+    {
+        return 11; // SpaceSeparator
+    }
+    if (icall_char_is_control(c))
+    {
+        return 14; // Control
+    }
+    if (icall_char_is_surrogate(c))
+    {
+        return 16; // Surrogate
+    }
+    if (icall_char_is_punctuation(c))
+    {
+        return 24; // OtherPunctuation
+    }
+    if (icall_char_is_symbol(c))
+    {
+        return 25; // MathSymbol
+    }
+    return 29; // OtherNotAssigned
+}
+
+double icall_char_s_get_numeric_value(Il2CppObject* s, int32_t index)
+{
+    return icall_char_get_numeric_value(CharAtChecked(s, index));
+}
+
+bool icall_char_is_surrogate_pair(char16_t high, char16_t low)
+{
+    return icall_char_is_high_surrogate(high) && icall_char_is_low_surrogate(low);
+}
+
+bool icall_char_s_is_surrogate_pair(Il2CppObject* s, int32_t index)
+{
+    // (string, int): the pair starts at `index`, so the second unit is
+    // index+1 and must exist. net48 throws when either is out of range.
+    char16_t high = CharAtChecked(s, index);
+    if (index + 1 >= reinterpret_cast<Il2CppString*>(s)->length)
+    {
+        il2cpp_throw_argument_out_of_range("index");
+    }
+    return icall_char_is_surrogate_pair(high, reinterpret_cast<Il2CppString*>(s)->chars[index + 1]);
 }
 
 }} // namespace il2cpp::runtime

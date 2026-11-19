@@ -26,13 +26,59 @@ public static partial class MethodRefResolver
     {
         if (owner != "System.Char")
             return null;
-        if (ps.Length != 1)
-            return null;
         // char.Parse(string): the argument is a STRING (0x0E), not a char.
         if (name == "Parse")
-            return ps[0] == 0x0E
+            return ps.Length == 1 && ps[0] == 0x0E
                 ? I("il2cpp::runtime::icall_char_parse", 1, true, false, false, new[] { "s" })
                 : null;
+        // The (string, int) overload family: net48 declares a SECOND set of the
+        // same predicates that index into a string instead of taking one char.
+        // ps[0] is the string (0x0E) and ps[1] the index (0x08). These are
+        // handled before the single-char guard below, which requires ps.Length==1.
+        if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x08)
+        {
+            var kind = name switch
+            {
+                "IsDigit" => "is_digit",
+                "IsLetter" => "is_letter",
+                "IsUpper" => "is_upper",
+                "IsLower" => "is_lower",
+                "IsWhiteSpace" => "is_whitespace",
+                "IsPunctuation" => "is_punctuation",
+                "IsSymbol" => "is_symbol",
+                "IsSeparator" => "is_separator",
+                "IsControl" => "is_control",
+                "IsSurrogate" => "is_surrogate",
+                "IsHighSurrogate" => "is_high_surrogate",
+                "IsLowSurrogate" => "is_low_surrogate",
+                "IsNumber" => "is_number",
+                _ => null,
+            };
+            if (name == "IsSurrogatePair")
+                return I("il2cpp::runtime::icall_char_s_is_surrogate_pair", 2, true, false, false, new[] { "", "i" });
+            if (kind != null)
+                return I("il2cpp::runtime::icall_char_s_" + kind, 2, true, false, false, new[] { "", "i" });
+            // GetUnicodeCategory(s, i) -> the enum numeric value in the int32 slot.
+            if (name == "GetUnicodeCategory")
+                return I("il2cpp::runtime::icall_char_s_get_unicode_category", 2, true, false, false, new[] { "", "i" });
+            // GetNumericValue(s, i) -> double (ResultKind "d").
+            if (name == "GetNumericValue")
+                return I("il2cpp::runtime::icall_char_s_get_numeric_value", 2, true, false, false, new[] { "", "i" }, "d");
+            return null;
+        }
+        // char.ToString(char): the STATIC one-arg overload (the instance
+        // ToString() with ps.Length==0 stays in TryMapValueType). net48 returns a
+        // fresh 1-unit string; the runtime helper icall_char_to_string already
+        // does exactly that.
+        if (ps.Length == 1 && ps[0] == 0x03 && name == "ToString")
+            return I("il2cpp::runtime::icall_char_to_string", 1, true, true, false,
+                new[] { "c" }, returnTypeName: "System.String");
+        // char.IsSurrogatePair(char, char): the two-unit form. Both params are
+        // 0x03; the result is true iff the first is high and the second low.
+        if (ps.Length == 2 && ps[0] == 0x03 && ps[1] == 0x03 && name == "IsSurrogatePair")
+            return I("il2cpp::runtime::icall_char_is_surrogate_pair", 2, true, false, false, new[] { "c", "c" });
+        if (ps.Length != 1)
+            return null;
         if (ps[0] != 0x03)
             return null;
         switch (name)
