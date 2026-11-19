@@ -251,3 +251,13 @@ probe-arraysync  # GREEN anchor: SyncRoot is the array itself, stable, null thro
 # reference-only il2cpp_sortedlist_enumerator_get_current -- that read
 # dereferences the int payload as a pointer and crashes.
 probe-arrayenum  # GREEN anchor: array enumerator boxes value elements on the object carrier
+
+# Array.AsReadOnly<T>: net48 returns a ReadOnlyCollection<T> that is a VIEW over
+# the source array (writes through the array are visible, and the collection
+# rejects mutation by construction). This needed the whole ReadOnlyCollection<T>
+# runtime (readonlycollection.h/.cpp) plus the AsReadOnly arm that hands the
+# array to it. Covers Count, the int indexer, enumeration, Contains, IndexOf,
+# CopyTo, an EMPTY array, and a reference-element instantiation -- the int32 and
+# the object element families are separate accessor pairs, so a case that only
+# exercises one cannot see the other's wiring.
+probe-arrayreadonly  # GREEN anchor: Array.AsReadOnly returns a live ReadOnlyCollection<T> view

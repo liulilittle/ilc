@@ -2251,6 +2251,9 @@ public static partial class MethodRefResolver
             case "System.Runtime.CompilerServices.AsyncTaskMethodBuilder": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             case "System.Runtime.CompilerServices.TaskAwaiter`1": return TryMapTask(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, genArgNames, ret, instName);
             case "System.Collections.Generic.List`1": return TryMapList(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
+            // Array.AsReadOnly<T> returns this type; its members delegate to
+            // the wrapped array (readonlycollection.h).
+            case "System.Collections.ObjectModel.ReadOnlyCollection`1": return TryMapReadOnlyCollection(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type, instName);
             // P25 (listp25): the List<int>.Enumerator STRUCT is address-taken
             // by the C# compiler (ldloca), so foreach over List<int> calls
             // MoveNext/get_Current DIRECTLY on the concrete nested type

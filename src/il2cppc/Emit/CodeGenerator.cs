@@ -419,6 +419,9 @@ public static class CodeGenerator
         // M5 wiring: List<int> domain -- the int32 AOT expansion allocates
         // through il2cpp_list_i4_class (BclAllocExpr, MethodMap.List.cs).
         generatedHeader.Line("#include \"listi4.h\"");
+        // Array.AsReadOnly<T> returns ReadOnlyCollection<T>; its members are
+        // the readonlycollection.h icalls (a thin view over the array).
+        generatedHeader.Line("#include \"readonlycollection.h\"");
         // HashSet`1 -- the slot-ordered set domain (hashset.h: the managed
         // descriptor accessor + the per-family icalls). Without the include the
         // generated C++ cannot see il2cpp::il2cpp_hashset_class().

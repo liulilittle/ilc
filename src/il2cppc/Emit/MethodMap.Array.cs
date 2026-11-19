@@ -515,6 +515,14 @@ public static partial class MethodRefResolver
                 if (count == 3) return I("il2cpp::il2cpp_array_last_index_of_any_start", 3, true, false, false, new[] { "a", "", "i" });
                 if (count == 4) return I("il2cpp::il2cpp_array_last_index_of_any_range", 4, true, false, false, new[] { "a", "", "i", "i" });
                 throw new NotSupportedException($"LOUD whitelist (net48 has no such overload): Array.LastIndexOf(Array, object, ...) arity {count} -- net48 has arities 2..4 only [Reference Source mscorlib/system/array.cs:1422-1454]");
+            case "AsReadOnly":
+                // Array.AsReadOnly<T>(T[] array) -> ReadOnlyCollection<T>.
+                // The wrapper is element-agnostic (it stores the array and
+                // reads through the shared boxed accessor), so ONE runtime
+                // entry covers every element family; the generic argument only
+                // selects which typed accessor the CALLER uses later.
+                return I("il2cpp::il2cpp_readonlycollection_create", 1, true, true, false,
+                    new[] { "" }, returnTypeName: "System.Collections.ObjectModel.ReadOnlyCollection`1");
             case "Empty":
                 // Array.Empty<T>() -- generic static method (MethodSpec
                 // genArgs = [T]; Roslyn lowers no-arg TrimStart()/TrimEnd()
