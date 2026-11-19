@@ -115,6 +115,8 @@ int64_t icall_array_get_long_length_dim(Il2CppObject* arr, int32_t dimension);
 bool icall_array_get_is_fixed_size(Il2CppObject* arr);
 bool icall_array_get_is_read_only(Il2CppObject* arr);
 bool icall_array_get_is_synchronized(Il2CppObject* arr);
+// Instance Array.get_SyncRoot: net48 answers the array itself.
+Il2CppObject* icall_array_get_sync_root(Il2CppObject* arr);
 
 // Static Array.GetElementSize(Array) (netcore31+ audit gap): the array's
 // element stride in bytes (the allocator-stamped elemSize field). A null

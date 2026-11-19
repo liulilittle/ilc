@@ -1176,6 +1176,15 @@ public static partial class MethodRefResolver
             case "get_IsSynchronized":
                 // No automatic synchronization: net48 answers FALSE.
                 return I("il2cpp::runtime::icall_array_get_is_synchronized", 0, true, false, true);
+            case "get_SyncRoot":
+                // net48 answers the array ITSELF as the synchronization object.
+                // ReturnsRef (the 4th I() flag) is what declares the result
+                // temp as Il2CppObject*: without it the temp fell through to
+                // int32_t and the generated C++ rejected the pointer
+                // assignment ("invalid conversion from Il2CppObject* to
+                // int32_t").
+                return I("il2cpp::runtime::icall_array_get_sync_root", 0, true, true, true,
+                    returnTypeName: "System.Object");
             case "GetLowerBound":
                 // int GetLowerBound(int dimension): zero-based 1-D returns 0;
                 // the runtime validates dimension != 0 (IndexOutOfRange).

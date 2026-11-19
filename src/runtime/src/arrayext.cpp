@@ -455,6 +455,18 @@ bool icall_array_get_is_synchronized(Il2CppObject* arr)
 }
 
 //------------------------------------------------------------------------------
+// icall_array_get_sync_root -- instance Array.get_SyncRoot: the object used to
+// synchronize access to the array. net48 answers the array ITSELF (an array has
+// no separate sync object), so the result is the receiver unchanged. Null
+// receiver -> NullReferenceException.
+//------------------------------------------------------------------------------
+Il2CppObject* icall_array_get_sync_root(Il2CppObject* arr)
+{
+    (void)RequireInstanceArray(arr);
+    return arr;
+}
+
+//------------------------------------------------------------------------------
 // icall_array_get_element_size -- static Array.GetElementSize(Array) (the
 // netcore31+ audit gap): the array's element stride in bytes (the elemSize
 // field the allocator stamps on every array). Null -> ArgumentNullException

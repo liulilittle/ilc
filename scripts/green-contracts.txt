@@ -236,3 +236,9 @@ probe-arraylower  # GREEN anchor: CreateInstance lower bounds are modelled and a
 # (IsFixedSize TRUE, IsReadOnly FALSE, IsSynchronized FALSE) were not, and
 # GetLongLength failed to transpile with "not wired in M5".
 probe-arrayapi  # GREEN anchor: Array search surface + GetLongLength + IList flags
+
+# Array.get_SyncRoot: net48 answers the array ITSELF as the synchronization
+# object, so the result must be the receiver unchanged and stable across
+# calls. The mapping arm needs ReturnsRef (the 4th I() flag) or the result temp
+# is declared int32_t and the generated C++ rejects the pointer assignment.
+probe-arraysync  # GREEN anchor: SyncRoot is the array itself, stable, null throws
