@@ -1899,11 +1899,15 @@ public static partial class MethodRefResolver
             case "System.Int32":
             case "System.Int64":
             case "System.Single":
-                // Format first (ToString(string format)), ValueType fallback
-                // (ToString()/Parse/Equals/GetHashCode) -- split so format
-                // wiring agents never collide with value-semantics agents.
+                // The NumberStyles/IFormatProvider-aware Parse/TryParse overloads
+                // live in MethodMap.ParseStyles.cs (which also owns System.Single
+                // since probe-single); then Format, ValueType, then the Single
+                // predicate domain.
+                if (TryMapParseStyles(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type) is { } singleStyleMapped)
+                    return singleStyleMapped;
                 return TryMapFormat(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
-                    ?? TryMapValueType(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                    ?? TryMapValueType(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                    ?? TryMapSingle(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Double":
                 // impl-input-contracts: the NumberStyles/IFormatProvider-aware
                 // Parse/TryParse overloads live in their own mapper file
@@ -1920,7 +1924,8 @@ public static partial class MethodRefResolver
                 // identifier) resolve to the IEEE bit-check icalls.
                 return TryMapFormat(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
                     ?? TryMapValueType(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
-                    ?? TryMapDouble(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
+                    ?? TryMapDouble(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type)
+                    ?? TryMapSingle(owner, name, ps, count, genArgs, receiverType, receiverIsAddress, arg0Type, arg1Type);
             case "System.Boolean":
             case "System.Byte":
             case "System.SByte":

@@ -222,6 +222,19 @@ int32_t icall_double_is_positive_infinity(double value);
 int32_t icall_double_is_negative_infinity(double value);
 int32_t icall_double_is_infinity(double value);
 
+// System.Single static predicates (probe-single): the same IEEE-754 checks on
+// the 32-bit float pattern (sign 1 + exponent 8 + mantissa 23):
+//   IsNaN(x)             exponent == 0xFF && mantissa != 0
+//   IsPositiveInfinity   exponent == 0xFF && mantissa == 0 && sign == 0
+//   IsNegativeInfinity   exponent == 0xFF && mantissa == 0 && sign == 1
+//   IsInfinity(x)        exponent == 0xFF && mantissa == 0 (either sign)
+// The value arrives widened to double (the runtime's float carrier) and is
+// narrowed BEFORE the bit test, so the check reads the float's own pattern.
+int32_t icall_single_is_nan(double value);
+int32_t icall_single_is_positive_infinity(double value);
+int32_t icall_single_is_negative_infinity(double value);
+int32_t icall_single_is_infinity(double value);
+
 // Math.Round(double value, int digits): the net48 InternalRound(value,
 // digits, ToEven) MULTIPLY-SCALE algorithm -- NOT decimal arithmetic:
 //

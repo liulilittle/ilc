@@ -46,6 +46,25 @@ namespace il2cpp { namespace runtime {
 double icall_string_parse_double_styles(Il2CppString* text, int32_t styles,
                                        Il2CppObject* provider);
 
+// float.Parse / TryParse (probe-single): the SAME grammar as the double
+// entries, but the result is narrowed to a float and a magnitude beyond
+// Single.MaxValue throws OverflowException on Parse (net48: NOT a silent
+// Infinity). The value still crosses the ABI as a double (the float carrier).
+float icall_string_parse_single_styles(Il2CppString* text, int32_t styles,
+                                        Il2CppObject* provider);
+
+// float.Parse(string) -- the DEFAULT styles (Float|AllowThousands) and the
+// current culture baked in, so the icall takes ONE parameter (the emitter
+// cannot inject the missing pair; ArgOrder -1 emits nullptr and ignores the
+// "lit:" cast). Same narrow-to-float + OverflowException contract.
+float icall_string_parse_single(Il2CppString* text);
+
+// float.TryParse(string, out float) -- the default styles + current culture
+// baked in (one IL argument pair, no injectable slots).
+int32_t icall_try_parse_single(Il2CppObject* s, double* result);
+int32_t icall_try_parse_single_styles(Il2CppObject* s, int32_t styles,
+                                      Il2CppObject* provider, double* result);
+
 // double.TryParse(string, NumberStyles, IFormatProvider, out double).
 // Never throws for bad TEXT (out slot zeroed, 0 returned); undefined style
 // bits still throw ArgumentException (net48 validates the style first).

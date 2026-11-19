@@ -494,6 +494,87 @@ int32_t icall_try_parse_double_styles(Il2CppObject* s, int32_t styles,
     return 1;
 }
 
+//------------------------------------------------------------------------------
+// float.Parse / TryParse (probe-single): the SAME grammar as the double
+// entries, narrowed to a float. A magnitude beyond Single.MaxValue is an
+// OverflowException on Parse (net48: NOT a silent Infinity); TryParse folds it
+// to a plain failure with the out slot zeroed.
+//------------------------------------------------------------------------------
+float icall_string_parse_single_styles(Il2CppString* text, int32_t styles,
+                                        Il2CppObject* provider)
+{
+    ValidateStyles(styles);
+    if (text == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("s");
+    }
+    double value = 0.0;
+    switch (ParseDoubleCore(text, styles, provider, &value))
+    {
+    case Status::Ok:
+        break;
+    case Status::Format:
+        il2cpp_throw_format_exception("Input string was not in a correct format.");
+        break;
+    case Status::Overflow:
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Single.");
+        break;
+    }
+    const float fMax = static_cast<float>(3.4028234663852886e38);
+    if (!std::isnan(value) && (value > static_cast<double>(fMax) || value < -static_cast<double>(fMax)))
+    {
+        il2cpp_throw_overflow_exception("Value was either too large or too small for a Single.");
+    }
+    return static_cast<float>(value);
+}
+
+float icall_string_parse_single(Il2CppString* text)
+{
+    // The net48 float.Parse(string) defaults: NumberStyles.Float |
+    // AllowThousands (231) over the CURRENT culture.
+    return icall_string_parse_single_styles(text, 231, nullptr);
+}
+
+int32_t icall_try_parse_single(Il2CppObject* s, double* result)
+{
+    if (result != nullptr)
+    {
+        *result = 0.0;
+    }
+    if (s == nullptr || result == nullptr)
+    {
+        return 0;
+    }
+    return icall_try_parse_single_styles(s, 231, nullptr, result);
+}
+
+int32_t icall_try_parse_single_styles(Il2CppObject* s, int32_t styles,
+                                      Il2CppObject* provider, double* result)
+{
+    ValidateStyles(styles);
+    if (result != nullptr)
+    {
+        *result = 0.0;
+    }
+    if (s == nullptr || result == nullptr)
+    {
+        return 0;
+    }
+    const Il2CppString* text = reinterpret_cast<const Il2CppString*>(s);
+    double value = 0.0;
+    if (ParseDoubleCore(const_cast<Il2CppString*>(text), styles, provider, &value) != Status::Ok)
+    {
+        return 0;
+    }
+    const float fMax = static_cast<float>(3.4028234663852886e38);
+    if (!std::isnan(value) && (value > static_cast<double>(fMax) || value < -static_cast<double>(fMax)))
+    {
+        return 0;
+    }
+    *result = static_cast<double>(static_cast<float>(value));
+    return 1;
+}
+
 }} // namespace il2cpp::runtime
 
 

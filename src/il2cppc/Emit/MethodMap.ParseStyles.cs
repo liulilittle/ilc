@@ -31,26 +31,37 @@ public static partial class MethodRefResolver
     private static ResolvedMethod? TryMapParseStyles(string owner, string name, byte[] ps, int count,
         byte[]? genArgs, string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
     {
-        if (owner != "System.Double") return null;
+        if (owner != "System.Double" && owner != "System.Single") return null;
         if (name != "Parse" && name != "TryParse") return null;
         // NumberStyles is the VALUETYPE (0x11) enum, IFormatProvider the CLASS
-        // (0x12) interface, and the TryParse result is the BYREF (0x0D) double.
+        // (0x12) interface, and the TryParse result is the BYREF (0x0D) float.
+        // System.Single shares the grammar but narrows the result and throws
+        // OverflowException past Single.MaxValue (probe-single).
+        const string singleParse = "il2cpp::runtime::icall_string_parse_single_styles";
+        const string doubleParse = "il2cpp::runtime::icall_string_parse_double_styles";
+        const string singleTry = "il2cpp::runtime::icall_try_parse_single_styles";
+        const string doubleTry = "il2cpp::runtime::icall_try_parse_double_styles";
+        bool isSingle = owner == "System.Single";
         if (name == "Parse")
         {
             if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x11)
-                return I("il2cpp::runtime::icall_string_parse_double_styles", 2, true, false, false,
-                    new[] { "s", "i", "" }, "d", argOrder: new[] { 0, 1, -1 });
+                return I(isSingle ? singleParse : doubleParse,
+                    2, true, false, false,
+                    new[] { "s", "i", "" }, isSingle ? "f" : "d", argOrder: new[] { 0, 1, -1 });
             if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x12)
-                return I("il2cpp::runtime::icall_string_parse_double_styles", 2, true, false, false,
-                    new[] { "s", "lit:231", "" }, "d", argOrder: new[] { 0, 1, 1 });
+                return I(isSingle ? singleParse : doubleParse,
+                    2, true, false, false,
+                    new[] { "s", "lit:231", "" }, isSingle ? "f" : "d", argOrder: new[] { 0, 1, 1 });
             if (ps.Length == 3 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x12)
-                return I("il2cpp::runtime::icall_string_parse_double_styles", 3, true, false, false,
-                    new[] { "s", "i", "" }, "d");
+                return I(isSingle ? singleParse : doubleParse,
+                    3, true, false, false,
+                    new[] { "s", "i", "" }, isSingle ? "f" : "d");
             return null;
         }
-        if (ps.Length == 4 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x12 && ps[3] == 0x0D)
-            return I("il2cpp::runtime::icall_try_parse_double_styles", 4, true, false, false,
-                new[] { "", "i", "", "addr:d" });
+        if (ps.Length == 4 && ps[0] == 0x0E && ps[1] == 0x11 && ps[2] == 0x12 && ps[3] is 0x0D or 0x0C)
+            return I(isSingle ? singleTry : doubleTry,
+                4, true, false, false,
+                new[] { "", "i", "", isSingle ? "addr:f" : "addr:d" });
         return null;
     }
 }

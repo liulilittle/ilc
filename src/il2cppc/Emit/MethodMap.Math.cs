@@ -214,4 +214,52 @@ public static partial class MethodRefResolver
             _ => null,
         };
     }
+
+    //--------------------------------------------------------------------------
+    // MethodMap.Single -- System.Single STATIC predicate domain (probe-single).
+    // Same IEEE-754 checks as the Double domain, but on the 32-bit float
+    // pattern; the value rides the double carrier (0x0C float parameter).
+    //--------------------------------------------------------------------------
+    private static ResolvedMethod? TryMapSingle(string owner, string name, byte[] ps, int count, byte[]? genArgs,
+        string? receiverType, bool receiverIsAddress, string? arg0Type, string? arg1Type)
+    {
+        if (owner != "System.Single") return null;
+        // Parse / TryParse shapes (probe-single) -- the predicate arms below
+        // only cover the one-argument (float) form.
+        if (name == "Parse")
+        {
+            // (string): the icall takes (text, styles, provider) while the IL
+            // pushes ONE -- ParamCount stays 1 (the fold pops exactly the
+            // pushed argument) and the missing pair is supplied by ArgOrder:
+            // slot 1 = the 231 literal (NumberStyles.Float|AllowThousands),
+            // slot 2 = nullptr (the current culture). Same shape as the
+            // Decimal.Parse styles arm.
+            if (ps.Length == 1 && ps[0] == 0x0E)
+                return I("il2cpp::runtime::icall_string_parse_single", 1, true, false, false,
+                    new[] { "s" }, "f");
+            return null;
+        }
+        if (name == "TryParse")
+        {
+            // (string, out float): the icall takes (text, styles, provider,
+            // out) while the IL pushes TWO -- ParamCount stays 2 and ArgOrder
+            // supplies slots 1 (231) and 2 (nullptr) between the text and the
+            // out address. The BYREF out parameter decodes as 0x0C here (the
+            // Single-typed ref), NOT the double-typed 0x0D the Double domain
+            // uses.
+            if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x0C)
+                return I("il2cpp::runtime::icall_try_parse_single", 2, true, false, false,
+                    new[] { "", "addr:d" });
+            return null;
+        }
+        if (ps.Length != 1 || ps[0] != 0x0C) return null;
+        return name switch
+        {
+            "IsNaN" => I("il2cpp::runtime::icall_single_is_nan", 1, true, false, false, new[] { "d" }),
+            "IsPositiveInfinity" => I("il2cpp::runtime::icall_single_is_positive_infinity", 1, true, false, false, new[] { "d" }),
+            "IsNegativeInfinity" => I("il2cpp::runtime::icall_single_is_negative_infinity", 1, true, false, false, new[] { "d" }),
+            "IsInfinity" => I("il2cpp::runtime::icall_single_is_infinity", 1, true, false, false, new[] { "d" }),
+            _ => null,
+        };
+    }
 }

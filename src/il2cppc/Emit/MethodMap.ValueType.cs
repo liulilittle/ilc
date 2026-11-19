@@ -205,11 +205,9 @@ public static partial class MethodRefResolver
                 if (name == "GetHashCode" && ps.Length == 0)
                     return I("il2cpp::runtime::icall_single_get_hash_code", 0, true, false, true,
                         new[] { receiverIsAddress ? "deref:sf" : "unbox:d" });
-                // float.Parse(string): the value rides a double slot and the
-                // float domain is a subset of double -- the double parser is
-                // exact for every float-representable text.
-                if (name == "Parse" && ps.Length == 1 && ps[0] == 0x0E)
-                    return I("il2cpp::runtime::icall_string_parse_double", 1, true, false, false, new[] { "s" }, "d");
+                // float.Parse / TryParse shapes live in TryMapSingle
+                // (MethodMap.Math.cs) -- the value-semantics ownership here
+                // stops at ToString/GetHashCode/CompareTo/Equals.
                 if (name == "CompareTo" && ps.Length == 1)
                     return ps[0] switch
                     {

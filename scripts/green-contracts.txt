@@ -317,3 +317,9 @@ probe-encprop  # GREEN anchor: Encoding.Convert + IsAlwaysNormalized(form)
 # and an object that dispatches on its runtime type. Every numeric source
 # throws InvalidCastException -- net48 has no numeric->DateTime conversion.
 probe-convdt  # GREEN anchor: Convert.ToDateTime family + IsDBNull
+# System.Single predicates and parse: net48's IsNaN/IsInfinity family is
+# the 32-bit IEEE-754 bit test (not the widened double's); Parse/TryParse
+# share the double grammar but narrow to float and throw OverflowException
+# past Single.MaxValue. Parse(string)/TryParse(string,out) use the default
+# NumberStyles.Float|AllowThousands (231) over the current culture.
+probe-single  # GREEN anchor: Single predicates + Parse/TryParse

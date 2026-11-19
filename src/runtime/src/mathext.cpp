@@ -534,6 +534,42 @@ int32_t icall_double_is_infinity(double value)
 }
 
 //------------------------------------------------------------------------------
+// System.Single predicates (probe-single): the same IEEE-754 checks on the
+// 32-bit float pattern. The carrier is the widened double; it is narrowed
+// first so the bit test reads the float's own sign/exponent/mantissa.
+//------------------------------------------------------------------------------
+static inline uint32_t SingleBits(double value)
+{
+    const float f = static_cast<float>(value);
+    uint32_t bits;
+    std::memcpy(&bits, &f, sizeof(bits));
+    return bits;
+}
+
+int32_t icall_single_is_nan(double value)
+{
+    const uint32_t bits = SingleBits(value);
+    const uint32_t exponent = (bits >> 23) & 0xFFu;
+    const uint32_t mantissa = bits & 0x7FFFFFFFu;
+    return (exponent == 0xFFu && mantissa != 0) ? 1 : 0;
+}
+
+int32_t icall_single_is_positive_infinity(double value)
+{
+    return SingleBits(value) == 0x7F800000u ? 1 : 0;
+}
+
+int32_t icall_single_is_negative_infinity(double value)
+{
+    return SingleBits(value) == 0xFF800000u ? 1 : 0;
+}
+
+int32_t icall_single_is_infinity(double value)
+{
+    return (SingleBits(value) & 0x7FFFFFFFu) == 0x7F800000u ? 1 : 0;
+}
+
+//------------------------------------------------------------------------------
 // Math.Round(value, digits) -- net48 InternalRound(double, int, ToEven), the
 // MULTIPLY-SCALE algorithm (Reference Source mscorlib Math.cs), verified
 // EMPIRICALLY against a real net48 process (.opencode/probes/roundprobe):
