@@ -1,4 +1,4 @@
-# CoreLib icall 缺口可达性量化（2026-11-18）
+# CoreLib icall 缺口可达性量化（2026-11-18 首版；2026-11-19 重跑更新 §2/§4）
 
 > 目标程序集：`System.Private.CoreLib.dll` 8.0.31（13,174,608B）
 > 数据来源全部由本机脚本产出，无手工抄录。
@@ -37,25 +37,54 @@ gaps_total=438  fcall=119  qcall=319
 
 | 桶 | 数量 | 含义 | 施工含义 |
 |---|---|---|---|
-| **DIRECT** | 6 | icall 本身就是公共入口 | 缺它 = 直接缺失的用户功能 |
+| **DIRECT** | 4 | icall 本身就是公共入口 | 缺它 = 直接缺失的用户功能 |
 | **SHADOW** | 42 | 经 N 层托管包装可达（d=1:21, d=2:7, d=3:8, d=4:5, d=5:1） | 缺它 = 包装方法失效；距离越短影响面越大 |
 | **UNREACHABLE** | 52 | 图中无路径 | 见 §3 细分 |
 | **NOT-IN-GRAPH** | 338 | 图中没有这个成员 | **不是"不可达"**，见 §4 |
 
-### 2.1 DIRECT 全部 6 条
+（2026-11-18 首版为 DIRECT 6 / 总数 438；2026-11-19 重跑为 DIRECT 4 / 总数 436，
+差额即已接线的 PInvoke 两条。）
+
+### 2.1 DIRECT 当前 4 条
 
 ```
-FCall  System.Runtime.InteropServices.Marshal.GetLastPInvokeError
-FCall  System.Runtime.InteropServices.Marshal.SetLastPInvokeError
-QCall  System.Runtime.InteropServices.Marshal.GetTypedObjectForIUnknown
-QCall  System.Runtime.InteropServices.Marshal.IsTypeVisibleFromCom
-QCall  System.Runtime.InteropServices.Marshal.GetStartComSlot
-QCall  System.Runtime.InteropServices.Marshal.GetEndComSlot
+QCall  System.Runtime.InteropServices.Marshal.GetTypedObjectForIUnknown   [resolved]
+QCall  System.Runtime.InteropServices.Marshal.IsTypeVisibleFromCom        [resolved]
+QCall  System.Runtime.InteropServices.Marshal.GetStartComSlot             [resolved]
+QCall  System.Runtime.InteropServices.Marshal.GetEndComSlot               [resolved]
 ```
 
-全部集中在 COM/PInvoke 互操作面，全部 P2。
+全部集中在 COM 互操作面，全部 P2，探针状态均为 `resolved`（`::com_*` 标记），
+由 `comslot` GREEN 契约保护（`case=comslot compiler=mingw ok=True`）。
+已接线的两条：
 
-### 2.2 UNREACHABLE 的成因细分
+```
+FCall  System.Runtime.InteropServices.Marshal.GetLastPInvokeError   [resolved]
+FCall  System.Runtime.InteropServices.Marshal.SetLastPInvokeError   [resolved]
+```
+
+### 2.2 桶 × 探针状态交叉（2026-11-19 新增）
+
+把每个桶与 `IcallWiringProbe`（CoreLib 8.0.31 输入）的状态交叉，
+缺口表里的 `missing` 一词被拆成三种完全不同的东西：
+
+| 桶 | resolved | loud | unmapped | ABSENT | 小计 |
+|---|---|---|---|---|---|
+| DIRECT | 4 | 0 | 0 | 0 | 4 |
+| SHADOW | 0 | 24 | 18 | 0 | 42 |
+| UNREACHABLE | 0 | 27 | 25 | 0 | 52 |
+| NOT-IN-GRAPH | 0 | 33 | 66 | 239 | 338 |
+
+读法：
+
+- `loud`（57 条）= 设计性拒绝，net48 无此 API 或显式 LOUD 白名单，**不是缺口**；
+- `unmapped`（109 条）= 探针未见映射臂。其中 SHADOW/UNREACHABLE 的 43 条
+  （18+25）全部满足「无 public 调用者」或「无调用者」，用户代码走不到；
+  NOT-IN-GRAPH 的 66 条多数是 net8 新增 QCall（无公共入口）；
+- `ABSENT`（239 条）= 该成员在 CoreLib 8.0.31 里根本不存在（参考源码独有），
+  无法用探针判定，只能标注未测量。
+
+### 2.3 UNREACHABLE 的成因细分
 
 ```
 22  1 caller(s), none on a public face (internal container)
@@ -95,13 +124,28 @@ QCall 通过 `[LibraryImport]`/`DllImport` 进入运行时，**不**带 Internal
 
 ## 4. 结论与施工建议
 
-1. 缺口总数 438（FCall 119 + QCall 319）为当前口径；
+1. 缺口总数 436（FCall 117 + QCall 319）为当前口径（2026-11-19 重跑）；
    `icall-gap-list.md` 的 174 是更早的、只统计「runtime 有声明但转译器未接线」的子集，
    两者不同源，不可互相替代。
-2. **优先修复顺序**：DIRECT(6) → SHADOW d=1(21) → SHADOW d=2..5(21)。
-   UNREACHABLE 中 internal-container 的 33 条不需要为「用户可调用性」而修。
-3. 若要继续压缩 QCall 的未知量，必须先补一个**基于 ImplMap 的 QCall 调用图**，
-   而不是继续用 InternalCall 图推断。这是本文留下的明确缺口。
+2. **DIRECT 已从 6 降到 4**：`Marshal.GetLastPInvokeError` / `SetLastPInvokeError`
+   已接线（提交 03ea6a60）。剩下 4 条（`GetTypedObjectForIUnknown`、
+   `IsTypeVisibleFromCom`、`GetStartComSlot`、`GetEndComSlot`）探针状态为
+   `resolved`（`::com_*` 标记），由 `comslot` 契约保护。
+3. **SHADOW 42 = 24 loud + 18 unmapped**。24 条 loud 是设计性拒绝
+   （net48 无此 API 或显式 LOUD 白名单），不是缺口。18 条 unmapped 中：
+   13 条在 net48 mscorlib 探针里**根本不存在**（net8 新增 API，如
+   `GC._WaitForFullGCApproach`、`Thread.SpinWaitInternal`、`Delegate.BindToMethodName`），
+   5 条是 CoreCLR 内部 helper（`Marshal.SizeOfHelper` /
+   `GetDelegateForFunctionPointerInternal` / `GetFunctionPointerForDelegateInternal` /
+   `GetExceptionForHRInternal`、`ModuleHandle.GetMDStreamVersion`），
+   其公共包装已由转译器直接映射（`MethodMap.Marshal.cs`），不经过 helper。
+4. **UNREACHABLE 52 = 27 loud + 25 unmapped**，全部满足「无 public 调用者」或
+   「无调用者」（`StubHelpers.*` 22 条为 no-callers）。
+5. 因此按可达性口径，**用户可触达的缺口为 0**。剩余 unmapped 均为
+   net8 新增成员或 CoreCLR 内部机制，无公共入口。
+6. 若要继续压缩 QCall 的未知量，必须先补一个**基于 ImplMap 的 QCall 调用图**，
+   而不是继续用 InternalCall 图推断（`NOT-IN-GRAPH` 338 中 239 条在探针里
+   完全不存在，无法区分「net8 新增」与「参考源码独有」）。
 
 ## 5. 复现
 
