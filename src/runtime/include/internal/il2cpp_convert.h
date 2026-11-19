@@ -34,6 +34,7 @@
 #include "il2cpp_string.h"
 #include "il2cpp_exception.h"
 #include "decimal.h" // p0conv2 (D1): Il2CppDecimal result-slot parameters
+#include "il2cpp_time.h" // convdt: Il2CppDateTime (the ToDateTime result carrier)
 
 #include <cstdint>
 
@@ -268,5 +269,27 @@ int32_t icall_iconvertible_to_int32(int32_t value);
 //------------------------------------------------------------------------------
 void icall_convert_to_decimal_string(Il2CppDecimal* out, Il2CppString* value);
 void icall_convert_to_decimal_char(Il2CppDecimal* out, int32_t utf16);
+
+//------------------------------------------------------------------------------
+// convdt: System.Convert.ToDateTime / IsDBNull.
+//
+// net48 EMPIRICAL contract (probe-convdt, measured on the net48 oracle):
+//   * ToDateTime(string) is DateTime.Parse over the invariant-culture subset
+//     (il2cpp_datetime_parse); a NULL string yields DateTime.MinValue
+//     (0001-01-01T00:00:00), NOT an exception -- probe-convdt pins dt_null.
+//   * ToDateTime(DateTime) is the identity.
+//   * EVERY other source type (bool/byte/char/decimal/double/int16/int32/
+//     int64/sbyte/single/uint16/uint32/uint64/object/DBNull) throws
+//     InvalidCastException -- net48 has no numeric->DateTime conversion.
+//   * ToDateTime(object) dispatches on the runtime type: null -> MinValue,
+//     a string -> Parse, a DateTime -> identity, anything else (including
+//     DBNull) -> InvalidCastException.
+//   * IsDBNull(object) is true only for the shared DBNull sentinel.
+//------------------------------------------------------------------------------
+Il2CppDateTime icall_convert_to_datetime_string(Il2CppObject* value);
+Il2CppDateTime icall_convert_to_datetime_datetime(Il2CppDateTime value);
+Il2CppDateTime icall_convert_to_datetime_object(Il2CppObject* value);
+Il2CppDateTime icall_convert_to_datetime_cast();
+bool icall_convert_is_dbnull(Il2CppObject* value);
 
 }} // namespace il2cpp::runtime

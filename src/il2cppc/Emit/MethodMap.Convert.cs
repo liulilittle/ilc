@@ -487,6 +487,63 @@ public static partial class MethodRefResolver
                             0x1C => I("il2cpp::runtime::icall_convert_to_char_obj", 1, true, false, false, new[] { "" }),
                             _ => throw new NotSupportedException($"LOUD whitelist (net48 has no such overload): Convert.ToChar param type 0x{ps[0]:X2} -- net48 has the primitive value overloads [Reference convert.cs:479-583]"),
                         };
+                    // convdt: Convert.ToDateTime. net48 accepts ONLY a string
+                    // (DateTime.Parse, null -> MinValue), a DateTime (identity)
+                    // and an object that dispatches on its runtime type; every
+                    // other source throws InvalidCastException (probe-convdt).
+                    case "ToDateTime":
+                        if (ps.Length == 1)
+                        {
+                            switch (ps[0])
+                            {
+                                // string -> DateTime.Parse (null -> MinValue)
+                                case 0x0E:
+                                    return I("il2cpp::runtime::icall_convert_to_datetime_string", 1, true, false, false,
+                                        new[] { "" }, "dt");
+                                // DateTime -> identity (the value-type carrier).
+                                // 0x11 is shared with Decimal, so the tracked
+                                // type name decides. The tracked name may carry
+                                // the "V:" value-type prefix or not (the
+                                // ToChar arm above matches the bare form), so
+                                // both are accepted; an UNTRACKED 0x11 stays on
+                                // the InvalidCastException arm below.
+                                case 0x11 when arg0Type is "V:System.DateTime" or "System.DateTime":
+                                    return I("il2cpp::runtime::icall_convert_to_datetime_datetime", 1, true, false, false,
+                                        new[] { "dt" }, "dt");
+                                // object -> the runtime-type dispatch (null -> MinValue,
+                                // string -> Parse, everything else -> InvalidCastException)
+                                case 0x1C:
+                                    return I("il2cpp::runtime::icall_convert_to_datetime_object", 1, true, false, false,
+                                        new[] { "" }, "dt");
+                                // bool/byte/char/decimal/double/int16/int32/int64/sbyte/
+                                // single/uint16/uint32/uint64 -> InvalidCastException
+                                case 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08
+                                     or 0x09 or 0x0A or 0x0B or 0x0C or 0x0D or 0x0F or 0x10
+                                     or 0x11:
+                                    return I("il2cpp::runtime::icall_convert_to_datetime_cast", 0, true, false, false,
+                                        Array.Empty<string>(), "dt");
+                                default: return null;
+                            }
+                        }
+                        // (string, IFormatProvider): the provider is dropped at
+                        // emission (the runtime is invariant-culture only), so
+                        // the icall keeps ONE parameter.
+                        if (ps.Length == 2 && ps[0] == 0x0E && ps[1] == 0x12)
+                            return I("il2cpp::runtime::icall_convert_to_datetime_string", 2, true, false, false,
+                                new[] { "", "drop" }, "dt");
+                        // (object, IFormatProvider): the object dispatch with the
+                        // provider dropped (the icall keeps ONE parameter, so
+                        // ParamCount is 1 and the provider rides "drop").
+                        if (ps.Length == 2 && ps[0] == 0x1C && ps[1] == 0x12)
+                            return I("il2cpp::runtime::icall_convert_to_datetime_object", 1, true, false, false,
+                                new[] { "", "drop" }, "dt");
+                        return null;
+                    // convdt: Convert.IsDBNull -- true only for the shared DBNull
+                    // sentinel (null / any other object -> false).
+                    case "IsDBNull":
+                        if (ps.Length == 1)
+                            return I("il2cpp::runtime::icall_convert_is_dbnull", 1, true, false, false, new[] { "" });
+                        return null;
                     default: return null;
                 }
             case "System.BitConverter":

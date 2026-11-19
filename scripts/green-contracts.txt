@@ -312,3 +312,8 @@ probe-alextra  # GREEN anchor: ArrayList value semantics + wrappers (27 members)
 # a null src -> ArgumentNullException). IsAlwaysNormalized(form) answers
 # false for UTF-8/UTF-16 and ASCII alike in net48, so the form is a no-op.
 probe-encprop  # GREEN anchor: Encoding.Convert + IsAlwaysNormalized(form)
+# Convert.ToDateTime / IsDBNull: net48 accepts ONLY a string (DateTime.Parse;
+# a NULL string is DateTime.MinValue, not an exception), a DateTime (identity)
+# and an object that dispatches on its runtime type. Every numeric source
+# throws InvalidCastException -- net48 has no numeric->DateTime conversion.
+probe-convdt  # GREEN anchor: Convert.ToDateTime family + IsDBNull

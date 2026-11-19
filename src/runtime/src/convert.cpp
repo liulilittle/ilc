@@ -22,6 +22,8 @@
 #include "il2cpp_value_semantics.h" // p0narrow3: icall_object_to_string (Convert.ToString(object))
 #include "il2cpp_metadata.h" // batch 8: the System_*_class box descriptors
 #include "il2cpp_conv.h"      // batch 8: the conv.ovf.* / conv.* object-source helpers
+#include "timeext2.h"         // convdt: il2cpp_datetime_parse (Convert.ToDateTime(string))
+#include "il2cpp_datatable.h" // convdt: il2cpp_datatable_is_dbnull (Convert.IsDBNull)
 
 #include <cmath>
 #include <cstdint>
@@ -1703,6 +1705,60 @@ int32_t icall_convert_to_char_dec(const void* d)
 {
     (void)d;
     ThrowConvertIce("Invalid cast from 'Decimal' to 'Char'.");
+}
+
+//------------------------------------------------------------------------------
+// convdt: Convert.ToDateTime / IsDBNull.
+//
+// net48 contract (probe-convdt): ToDateTime(string) is DateTime.Parse over
+// the invariant-culture subset; a NULL string yields DateTime.MinValue (NOT an
+// exception). ToDateTime(DateTime) is the identity. Every other source type
+// throws InvalidCastException -- net48 has no numeric->DateTime conversion.
+// ToDateTime(object) dispatches on the runtime type; DBNull is NOT convertible.
+//------------------------------------------------------------------------------
+Il2CppDateTime icall_convert_to_datetime_string(Il2CppObject* value)
+{
+    // net48: Convert.ToDateTime((string)null) is DateTime.MinValue, NOT an
+    // ArgumentNullException (probe-convdt pins dt_null=0001-01-01). This is the
+    // Convert null-means-default rule; DateTime.Parse(null) throws instead, so
+    // the null case is answered here.
+    if (value == nullptr)
+    {
+        return Il2CppDateTime(0, 0);
+    }
+    return il2cpp_datetime_parse(value);
+}
+
+Il2CppDateTime icall_convert_to_datetime_datetime(Il2CppDateTime value)
+{
+    return value;
+}
+
+Il2CppDateTime icall_convert_to_datetime_object(Il2CppObject* value)
+{
+    if (value == nullptr)
+    {
+        return Il2CppDateTime(0, 0); // DateTime.MinValue
+    }
+    if (value->klass == &System_String_class)
+    {
+        return il2cpp_datetime_parse(value);
+    }
+    // A boxed DateTime arrives as a value-type carrier, not a heap object; the
+    // object overload therefore has no DateTime arm -- net48 answers
+    // InvalidCastException for every non-string, non-null object (probe-convdt
+    // pins dt_obj / dt_dbnull).
+    ThrowConvertIce("Invalid cast from 'Object' to 'DateTime'.");
+}
+
+Il2CppDateTime icall_convert_to_datetime_cast()
+{
+    ThrowConvertIce("Invalid cast to 'DateTime'.");
+}
+
+bool icall_convert_is_dbnull(Il2CppObject* value)
+{
+    return il2cpp_datatable_is_dbnull(value);
 }
 
 }} // namespace il2cpp::runtime
