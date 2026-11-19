@@ -419,6 +419,42 @@ int64_t icall_array_get_long_length(Il2CppObject* arr)
 }
 
 //------------------------------------------------------------------------------
+// icall_array_get_long_length_dim -- instance Array.GetLongLength(int dimension):
+// the per-dimension size widened to int64 (net48: GetLength(dim) as Int64).
+// Dimension validation matches GetLength (out of range -> IndexOutOfRange).
+//------------------------------------------------------------------------------
+int64_t icall_array_get_long_length_dim(Il2CppObject* arr, int32_t dimension)
+{
+    Il2CppArray* a = RequireInstanceArray(arr);
+    RequireDimensionInRange(a, dimension);
+    return static_cast<int64_t>(a->dims[dimension]);
+}
+
+//------------------------------------------------------------------------------
+// icall_array_get_is_fixed_size / _is_read_only / _is_synchronized -- the three
+// IList flags on System.Array. net48 answers fixed-size TRUE (an array cannot
+// grow or shrink), read-only FALSE (elements are writable) and synchronized
+// FALSE (no automatic synchronization). Null receiver -> NullReferenceException.
+//------------------------------------------------------------------------------
+bool icall_array_get_is_fixed_size(Il2CppObject* arr)
+{
+    (void)RequireInstanceArray(arr);
+    return true;
+}
+
+bool icall_array_get_is_read_only(Il2CppObject* arr)
+{
+    (void)RequireInstanceArray(arr);
+    return false;
+}
+
+bool icall_array_get_is_synchronized(Il2CppObject* arr)
+{
+    (void)RequireInstanceArray(arr);
+    return false;
+}
+
+//------------------------------------------------------------------------------
 // icall_array_get_element_size -- static Array.GetElementSize(Array) (the
 // netcore31+ audit gap): the array's element stride in bytes (the elemSize
 // field the allocator stamps on every array). Null -> ArgumentNullException

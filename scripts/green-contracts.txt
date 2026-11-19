@@ -229,3 +229,10 @@ probe-arraymd  # GREEN anchor: multidim casts resolve a rank-carrying array clas
 # with a different bound per dimension, an out-of-range index below the bound,
 # and a NEGATIVE lower bound.
 probe-arraylower  # GREEN anchor: CreateInstance lower bounds are modelled and applied once
+
+# System.Array's generic search/transform surface plus three IList flags. The
+# search family (Empty/Exists/Find/FindIndex/FindLast/FindAll/TrueForAll/
+# Resize/ForEach) was already wired; GetLongLength(int) and the three flags
+# (IsFixedSize TRUE, IsReadOnly FALSE, IsSynchronized FALSE) were not, and
+# GetLongLength failed to transpile with "not wired in M5".
+probe-arrayapi  # GREEN anchor: Array search surface + GetLongLength + IList flags

@@ -108,6 +108,13 @@ int32_t icall_array_get_rank(Il2CppObject* arr);
 // net48 LongLength property returns Int64; for one-dimensional arrays it
 // equals Length). A null receiver throws NullReferenceException.
 int64_t icall_array_get_long_length(Il2CppObject* arr);
+// Instance Array.GetLongLength(int dimension): the per-dimension size as Int64.
+int64_t icall_array_get_long_length_dim(Il2CppObject* arr, int32_t dimension);
+// The three IList flags on System.Array: fixed-size TRUE, read-only FALSE,
+// synchronized FALSE (net48 values).
+bool icall_array_get_is_fixed_size(Il2CppObject* arr);
+bool icall_array_get_is_read_only(Il2CppObject* arr);
+bool icall_array_get_is_synchronized(Il2CppObject* arr);
 
 // Static Array.GetElementSize(Array) (netcore31+ audit gap): the array's
 // element stride in bytes (the allocator-stamped elemSize field). A null

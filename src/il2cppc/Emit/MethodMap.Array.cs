@@ -1162,6 +1162,20 @@ public static partial class MethodRefResolver
                 // long get_LongLength: the length widened to int64 (net48
                 // LongLength == Length for 1-D) -- "l" result kind.
                 return I("il2cpp::runtime::icall_array_get_long_length", 0, true, false, true, null, "l");
+            case "GetLongLength":
+                // long GetLongLength(int dimension): the per-dimension size as
+                // Int64 (net48: GetLength(dim) widened). Dimension validation
+                // matches GetLength.
+                return I("il2cpp::runtime::icall_array_get_long_length_dim", 1, true, false, true, new[] { "", "i" }, "l");
+            case "get_IsFixedSize":
+                // An array cannot grow or shrink: net48 answers TRUE.
+                return I("il2cpp::runtime::icall_array_get_is_fixed_size", 0, true, false, true);
+            case "get_IsReadOnly":
+                // Array elements are writable: net48 answers FALSE.
+                return I("il2cpp::runtime::icall_array_get_is_read_only", 0, true, false, true);
+            case "get_IsSynchronized":
+                // No automatic synchronization: net48 answers FALSE.
+                return I("il2cpp::runtime::icall_array_get_is_synchronized", 0, true, false, true);
             case "GetLowerBound":
                 // int GetLowerBound(int dimension): zero-based 1-D returns 0;
                 // the runtime validates dimension != 0 (IndexOutOfRange).
