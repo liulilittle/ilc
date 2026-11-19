@@ -1551,3 +1551,6 @@ System.Collections.ArrayList	Synchronized	System.Collections.ArrayList (System.C
 System.Collections.ArrayList	Synchronized	System.Collections.IList (System.Collections.IList)
 System.Collections.ArrayList	ToArray	System.Array (System.Type)
 System.Collections.ArrayList	ToArray	System.Object[] ()
+System.Text.Encoding	Convert	System.Byte[] (System.Text.Encoding, System.Text.Encoding, System.Byte[])
+System.Text.Encoding	Convert	System.Byte[] (System.Text.Encoding, System.Text.Encoding, System.Byte[], System.Int32, System.Int32)
+System.Text.Encoding	IsAlwaysNormalized	System.Boolean (System.Text.NormalizationForm)

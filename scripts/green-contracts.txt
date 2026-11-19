@@ -306,3 +306,9 @@ probe-encodingprops  # GREEN anchor: Encoding code-page/name/identity surface
 # ReadOnly/Synchronized share the backing items; ReadOnly rejects every
 # mutation, FixedSize rejects only size-changing ones.
 probe-alextra  # GREEN anchor: ArrayList value semantics + wrappers (27 members)
+# Encoding.Convert and IsAlwaysNormalized(NormalizationForm): the last
+# two Encoding members this runtime could not name. Convert is
+# dst.GetBytes(src.GetString(bytes)) (measured: conv3=61-62-63, conv5=62;
+# a null src -> ArgumentNullException). IsAlwaysNormalized(form) answers
+# false for UTF-8/UTF-16 and ASCII alike in net48, so the form is a no-op.
+probe-encprop  # GREEN anchor: Encoding.Convert + IsAlwaysNormalized(form)

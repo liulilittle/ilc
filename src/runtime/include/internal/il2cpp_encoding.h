@@ -335,4 +335,15 @@ bool icall_encoding_get_is_mail_news_save(Il2CppObject* self);
 bool icall_encoding_get_is_always_normalized(Il2CppObject* self);
 bool icall_encoding_get_is_always_normalized_form(Il2CppObject* self, int32_t form);
 
+//------------------------------------------------------------------------------
+// Encoding.Convert (probe-encprop). Convert(src, dst, bytes) decodes 'bytes'
+// with src's decoder and re-encodes the resulting text with dst's encoder --
+// i.e. dst.GetBytes(src.GetString(bytes)). The ranged form slices the byte
+// array first. Null src/dst -> ArgumentNullException (net48 measured); a
+// negative index/count or an overrun -> ArgumentOutOfRangeException.
+//------------------------------------------------------------------------------
+Il2CppArray* icall_encoding_convert(Il2CppObject* src, Il2CppObject* dst, Il2CppArray* bytes);
+Il2CppArray* icall_encoding_convert_range(Il2CppObject* src, Il2CppObject* dst,
+                                          Il2CppArray* bytes, int32_t index, int32_t count);
+
 }} // namespace il2cpp::runtime

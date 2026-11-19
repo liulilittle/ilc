@@ -169,9 +169,9 @@ public static partial class MethodRefResolver
                 // the form.
                 if (count == 0)
                     return I("il2cpp::runtime::icall_encoding_get_is_always_normalized", 0, true, false, true);
-                if (count == 1 && ps[0] == 0x08)
+                if (count == 1 && ps[0] is 0x08 or 0x11)
                     return I("il2cpp::runtime::icall_encoding_get_is_always_normalized_form", 1, true, false, true,
-                        new[] { "i" });
+                        new[] { "", "i" });
                 return null;
             case ".ctor":
                 // P2(5) A1: `new UTF8Encoding(bool emitBom[, bool throwOnInvalid])`,
@@ -299,6 +299,20 @@ public static partial class MethodRefResolver
                     $"LOUD whitelist (net48 has no such overload): Encoding.GetChars overload (arity {count}, " +
                     $"param 0x{(count > 0 ? ps[0] : 0):X2}) -- net48 GetChars forms are (byte[]), (byte[],int,int) " +
                     "and (byte[],int,int,char[],int) [Reference Source text_encoding.cs:1217,1232,1249]");
+            case "Convert":
+                // Encoding.Convert(src, dst, bytes) and the ranged
+                // (src, dst, bytes, index, count) form. Both are static: the
+                // signature carries no receiver, so `count` is the parameter
+                // count and the runtime reads each encoding's page off the
+                // objects (probe-encprop).
+                if (count == 3 && ps[0] == 0x12 && ps[1] == 0x12 && ps[2] == 0x1D)
+                    return I("il2cpp::runtime::icall_encoding_convert", 3, true, true, false,
+                        new[] { "", "", "a" }, returnTypeName: "System.Byte[]");
+                if (count == 5 && ps[0] == 0x12 && ps[1] == 0x12 && ps[2] == 0x1D
+                    && ps[3] == 0x08 && ps[4] == 0x08)
+                    return I("il2cpp::runtime::icall_encoding_convert_range", 5, true, true, false,
+                        new[] { "", "", "a", "i", "i" }, returnTypeName: "System.Byte[]");
+                return null;
             default: return null;
         }
     }

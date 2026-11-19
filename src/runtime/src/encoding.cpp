@@ -1407,6 +1407,71 @@ bool icall_encoding_get_is_always_normalized_form(Il2CppObject* self, int32_t fo
     return icall_encoding_get_is_always_normalized(self);
 }
 
+//------------------------------------------------------------------------------
+// Encoding.Convert. net48's contract (probe-encprop): Convert(src, dst, bytes)
+// is dst.GetBytes(src.GetString(bytes)); the ranged form slices first. A null
+// src/dst raises ArgumentNullException (measured: conv_null=ArgumentNullException);
+// a negative index/count or an overrun raises ArgumentOutOfRangeException.
+//------------------------------------------------------------------------------
+Il2CppArray* icall_encoding_convert(Il2CppObject* src, Il2CppObject* dst, Il2CppArray* bytes)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("src");
+    }
+    if (dst == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("dst");
+    }
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("bytes");
+    }
+    Il2CppString* text = GetStringForPage(src, bytes);
+    return GetBytesForPage(dst, text);
+}
+
+Il2CppArray* icall_encoding_convert_range(Il2CppObject* src, Il2CppObject* dst,
+                                           Il2CppArray* bytes, int32_t index, int32_t count)
+{
+    if (src == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("src");
+    }
+    if (dst == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("dst");
+    }
+    if (bytes == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("bytes");
+    }
+    if (index < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("index", "Non-negative number required.");
+    }
+    if (count < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count", "Non-negative number required.");
+    }
+    if (static_cast<int64_t>(index) + count > bytes->length)
+    {
+        il2cpp_throw_argument_out_of_range_exception("count",
+            "Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+    }
+    // Slice through a fresh array so the ranged decode never reads past 'count'
+    // (GetStringForPage reads the whole array otherwise).
+    Il2CppArray* slice = il2cpp_array_new(nullptr, 1, false, count);
+    if (count > 0)
+    {
+        std::memcpy(slice->data,
+                    reinterpret_cast<const uint8_t*>(bytes->data) + index,
+                    static_cast<size_t>(count));
+    }
+    Il2CppString* text = GetStringForPage(src, slice);
+    return GetBytesForPage(dst, text);
+}
+
 Il2CppArray* icall_encoding_get_preamble(Il2CppObject* self)
 {
     if (self == nullptr)
