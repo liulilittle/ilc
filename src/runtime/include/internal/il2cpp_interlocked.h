@@ -40,7 +40,10 @@
 
 #include <cstdint>
 
-namespace il2cpp { namespace runtime {
+namespace il2cpp {
+struct Il2CppObject; // forward: the reference-slot Volatile entries below
+
+namespace runtime {
 
 // Interlocked.Increment(ref int32) -> int32 (returns the NEW value).
 int32_t il2cpp_interlocked_increment(int32_t* location);
@@ -119,5 +122,38 @@ int32_t il2cpp_volatile_read_i4(int32_t* location);
 void il2cpp_volatile_write_i4(int32_t* location, int32_t value);
 int64_t il2cpp_volatile_read_i8(int64_t* location);
 void il2cpp_volatile_write_i8(int64_t* location, int64_t value);
+
+// The remaining widths net48's Thread.VolatileRead/VolatileWrite declare
+// (byte/sbyte/bool -> i1, short/ushort/char -> i2, IntPtr/UIntPtr -> ip,
+// reference slot -> obj). i4/i8 above already cover int/uint/single and
+// long/ulong/double.
+//
+// NARROW SLOTS TAKE A 4-BYTE POINTER: the transpiler models every scalar local
+// as an int32_t slot (int64_t for the 8-byte family), so a byte managed local
+// is ADDRESSED as int32_t*. The entry reinterprets to its true width, touches
+// exactly that many bytes, and returns a value the int32 slot holds. Changing
+// these to int8_t*/int16_t* would not compile against the generated locals.
+int32_t il2cpp_volatile_read_i1(int32_t* location);
+void il2cpp_volatile_write_i1(int32_t* location, int32_t value);
+int32_t il2cpp_volatile_read_i2(int32_t* location);
+void il2cpp_volatile_write_i2(int32_t* location, int32_t value);
+intptr_t il2cpp_volatile_read_ip(intptr_t* location);
+void il2cpp_volatile_write_ip(intptr_t* location, intptr_t value);
+// UIntPtr rides its OWN unsigned pointer-width slot (the transpiler declares the
+// local uintptr_t), so a separate entry is required -- an intptr_t* parameter
+// would reject the uintptr_t* address.
+uintptr_t il2cpp_volatile_read_up(uintptr_t* location);
+void il2cpp_volatile_write_up(uintptr_t* location, uintptr_t value);
+// float and double ride the DOUBLE slot: the transpiler models every floating
+// local as a double, so a float local is addressed as double* too. The float
+// entries reinterpret to the low 4 bytes; using i4 here would be a type error.
+float il2cpp_volatile_read_float(double* location);
+void il2cpp_volatile_write_float(double* location, float value);
+double il2cpp_volatile_read_double(double* location);
+void il2cpp_volatile_write_double(double* location, double value);
+// Reference slot: an atomic load/store plus the standard write barrier on the
+// store, so a young reference written into an old object marks the card.
+Il2CppObject* il2cpp_volatile_read_obj(Il2CppObject** location);
+void il2cpp_volatile_write_obj(Il2CppObject** location, Il2CppObject* value);
 
 }} // namespace il2cpp::runtime

@@ -17,6 +17,7 @@
 //------------------------------------------------------------------------------
 
 #include "il2cpp_interlocked.h"
+#include "il2cpp_gc.h" // il2cpp_write_barrier (reference stores in _write_obj)
 
 #include <atomic> // std::atomic_thread_fence (SpeculationBarrier)
 
@@ -344,6 +345,130 @@ void il2cpp_volatile_write_i8(int64_t* location, int64_t value)
 #else
     __atomic_store_n(location, value, __ATOMIC_SEQ_CST);
 #endif
+}
+
+//------------------------------------------------------------------------------
+// Volatile widths beyond i4/i8.
+//
+// net48's Thread.VolatileRead/VolatileWrite declare 13 overloads each and
+// System.Threading.Volatile declares 14 (the extra one is generic T). Only
+// int and long had a runtime entry, so the other widths -- byte, sbyte, short,
+// ushort, uint, ulong, float, double, IntPtr, UIntPtr, object -- failed to
+// transpile with "no BCL mapping in M5".
+//
+// SLOT MODEL (why the narrow entries take a 4-byte pointer): the transpiler
+// models every scalar local as an int32_t slot (an int64_t slot for the 8-byte
+// family), so a byte/sbyte/short/ushort/char/bool managed local is ADDRESSED
+// as int32_t* at the ABI. The width is therefore a property of the ACCESS, not
+// of the pointer: each entry reinterprets the slot to its true width, touches
+// exactly that many bytes, and returns a value the int32 slot can hold. This
+// is also why the write entries take int32_t rather than a narrow value: the
+// caller's expression is the same int32 carrier the assignment used.
+//
+// 1-byte and 2-byte accesses cannot use the 4-byte InterlockedCompareExchange
+// primitives (they would read/write past the intended width), so they use
+// __atomic builtins on the narrow view on both toolchains; the i4/i8 entries
+// keep the Windows/POSIX split above.
+// The obj variant is an atomic load plus a write barrier on the store, which
+// is the reference-store contract every other reference field assignment uses.
+//------------------------------------------------------------------------------
+int32_t il2cpp_volatile_read_i1(int32_t* location)
+{
+    return static_cast<int32_t>(__atomic_load_n(reinterpret_cast<int8_t*>(location), __ATOMIC_SEQ_CST));
+}
+
+void il2cpp_volatile_write_i1(int32_t* location, int32_t value)
+{
+    __atomic_store_n(reinterpret_cast<int8_t*>(location), static_cast<int8_t>(value), __ATOMIC_SEQ_CST);
+}
+
+int32_t il2cpp_volatile_read_i2(int32_t* location)
+{
+    return static_cast<int32_t>(__atomic_load_n(reinterpret_cast<int16_t*>(location), __ATOMIC_SEQ_CST));
+}
+
+void il2cpp_volatile_write_i2(int32_t* location, int32_t value)
+{
+    __atomic_store_n(reinterpret_cast<int16_t*>(location), static_cast<int16_t>(value), __ATOMIC_SEQ_CST);
+}
+
+// float rides the DOUBLE slot: the transpiler models every floating local as a
+// double (locKind "d"), so a float local is ADDRESSED as double*. The float
+// entries therefore take double* and do the atomic access on the low 4 bytes,
+// then widen the float answer into the double slot. Going through the i4 entry
+// would be a type error (double* -> int32_t*) and would read the wrong half.
+//
+// __atomic_load_n does NOT accept float/double pointers (measured: g++ 16.1.0
+// rejects both with "operand type 'float*' is incompatible"), and the generic
+// __atomic_load/__atomic_store form is 3-argument on this toolchain (the
+// 4-argument form with an explicit memory model is a hard error). The
+// workaround is the standard bit-pattern carrier: an IEEE float is 4 bytes and
+// a double 8, so the atomic access is done on the SAME WIDTH integer and the
+// bits are memcpy'd across. This is exact -- no numeric conversion, no
+// reinterpretation UB -- and it is the same technique the Interlocked float/
+// double exchange already uses.
+float il2cpp_volatile_read_float(double* location)
+{
+    int32_t bits = __atomic_load_n(reinterpret_cast<int32_t*>(location), __ATOMIC_SEQ_CST);
+    float f;
+    __builtin_memcpy(&f, &bits, sizeof(f));
+    return f;
+}
+
+void il2cpp_volatile_write_float(double* location, float value)
+{
+    int32_t bits;
+    __builtin_memcpy(&bits, &value, sizeof(bits));
+    __atomic_store_n(reinterpret_cast<int32_t*>(location), bits, __ATOMIC_SEQ_CST);
+}
+
+double il2cpp_volatile_read_double(double* location)
+{
+    int64_t bits = __atomic_load_n(reinterpret_cast<int64_t*>(location), __ATOMIC_SEQ_CST);
+    double d;
+    __builtin_memcpy(&d, &bits, sizeof(d));
+    return d;
+}
+
+void il2cpp_volatile_write_double(double* location, double value)
+{
+    int64_t bits;
+    __builtin_memcpy(&bits, &value, sizeof(bits));
+    __atomic_store_n(reinterpret_cast<int64_t*>(location), bits, __ATOMIC_SEQ_CST);
+}
+
+intptr_t il2cpp_volatile_read_ip(intptr_t* location)
+{
+    return __atomic_load_n(location, __ATOMIC_SEQ_CST);
+}
+
+void il2cpp_volatile_write_ip(intptr_t* location, intptr_t value)
+{
+    __atomic_store_n(location, value, __ATOMIC_SEQ_CST);
+}
+
+// UIntPtr rides its OWN unsigned pointer-width slot (the transpiler declares the
+// local uintptr_t), so it needs a separate entry: an intptr_t* parameter would
+// reject the uintptr_t* address at compile time (measured C2440-class error).
+uintptr_t il2cpp_volatile_read_up(uintptr_t* location)
+{
+    return __atomic_load_n(location, __ATOMIC_SEQ_CST);
+}
+
+void il2cpp_volatile_write_up(uintptr_t* location, uintptr_t value)
+{
+    __atomic_store_n(location, value, __ATOMIC_SEQ_CST);
+}
+
+Il2CppObject* il2cpp_volatile_read_obj(Il2CppObject** location)
+{
+    return __atomic_load_n(location, __ATOMIC_SEQ_CST);
+}
+
+void il2cpp_volatile_write_obj(Il2CppObject** location, Il2CppObject* value)
+{
+    __atomic_store_n(location, value, __ATOMIC_SEQ_CST);
+    il2cpp_write_barrier(reinterpret_cast<void**>(location), value);
 }
 
 }} // namespace il2cpp::runtime

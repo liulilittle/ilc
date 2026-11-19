@@ -13513,6 +13513,16 @@ boxType = boxConcreteVar; // value-typed T: box the concrete type
             var castPart = cast switch
             {
                 "i" => $"static_cast<int32_t>({code})",
+                // VOLATILE-WIDTH casts: a 1-byte / 2-byte atomic slot. The
+                // managed expression is an int32_t carrier (the M-stage slot
+                // model), so the explicit narrowing static_cast is what makes
+                // the runtime's int8_t/int16_t parameter a valid call -- and it
+                // is the only conversion that preserves the low-byte value the
+                // width contract promises. "i1"/"i2" are NOT the P/Invoke array
+                // element names (those live in PinvokeArrayElementCpp); they are
+                // scalar argument casts.
+                "i1" => $"static_cast<int8_t>({code})",
+                "i2" => $"static_cast<int16_t>({code})",
                 "l" => $"static_cast<int64_t>({code})",
                 "d" => $"static_cast<double>({code})",
                 "c" => $"static_cast<char16_t>({code})",

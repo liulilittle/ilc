@@ -67,38 +67,43 @@ public static partial class MethodRefResolver
             // nb4 GC-SPOT: Thread.VolatileRead/VolatileWrite + the
             // System.Threading.Volatile static class (Read/Write) -- the same
             // SEQ_CST fence atomics (il2cpp_interlocked.h). The byref param
-            // arrives as its ELEMENT byte (ps[0] == 0x08 int32 / 0x0A int64 /
-            // 0x0D double / 0x1C object -- the BYREF 0x10 marker is stripped by
+            // arrives as its ELEMENT byte (the BYREF 0x10 marker is stripped by
             // ReadParamByte), and the address passes through the "" cast (the
             // Interlocked.Exchange ref precedent).
+            //
+            // net48 declares 13 overloads per family, grouped here by SLOT
+            // WIDTH (the fence semantics are a property of the width):
+            //   i1 <- 0x02 bool, 0x04 sbyte, 0x05 byte
+            //   i2 <- 0x03 char, 0x06 int16, 0x07 uint16
+            //   i4 <- 0x08 int32, 0x09 uint32, 0x0C single
+            //   i8 <- 0x0A int64, 0x0B uint64, 0x0D double
+            //   ip <- 0x18 IntPtr, 0x19 UIntPtr
+            //   obj <- 0x1C object, 0x0E string, 0x12 class, and 0x1E MVAR
+            //          (the generic Volatile.Read<T>/Write<T> instantiation --
+            //          the concrete width is in genArgs, but the reference slot
+            //          is the correct dispatch for every reference T)
+            // ResultKind "f"/"d"/"n"/"u" name the C++ return type (float/
+            // double/intptr_t/uintptr_t) -- see ResultKindCppType.
             case "VolatileRead":
-                if (count == 1 && ps[0] == 0x08)
-                    return I("il2cpp::runtime::il2cpp_volatile_read_i4", 1, true, false, false, new[] { "" });
-                if (count == 1 && ps[0] == 0x0A)
-                    return I("il2cpp::runtime::il2cpp_volatile_read_i8", 1, true, false, false, new[] { "" }, "l");
-                return null;
+                if (count != 1)
+                    return null;
+                return VolatileReadArm(ps[0]);
             case "VolatileWrite":
-                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
-                    return I("il2cpp::runtime::il2cpp_volatile_write_i4", 2, false, false, false, new[] { "", "i" });
-                if (count == 2 && ps[0] == 0x0A && ps[1] == 0x0A)
-                    return I("il2cpp::runtime::il2cpp_volatile_write_i8", 2, false, false, false, new[] { "", "l" });
-                return null;
-            // System.Threading.Volatile.Read(ref int/long) /
-            // Write(ref int/long, value) -- the static class of fence reads
-            // and writes (net48 mscorlib); the same runtime entries as the
-            // Thread family. Owner-gated so the bare "Read"/"Write" names
-            // never collide with a Thread member.
+                if (count != 2 || ps[0] != ps[1])
+                    return null;
+                return VolatileWriteArm(ps[0]);
+            // System.Threading.Volatile.Read/Write -- the static class of fence
+            // reads and writes (net48 mscorlib); the same runtime entries as the
+            // Thread family. Owner-gated so the bare "Read"/"Write" names never
+            // collide with a Thread member. Volatile adds a generic T overload
+            // on top of the 13 concrete ones.
             case "Read":
-                if (owner == "System.Threading.Volatile" && count == 1 && ps[0] == 0x08)
-                    return I("il2cpp::runtime::il2cpp_volatile_read_i4", 1, true, false, false, new[] { "" });
-                if (owner == "System.Threading.Volatile" && count == 1 && ps[0] == 0x0A)
-                    return I("il2cpp::runtime::il2cpp_volatile_read_i8", 1, true, false, false, new[] { "" }, "l");
+                if (owner == "System.Threading.Volatile" && count == 1)
+                    return VolatileReadArm(ps[0]);
                 return null;
             case "Write":
-                if (owner == "System.Threading.Volatile" && count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
-                    return I("il2cpp::runtime::il2cpp_volatile_write_i4", 2, false, false, false, new[] { "", "i" });
-                if (owner == "System.Threading.Volatile" && count == 2 && ps[0] == 0x0A && ps[1] == 0x0A)
-                    return I("il2cpp::runtime::il2cpp_volatile_write_i8", 2, false, false, false, new[] { "", "l" });
+                if (owner == "System.Threading.Volatile" && count == 2 && ps[0] == ps[1])
+                    return VolatileWriteArm(ps[0]);
                 return null;
             // Thread.IsThreadPoolThread: whether the CURRENT thread is a pool
             // worker (thread-local registry, threadpool.cpp). self-ignored.
@@ -325,5 +330,50 @@ public static partial class MethodRefResolver
                     "docs/audit/b5-gaps.md");
             default: return null;
         }
+    }
+
+    // VolatileRead dispatch by SLOT WIDTH. The managed type only decides the
+    // width: bool/sbyte/byte share i1, char/short/ushort share i2, int/uint/
+    // single share i4, long/ulong/double share i8, IntPtr/UIntPtr share ip,
+    // and every reference encoding shares the obj slot. ResultKind names the
+    // C++ return type; "f"/"d" make the i4/i8 slot answers a float/double.
+    private static ResolvedMethod? VolatileReadArm(byte elem)
+    {
+        return elem switch
+        {
+            0x02 or 0x04 or 0x05 => I("il2cpp::runtime::il2cpp_volatile_read_i1", 1, true, false, false, new[] { "" }),
+            0x03 or 0x06 or 0x07 => I("il2cpp::runtime::il2cpp_volatile_read_i2", 1, true, false, false, new[] { "" }),
+            0x08 or 0x09 => I("il2cpp::runtime::il2cpp_volatile_read_i4", 1, true, false, false, new[] { "" }),
+            0x0C => I("il2cpp::runtime::il2cpp_volatile_read_float", 1, true, false, false, new[] { "" }, "f"),
+            0x0A or 0x0B => I("il2cpp::runtime::il2cpp_volatile_read_i8", 1, true, false, false, new[] { "" }, "l"),
+            0x0D => I("il2cpp::runtime::il2cpp_volatile_read_double", 1, true, false, false, new[] { "" }, "d"),
+            0x18 => I("il2cpp::runtime::il2cpp_volatile_read_ip", 1, true, false, false, new[] { "" }, "n"),
+            0x19 => I("il2cpp::runtime::il2cpp_volatile_read_up", 1, true, false, false, new[] { "" }, "u"),
+            // Every reference encoding: the slot is a raw Il2CppObject* at the
+            // ABI level, so the same entry answers them all.
+            0x0E or 0x12 or 0x15 or 0x1C or 0x11 or 0x1D or 0x1E or 0x13 =>
+                I("il2cpp::runtime::il2cpp_volatile_read_obj", 1, true, true, false, new[] { "" }),
+            _ => null,
+        };
+    }
+
+    // VolatileWrite dispatch by SLOT WIDTH -- the value cast mirrors the read
+    // result kind so both sides name the same C++ type.
+    private static ResolvedMethod? VolatileWriteArm(byte elem)
+    {
+        return elem switch
+        {
+            0x02 or 0x04 or 0x05 => I("il2cpp::runtime::il2cpp_volatile_write_i1", 2, false, false, false, new[] { "", "i" }),
+            0x03 or 0x06 or 0x07 => I("il2cpp::runtime::il2cpp_volatile_write_i2", 2, false, false, false, new[] { "", "i" }),
+            0x08 or 0x09 => I("il2cpp::runtime::il2cpp_volatile_write_i4", 2, false, false, false, new[] { "", "i" }),
+            0x0C => I("il2cpp::runtime::il2cpp_volatile_write_float", 2, false, false, false, new[] { "", "d" }, "f"),
+            0x0A or 0x0B => I("il2cpp::runtime::il2cpp_volatile_write_i8", 2, false, false, false, new[] { "", "l" }),
+            0x0D => I("il2cpp::runtime::il2cpp_volatile_write_double", 2, false, false, false, new[] { "", "d" }, "d"),
+            0x18 => I("il2cpp::runtime::il2cpp_volatile_write_ip", 2, false, false, false, new[] { "", "n" }),
+            0x19 => I("il2cpp::runtime::il2cpp_volatile_write_up", 2, false, false, false, new[] { "", "u" }),
+            0x0E or 0x12 or 0x15 or 0x1C or 0x11 or 0x1D or 0x1E or 0x13 =>
+                I("il2cpp::runtime::il2cpp_volatile_write_obj", 2, false, true, false, new[] { "", "r" }),
+            _ => null,
+        };
     }
 }
