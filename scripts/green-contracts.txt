@@ -295,3 +295,14 @@ probe-charstr  # GREEN anchor: char (string, int) overloads incl. UnicodeCategor
 # concrete encodings also inherit from Encoding now -- without that base chain a
 # (Encoding)utf8Instance castclass fails.
 probe-encodingprops  # GREEN anchor: Encoding code-page/name/identity surface
+# System.Collections.ArrayList surface: the 27 previously-unmapped members
+# (20 value semantics + 7 wrappers).  Net48 measurements that pin the
+# contract: capacity doubles 4->8->16 (3->6->12); GetRange capacity == the
+# SOURCE list capacity; Repeat(v,0) -> Count 0 / Capacity 4; enumerators are
+# SNAPSHOT (structural change -> InvalidOperationException); ToArray(Type)
+# dispatches on the element name and throws InvalidCastException for a
+# value-array mismatch; SyncRoot is a fresh System.Object even for a plain
+# ArrayList (ReferenceEquals(root, list) == False).  Adapter/FixedSize/
+# ReadOnly/Synchronized share the backing items; ReadOnly rejects every
+# mutation, FixedSize rejects only size-changing ones.
+probe-alextra  # GREEN anchor: ArrayList value semantics + wrappers (27 members)

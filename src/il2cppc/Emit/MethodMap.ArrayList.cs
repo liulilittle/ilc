@@ -101,8 +101,19 @@ public static partial class MethodRefResolver
                     return I("il2cpp::il2cpp_arraylist_clone", 0, true, true, true);
                 return null;
             case "CopyTo":
+                // CopyTo(Array) -- the 1-arg ICollection shape (count == 1).
+                if (count == 1)
+                    return I("il2cpp::il2cpp_arraylist_copy_to_array", 1, false, false, true, new[] { "", "" });
+                // CopyTo(Array, int) -- the 2-arg shape.
                 if (count == 2)
                     return I("il2cpp::il2cpp_arraylist_copy_to", 2, false, false, true, new[] { "", "", "i" });
+                // CopyTo(int, Array, int, int): the 4-arg ICollection shape. The
+                // array parameter may decode as SZARRAY (0x1D) or CLASS
+                // (0x12) depending on the caller's static type, so the arity
+                // alone selects the overload.
+                if (count == 4)
+                    return I("il2cpp::il2cpp_arraylist_copy_to_range", 4, false, false, true,
+                        new[] { "", "i", "", "i", "i" });
                 return null;
             case "TrimToSize":
                 if (count == 0)
@@ -117,6 +128,97 @@ public static partial class MethodRefResolver
             case "RemoveRange":
                 if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
                     return I("il2cpp::il2cpp_arraylist_remove_range", 2, false, false, true, new[] { "", "i", "i" });
+                return null;
+            // ---- ArrayList C-class: enumeration ----
+            // GetEnumerator() / GetEnumerator(index, count): the runtime wraps
+            // a snapshot in the shared array enumerator, so MoveNext / Reset /
+            // Dispose / get_Current ride the existing IEnumerator arms (the
+            // receiver is tracked as the enumerator pseudo-type below).
+            case "GetEnumerator":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_arraylist_get_enumerator", 0, true, true, true, new[] { "" },
+                        returnTypeName: "System.Collections.IEnumerator");
+                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_get_enumerator_range", 2, true, true, true,
+                        new[] { "", "i", "i" }, returnTypeName: "System.Collections.IEnumerator");
+                return null;
+            // ---- ArrayList D-class: range copy / insertion / overwrite ----
+            case "GetRange":
+                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_get_range", 2, true, true, true, new[] { "", "i", "i" });
+                return null;
+            case "AddRange":
+                if (count == 1 && ps[0] == 0x12)
+                    return I("il2cpp::il2cpp_arraylist_add_range", 1, false, false, true, new[] { "", "" });
+                return null;
+            case "InsertRange":
+                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x12)
+                    return I("il2cpp::il2cpp_arraylist_insert_range", 2, false, false, true, new[] { "", "i", "" });
+                return null;
+            case "SetRange":
+                if (count == 2 && ps[0] == 0x08 && ps[1] == 0x12)
+                    return I("il2cpp::il2cpp_arraylist_set_range", 2, false, false, true, new[] { "", "i", "" });
+                return null;
+            // ---- ArrayList E-class: ToArray ----
+            case "ToArray":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_arraylist_to_array", 0, true, true, true);
+                if (count == 1 && ps[0] == 0x12)
+                    return I("il2cpp::il2cpp_arraylist_to_array_typed", 1, true, true, true, new[] { "", "" });
+                return null;
+            // ---- ArrayList F-class: LastIndexOf / Sort / BinarySearch ----
+            case "LastIndexOf":
+                if (count == 1)
+                    return I("il2cpp::il2cpp_arraylist_last_index_of", 1, true, false, true);
+                if (count == 2 && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_last_index_of_start", 2, true, false, true,
+                        new[] { "", "", "i" });
+                if (count == 3 && ps[1] == 0x08 && ps[2] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_last_index_of_range", 3, true, false, true,
+                        new[] { "", "", "i", "i" });
+                return null;
+            case "Sort":
+                if (count == 0)
+                    return I("il2cpp::il2cpp_arraylist_sort", 0, false, false, true);
+                if (count == 1)
+                    return I("il2cpp::il2cpp_arraylist_sort_comparer", 1, false, false, true, new[] { "", "" });
+                if (count == 3 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_sort_range_comparer", 3, false, false, true,
+                        new[] { "", "i", "i", "" });
+                return null;
+            case "BinarySearch":
+                if (count == 1)
+                    return I("il2cpp::il2cpp_arraylist_binary_search", 1, true, false, true);
+                if (count == 2)
+                    return I("il2cpp::il2cpp_arraylist_binary_search_comparer", 2, true, false, true,
+                        new[] { "", "", "" });
+                if (count == 4 && ps[0] == 0x08 && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_binary_search_range_comparer", 4, true, false, true,
+                        new[] { "", "i", "i", "", "" });
+                return null;
+            // ---- ArrayList G-class: static Repeat / wrappers ----
+            // Repeat is STATIC (IsInstance=false) and returns the new list.
+            case "Repeat":
+                if (count == 2 && ps[0] == 0x1C && ps[1] == 0x08)
+                    return I("il2cpp::il2cpp_arraylist_repeat", 2, true, true, false, new[] { "", "", "i" });
+                return null;
+            // Adapter / FixedSize / ReadOnly / Synchronized: static, the
+            // argument is the IList (an ArrayList or an interface-typed view).
+            case "Adapter":
+                if (count == 1 && ps[0] == 0x12)
+                    return I("il2cpp::il2cpp_arraylist_adapter", 1, true, true, false, new[] { "", "" });
+                return null;
+            case "FixedSize":
+                if (count == 1 && (ps[0] == 0x12 || ps[0] == 0x1C))
+                    return I("il2cpp::il2cpp_arraylist_fixed_size", 1, true, true, false, new[] { "", "" });
+                return null;
+            case "ReadOnly":
+                if (count == 1 && (ps[0] == 0x12 || ps[0] == 0x1C))
+                    return I("il2cpp::il2cpp_arraylist_read_only", 1, true, true, false, new[] { "", "" });
+                return null;
+            case "Synchronized":
+                if (count == 1 && (ps[0] == 0x12 || ps[0] == 0x1C))
+                    return I("il2cpp::il2cpp_arraylist_synchronized", 1, true, true, false, new[] { "", "" });
                 return null;
             default: return null;
         }
