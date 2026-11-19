@@ -284,3 +284,14 @@ p-nb4-gc  # GREEN anchor: Volatile fence atomics over every net48 width
 # a missing bound check, or a category mapping that returns the wrong ordinal is
 # visible.
 probe-charstr  # GREEN anchor: char (string, int) overloads incl. UnicodeCategory ordinals
+
+# probe-encodingprops: System.Text.Encoding's metadata surface. The singletons
+# already worked (GetBytes/GetString round-trip); the code-page getters, the name
+# getters, the browser/mail-news flags, Clone/Equals/GetHashCode, GetMaxByteCount/
+# GetMaxCharCount, GetEncoding(int|string) and UTF32/UTF7 were all unmapped, and
+# because Encoding's body is not in the input assembly each one was a
+# whole-method loss. Encoding.Default is the HOST ANSI code page (GetACP), so it
+# tracks the machine exactly as net48 does rather than a hardcoded constant. The
+# concrete encodings also inherit from Encoding now -- without that base chain a
+# (Encoding)utf8Instance castclass fails.
+probe-encodingprops  # GREEN anchor: Encoding code-page/name/identity surface

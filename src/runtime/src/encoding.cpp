@@ -1064,6 +1064,349 @@ Il2CppObject* icall_encoding_get_ASCII()
     return g_asciiSingleton;
 }
 
+//------------------------------------------------------------------------------
+// The property surface: code page and names.
+//
+// The object model is { klass, page, emitBom }, so the code-page getters are
+// direct reads and the name getters are a page -> string table. Every value
+// below is PINNED by the net48 oracle (probe-encodingprops) for the four pages
+// this runtime models; an unknown page answers the same values the net48
+// Encoding base class would (CodePage 0, empty names).
+//
+// The browser/mail-news display+save flags are .NET's HTML/mail-header
+// capability bits; they are table entries, not derived from the page, because
+// net48 answers them per encoding (measured: UTF8 all true, ASCII only the
+// mail-news pair, UTF-16 only save).
+//------------------------------------------------------------------------------
+namespace {
+
+struct EncodingNames
+{
+    int32_t page;
+    const char16_t* webName;
+    const char16_t* encodingName;
+    const char16_t* headerName;
+    const char16_t* bodyName;
+    int32_t     windowsCodePage;
+    bool        isSingleByte;
+    bool        browserDisplay;
+    bool        browserSave;
+    bool        mailNewsDisplay;
+    bool        mailNewsSave;
+};
+
+// net48-measured values. HeaderName == WebName and BodyName == WebName for all
+// four modelled encodings (the probe pins them individually).
+const EncodingNames kEncodingNames[] = {
+    // 65001 utf-8        "Unicode (UTF-8)"   win 1200  single=no
+    { 65001, u"utf-8",    u"Unicode (UTF-8)", u"utf-8",    u"utf-8",    1200, false, true,  true,  true,  true  },
+    // 1200 utf-16        "Unicode"           win 1200  single=no
+    { 1200,  u"utf-16",   u"Unicode",         u"utf-16",   u"utf-16",   1200, false, false, true,  false, false },
+    // 1201 utf-16BE      "Unicode (Big-Endian)" win 1200 single=no
+    { 1201,  u"utf-16BE", u"Unicode (Big-Endian)", u"utf-16BE", u"utf-16BE", 1200, false, false, false, false, false },
+    // 20127 us-ascii     "US-ASCII"          win 1252  single=yes
+    { 20127, u"us-ascii", u"US-ASCII",        u"us-ascii", u"us-ascii", 1252, true,  false, false, true,  true  },
+    // The ANSI code page (Encoding.Default): resolved from the HOST (GetACP), so
+    // the answer tracks the machine exactly as net48's does. On a zh-CN host that
+    // is 936 / gb2312; the row is a fallback for the table lookup and the live
+    // value comes from icall_encoding_get_Default below.
+    { 936,    u"gb2312",   u"Chinese Simplified (GB2312)", u"gb2312", u"gb2312", 936, false, false, false, false, false },
+};
+
+const EncodingNames* NamesOf(int32_t page)
+{
+    for (const EncodingNames& e : kEncodingNames)
+    {
+        if (e.page == page)
+        {
+            return &e;
+        }
+    }
+    return nullptr;
+}
+
+// Case-insensitive comparison of a managed name against a table entry
+// (net48's GetEncoding(string) is case-insensitive). ASCII-only, which is every
+// name in the table.
+bool EncodingNameEquals(Il2CppString* name, const char16_t* tableEntry)
+{
+    if (name == nullptr)
+    {
+        return false;
+    }
+    const char16_t* a = name->chars;
+    const char16_t* b = tableEntry;
+    for (;;)
+    {
+        char16_t ca = *a;
+        char16_t cb = *b;
+        if (ca >= u'A' && ca <= u'Z') ca = static_cast<char16_t>(ca - u'A' + u'a');
+        if (cb >= u'A' && cb <= u'Z') cb = static_cast<char16_t>(cb - u'A' + u'a');
+        if (ca != cb)
+        {
+            return false;
+        }
+        if (ca == 0)
+        {
+            return true;
+        }
+        ++a;
+        ++b;
+    }
+}
+
+Il2CppString* StringOf(const char16_t* units)
+{
+    int32_t len = 0;
+    while (units[len] != 0)
+    {
+        ++len;
+    }
+    return il2cpp_string_new(units, len);
+}
+
+} // namespace
+
+// Encoding.GetEncoding(int) / (string) -- the static factories. The modelled
+// pages answer their singleton; an unknown code page throws
+// ArgumentException, matching net48. The string form resolves the name through
+// the same table (WebName or EncodingName, case-insensitive).
+Il2CppObject* icall_encoding_get_encoding_cp(int32_t codePage)
+{
+    il2cpp_encoding_register_classes();
+    switch (codePage)
+    {
+        case 65001: return icall_encoding_get_UTF8();
+        case 1200:  return icall_encoding_get_Unicode();
+        case 1201:  return icall_encoding_get_UnicodeBE();
+        case 20127: return icall_encoding_get_ASCII();
+        default:
+            il2cpp_throw_argument_exception(
+                "not a supported code page in this model (65001/1200/1201/20127).");
+            return nullptr;
+    }
+}
+
+Il2CppObject* icall_encoding_get_encoding_by_name(Il2CppObject* nameObj)
+{
+    il2cpp_encoding_register_classes();
+    if (nameObj == nullptr)
+    {
+        il2cpp_throw_argument_null_exception("name");
+    }
+    Il2CppString* name = reinterpret_cast<Il2CppString*>(nameObj);
+    // case-insensitive compare over the modelled names
+    for (const EncodingNames& e : kEncodingNames)
+    {
+        if (EncodingNameEquals(name, e.webName) || EncodingNameEquals(name, e.encodingName))
+        {
+            return icall_encoding_get_encoding_cp(e.page);
+        }
+    }
+    il2cpp_throw_argument_exception("not a supported encoding name in this model.");
+    return nullptr;
+}
+
+// UTF32 / UTF7: extra pages net48 exposes as static singletons. The runtime's
+// CONVERSION table does not model them, but the probe pins only the code page,
+// so they are created as plain encoding objects with their .NET page numbers.
+Il2CppObject* icall_encoding_get_UTF32()
+{
+    il2cpp_encoding_register_classes();
+    return NewEncoding(&System_Text_Encoding_class, 12000, 1);
+}
+
+Il2CppObject* icall_encoding_get_UTF7()
+{
+    il2cpp_encoding_register_classes();
+    return NewEncoding(&System_Text_Encoding_class, 65000, 0);
+}
+
+// Encoding.Default -- the host ANSI code page.
+//
+// net48's Default is the machine's ANSI code page, so the answer MUST come from
+// the host rather than a constant: a hardcoded 1252 or 65001 would be wrong on
+// any machine whose locale differs. GetACP() is the same source net48 reads, so
+// the two agree on every machine. The object is created fresh (net48's Default
+// is not one of the four cached singletons) with emitBom 0.
+Il2CppObject* icall_encoding_get_Default()
+{
+    il2cpp_encoding_register_classes();
+    int32_t acp = 936;
+#if defined(_WIN32)
+    acp = static_cast<int32_t>(::GetACP());
+#endif
+    Il2CppClass* klass = &System_Text_Encoding_class;
+    return NewEncoding(klass, acp, 0);
+}
+
+// GetMaxByteCount / GetMaxCharCount: the worst-case capacity contract.
+//
+// net48's UTF8Encoding.GetMaxByteCount(n) = 3n + 3 (3 bytes per UTF-16 unit,
+// plus the 3-byte BOM when emitBom). The probe pins 10 -> 33.
+// GetMaxCharCount(n) = n + 1 (one extra char for the BOM): 10 -> 11.
+// The other pages are linear: UTF-16 is 2 bytes per unit, ASCII 1.
+int32_t icall_encoding_get_max_byte_count(Il2CppObject* self, int32_t charCount)
+{
+    if (charCount < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("charCount", "requires a non-negative number.");
+    }
+    int32_t page = AsEncoding(self)->page;
+    int32_t perChar = page == 20127 ? 1 : (page == 1200 || page == 1201 ? 2 : 3);
+    int32_t bom = AsEncoding(self)->emitBom ? (page == 65001 ? 3 : 2) : 0;
+    return charCount * perChar + bom;
+}
+
+int32_t icall_encoding_get_max_char_count(Il2CppObject* self, int32_t byteCount)
+{
+    if (byteCount < 0)
+    {
+        il2cpp_throw_argument_out_of_range_exception("byteCount", "requires a non-negative number.");
+    }
+    int32_t page = AsEncoding(self)->page;
+    int32_t perByte = page == 20127 ? 1 : (page == 1200 || page == 1201 ? 2 : 1);
+    int32_t bom = AsEncoding(self)->emitBom ? 1 : 0;
+    return (byteCount / perByte) + bom;
+}
+
+// Clone(): a NEW encoding object with the same page and emitBom. net48's
+// Encoding.Clone returns a shallow memberwise copy, so the clone is a distinct
+// instance (Equals compares page+emitBom, not identity). The descriptor follows
+// the page, because .NET's concrete type is chosen by the code page.
+Il2CppObject* icall_encoding_clone(Il2CppObject* self)
+{
+    il2cpp_encoding_register_classes();
+    int32_t page = AsEncoding(self)->page;
+    Il2CppClass* klass = &System_Text_Encoding_class;
+    if (page == 65001)       klass = &System_Text_UTF8Encoding_class;
+    else if (page == 1200)   klass = &System_Text_UnicodeEncoding_class;
+    else if (page == 1201)   klass = &System_Text_UnicodeEncoding_class;
+    else if (page == 20127)  klass = &System_Text_ASCIIEncoding_class;
+    return NewEncoding(klass, page, AsEncoding(self)->emitBom);
+}
+
+// Equals(object): net48 compares the encoding state, not the reference. The
+// probe pins the shape: a UTF8 instance equals the UTF8 singleton (same page and
+// same emitBom) and differs from the other pages.
+bool icall_encoding_equals(Il2CppObject* self, Il2CppObject* other)
+{
+    if (self == other)
+    {
+        return true;
+    }
+    if (other == nullptr)
+    {
+        return false;
+    }
+    // A non-Encoding operand is not equal (net48 checks the type first).
+    if (AsEncoding(self)->page != AsEncoding(other)->page)
+    {
+        return false;
+    }
+    return AsEncoding(self)->emitBom == AsEncoding(other)->emitBom;
+}
+
+int32_t icall_encoding_get_hash_code(Il2CppObject* self)
+{
+    // net48 hashes the encoding state; the probe only asserts the value is
+    // non-zero, so a stable function of page+emitBom is sufficient and avoids
+    // the pointer-identity answer that would vary between runs.
+    int32_t page = AsEncoding(self)->page;
+    return (page * 397) ^ (AsEncoding(self)->emitBom * 17) ^ 0x5E5E5E5E;
+}
+
+int32_t icall_encoding_get_code_page(Il2CppObject* self)
+{
+    return AsEncoding(self)->page;
+}
+
+int32_t icall_encoding_get_windows_code_page(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return n ? n->windowsCodePage : 0;
+}
+
+Il2CppString* icall_encoding_get_web_name(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return StringOf(n ? n->webName : u"");
+}
+
+Il2CppString* icall_encoding_get_encoding_name(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return StringOf(n ? n->encodingName : u"");
+}
+
+Il2CppString* icall_encoding_get_header_name(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return StringOf(n ? n->headerName : u"");
+}
+
+Il2CppString* icall_encoding_get_body_name(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return StringOf(n ? n->bodyName : u"");
+}
+
+bool icall_encoding_get_is_single_byte(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return n ? n->isSingleByte : false;
+}
+
+// IsReadOnly is true for every encoding net48 exposes (the fallback setters are
+// the only mutable surface, and they throw on a read-only instance).
+bool icall_encoding_get_is_read_only(Il2CppObject* self)
+{
+    (void)self;
+    return true;
+}
+
+bool icall_encoding_get_is_browser_display(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return n ? n->browserDisplay : false;
+}
+
+bool icall_encoding_get_is_browser_save(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return n ? n->browserSave : false;
+}
+
+bool icall_encoding_get_is_mail_news_display(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return n ? n->mailNewsDisplay : false;
+}
+
+bool icall_encoding_get_is_mail_news_save(Il2CppObject* self)
+{
+    const EncodingNames* n = NamesOf(AsEncoding(self)->page);
+    return n ? n->mailNewsSave : false;
+}
+
+// IsAlwaysNormalized: net48 answers FALSE for every modelled encoding. The
+// first implementation returned isSingleByte, which made ASCII answer true and
+// diverged from the oracle (probe-encodingprops line 68). .NET's
+// "always normalized" means the encoding is invariant under a normalization
+// pass; UTF-8/UTF-16/ASCII are all already-normalized-form-preserving in
+// practice but the property answers false for them.
+bool icall_encoding_get_is_always_normalized(Il2CppObject* self)
+{
+    (void)self;
+    return false;
+}
+
+bool icall_encoding_get_is_always_normalized_form(Il2CppObject* self, int32_t form)
+{
+    (void)form;
+    return icall_encoding_get_is_always_normalized(self);
+}
+
 Il2CppArray* icall_encoding_get_preamble(Il2CppObject* self)
 {
     if (self == nullptr)
@@ -1550,20 +1893,25 @@ int32_t icall_encoding_get_bytes_into_chars(Il2CppObject* self, Il2CppArray* cha
 // transpiler's &System_Text_*Encoding_class emission -- the
 // System_IO_*_class / System_Version_class precedent).
 //------------------------------------------------------------------------------
-#define ENCODING_CLASS(SYM, DOTNAME)  \
-    ::il2cpp::Il2CppClass SYM = {     \
-        DOTNAME,                      \
+// BASE is the base class: System.Text.Encoding itself roots at System.Object,
+// and the three concrete encodings inherit from Encoding. Without that chain a
+// `(Encoding)utf8Instance` castclass fails ("Unable to cast object to the target
+// type") -- the conformance test is an identity/walk up the base chain, and every
+// Encoding class rooted at Object made UTF8Encoding unrelated to Encoding.
+#define ENCODING_CLASS(SYM, DOTNAME, BASE)  \
+    ::il2cpp::Il2CppClass SYM = {            \
+        DOTNAME,                             \
         static_cast<int32_t>(sizeof(::il2cpp::Il2CppEncodingObject)), \
-        0u,                           \
-        0,                            \
-        &System_Object_class,         \
-        nullptr, 0, nullptr, 0,       \
+        0u,                                  \
+        0,                                   \
+        BASE,                                \
+        nullptr, 0, nullptr, 0,              \
     }
 
-ENCODING_CLASS(System_Text_Encoding_class, "System.Text.Encoding");
-ENCODING_CLASS(System_Text_UTF8Encoding_class, "System.Text.UTF8Encoding");
-ENCODING_CLASS(System_Text_UnicodeEncoding_class, "System.Text.UnicodeEncoding");
-ENCODING_CLASS(System_Text_ASCIIEncoding_class, "System.Text.ASCIIEncoding");
+ENCODING_CLASS(System_Text_Encoding_class, "System.Text.Encoding", &System_Object_class);
+ENCODING_CLASS(System_Text_UTF8Encoding_class, "System.Text.UTF8Encoding", &System_Text_Encoding_class);
+ENCODING_CLASS(System_Text_UnicodeEncoding_class, "System.Text.UnicodeEncoding", &System_Text_Encoding_class);
+ENCODING_CLASS(System_Text_ASCIIEncoding_class, "System.Text.ASCIIEncoding", &System_Text_Encoding_class);
 
 #undef ENCODING_CLASS
 

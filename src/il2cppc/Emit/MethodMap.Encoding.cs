@@ -63,6 +63,27 @@ public static partial class MethodRefResolver
     {
         switch (name)
         {
+            // Encoding.Default: the HOST ANSI code page (GetACP), matching net48's
+            // machine-dependent answer. On a zh-CN host that is 936/gb2312.
+            case "get_Default":
+                return I("il2cpp::runtime::icall_encoding_get_Default", 0, true, true, false,
+                    returnTypeName: "System.Text.Encoding");
+            case "get_UTF32":
+                return I("il2cpp::runtime::icall_encoding_get_UTF32", 0, true, true, false,
+                    returnTypeName: "System.Text.Encoding");
+            case "get_UTF7":
+                return I("il2cpp::runtime::icall_encoding_get_UTF7", 0, true, true, false,
+                    returnTypeName: "System.Text.Encoding");
+            case "GetEncoding":
+                // (int codePage) or (string name); the 3-arg overloads take
+                // fallbacks this runtime does not model.
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_encoding_get_encoding_cp", 1, true, true, false,
+                        new[] { "i" }, returnTypeName: "System.Text.Encoding");
+                if (count == 1 && ps[0] == 0x0E)
+                    return I("il2cpp::runtime::icall_encoding_get_encoding_by_name", 1, true, true, false,
+                        new[] { "" }, returnTypeName: "System.Text.Encoding");
+                return null;
             case "get_UTF8":
             case "get_Unicode":
             case "get_ASCII":
@@ -89,6 +110,69 @@ public static partial class MethodRefResolver
                         "get_BigEndianUnicode" => "System.Text.UnicodeEncodingBE",
                         _ => "System.Text.ASCIIEncoding",
                     });
+            // The property surface. The object model is { klass, page, emitBom },
+            // so the code-page getters are direct reads and the name getters are a
+            // page -> string table in the runtime. The probe pins every value for
+            // the four modelled pages (probe-encodingprops).
+            case "GetMaxByteCount":
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_encoding_get_max_byte_count", 1, true, false, true,
+                        new[] { "", "i" });
+                return null;
+            case "GetMaxCharCount":
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_encoding_get_max_char_count", 1, true, false, true,
+                        new[] { "", "i" });
+                return null;
+            // The object-identity surface.
+            case "Clone":
+                return I("il2cpp::runtime::icall_encoding_clone", 0, true, true, true,
+                    returnTypeName: "System.Text.Encoding");
+            case "Equals":
+                if (count == 1 && ps[0] is 0x0E or 0x1C or 0x12 or 0x15)
+                    return I("il2cpp::runtime::icall_encoding_equals", 1, true, false, true,
+                        new[] { "", "" });
+                return null;
+            case "GetHashCode":
+                return I("il2cpp::runtime::icall_encoding_get_hash_code", 0, true, false, true);
+            case "get_CodePage":
+                return I("il2cpp::runtime::icall_encoding_get_code_page", 0, true, false, true);
+            case "get_WindowsCodePage":
+                return I("il2cpp::runtime::icall_encoding_get_windows_code_page", 0, true, false, true);
+            case "get_WebName":
+                return I("il2cpp::runtime::icall_encoding_get_web_name", 0, true, true, true,
+                    returnTypeName: "System.String");
+            case "get_EncodingName":
+                return I("il2cpp::runtime::icall_encoding_get_encoding_name", 0, true, true, true,
+                    returnTypeName: "System.String");
+            case "get_HeaderName":
+                return I("il2cpp::runtime::icall_encoding_get_header_name", 0, true, true, true,
+                    returnTypeName: "System.String");
+            case "get_BodyName":
+                return I("il2cpp::runtime::icall_encoding_get_body_name", 0, true, true, true,
+                    returnTypeName: "System.String");
+            case "get_IsSingleByte":
+                return I("il2cpp::runtime::icall_encoding_get_is_single_byte", 0, true, false, true);
+            case "get_IsReadOnly":
+                return I("il2cpp::runtime::icall_encoding_get_is_read_only", 0, true, false, true);
+            case "get_IsBrowserDisplay":
+                return I("il2cpp::runtime::icall_encoding_get_is_browser_display", 0, true, false, true);
+            case "get_IsBrowserSave":
+                return I("il2cpp::runtime::icall_encoding_get_is_browser_save", 0, true, false, true);
+            case "get_IsMailNewsDisplay":
+                return I("il2cpp::runtime::icall_encoding_get_is_mail_news_display", 0, true, false, true);
+            case "get_IsMailNewsSave":
+                return I("il2cpp::runtime::icall_encoding_get_is_mail_news_save", 0, true, false, true);
+            case "IsAlwaysNormalized":
+                // () and (NormalizationForm) both map to the same icall: net48
+                // answers false for UTF-8/UTF-16 and true for ASCII regardless of
+                // the form.
+                if (count == 0)
+                    return I("il2cpp::runtime::icall_encoding_get_is_always_normalized", 0, true, false, true);
+                if (count == 1 && ps[0] == 0x08)
+                    return I("il2cpp::runtime::icall_encoding_get_is_always_normalized_form", 1, true, false, true,
+                        new[] { "i" });
+                return null;
             case ".ctor":
                 // P2(5) A1: `new UTF8Encoding(bool emitBom[, bool throwOnInvalid])`,
                 // `new UnicodeEncoding(bool bigEndian, bool byteOrderMark)` and

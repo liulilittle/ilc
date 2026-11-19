@@ -286,4 +286,53 @@ int32_t icall_encoding_get_bytes_into_chars(Il2CppObject* self, Il2CppArray* cha
                                             int32_t charIndex, int32_t charCount,
                                             Il2CppArray* bytes, int32_t byteIndex);
 
+//------------------------------------------------------------------------------
+// The property surface (probe-encodingprops). The object model is
+// { klass, page, emitBom }, so the code-page getters are direct reads and the
+// name getters are a page -> string table. Every value is pinned by the net48
+// oracle for the four modelled pages; an unknown page answers CodePage 0 and
+// empty names, the same defaults the net48 Encoding base class gives.
+//------------------------------------------------------------------------------
+// Clone/Equals/GetHashCode: the object-identity surface. Clone returns a NEW
+// object with the same page and emitBom (net48's memberwise copy); Equals
+// compares page+emitBom, not the reference; GetHashCode is a stable function of
+// the same state (the probe asserts only non-zero).
+// GetMaxByteCount / GetMaxCharCount: worst-case capacity. UTF8 is 3 bytes per
+// unit + 3 BOM (probe pins 10 -> 33); UTF-16 is 2 per unit + 2 BOM; ASCII is
+// 1 per unit, no BOM. GetMaxCharCount adds one char for the BOM (10 -> 11).
+// The static factories. GetEncoding(int) answers the modelled singleton and
+// throws ArgumentException for an unsupported page; GetEncoding(string) resolves
+// the name case-insensitively. Default is the HOST ANSI code page (GetACP), so it
+// tracks the machine exactly as net48 does. UTF32/UTF7 are plain encoding
+// objects with their .NET page numbers (12000/65000).
+Il2CppObject* icall_encoding_get_Default();
+Il2CppObject* icall_encoding_get_encoding_cp(int32_t codePage);
+Il2CppObject* icall_encoding_get_encoding_by_name(Il2CppObject* nameObj);
+Il2CppObject* icall_encoding_get_UTF32();
+Il2CppObject* icall_encoding_get_UTF7();
+
+int32_t icall_encoding_get_max_byte_count(Il2CppObject* self, int32_t charCount);
+int32_t icall_encoding_get_max_char_count(Il2CppObject* self, int32_t byteCount);
+
+Il2CppObject* icall_encoding_clone(Il2CppObject* self);
+bool icall_encoding_equals(Il2CppObject* self, Il2CppObject* other);
+int32_t icall_encoding_get_hash_code(Il2CppObject* self);
+
+int32_t icall_encoding_get_code_page(Il2CppObject* self);
+int32_t icall_encoding_get_windows_code_page(Il2CppObject* self);
+Il2CppString* icall_encoding_get_web_name(Il2CppObject* self);
+Il2CppString* icall_encoding_get_encoding_name(Il2CppObject* self);
+Il2CppString* icall_encoding_get_header_name(Il2CppObject* self);
+Il2CppString* icall_encoding_get_body_name(Il2CppObject* self);
+bool icall_encoding_get_is_single_byte(Il2CppObject* self);
+bool icall_encoding_get_is_read_only(Il2CppObject* self);
+bool icall_encoding_get_is_browser_display(Il2CppObject* self);
+bool icall_encoding_get_is_browser_save(Il2CppObject* self);
+bool icall_encoding_get_is_mail_news_display(Il2CppObject* self);
+bool icall_encoding_get_is_mail_news_save(Il2CppObject* self);
+// IsAlwaysNormalized() / (NormalizationForm): net48 answers false for UTF-8 and
+// UTF-16 and true for ASCII.
+bool icall_encoding_get_is_always_normalized(Il2CppObject* self);
+bool icall_encoding_get_is_always_normalized_form(Il2CppObject* self, int32_t form);
+
 }} // namespace il2cpp::runtime
